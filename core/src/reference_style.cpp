@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace nairoclip {
 namespace core {
@@ -159,6 +160,53 @@ std::vector<CutSuggestion> suggestCuts(const RhythmProfile& target,
         if (!placed) {
             break;  // 素材耗尽
         }
+    }
+    return result;
+}
+
+
+SuggestedColorEffects suggestColorEffects(const ColorProfile& profile) {
+    SuggestedColorEffects effects;
+    // 饱和度：差异的 50% 增益
+    const double satDiff = profile.avgSaturation - 0.5;
+    effects.saturation = 1.0 + satDiff * 0.5;
+    // 对比度：差异的 50% 增益
+    const double conDiff = profile.avgContrast - 0.5;
+    effects.contrast = 1.0 + conDiff * 0.5;
+    // 色温：warmth 的 60%
+    effects.temperature = profile.warmth * 0.6;
+    // 亮度中性
+    effects.brightness = 0.0;
+    // 钳制到特效合法范围
+    if (effects.saturation < 0.0) effects.saturation = 0.0;
+    if (effects.saturation > 3.0) effects.saturation = 3.0;
+    if (effects.contrast < 0.0) effects.contrast = 0.0;
+    if (effects.contrast > 3.0) effects.contrast = 3.0;
+    if (effects.temperature < -1.0) effects.temperature = -1.0;
+    if (effects.temperature > 1.0) effects.temperature = 1.0;
+    return effects;
+}
+
+std::string describeRhythm(const RhythmProfile& profile) {
+    if (!profile.valid()) {
+        return "无法识别节奏（参考素材中未检测到有效镜头）";
+    }
+    const char* pace = "中等";
+    if (profile.cutsPer10s >= 10.0) {
+        pace = "快";
+    } else if (profile.cutsPer10s <= 4.0) {
+        pace = "舒缓";
+    }
+    std::string result = std::string(pace) + "节奏（平均 ";
+    // 平均镜头时长（秒，保留 1 位小数）
+    const double avg = profile.averageShotDuration.toDouble();
+    const auto tenths = static_cast<std::int64_t>(avg * 10.0 + 0.5);
+    result += std::to_string(tenths / 10) + "." + std::to_string(tenths % 10);
+    result += " 秒/镜头，每 10 秒 ";
+    const auto cuts = static_cast<std::int64_t>(profile.cutsPer10s + 0.5);
+    result += std::to_string(cuts) + " 刀）";
+    if (profile.fastCutRatio > 0.5) {
+        result += "，以快切为主";
     }
     return result;
 }

@@ -113,3 +113,50 @@ NC_TEST(ReferenceStyle, SuggestCutsEmptyInputs) {
     const auto none2 = suggestCuts(target, {});
     NC_CHECK(none2.empty());
 }
+NC_TEST(ReferenceStyle, SuggestColorEffectsWarm) {
+    const ColorProfile profile = analyzeColor(0.8, 0.5, 0.3, 0.8, 0.8);
+    const SuggestedColorEffects effects = suggestColorEffects(profile);
+    // 饱和度 0.8 → 1 + 0.3*0.5 = 1.15
+    NC_CHECK(nearly(effects.saturation, 1.15, 1e-6));
+    // 对比度 0.8 → 1 + 0.3*0.5 = 1.15
+    NC_CHECK(nearly(effects.contrast, 1.15, 1e-6));
+    // 色温 = 0.5 * 0.6 = 0.3
+    NC_CHECK(nearly(effects.temperature, 0.3, 1e-6));
+    NC_CHECK(nearly(effects.brightness, 0.0));
+    NC_CHECK(!effects.neutral());
+}
+NC_TEST(ReferenceStyle, SuggestColorEffectsNeutralProfile) {
+    const ColorProfile profile = analyzeColor(0.5, 0.5, 0.5, 0.5, 0.5);
+    const SuggestedColorEffects effects = suggestColorEffects(profile);
+    NC_CHECK(effects.neutral());
+}
+NC_TEST(ReferenceStyle, SuggestColorEffectsClamped) {
+    // 极端画像
+    const ColorProfile extreme = analyzeColor(1.0, 0.0, 0.0, 1.0, 1.0);
+    const SuggestedColorEffects effects = suggestColorEffects(extreme);
+    NC_CHECK(effects.saturation >= 0.0 && effects.saturation <= 3.0);
+    NC_CHECK(effects.contrast >= 0.0 && effects.contrast <= 3.0);
+    NC_CHECK(effects.temperature >= -1.0 && effects.temperature <= 1.0);
+}
+NC_TEST(ReferenceStyle, DescribeRhythmFast) {
+    // 10 镜 / 10s → 每 10 秒 10 刀 → 快
+    std::vector<ShotBoundary> shots;
+    for (int i = 0; i < 10; ++i) {
+        shots.push_back(shot(i * 1.0, (i + 1) * 1.0));
+    }
+    const RhythmProfile p = analyzeRhythm(shots);
+    const std::string desc = describeRhythm(p);
+    NC_CHECK(desc.find("快") != std::string::npos);
+    NC_CHECK(desc.find("1.0 秒/镜头") != std::string::npos);
+}
+NC_TEST(ReferenceStyle, DescribeRhythmSlow) {
+    // 2 镜 / 10s → 每 10 秒 2 刀 → 舒缓
+    std::vector<ShotBoundary> shots = {shot(0, 5), shot(5, 10)};
+    const RhythmProfile p = analyzeRhythm(shots);
+    const std::string desc = describeRhythm(p);
+    NC_CHECK(desc.find("舒缓") != std::string::npos);
+}
+NC_TEST(ReferenceStyle, DescribeRhythmInvalid) {
+    const std::string desc = describeRhythm(RhythmProfile{});
+    NC_CHECK(desc.find("无法识别") != std::string::npos);
+}

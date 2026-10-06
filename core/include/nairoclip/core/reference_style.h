@@ -142,5 +142,39 @@ struct CutSuggestion {
 std::vector<CutSuggestion> suggestCuts(const RhythmProfile& target,
                                        const std::vector<MaterialSegment>& material);
 
+/// ---------------------------------------------------------------------------
+/// 风格 → 特效映射（把画像翻译为具体的调色特效参数）。
+/// ---------------------------------------------------------------------------
+
+/// 由色调画像生成的建议特效参数。
+struct SuggestedColorEffects {
+    /// 亮度 [-1,1]（0 = 不变）。
+    double brightness = 0.0;
+    /// 对比度 [0,3]（1 = 不变）。
+    double contrast = 1.0;
+    /// 饱和度 [0,3]（1 = 不变）。
+    double saturation = 1.0;
+    /// 色温 [-1,1]（0 = 不变）。
+    double temperature = 0.0;
+
+    /// 是否全部为中性值（无调整）。
+    bool neutral() const {
+        return brightness == 0.0 && contrast == 1.0 && saturation == 1.0 &&
+               temperature == 0.0;
+    }
+};
+
+/// 把色调画像映射为建议特效参数。
+/// 映射策略（简化、可解释）：
+///  - 饱和度：向目标平均饱和度靠拢（差异 × 0.5 增益）；
+///  - 对比度：向目标平均对比度靠拢（差异 × 0.5 增益）；
+///  - 色温：按 warmth 的 60% 施加；
+///  - 亮度：中性（避免过曝，交由用户手动微调）。
+SuggestedColorEffects suggestColorEffects(const ColorProfile& profile);
+
+/// 由节奏画像生成建议的剪辑密度描述（供 UI 文案展示）。
+/// 例：「快节奏（平均 0.8 秒/镜头，每 10 秒 12 刀）」。
+std::string describeRhythm(const RhythmProfile& profile);
+
 }  // namespace core
 }  // namespace nairoclip
