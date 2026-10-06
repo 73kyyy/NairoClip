@@ -7,10 +7,18 @@
 //
 // 退出码：0 = 成功，1 = 文件错误，2 = 参数错误
 
+#include "nairoclip/core/export_plan.h"
+#include "nairoclip/core/export_runner.h"
 #include "nairoclip/core/project_doctor.h"
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+#include "nairoclip/core/media_ffmpeg.h"
+#include "nairoclip/core/media_ffmpeg_writer.h"
+#endif
 #include "nairoclip/core/serialization.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -170,11 +178,86 @@ int commandDoctor(const std::string& path, bool writeBack) {
     return repair.after.healthy() ? 0 : 1;
 }
 
+#ifdef NAIROCLIP_HAS_FFMPEG
+/// 导出工程到 MP4（需要 FFmpeg 构建）。
+/// 用法：nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P]
+int commandExport(const std::string& path, const std::string& outPath, int crf,
+                  const std::string& preset) {
+    std::string text;
+    if (!readFile(path, text)) {
+        return 1;
+    }
+    Project project;
+    const NclipLoadResult loadResult = loadProjectFromNclip(text, project);
+    if (!loadResult.result.isOk()) {
+        std::fprintf(stderr, "加载失败：%s\n", loadResult.result.message.c_str());
+        return 1;
+    }
+    const Sequence* seq = project.mainSequence();
+    if (seq == nullptr) {
+        std::fprintf(stderr, "工程没有主序列\n");
+        return 1;
+    }
+    const ExportPlan plan = compileExportPlan(project, *seq);
+    for (const auto& warning : plan.warnings) {
+        std::fprintf(stderr, "警告：%s\n", warning.c_str());
+    }
+    FFmpegReaderFactory readerFactory;
+    class FFWriterFactory : public MediaWriterFactory {
+    public:
+        std::unique_ptr<MediaWriter> create() override {
+            return std::make_unique<FFmpegMediaWriter>();
+        }
+    };
+    FFWriterFactory writerFactory;
+    ExportRunConfig config;
+    config.outputPath = outPath;
+    config.writer.width = plan.width;
+    config.writer.height = plan.height;
+    config.writer.frameRate = plan.frameRate;
+    config.writer.crf = crf;
+    config.writer.preset = preset;
+    config.writer.includeAudio = true;
+    std::printf("开始导出：%s → %s\n", path.c_str(), outPath.c_str());
+    std::printf("  分辨率：%dx%d @ %.3ffps，时长：%.2fs\n", plan.width, plan.height,
+                plan.frameRate.toDouble(), plan.duration.toDouble());
+    int lastPercent = -1;
+    const ExportRunResult result = runExport(
+        plan, readerFactory, writerFactory, config,
+        [&](double progress) {
+            const int percent = static_cast<int>(progress * 100.0);
+            if (percent / 10 != lastPercent / 10) {
+                lastPercent = percent;
+                std::printf("  进度：%d%%\n", percent);
+            }
+            return true;
+        },
+        &project);
+    if (!result.result.isOk()) {
+        std::fprintf(stderr, "导出失败：%s\n", result.result.message.c_str());
+        return 1;
+    }
+    std::printf("导出完成：%lld 帧 / %lld 音频块 → %s\n",
+                static_cast<long long>(result.stats.framesWritten),
+                static_cast<long long>(result.stats.audioBlocksWritten), outPath.c_str());
+    for (const auto& warning : result.stats.warnings) {
+        std::fprintf(stderr, "警告：%s\n", warning.c_str());
+    }
+    return 0;
+}
+#else
+int commandExport(const std::string&, const std::string&, int, const std::string&) {
+    std::fprintf(stderr, "此构建未包含 FFmpeg，无法导出。\n");
+    return 1;
+}
+#endif
+
 void printUsage() {
     std::printf("用法：\n");
     std::printf("  nclip_tool info <file.nclip>      显示工程摘要\n");
     std::printf("  nclip_tool validate <file.nclip>  校验工程文件\n");
     std::printf("  nclip_tool doctor <file.nclip> [--fix] 修复工程文件\n");
+    std::printf("  nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P] 导出视频\n");
     std::printf("  nclip_tool version                版本信息\n");
 }
 
@@ -208,6 +291,25 @@ int main(int argc, char** argv) {
     if (command == "doctor") {
         const bool fix = argc >= 4 && std::string(argv[3]) == "--fix";
         return commandDoctor(path, fix);
+    }
+    if (command == "export") {
+        if (argc < 4) {
+            std::fprintf(stderr, "错误：export 需要输出路径参数\n");
+            printUsage();
+            return 2;
+        }
+        const std::string outPath = argv[3];
+        int crf = 23;
+        std::string preset = "veryfast";
+        for (int i = 4; i + 1 < argc; i += 2) {
+            const std::string flag = argv[i];
+            if (flag == "--crf") {
+                crf = std::atoi(argv[i + 1]);
+            } else if (flag == "--preset") {
+                preset = argv[i + 1];
+            }
+        }
+        return commandExport(path, outPath, crf, preset);
     }
     std::fprintf(stderr, "错误：未知命令 %s\n", command.c_str());
     printUsage();
