@@ -651,3 +651,46 @@ NC_TEST(Editor, RemoveUnreferencedAssetWithUndo) {
     NC_CHECK_EQ(f.project.assets.size(), after);
     NC_CHECK(f.project.findAsset(id) != nullptr);
 }
+NC_TEST(Editor, GestureMergeCollapsesMoves) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    // 建片段
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(2);
+    ClipId clipId;
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, c, &clipId).isOk());
+    const std::size_t before = editor.undoCount();
+    // 开启合并（模拟手势拖动开始）
+    editor.setMergeEnabled(true);
+    NC_CHECK(editor.moveClip(f.seqId, f.trackId, clipId, Rational::make(1)).isOk());
+    NC_CHECK(editor.moveClip(f.seqId, f.trackId, clipId, Rational::make(2)).isOk());
+    NC_CHECK(editor.moveClip(f.seqId, f.trackId, clipId, Rational::make(3)).isOk());
+    editor.setMergeEnabled(false);
+    // 三次移动合并为一条历史
+    NC_CHECK_EQ(editor.undoCount() - before, std::size_t(1));
+    // 最终位置 = 3
+    NC_CHECK(findClip(f.project, f.seqId, f.trackId, clipId)->start == Rational::make(3));
+    // 一次撤销 → 回到手势起点 0（而非 2）
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(findClip(f.project, f.seqId, f.trackId, clipId)->start == Rational::make(0));
+}
+NC_TEST(Editor, MergeDisabledKeepsSeparateHistory) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(2);
+    ClipId clipId;
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, c, &clipId).isOk());
+    const std::size_t before = editor.undoCount();
+    // 未开启合并：两次移动 = 两条历史
+    NC_CHECK(editor.moveClip(f.seqId, f.trackId, clipId, Rational::make(1)).isOk());
+    NC_CHECK(editor.moveClip(f.seqId, f.trackId, clipId, Rational::make(2)).isOk());
+    NC_CHECK_EQ(editor.undoCount() - before, std::size_t(2));
+    // 撤销一次 → 回到中间点 1
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(findClip(f.project, f.seqId, f.trackId, clipId)->start == Rational::make(1));
+}
