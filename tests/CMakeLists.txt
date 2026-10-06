@@ -22,6 +22,7 @@ add_executable(nairoclip_tests
     test_audio_mixer.cpp
     test_preview.cpp
     test_reference_style.cpp
+    test_transition_render.cpp
     test_export_executor.cpp
     test_ripple.cpp
 )

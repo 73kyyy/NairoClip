@@ -22,6 +22,7 @@ add_library(nairoclip_core STATIC
     src/audio_mixer.cpp
     src/preview.cpp
     src/reference_style.cpp
+    src/transition_render.cpp
     src/export_executor.cpp
 )
 
