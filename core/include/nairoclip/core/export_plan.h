@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/transition_types.h"
 #include "nairoclip/core/sequence.h"
@@ -34,6 +35,8 @@ struct RenderClip {
     EffectStack effects;
     /// 动画快照（透明度等逐帧采样）。
     ClipAnimation animation;
+    /// 速度曲线快照（非空时变速映射按曲线积分）。
+    SpeedCurve speedCurve;
 };
 
 /// 导出计划中的转场（含计算好的时间区间）。

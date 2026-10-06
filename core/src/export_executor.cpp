@@ -93,6 +93,27 @@ const RenderClip* clipAt(const RenderTrack& track, const Time& t) {
     return nullptr;
 }
 
+/// 时间轴时刻 → 源素材时间。
+/// - 无速度曲线：线性映射 sourceIn + (t - timelineStart) * speed；
+/// - 有速度曲线：数值积分 d(source) = speed(source) * d(t)（固定 64 步，跨平台确定性）。
+Time mapSourceTime(const RenderClip& clip, const Time& t) {
+    const Time localTime = t - clip.timelineStart;
+    if (clip.speedCurve.empty()) {
+        return clip.sourceIn + Time{localTime * clip.speed};
+    }
+    constexpr int kSteps = 64;
+    const double localSec = localTime.toDouble();
+    const double step = localSec / static_cast<double>(kSteps);
+    double sourceSec = clip.sourceIn.toDouble();
+    for (int i = 0; i < kSteps; ++i) {
+        const Time cursor = Rational::make(
+            static_cast<std::int64_t>(sourceSec * 1000000.0), 1000000);
+        const double speed = clip.speedCurve.speedAt(cursor, clip.speed);
+        sourceSec += speed * step;
+    }
+    return Rational::make(static_cast<std::int64_t>(sourceSec * 1000000.0 + 0.5), 1000000);
+}
+
 }  // namespace
 
 ExportStats executeExport(
@@ -284,9 +305,8 @@ ExportStats executeExport(
                 ++frameIndex;
                 continue;
             }
-            // 映射时间轴时间 → 源素材时间：sourceIn + (t - timelineStart) * speed
-            const Time sourceTime =
-                active->sourceIn + Time{(t - active->timelineStart) * active->speed};
+            // 映射时间轴时间 → 源素材时间（速度曲线感知）
+            const Time sourceTime = mapSourceTime(*active, t);
             // 确保素材已打开（每条素材只开一次）
             const auto openedIt = readers.find(active->asset.value);
             if (openedIt != readers.end() && !openedIt->second.opened) {

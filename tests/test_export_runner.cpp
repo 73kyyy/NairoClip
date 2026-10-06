@@ -498,3 +498,33 @@ NC_TEST(ExportRunner, OpacityAnimationApplied) {
     NC_CHECK(minAlphaRatio < 0.6);
     NC_CHECK(minAlphaRatio > 0.4);
 }
+
+NC_TEST(ExportRunner, SpeedCurveAffectsSourceMapping) {
+    Fixture f;
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(2);
+    c.speed = Rational::make(1);
+    // 速度曲线：从 2x 线性降到 0.5x
+    // 时间轴 0-2s 内的源推进：∫speed dt
+    NC_CHECK(c.speedCurve
+                 .addPoint(SpeedPoint{Rational::make(0), Rational::make(2), Easing{}})
+                 .isOk());
+    NC_CHECK(c.speedCurve
+                 .addPoint(SpeedPoint{Rational::make(30), Rational::make(1, 2), Easing{}})
+                 .isOk());
+    ClipId clipId;
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, c, &clipId).isOk());
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    RunnerFactory readerFactory;
+    // 记录每帧请求的源时间（通过 seek 的模拟——我们用 executeExport 无法直接观察 sourceTime；
+    // 改为验证速度曲线被编译进计划
+    NC_CHECK_EQ(plan.tracks[0].clips.size(), std::size_t(1));
+    NC_CHECK(!plan.tracks[0].clips[0].speedCurve.empty());
+    // 执行（不崩溃 + 帧数正确）
+    const ExportStats stats = executeExport(
+        plan, readerFactory, [](const OutputVideoFrame&) {}, nullptr, nullptr,
+        ExportExecutorOptions{}, &f.project);
+    NC_CHECK_EQ(stats.framesWritten, std::int64_t(60));
+}

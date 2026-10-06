@@ -22,6 +22,7 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.hasAnimation = !clip.animation.empty();
     rc.effects = clip.effects;
     rc.animation = clip.animation;
+    rc.speedCurve = clip.speedCurve;
     (void)project;
     return rc;
 }
