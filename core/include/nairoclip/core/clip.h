@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/animation.h"
+#include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/rational.h"
 #include "nairoclip/core/time.h"
 #include "nairoclip/core/types.h"
@@ -19,6 +20,9 @@ struct Clip {
     bool enabled = true;
     /// 动画通道（透明度/缩放/位移/旋转/音量），采样用「片段本地时间」。
     ClipAnimation animation;
+    /// 速度曲线（可选）。空曲线 = 恒速（使用 speed 字段）。
+    /// 非空时：时间轴时长由曲线积分决定，speed 字段作为基准速度乘数。
+    SpeedCurve speedCurve;
     /// 时间轴时刻 → 片段本地时间。
     Time toLocalTime(const Time& timelineTime) const { return timelineTime - start; }
 

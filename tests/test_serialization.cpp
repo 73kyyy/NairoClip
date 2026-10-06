@@ -245,3 +245,33 @@ NC_TEST(Serialization, TransitionRoundtrip) {
     NC_CHECK(lt.transitions[0].toClip == c2.id);
     NC_CHECK(lt.transitions[0].name == std::string("左向擦除"));
 }
+NC_TEST(Serialization, SpeedCurveRoundtrip) {
+    Project p;
+    p.name = "变速工程";
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    Clip c;
+    c.id = ClipId{p.ids.next()};
+    c.duration = Rational::make(5);
+    SpeedPoint p1;
+    p1.sourceTime = Rational::make(0);
+    p1.speed = Rational::make(1);
+    SpeedPoint p2;
+    p2.sourceTime = Rational::make(2);
+    p2.speed = Rational::make(4);
+    p2.easing = Easing::easeInOut();
+    NC_CHECK(c.speedCurve.addPoint(p1).isOk());
+    NC_CHECK(c.speedCurve.addPoint(p2).isOk());
+    t.clips.push_back(c);
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+    const std::string text = saveProjectToNclip(p);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
+    const Clip& lc = loaded.sequences[0].tracks[0].clips[0];
+    NC_CHECK_EQ(lc.speedCurve.size(), std::size_t(2));
+    NC_CHECK(lc.speedCurve.points()[1].speed == Rational::make(4));
+    NC_CHECK(lc.speedCurve.points()[1].easing.type == EasingType::EaseInOut);
+}

@@ -1,6 +1,7 @@
 #include "nairoclip/core/serialization.h"
 
 #include "nairoclip/core/media.h"
+#include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/transition_types.h"
 
 namespace nairoclip {
@@ -231,6 +232,41 @@ bool readClipAnimation(const JsonValue& v, ClipAnimation& out, std::string& err)
     return true;
 }
 
+// ---------------- 速度曲线读写 ----------------
+
+JsonValue writeSpeedCurve(const SpeedCurve& curve) {
+    JsonValue arr = JsonValue::array();
+    for (const auto& p : curve.points()) {
+        JsonValue o = JsonValue::object();
+        o.set("t", writeRational(p.sourceTime));
+        o.set("speed", writeRational(p.speed));
+        o.set("easing", writeEasing(p.easing));
+        arr.push(std::move(o));
+    }
+    return arr;
+}
+
+bool readSpeedCurve(const JsonValue& v, SpeedCurve& out, std::string& err) {
+    out.clear();
+    if (v.isNull()) return true;
+    if (!v.isArray()) { err = "speedCurve 应为数组"; return false; }
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const JsonValue& pv = v.at(i);
+        if (!pv.isObject()) { err = "速度点应为对象"; return false; }
+        SpeedPoint p;
+        if (!readRational(pv.get("t"), "t", p.sourceTime, err)) return false;
+        Rational speed;
+        if (!readRational(pv.get("speed"), "speed", speed, err)) return false;
+        p.speed = std::move(speed);
+        if (pv.has("easing")) {
+            if (!readEasing(pv.get("easing"), p.easing, err)) return false;
+        }
+        const Result r = out.addPoint(p);
+        if (!r.isOk()) { err = r.message; return false; }
+    }
+    return true;
+}
+
 JsonValue writeClip(const Clip& c) {
     JsonValue o = JsonValue::object();
     o.set("id", JsonValue::integer(static_cast<std::int64_t>(c.id.value)));
@@ -242,6 +278,9 @@ JsonValue writeClip(const Clip& c) {
     o.set("enabled", JsonValue::boolean(c.enabled));
     if (!c.animation.empty()) {
         o.set("animation", writeClipAnimation(c.animation));
+    }
+    if (!c.speedCurve.empty()) {
+        o.set("speedCurve", writeSpeedCurve(c.speedCurve));
     }
     return o;
 }
@@ -261,6 +300,10 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     out.animation.clear();
     if (v.has("animation")) {
         if (!readClipAnimation(v.get("animation"), out.animation, err)) return false;
+    }
+    out.speedCurve.clear();
+    if (v.has("speedCurve")) {
+        if (!readSpeedCurve(v.get("speedCurve"), out.speedCurve, err)) return false;
     }
     return true;
 }
