@@ -128,6 +128,8 @@ public:
         int audioBlockFrames = 1024;
         std::uint8_t grayValue = 128;  // 视频帧填充灰度
         bool failOpen = false;
+        /// 灰度随源时间渐变（每 100ms +1，用于区分不同源区间的解码输出）。
+        bool grayByTime = false;
     };
 
     explicit MockMediaReader(Config config);

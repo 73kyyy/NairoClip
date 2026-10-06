@@ -528,3 +528,76 @@ NC_TEST(ExportRunner, SpeedCurveAffectsSourceMapping) {
         ExportExecutorOptions{}, &f.project);
     NC_CHECK_EQ(stats.framesWritten, std::int64_t(60));
 }
+
+NC_TEST(ExportRunner, MultiVideoTrackTopWins) {
+    Fixture f;
+    // 用渐变 Mock（按源时间变化灰度，区分不同源区间）
+    class GradientReader : public MediaReader {
+    public:
+        GradientReader() {
+            MockMediaReader::Config cfg;
+            cfg.probe.type = MediaType::Video;
+            cfg.probe.frameRate = fps30();
+            cfg.probe.width = 64;
+            cfg.probe.height = 64;
+            cfg.probe.duration = Rational::make(60);
+            cfg.videoFrameCount = 100000;
+            cfg.grayByTime = true;
+            reader_ = std::make_unique<MockMediaReader>(cfg);
+        }
+        Result open(const std::string& p) override { return reader_->open(p); }
+        void close() override { reader_->close(); }
+        bool isOpen() const override { return reader_->isOpen(); }
+        const MediaProbeResult& probe() const override { return reader_->probe(); }
+        Result seek(const Time& t) override { return reader_->seek(t); }
+        bool readVideoFrame(VideoFrame& o) override { return reader_->readVideoFrame(o); }
+        bool readAudioBlock(AudioBlock& o) override { return reader_->readAudioBlock(o); }
+    private:
+        std::unique_ptr<MockMediaReader> reader_;
+    };
+    class GradientFactory : public MediaReaderFactory {
+    public:
+        std::unique_ptr<MediaReader> create() override {
+            return std::make_unique<GradientReader>();
+        }
+    };
+    // 加第二条视频轨（后加入 = 上层）
+    TrackId v2;
+    NC_CHECK(f.editor.addTrack(f.seqId, TrackType::Video, "V2", &v2).isOk());
+    // V1: 灰色帧（Mock 解码按帧序号产生不同 gray）——两条轨引用同一素材
+    Clip c1;
+    c1.asset = f.assetId;
+    c1.start = Rational::make(0);
+    c1.duration = Rational::make(1);
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, c1).isOk());
+    // V2: 第二个片段，覆盖 [0.5, 1)
+    Clip c2;
+    c2.asset = f.assetId;
+    c2.start = Rational::make(1, 2);
+    c2.duration = Rational::make(1, 2);
+    c2.sourceIn = Rational::make(10);  // 不同源区间 → 不同像素值
+    NC_CHECK(f.editor.insertClip(f.seqId, v2, c2).isOk());
+
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    NC_CHECK_EQ(plan.tracks.size(), std::size_t(2));
+    GradientFactory readerFactory;
+    // 观察帧内容：t<0.5 时来自 V1，t>=0.5 时来自 V2（不同灰度）
+    std::vector<std::uint8_t> earlyPixel;
+    std::vector<std::uint8_t> latePixel;
+    executeExport(
+        plan, readerFactory,
+        [&](const OutputVideoFrame& frame) {
+            if (frame.rgba.size() < 4) return;
+            const double t = frame.timestamp.toDouble();
+            if (t < 0.4) {
+                earlyPixel = {frame.rgba[0], frame.rgba[1], frame.rgba[2]};
+            } else if (t > 0.6 && t < 0.9) {
+                latePixel = {frame.rgba[0], frame.rgba[1], frame.rgba[2]};
+            }
+        },
+        nullptr, nullptr, ExportExecutorOptions{}, &f.project);
+    NC_CHECK(!earlyPixel.empty());
+    NC_CHECK(!latePixel.empty());
+    // 两段来源不同（源区间不同 → Mock 灰度不同）
+    NC_CHECK(earlyPixel != latePixel);
+}

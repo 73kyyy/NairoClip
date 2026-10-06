@@ -144,17 +144,19 @@ ExportStats executeExport(
         return entry.reader.get();
     };
 
-    // 主视频轨（第一个可见视频轨）+ 主音频轨
-    const RenderTrack* videoTrack = nullptr;
+    // 视频轨列表（合成顺序：索引小的在下层）+ 主音频轨
+    std::vector<const RenderTrack*> videoTracks;
     const RenderTrack* audioTrack = nullptr;
     for (const auto& track : plan.tracks) {
-        if (videoTrack == nullptr && track.type == TrackType::Video && !track.hidden) {
-            videoTrack = &track;
+        if (track.type == TrackType::Video && !track.hidden) {
+            videoTracks.push_back(&track);
         }
         if (audioTrack == nullptr && track.type == TrackType::Audio && !track.muted) {
             audioTrack = &track;
         }
     }
+    // 主视频轨（保留变量兼容旧代码路径：转场/解码逻辑使用第一个视频轨）
+    const RenderTrack* videoTrack = videoTracks.empty() ? nullptr : videoTracks.front();
 
     const FrameRate fps = options.overrideFps > 0 ? FrameRate::of(options.overrideFps)
                                                   : plan.frameRate;
@@ -190,8 +192,27 @@ ExportStats executeExport(
                 }
             }
 
-            // 找到当前可见片段（仅主视频轨；多层合成 M1.x 实现）
-            const RenderClip* active = videoTrack != nullptr ? clipAt(*videoTrack, t) : nullptr;
+            // 找到当前可见片段：从顶层（后加入的视频轨）到底层找第一个活动片段
+            // 说明：本版实现「遮挡式合成」（上层全覆盖下层）；
+            // 透明叠加（带 alpha 的上下层混合）留给后续版本。
+            const RenderClip* active = nullptr;
+            const RenderTrack* activeTrack = nullptr;
+            {
+                bool found = false;
+                for (auto it = videoTracks.rbegin(); it != videoTracks.rend() && !found; ++it) {
+                    const RenderClip* candidate = clipAt(**it, t);
+                    if (candidate != nullptr) {
+                        active = candidate;
+                        activeTrack = *it;
+                        found = true;
+                    }
+                }
+                if (activeTrack == nullptr) {
+                    activeTrack = videoTrack;  // 兜底（转场路径等）
+                }
+            }
+            // 兼容性：转场检测仍基于主视频轨
+            const bool topIsMain = activeTrack == videoTrack;
             if (active == nullptr && activeTransition != nullptr) {
                 // 转场区间内的帧：尝试读取 from/to 两路源帧并混合
                 OutputVideoFrame frame;

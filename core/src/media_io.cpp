@@ -46,8 +46,13 @@ bool MockMediaReader::readVideoFrame(VideoFrame& out) {
     out.width = config_.probe.width > 0 ? config_.probe.width : 16;
     out.height = config_.probe.height > 0 ? config_.probe.height : 16;
     out.stride = out.width * 4;
+    std::uint8_t gray = config_.grayValue;
+    if (config_.grayByTime) {
+        const long ms = static_cast<long>(out.timestamp.toDouble() * 1000.0);
+        gray = static_cast<std::uint8_t>((ms / 100) & 0xFF);
+    }
     out.pixels.assign(static_cast<std::size_t>(out.stride) * static_cast<std::size_t>(out.height),
-                      config_.grayValue);
+                      gray);
     // 设置 alpha 通道为 255
     for (std::size_t i = 3; i < out.pixels.size(); i += 4) {
         out.pixels[i] = 255;
