@@ -27,6 +27,7 @@ add_executable(nairoclip_tests
     test_boundary.cpp
     test_scene_detect.cpp
     test_e2e_workflow.cpp
+    test_media_ffmpeg.cpp
     test_project_doctor.cpp
     test_export_executor.cpp
     test_ripple.cpp
