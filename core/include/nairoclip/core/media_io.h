@@ -39,6 +39,19 @@ struct AudioBlock {
     }
 };
 
+/// 字幕渲染项（导出执行器输出，平台层负责渲染到画面或生成软字幕）。
+struct SubtitleRenderItem {
+    std::string text;
+    /// 归一化锚点（0..1）。
+    double anchorX = 0.5;
+    double anchorY = 0.9;
+    int alignment = 1;  // 0=左 1=中 2=右
+    double fontSize = 48.0;
+    std::uint32_t fillRgba = 0xFFFFFFFF;     // RGBA8 打包
+    std::uint32_t outlineRgba = 0x000000FF;
+    double outlineWidth = 2.0;
+};
+
 /// 渲染输出的一帧（导出器/混音器消费）。
 struct OutputVideoFrame {
     Time timestamp;
@@ -50,6 +63,8 @@ struct OutputVideoFrame {
     /// transitionType/progress 供平台层了解语义（如调试覆盖、GPU 重放）。
     int transitionType = -1;     // -1 = 无转场；否则 = TransitionType 枚举值
     double transitionProgress = 0.0;
+    /// 当前帧可见字幕（平台层决定烧录/软字幕/忽略）。
+    std::vector<SubtitleRenderItem> subtitles;
 };
 
 /// 音频输出块（多轨混音后）。

@@ -402,3 +402,58 @@ NC_TEST(ExportRunner, AudioGainAndFadeApplied) {
     reader.close();
 }
 #endif
+
+NC_TEST(ExportRunner, SubtitlesAttachedToFrames) {
+    Fixture f;
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, c).isOk());
+    // 加字幕 [0.2s, 0.7s)
+    SubtitleCue cue;
+    cue.id = SubtitleId{f.project.ids.next()};
+    cue.start = Rational::make(1, 5);
+    cue.duration = Rational::make(1, 2);
+    cue.text = "测试字幕";
+    cue.style.color = "#FF0000";
+    cue.style.outlineColor = "#00FF00";
+    cue.style.anchorY = 0.8;
+    NC_CHECK(f.editor.upsertSubtitle(f.seqId, cue).isOk());
+
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    RunnerFactory readerFactory;
+    MockWriterFactory writerFactory;
+    ExportRunConfig config;
+    config.outputPath = "/tmp/sub_test.mp4";
+    config.writer.width = 64;
+    config.writer.height = 64;
+    config.writer.includeAudio = false;
+    int framesWithSub = 0;
+    int framesWithoutSub = 0;
+    bool sawText = false;
+    bool sawColor = false;
+    bool sawAnchor = false;
+    const ExportStats stats = executeExport(
+        plan, readerFactory,
+        [&](const OutputVideoFrame& frame) {
+            if (frame.subtitles.empty()) {
+                ++framesWithoutSub;
+            } else {
+                ++framesWithSub;
+                for (const auto& item : frame.subtitles) {
+                    if (item.text == "测试字幕") sawText = true;
+                    if (item.fillRgba == 0xFF0000FFu) sawColor = true;
+                    if (std::abs(item.anchorY - 0.8) < 1e-9) sawAnchor = true;
+                }
+            }
+        },
+        nullptr, nullptr, ExportExecutorOptions{}, &f.project);
+    NC_CHECK_EQ(stats.framesWritten, std::int64_t(30));
+    // 字幕区间 [0.2, 0.7)：约 15 帧有字幕、15 帧无
+    NC_CHECK(framesWithSub > 0);
+    NC_CHECK(framesWithoutSub > 0);
+    NC_CHECK(sawText);
+    NC_CHECK(sawColor);   // #FF0000 → 0xFF0000FF
+    NC_CHECK(sawAnchor);
+}

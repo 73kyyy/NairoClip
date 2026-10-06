@@ -14,6 +14,69 @@ namespace core {
 
 namespace {
 
+/// 解析 #RRGGBB / #RRGGBBAA 为 RGBA8 打包（0xRRGGBBAA）。
+std::uint32_t parseColorRgba(const std::string& text) {
+    const char* str = text.c_str();
+    if (text.empty() || text[0] != '#') {
+        return 0xFFFFFFFF;
+    }
+    const std::size_t hexLen = text.size() - 1;
+    auto hexVal = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    unsigned long value = 0;
+    for (std::size_t i = 0; i < hexLen && i < 8; ++i) {
+        const int digit = hexVal(str[i + 1]);
+        if (digit < 0) return 0xFFFFFFFF;
+        value = (value << 4) | static_cast<unsigned long>(digit);
+    }
+    if (hexLen == 6) {
+        value = (value << 8) | 0xFFu;  // 补 alpha
+    } else if (hexLen == 3) {
+        // #RGB 简写扩展
+        const unsigned int r = (value >> 8) & 0xF;
+        const unsigned int g = (value >> 4) & 0xF;
+        const unsigned int b = value & 0xF;
+        value = ((r << 4 | r) << 24) | ((g << 4 | g) << 16) | ((b << 4 | b) << 8) | 0xFFu;
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
+/// 从工程收集当前时间戳的可见字幕（含样式）。
+std::vector<SubtitleRenderItem> subtitlesAt(const Project& project, SequenceId sequenceId,
+                                            const Time& t) {
+    std::vector<SubtitleRenderItem> items;
+    const Sequence* seq = project.findSequence(sequenceId);
+    if (seq == nullptr) {
+        return items;
+    }
+    for (const auto* cue : seq->subtitles.cuesAt(t)) {
+        if (!cue->enabled) {
+            continue;
+        }
+        SubtitleRenderItem item;
+        item.text = cue->text;
+        item.anchorX = cue->style.anchorX;
+        item.anchorY = cue->style.anchorY;
+        item.alignment = cue->style.alignment;
+        item.fontSize = cue->style.fontSize;
+        item.fillRgba = parseColorRgba(cue->style.color);
+        item.outlineRgba = parseColorRgba(cue->style.outlineColor);
+        item.outlineWidth = cue->style.outlineWidth;
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
+}  // namespace
+
+
+
+namespace {
+
 /// 每个素材的读取器缓存条目。
 struct ReaderEntry {
     std::unique_ptr<MediaReader> reader;
@@ -183,6 +246,9 @@ ExportStats executeExport(
                         frame.rgba[i] = 255;
                     }
                 }
+                if (project != nullptr) {
+                    frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
+                }
                 videoSink(frame);
                 ++stats.framesWritten;
                 ++frameIndex;
@@ -199,6 +265,9 @@ ExportStats executeExport(
                                   0);
                 for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
                     frame.rgba[i] = 255;  // 不透明黑
+                }
+                if (project != nullptr) {
+                    frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
                 }
                 videoSink(frame);
                 ++stats.framesWritten;
@@ -275,6 +344,9 @@ ExportStats executeExport(
                                 t, activeTransition->start,
                                 activeTransition->end - activeTransition->start);
                         }
+                        if (project != nullptr) {
+                            frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
+                        }
                         videoSink(frame);
                         ++stats.framesWritten;
                         ++frameIndex;
@@ -294,6 +366,9 @@ ExportStats executeExport(
                                   32);
                 for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
                     frame.rgba[i] = 255;
+                }
+                if (project != nullptr) {
+                    frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
                 }
                 videoSink(frame);
                 ++stats.framesWritten;
