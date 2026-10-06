@@ -57,6 +57,7 @@ enum class ErrorCode {
     OutOfRange,  // 超出素材范围 / 时间范围
     Locked,      // 轨道已锁定
     Unsupported,
+    Internal,    // 内部一致性错误（通常不应出现；见 asserts）
 };
 
 /// 操作结果：错误码 + 可读信息。

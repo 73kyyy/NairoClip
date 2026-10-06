@@ -36,6 +36,7 @@ int32_t toNcError(ErrorCode code) {
         case ErrorCode::OutOfRange: return NC_ERROR_OUT_OF_RANGE;
         case ErrorCode::Locked: return NC_ERROR_LOCKED;
         case ErrorCode::Unsupported: return NC_ERROR_UNSUPPORTED;
+        case ErrorCode::Internal: return NC_ERROR_INTERNAL;
     }
     return NC_ERROR_INTERNAL;
 }

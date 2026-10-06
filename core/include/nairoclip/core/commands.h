@@ -242,5 +242,49 @@ private:
     std::optional<Keyframe> removed_;
 };
 
+
+/// 波纹删除：删除片段，并将轨道上后续片段整体前移（填补空缺）。
+/// 支持批量（同一轨道多个片段：按 start 降序依次处理）。
+class RippleDeleteCommand : public Command {
+public:
+    RippleDeleteCommand(SequenceId sequenceId, TrackId trackId, std::vector<ClipId> clipIds);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "波纹删除"; }
+
+private:
+    struct RemovedClip {
+        Clip clip;
+        std::size_t originalIndex = 0;
+    };
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    std::vector<ClipId> clipIds_;  // apply 前按 start 降序排序
+    std::vector<RemovedClip> removed_;  // 快照（供 revert）
+};
+
+/// 插入编辑：在指定时刻插入片段，并将该时刻之后的重叠片段整体后移。
+/// 语义：所有 start >= at 的片段后移 insertedDuration；
+/// 跨越 at 的片段先分割，右半部分与后续片段一起后移。
+class InsertEditCommand : public Command {
+public:
+    InsertEditCommand(SequenceId sequenceId, TrackId trackId, Clip clip, const Time& at,
+                      ClipId rightHalfId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "插入编辑"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    Clip clip_;
+    Time at_;
+    ClipId rightHalfId_;  // 跨时刻片段被分割后右半的新 ID
+    // revert 快照
+    std::vector<Clip> beforeClips_;
+};
+
 }  // namespace core
 }  // namespace nairoclip

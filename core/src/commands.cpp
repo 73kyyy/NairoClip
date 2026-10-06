@@ -642,5 +642,148 @@ Result RemoveKeyframeCommand::revert(Project& project) {
     return clip->animation.curve(property_).insert(*removed_);
 }
 
+
+// ---------------- 波纹编辑命令 ----------------
+
+RippleDeleteCommand::RippleDeleteCommand(SequenceId sequenceId, TrackId trackId,
+                                         std::vector<ClipId> clipIds)
+    : sequenceId_(sequenceId), trackId_(trackId), clipIds_(std::move(clipIds)) {}
+
+Result RippleDeleteCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (clipIds_.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, "未指定要删除的片段");
+    }
+    // 按 start 降序处理：从后往前删除+前移，避免前移影响后续索引
+    std::vector<Clip> toRemove;
+    for (const ClipId id : clipIds_) {
+        const Clip* c = track->findClip(id);
+        if (c == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "待删除片段不存在");
+        }
+        toRemove.push_back(*c);
+    }
+    std::sort(toRemove.begin(), toRemove.end(),
+              [](const Clip& a, const Clip& b) { return a.start > b.start; });
+    removed_.clear();
+    for (const Clip& target : toRemove) {
+        const std::size_t index = static_cast<std::size_t>(track->indexOf(target.id));
+        RemovedClip rc;
+        rc.clip = target;
+        rc.originalIndex = index;
+        removed_.push_back(rc);
+        // 删除
+        track->clips.erase(track->clips.begin() + static_cast<std::ptrdiff_t>(index));
+        // 后续片段整体前移 amount
+        const Time amount = target.duration;
+        for (auto& c : track->clips) {
+            if (c.start >= target.end()) {
+                c.start = c.start - amount;
+            }
+        }
+    }
+    if (!track->invariantsHold()) {
+        return Result::fail(ErrorCode::Internal, "波纹删除破坏轨道不变量");
+    }
+    return Result::ok();
+}
+
+Result RippleDeleteCommand::revert(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    // 逆序恢复：从最早删除的开始反向恢复（后移+插回）
+    for (auto it = removed_.rbegin(); it != removed_.rend(); ++it) {
+        const Clip& target = it->clip;
+        // 后续片段整体后移
+        const Time amount = target.duration;
+        for (auto& c : track->clips) {
+            if (c.start >= target.start) {
+                c.start = c.start + amount;
+            }
+        }
+        // 插回原位
+        const std::size_t index =
+            std::min(it->originalIndex, track->clips.size());
+        track->clips.insert(track->clips.begin() + static_cast<std::ptrdiff_t>(index), target);
+    }
+    return Result::ok();
+}
+
+InsertEditCommand::InsertEditCommand(SequenceId sequenceId, TrackId trackId, Clip clip,
+                                     const Time& at, ClipId rightHalfId)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clip_(std::move(clip)),
+      at_(at),
+      rightHalfId_(rightHalfId) {}
+
+Result InsertEditCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (at_.isNegative() || !clip_.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument, "插入参数非法");
+    }
+    // 保存快照
+    beforeClips_ = track->clips;
+    // 1) 分割跨越 at 的片段
+    for (std::size_t i = 0; i < track->clips.size(); ++i) {
+        Clip& c = track->clips[i];
+        if (c.start < at_ && at_ < c.end()) {
+            const Time leftDuration = at_ - c.start;
+            const Time rightDuration = c.end() - at_;
+            const Time rightSourceIn = c.sourceIn + Time{leftDuration * c.speed};
+            Clip right = c;
+            right.id = rightHalfId_;
+            right.start = at_;
+            right.duration = rightDuration;
+            right.sourceIn = rightSourceIn;
+            c.duration = leftDuration;
+            track->clips.insert(track->clips.begin() + static_cast<std::ptrdiff_t>(i + 1), right);
+            break;
+        }
+    }
+    // 2) start >= at 的片段整体后移 clip_.duration
+    const Time shift = clip_.duration;
+    for (auto& c : track->clips) {
+        if (c.start >= at_) {
+            c.start = c.start + shift;
+        }
+    }
+    // 3) 插入新片段（start = at）
+    Clip inserted = clip_;
+    inserted.start = at_;
+    const auto insertPos = std::lower_bound(
+        track->clips.begin(), track->clips.end(), at_,
+        [](const Clip& c, const Time& t) { return c.start < t; });
+    track->clips.insert(insertPos, inserted);
+    if (!track->invariantsHold()) {
+        track->clips = beforeClips_;  // 回滚
+        return Result::fail(ErrorCode::Internal, "插入编辑破坏轨道不变量");
+    }
+    return Result::ok();
+}
+
+Result InsertEditCommand::revert(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    track->clips = beforeClips_;
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

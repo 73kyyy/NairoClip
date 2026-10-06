@@ -19,6 +19,7 @@ add_executable(nairoclip_tests
     test_stress.cpp
     test_media_io.cpp
     test_export_executor.cpp
+    test_ripple.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

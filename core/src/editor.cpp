@@ -209,6 +209,17 @@ Result TimelineEditor::removeTransition(SequenceId sequenceId, TrackId trackId,
     return commit(std::make_unique<RemoveTransitionCommand>(sequenceId, trackId, transitionId));
 }
 
+Result TimelineEditor::rippleDelete(SequenceId sequenceId, TrackId trackId,
+                                     std::vector<ClipId> clipIds) {
+    return commit(std::make_unique<RippleDeleteCommand>(sequenceId, trackId, std::move(clipIds)));
+}
+
+Result TimelineEditor::insertEdit(SequenceId sequenceId, TrackId trackId, Clip clip,
+                                  const Time& at) {
+    return commit(std::make_unique<InsertEditCommand>(sequenceId, trackId, std::move(clip), at,
+                                                      ClipId{project_.ids.next()}));
+}
+
 Result TimelineEditor::undo() {
     return undoStack_.undo(project_);
 }

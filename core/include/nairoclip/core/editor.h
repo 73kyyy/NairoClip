@@ -58,6 +58,11 @@ public:
     Result addTransition(SequenceId sequenceId, TrackId trackId, Transition transition);
     /// 删除转场。
     Result removeTransition(SequenceId sequenceId, TrackId trackId, TransitionId transitionId);
+    // ---- 波纹编辑 ----
+    /// 波纹删除：删除片段并前移后续片段（可批量）。
+    Result rippleDelete(SequenceId sequenceId, TrackId trackId, std::vector<ClipId> clipIds);
+    /// 插入编辑：在 at 处插入片段，后续片段整体后移。
+    Result insertEdit(SequenceId sequenceId, TrackId trackId, Clip clip, const Time& at);
     // ---- 撤销 / 重做 ----
     Result undo();
     Result redo();
