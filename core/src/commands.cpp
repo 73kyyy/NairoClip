@@ -939,5 +939,70 @@ Result InsertEditCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------- 轨道属性命令 ----------------
+
+SetTrackCommand::SetTrackCommand(SequenceId sequenceId, TrackId trackId, Field field,
+                                 std::string nameValue, bool boolValue, std::string actionName)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      field_(field),
+      nameValue_(std::move(nameValue)),
+      boolValue_(boolValue),
+      actionName_(std::move(actionName)) {}
+
+Result SetTrackCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    switch (field_) {
+        case Field::Name: {
+            if (!beforeName_.has_value()) beforeName_ = track->name;
+            track->name = nameValue_;
+            break;
+        }
+        case Field::Locked:
+            if (!beforeBool_.has_value()) beforeBool_ = track->locked;
+            track->locked = boolValue_;
+            break;
+        case Field::Muted:
+            if (!beforeBool_.has_value()) beforeBool_ = track->muted;
+            track->muted = boolValue_;
+            break;
+        case Field::Hidden:
+            if (!beforeBool_.has_value()) beforeBool_ = track->hidden;
+            track->hidden = boolValue_;
+            break;
+    }
+    return Result::ok();
+}
+
+Result SetTrackCommand::revert(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    switch (field_) {
+        case Field::Name:
+            if (!beforeName_.has_value()) {
+                return Result::fail(ErrorCode::InvalidArgument, "缺少名称快照");
+            }
+            track->name = *beforeName_;
+            break;
+        case Field::Locked:
+        case Field::Muted:
+        case Field::Hidden:
+            if (!beforeBool_.has_value()) {
+                return Result::fail(ErrorCode::InvalidArgument, "缺少布尔快照");
+            }
+            if (field_ == Field::Locked) track->locked = *beforeBool_;
+            if (field_ == Field::Muted) track->muted = *beforeBool_;
+            if (field_ == Field::Hidden) track->hidden = *beforeBool_;
+            break;
+    }
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

@@ -295,5 +295,31 @@ private:
     std::vector<Clip> beforeClips_;
 };
 
+
+/// 修改轨道属性（重命名/锁定/静音/隐藏）。
+class SetTrackCommand : public Command {
+public:
+    /// 属性字段选择（单字段修改，可组合扩展）。
+    enum class Field { Name, Locked, Muted, Hidden };
+
+    SetTrackCommand(SequenceId sequenceId, TrackId trackId, Field field, std::string nameValue,
+                    bool boolValue, std::string actionName);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return actionName_; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    Field field_;
+    std::string nameValue_;
+    bool boolValue_ = false;
+    std::string actionName_;
+    // 快照
+    std::optional<std::string> beforeName_;
+    std::optional<bool> beforeBool_;
+};
+
 }  // namespace core
 }  // namespace nairoclip

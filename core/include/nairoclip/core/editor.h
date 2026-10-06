@@ -27,6 +27,15 @@ public:
                     TrackId* outId = nullptr);
     Result removeTrack(SequenceId sequenceId, TrackId trackId);
 
+    // ---- 轨道属性 ----
+    /// 重命名轨道。
+    Result renameTrack(SequenceId sequenceId, TrackId trackId, const std::string& newName);
+    /// 设置轨道锁定（锁定后所有编辑被拒绝）。
+    Result setTrackLocked(SequenceId sequenceId, TrackId trackId, bool locked);
+    /// 设置轨道静音。
+    Result setTrackMuted(SequenceId sequenceId, TrackId trackId, bool muted);
+    /// 设置轨道隐藏。
+    Result setTrackHidden(SequenceId sequenceId, TrackId trackId, bool hidden);
     // ---- 片段 ----
     Result insertClip(SequenceId sequenceId, TrackId trackId, Clip clip, ClipId* outId = nullptr);
     Result removeClip(SequenceId sequenceId, TrackId trackId, ClipId clipId);

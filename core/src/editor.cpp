@@ -28,6 +28,27 @@ Result TimelineEditor::addTrack(SequenceId sequenceId, TrackType type, const std
     return r;
 }
 
+Result TimelineEditor::renameTrack(SequenceId sequenceId, TrackId trackId,
+                                    const std::string& newName) {
+    return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, SetTrackCommand::Field::Name,
+                                                    newName, false, "重命名轨道"));
+}
+
+Result TimelineEditor::setTrackLocked(SequenceId sequenceId, TrackId trackId, bool locked) {
+    return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, SetTrackCommand::Field::Locked,
+                                                    std::string(), locked, "锁定轨道"));
+}
+
+Result TimelineEditor::setTrackMuted(SequenceId sequenceId, TrackId trackId, bool muted) {
+    return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, SetTrackCommand::Field::Muted,
+                                                    std::string(), muted, "静音轨道"));
+}
+
+Result TimelineEditor::setTrackHidden(SequenceId sequenceId, TrackId trackId, bool hidden) {
+    return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, SetTrackCommand::Field::Hidden,
+                                                    std::string(), hidden, "隐藏轨道"));
+}
+
 Result TimelineEditor::removeTrack(SequenceId sequenceId, TrackId trackId) {
     return commit(std::make_unique<RemoveTrackCommand>(sequenceId, trackId));
 }

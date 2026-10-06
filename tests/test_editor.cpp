@@ -431,3 +431,39 @@ NC_TEST(Editor, NestedTransaction) {
     NC_CHECK(editor.undo().isOk());
     NC_CHECK_EQ(findTrack(f.project, f.seqId, f.trackId)->clips.size(), std::size_t(0));
 }
+NC_TEST(Editor, TrackPropertyCommandsWithUndo) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    // 重命名
+    NC_CHECK(editor.renameTrack(f.seqId, f.trackId, "主视频").isOk());
+    NC_CHECK_EQ(findTrack(f.project, f.seqId, f.trackId)->name, std::string("主视频"));
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(findTrack(f.project, f.seqId, f.trackId)->name, std::string("视频轨 1"));
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK_EQ(findTrack(f.project, f.seqId, f.trackId)->name, std::string("主视频"));
+    // 锁定
+    NC_CHECK(editor.setTrackLocked(f.seqId, f.trackId, true).isOk());
+    NC_CHECK(findTrack(f.project, f.seqId, f.trackId)->locked);
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(!findTrack(f.project, f.seqId, f.trackId)->locked);
+    // 静音
+    NC_CHECK(editor.setTrackMuted(f.seqId, f.trackId, true).isOk());
+    NC_CHECK(findTrack(f.project, f.seqId, f.trackId)->muted);
+    // 隐藏
+    NC_CHECK(editor.setTrackHidden(f.seqId, f.trackId, true).isOk());
+    NC_CHECK(findTrack(f.project, f.seqId, f.trackId)->hidden);
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(!findTrack(f.project, f.seqId, f.trackId)->hidden);
+}
+NC_TEST(Editor, LockedTrackRejectsEdits) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(editor.setTrackLocked(f.seqId, f.trackId, true).isOk());
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);
+    const Result r = editor.insertClip(f.seqId, f.trackId, c);
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::Locked);
+}
