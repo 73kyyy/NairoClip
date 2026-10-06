@@ -40,6 +40,10 @@ struct PreviewFrame {
     double rotation = 0.0;
     /// 片段 ID（无片段时 0）。
     std::uint64_t clipId = 0;
+    /// 转场元数据（-1 = 无转场；否则 = TransitionType 枚举值）。
+    int transitionType = -1;
+    /// 转场进度 0..1（仅转场帧有效）。
+    double transitionProgress = 0.0;
 };
 
 /// 预览渲染器。
@@ -57,6 +61,12 @@ public:
     std::vector<std::string> subtitlesAt(const Time& timelineTime) const;
 
 private:
+    /// 读取片段在时间轴时刻对应的源帧（自动打开并缓存 reader）。
+    bool readClipSourceFrame(const Clip& clip, const Time& timelineTime, VideoFrame& out);
+    /// 转场混合：读取两路源帧，混合写回 frame（含尺寸初始化）。
+    void blendTransitionFrame(PreviewFrame& frame, const Clip& from, const Clip& to,
+                              const Time& timelineTime, double progress);
+
     const Project& project_;
     MediaReaderFactory& readerFactory_;
     std::map<std::uint64_t, std::unique_ptr<MediaReader>> readers_;

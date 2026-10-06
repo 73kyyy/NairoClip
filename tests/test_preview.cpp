@@ -165,3 +165,42 @@ NC_TEST(Preview, GrayscaleEffectTransformsPixels) {
     NC_CHECK_EQ(frame.rgba[0], frame.rgba[1]);
     NC_CHECK_EQ(frame.rgba[1], frame.rgba[2]);
 }
+NC_TEST(Preview, TransitionBlending) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));  // [0,2)
+    f.addClip(Rational::make(3), Rational::make(2));  // [3,5)
+    Track* track = f.project.mainSequence()->findTrack(f.videoTrack);
+    Transition tr;
+    tr.id = TransitionId{f.project.ids.next()};
+    tr.type = TransitionType::CrossDissolve;
+    tr.duration = Rational::make(1, 2);
+    tr.fromClip = track->clips[0].id;
+    tr.toClip = track->clips[1].id;
+    track->transitions.push_back(tr);
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    // 转场区间 [2, 2.5)：t=2.25 → progress 0.5
+    const PreviewFrame frame = renderer.renderAt(fromMilliseconds(2250));
+    NC_CHECK_EQ(frame.transitionType, static_cast<int>(TransitionType::CrossDissolve));
+    NC_CHECK(std::abs(frame.transitionProgress - 0.5) < 0.02);
+    // 混合输出应有像素
+    NC_CHECK(!frame.rgba.empty());
+}
+NC_TEST(Preview, NoTransitionOutsideInterval) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    f.addClip(Rational::make(3), Rational::make(2));
+    Track* track = f.project.mainSequence()->findTrack(f.videoTrack);
+    Transition tr;
+    tr.id = TransitionId{f.project.ids.next()};
+    tr.type = TransitionType::CrossDissolve;
+    tr.duration = Rational::make(1, 2);
+    tr.fromClip = track->clips[0].id;
+    tr.toClip = track->clips[1].id;
+    track->transitions.push_back(tr);
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    // t=1 不在转场区间
+    const PreviewFrame frame = renderer.renderAt(Rational::make(1));
+    NC_CHECK_EQ(frame.transitionType, -1);
+}

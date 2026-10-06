@@ -1,4 +1,5 @@
 #include "nairoclip/core/preview.h"
+#include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
 
 #include <algorithm>
@@ -32,6 +33,16 @@ const Clip* activeVideoClip(const Project& project, TrackId* outTrack, const Tim
     return nullptr;
 }
 
+/// 在轨道上按片段 ID 查找。
+const Clip* findClipInTrack(const Track& track, ClipId id) {
+    for (const auto& clip : track.clips) {
+        if (clip.id == id) {
+            return &clip;
+        }
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 PreviewRenderer::PreviewRenderer(const Project& project, MediaReaderFactory& readerFactory)
@@ -49,6 +60,71 @@ std::vector<std::string> PreviewRenderer::subtitlesAt(const Time& timelineTime) 
     return result;
 }
 
+bool PreviewRenderer::readClipSourceFrame(const Clip& clip, const Time& timelineTime,
+                                         VideoFrame& out) {
+    auto it = readers_.find(clip.asset.value);
+    if (it == readers_.end()) {
+        const MediaAsset* asset = project_.findAsset(clip.asset);
+        if (asset == nullptr) {
+            return false;
+        }
+        auto reader = readerFactory_.create();
+        if (!reader->open(asset->path).isOk()) {
+            return false;
+        }
+        it = readers_.emplace(clip.asset.value, std::move(reader)).first;
+    }
+    MediaReader* reader = it->second.get();
+    const Time sourceTime = clip.sourceIn + Time{(timelineTime - clip.start) * clip.speed};
+    if (!reader->seek(sourceTime).isOk()) {
+        return false;
+    }
+    return reader->readVideoFrame(out);
+}
+
+void PreviewRenderer::blendTransitionFrame(PreviewFrame& frame, const Clip& from,
+                                           const Clip& to, const Time& timelineTime,
+                                           double progress) {
+    // 两路源帧：from 取末尾（本地时间钳制在 from 区间内），to 取开头
+    const Time fromLocal = timelineTime < from.end() ? timelineTime : from.end() - from.start;
+    const Time toLocal = timelineTime > to.start ? timelineTime : to.start;
+    VideoFrame frameA;
+    VideoFrame frameB;
+    const bool hasA = readClipSourceFrame(from, from.start + (fromLocal - from.start), frameA);
+    const bool hasB = readClipSourceFrame(to, to.start + (toLocal - to.start), frameB);
+    if (!hasA && !hasB) {
+        return;
+    }
+    if (!hasA) {
+        frame.rgba = std::move(frameB.pixels);
+        frame.width = frameB.width;
+        frame.height = frameB.height;
+        return;
+    }
+    if (!hasB) {
+        frame.rgba = std::move(frameA.pixels);
+        frame.width = frameA.width;
+        frame.height = frameA.height;
+        return;
+    }
+    if (frameA.width != frameB.width || frameA.height != frameB.height) {
+        // 尺寸不一致：取 A（防御；正常情况下同序列尺寸一致）
+        frame.rgba = std::move(frameA.pixels);
+        frame.width = frameA.width;
+        frame.height = frameA.height;
+        return;
+    }
+    frame.width = frameA.width;
+    frame.height = frameA.height;
+    frame.rgba.assign(static_cast<std::size_t>(frameA.width) *
+                          static_cast<std::size_t>(frameA.height) * 4,
+                      0);
+    TransitionRenderer::renderFrame(static_cast<TransitionType>(frame.transitionType),
+                                    frameA.pixels.empty() ? nullptr : frameA.pixels.data(),
+                                    frameB.pixels.empty() ? nullptr : frameB.pixels.data(),
+                                    frame.rgba.data(), frameA.width, frameA.height, progress);
+}
+
 PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
     PreviewFrame frame;
     frame.timelineTime = timelineTime;
@@ -60,6 +136,34 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
 
     // 字幕
     frame.subtitles = subtitlesAt(timelineTime);
+
+    // ---- 转场检测：时刻落入转场区间时混合两路画面 ----
+    const Sequence* seq2 = project_.mainSequence();
+    if (seq2 != nullptr) {
+        for (const auto& track : seq2->tracks) {
+            if (track.type != TrackType::Video || track.hidden) {
+                continue;
+            }
+            for (const auto& tr : track.transitions) {
+                const Clip* from = findClipInTrack(track, tr.fromClip);
+                const Clip* to = findClipInTrack(track, tr.toClip);
+                if (from == nullptr || to == nullptr || !tr.duration.isPositive()) {
+                    continue;
+                }
+                const Time trStart = from->end();
+                const Time trEnd = trStart + tr.duration;
+                if (trStart <= timelineTime && timelineTime < trEnd) {
+                    // 双路读取 + 混合
+                    frame.transitionType = static_cast<int>(tr.type);
+                    frame.transitionProgress = TransitionRenderer::transitionProgress(
+                        timelineTime, trStart, tr.duration);
+                    blendTransitionFrame(frame, *from, *to, timelineTime,
+                                         frame.transitionProgress);
+                    return frame;
+                }
+            }
+        }
+    }
 
     // 视频片段
     TrackId trackId;
