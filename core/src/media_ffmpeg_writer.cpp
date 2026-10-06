@@ -44,6 +44,9 @@ struct FFmpegMediaWriter::Impl {
     bool open = false;
     std::int64_t videoPts = 0;
     std::int64_t audioPts = 0;  // 以采样数为单位
+    // 音频 FIFO（交错 float）：累积重采样输出，凑满编码器 frame_size 后编码。
+    // AAC 编码器要求除末帧外严格 frame_size 采样。
+    std::vector<float> audioFifo;
 
     void reset() {
         if (videoCodec != nullptr) avcodec_free_context(&videoCodec);
@@ -67,6 +70,7 @@ struct FFmpegMediaWriter::Impl {
         videoStream = nullptr;
         audioStream = nullptr;
         open = false;
+        audioFifo.clear();
     }
 };
 
@@ -215,6 +219,7 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
     if (impl.audioCodec == nullptr || block.samples.empty()) {
         return Result::ok();  // 无音频轨或空块：静默忽略
     }
+    // 惰性创建重采样器与音频帧
     if (impl.audioFrame == nullptr) {
         impl.audioFrame = av_frame_alloc();
         impl.audioFrame->format = impl.audioCodec->sample_fmt;
@@ -225,7 +230,6 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
                                           : 1024;
         av_frame_get_buffer(impl.audioFrame, 0);
     }
-    // 重采样：float 交错 → 编码器采样格式
     if (impl.swr == nullptr) {
         AVChannelLayout inLayout;
         av_channel_layout_default(&inLayout, block.channels);
@@ -238,21 +242,58 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
             return Result::fail(ErrorCode::Internal, "音频重采样器创建失败");
         }
     }
+
+    const int channels = impl.audioCodec->ch_layout.nb_channels;
     const int frameSize = impl.audioFrame->nb_samples;
-    const std::uint8_t* inData[1] = {reinterpret_cast<const std::uint8_t*>(block.samples.data())};
     const int inSamples =
         static_cast<int>(block.samples.size() / static_cast<std::size_t>(block.channels));
-    int consumed = 0;
-    while (consumed < inSamples) {
+
+    // resample 整个输入块 → 追加到 FIFO（交错 float 保持交错，编码时再拆平面）
+    // 注：重采样率可能与输入不同，先计算输出容量
+    const int maxOut = static_cast<int>(av_rescale_rnd(
+        swr_get_delay(impl.swr, block.sampleRate) + inSamples, block.sampleRate,
+        impl.audioCodec->sample_rate, AV_ROUND_UP));
+    const std::size_t fifoStart = impl.audioFifo.size();
+    impl.audioFifo.resize(fifoStart +
+                          static_cast<std::size_t>(maxOut) * static_cast<std::size_t>(channels));
+    std::uint8_t* outData[1] = {
+        reinterpret_cast<std::uint8_t*>(impl.audioFifo.data() + fifoStart)};
+    const std::uint8_t* inData[1] = {
+        reinterpret_cast<const std::uint8_t*>(block.samples.data())};
+    const int converted = swr_convert(impl.swr, outData, maxOut, inData, inSamples);
+    if (converted < 0) {
+        impl.audioFifo.resize(fifoStart);
+        return Result::fail(ErrorCode::Internal, "重采样失败");
+    }
+    impl.audioFifo.resize(fifoStart +
+                          static_cast<std::size_t>(converted) * static_cast<std::size_t>(channels));
+
+    // 从 FIFO 取出整帧编码
+    std::size_t consumedFrames = 0;
+    const std::size_t available = impl.audioFifo.size() / static_cast<std::size_t>(channels);
+    while (available - consumedFrames >= static_cast<std::size_t>(frameSize)) {
         av_frame_make_writable(impl.audioFrame);
-        const int outSamples = swr_convert(impl.swr, impl.audioFrame->data, frameSize, inData,
-                                           inSamples - consumed);
-        if (outSamples <= 0) {
-            break;
+        const float* src = impl.audioFifo.data() +
+                           consumedFrames * static_cast<std::size_t>(channels);
+        // 交错 float → 编码器格式（通常 planar）
+        if (impl.audioCodec->sample_fmt == AV_SAMPLE_FMT_FLTP) {
+            for (int ch = 0; ch < channels; ++ch) {
+                float* dst = reinterpret_cast<float*>(impl.audioFrame->data[ch]);
+                for (int i = 0; i < frameSize; ++i) {
+                    dst[i] = src[static_cast<std::size_t>(i) *
+                                 static_cast<std::size_t>(channels) +
+                                 static_cast<std::size_t>(ch)];
+                }
+            }
+        } else {
+            // 交错格式：直接拷贝
+            std::memcpy(impl.audioFrame->data[0], src,
+                        static_cast<std::size_t>(frameSize) *
+                            static_cast<std::size_t>(channels) * sizeof(float));
         }
-        impl.audioFrame->nb_samples = outSamples;
+        impl.audioFrame->nb_samples = frameSize;
         impl.audioFrame->pts = impl.audioPts;
-        impl.audioPts += outSamples;
+        impl.audioPts += frameSize;
         const int err = avcodec_send_frame(impl.audioCodec, impl.audioFrame);
         if (err < 0) {
             return Result::fail(ErrorCode::Internal, "音频帧编码失败: " + avErr(err));
@@ -272,10 +313,15 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
                 return Result::fail(ErrorCode::Internal, "写音频包失败");
             }
         }
-        consumed += outSamples;  // 简化：假设一次转换消费完
-        if (outSamples < frameSize) {
-            break;  // 输入耗尽
-        }
+        consumedFrames += static_cast<std::size_t>(frameSize);
+    }
+    // 保留未消费的剩余样本
+    if (consumedFrames > 0) {
+        impl.audioFifo.erase(
+            impl.audioFifo.begin(),
+            impl.audioFifo.begin() +
+                static_cast<std::ptrdiff_t>(consumedFrames *
+                                            static_cast<std::size_t>(channels)));
     }
     return Result::ok();
 }
@@ -297,7 +343,47 @@ Result FFmpegMediaWriter::finish() {
         av_interleaved_write_frame(impl.format, impl.packet);
         av_packet_unref(impl.packet);
     }
-    // 冲刷音频
+    // 冲刷音频：先发送 FIFO 中剩余样本（末帧可小于 frame_size；补零到 frame_size 更稳妥）
+    if (impl.audioCodec != nullptr && impl.audioFrame != nullptr && !impl.audioFifo.empty()) {
+        const int channels = impl.audioCodec->ch_layout.nb_channels;
+        const int frameSize = impl.audioFrame->nb_samples;
+        const std::size_t remaining = impl.audioFifo.size() / static_cast<std::size_t>(channels);
+        const int tailSamples = static_cast<int>(std::min(
+            remaining, static_cast<std::size_t>(frameSize)));
+        av_frame_make_writable(impl.audioFrame);
+        // 清零帧缓冲，避免填充垃圾数据
+        if (impl.audioCodec->sample_fmt == AV_SAMPLE_FMT_FLTP) {
+            for (int ch = 0; ch < channels; ++ch) {
+                std::memset(impl.audioFrame->data[ch], 0,
+                            static_cast<std::size_t>(frameSize) * sizeof(float));
+            }
+        } else {
+            std::memset(impl.audioFrame->data[0], 0,
+                        static_cast<std::size_t>(frameSize) *
+                            static_cast<std::size_t>(channels) * sizeof(float));
+        }
+        // 拷贝剩余样本
+        const float* src = impl.audioFifo.data();
+        if (impl.audioCodec->sample_fmt == AV_SAMPLE_FMT_FLTP) {
+            for (int ch = 0; ch < channels; ++ch) {
+                float* dst = reinterpret_cast<float*>(impl.audioFrame->data[ch]);
+                for (int i = 0; i < tailSamples; ++i) {
+                    dst[i] = src[static_cast<std::size_t>(i) *
+                                 static_cast<std::size_t>(channels) +
+                                 static_cast<std::size_t>(ch)];
+                }
+            }
+        } else {
+            std::memcpy(impl.audioFrame->data[0], src,
+                        static_cast<std::size_t>(tailSamples) *
+                            static_cast<std::size_t>(channels) * sizeof(float));
+        }
+        impl.audioFrame->nb_samples = frameSize;  // 补零到完整帧
+        impl.audioFrame->pts = impl.audioPts;
+        impl.audioPts += frameSize;
+        avcodec_send_frame(impl.audioCodec, impl.audioFrame);
+        impl.audioFifo.clear();
+    }
     if (impl.audioCodec != nullptr) {
         avcodec_send_frame(impl.audioCodec, nullptr);
         while (true) {

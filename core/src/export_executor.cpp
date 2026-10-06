@@ -4,6 +4,7 @@
 
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/audio_mixer.h"
 
 #include <algorithm>
 #include <map>
@@ -35,7 +36,8 @@ ExportStats executeExport(
     const ExportPlan& plan, MediaReaderFactory& readerFactory,
     const std::function<void(const OutputVideoFrame&)>& videoSink,
     const std::function<void(const OutputAudioBlock&)>& audioSink,
-    const std::function<bool(double)>& progress, const ExportExecutorOptions& options) {
+    const std::function<bool(double)>& progress, const ExportExecutorOptions& options,
+    const Project* project) {
     ExportStats stats;
     stats.warnings = plan.warnings;
 
@@ -300,31 +302,47 @@ ExportStats executeExport(
         }
     }
 
-    // ---- 音频遍历（粗粒度：按 1 秒块驱动，真实实现为采样精确混音）----
-    if (options.outputAudio && audioSink && audioTrack != nullptr) {
-        const int sampleRate = 48000;
-        const int channels = 2;
-        const int blockFrames = 1024;
-        for (const auto& clip : audioTrack->clips) {
-            if (progress != nullptr && totalDuration.isPositive()) {
-                const double p = clip.timelineStart.toDouble() / totalDuration.toDouble();
-                if (!progress(std::min(1.0, std::max(0.0, p)))) {
-                    stats.cancelled = true;
-                    return stats;
-                }
-            }
-            stats.clipsVisited += 1;
-            // 逐块输出该片段覆盖的时间范围（静音填充，真实混音在平台层）
-            Time cursor = clip.timelineStart;
-            while (cursor < clip.timelineEnd) {
-                OutputAudioBlock block;
-                block.start = cursor;
-                block.sampleRate = sampleRate;
-                block.channels = channels;
-                block.samples.assign(static_cast<std::size_t>(blockFrames) * channels, 0.0f);
+    // ---- 音频遍历：真实混音（AudioMixer 采样精确 + 解码 + 增益/淡入淡出）----
+    if (options.outputAudio && audioSink) {
+        MixFormat mixFormat;
+        mixFormat.sampleRate = 48000;
+        mixFormat.channels = 2;
+        AudioMixer mixer(mixFormat, readerFactory);
+        const bool mixerReady = project != nullptr && mixer.prepare(plan, *project) &&
+                                mixer.duration().isPositive();
+        if (mixerReady) {
+            OutputAudioBlock block;
+            while (mixer.readBlock(block)) {
                 audioSink(block);
                 ++stats.audioBlocksWritten;
-                cursor = cursor + Time{Rational::make(blockFrames, sampleRate)};
+                if (progress != nullptr && mixer.duration().isPositive()) {
+                    const double p = block.start.toDouble() / mixer.duration().toDouble();
+                    if (!progress(std::min(1.0, std::max(0.0, p)))) {
+                        stats.cancelled = true;
+                        return stats;
+                    }
+                }
+            }
+        } else if (audioTrack != nullptr) {
+            // 混音器无可用输入（如全部静音/无音频素材）：输出静音流保持时长
+            const int sampleRate = mixFormat.sampleRate;
+            const int channels = mixFormat.channels;
+            const int blockFrames = 1024;
+            Time cursor;
+            for (const auto& clip : audioTrack->clips) {
+                if (clip.timelineStart > cursor) {
+                    cursor = clip.timelineStart;  // 对齐（间隙静音的简化处理）
+                }
+                while (cursor < clip.timelineEnd) {
+                    OutputAudioBlock block;
+                    block.start = cursor;
+                    block.sampleRate = sampleRate;
+                    block.channels = channels;
+                    block.samples.assign(static_cast<std::size_t>(blockFrames) * channels, 0.0f);
+                    audioSink(block);
+                    ++stats.audioBlocksWritten;
+                    cursor = cursor + Time{Rational::make(blockFrames, sampleRate)};
+                }
             }
         }
     }

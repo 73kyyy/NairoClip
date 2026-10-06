@@ -55,7 +55,7 @@ ExportStats executeExport(
     const std::function<void(const OutputVideoFrame&)>& videoSink,
     const std::function<void(const OutputAudioBlock&)>& audioSink,
     const std::function<bool(double)>& progress = nullptr,
-    const ExportExecutorOptions& options = {});
+    const ExportExecutorOptions& options = {}, const Project* project = nullptr);
 
 }  // namespace core
 }  // namespace nairoclip

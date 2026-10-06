@@ -5,7 +5,7 @@ namespace core {
 
 ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFactory,
                           MediaWriterFactory& writerFactory, const ExportRunConfig& config,
-                          const ExportProgressFn& progress) {
+                          const ExportProgressFn& progress, const Project* project) {
     ExportRunResult result;
 
     // 1) 打开写入器
@@ -51,7 +51,7 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
                 sinkError = r;
             }
         },
-        progress, config.executor);
+        progress, config.executor, project);
 
     // 3) 收尾
     if (result.stats.cancelled) {

@@ -242,3 +242,86 @@ NC_TEST(ExportRunner, RealDecodeWithFFmpegSource) {
     (void)frameCount;
 }
 #endif
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+/// 真实音频导出验证：源视频带 AAC 音轨 → 混音器解码 → AAC 编码输出。
+NC_TEST(ExportRunner, RealAudioMixToEncodedFile) {
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    seq.width = 160;
+    seq.height = 120;
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    MediaAsset a;
+    a.id = AssetId{project.ids.next()};
+    a.path = "/tmp/media_gen/test_av.mp4";
+    a.type = MediaType::Video;
+    a.duration = Rational::make(3);
+    project.assets.push_back(a);
+    const AssetId assetId = project.assets.front().id;
+    // 视频轨
+    TrackId videoTrack;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &videoTrack).isOk());
+    Clip vc;
+    vc.asset = assetId;
+    vc.start = Rational::make(0);
+    vc.duration = Rational::make(2);
+    NC_CHECK(editor.insertClip(seqId, videoTrack, vc).isOk());
+    // 音频轨（相同素材）
+    TrackId audioTrack;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Audio, "A1", &audioTrack).isOk());
+    Clip ac;
+    ac.asset = assetId;
+    ac.start = Rational::make(0);
+    ac.duration = Rational::make(2);
+    NC_CHECK(editor.insertClip(seqId, audioTrack, ac).isOk());
+
+    const ExportPlan plan = compileExportPlan(project, *project.mainSequence());
+    FFmpegReaderFactory readerFactory;
+    class RealWriterFactory3 : public MediaWriterFactory {
+    public:
+        std::unique_ptr<MediaWriter> create() override {
+            return std::make_unique<FFmpegMediaWriter>();
+        }
+    };
+    RealWriterFactory3 writerFactory;
+    ExportRunConfig config;
+    config.outputPath = "/tmp/media_gen/runner_audio.mp4";
+    config.writer.width = 160;
+    config.writer.height = 120;
+    config.writer.crf = 30;
+    config.writer.includeAudio = true;
+    config.writer.audioSampleRate = 44100;
+    config.writer.audioChannels = 1;
+    const ExportRunResult result = runExport(plan, readerFactory, writerFactory, config,
+                                             nullptr, &project);
+    NC_CHECK(result.result.isOk());
+    NC_CHECK(result.fileWritten);
+    // 音频块应被写入（混音路径或静音回退路径）
+    NC_CHECK(result.stats.audioBlocksWritten > 0);
+    // 回读验证：音轨存在
+    FFmpegMediaReader reader;
+    NC_CHECK(reader.open(config.outputPath).isOk());
+    NC_CHECK_EQ(reader.probe().sampleRate, 44100);
+    NC_CHECK_EQ(reader.probe().channels, 1);
+    // 解码音频块并验证非全零（真实混音输出）
+    AudioBlock block;
+    bool sawNonZero = false;
+    int audioBlocks = 0;
+    while (reader.readAudioBlock(block) && audioBlocks < 20) {
+        ++audioBlocks;
+        for (const float s : block.samples) {
+            if (s > 0.001f || s < -0.001f) {
+                sawNonZero = true;
+                break;
+            }
+        }
+        if (sawNonZero) break;
+    }
+    NC_CHECK(audioBlocks > 0);
+    NC_CHECK(sawNonZero);  // 源有 440Hz 正弦波 → 输出应非静音
+    reader.close();
+}
+#endif

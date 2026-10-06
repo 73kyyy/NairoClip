@@ -60,13 +60,12 @@ bool AudioMixer::prepare(const ExportPlan& plan, const Project& project) {
 }
 
 void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
-    const std::int64_t blockFrames = static_cast<std::int64_t>(buffer.size() /
-                                                              static_cast<std::size_t>(format_.channels));
-    const double secondsPerFrame = 1.0 / format_.sampleRate;
+    const std::int64_t blockFrames = static_cast<std::int64_t>(
+        buffer.size() / static_cast<std::size_t>(format_.channels));
+    const Time blockEnd = blockStart + Time{Rational::make(blockFrames, format_.sampleRate)};
 
     for (const auto& clip : clips_) {
         // 快速跳过：片段与块无交集
-        const Time blockEnd = blockStart + Time{Rational::make(blockFrames, format_.sampleRate)};
         if (clip.timelineEnd <= blockStart || clip.timelineStart >= blockEnd) {
             continue;
         }
@@ -75,30 +74,62 @@ void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
         if (it == readers_.end()) {
             auto reader = readerFactory_.create();
             if (!reader->open(clip.assetPath).isOk()) {
-                continue;  // 打开失败：跳过该片段（silence）
+                continue;  // 打开失败：跳过该片段（静音）
             }
             it = readers_.emplace(clip.asset.value, std::move(reader)).first;
         }
         MediaReader* reader = it->second.get();
 
-        // 对块内每个采样帧
-        for (std::int64_t i = 0; i < blockFrames; ++i) {
-            const Time frameTime = blockStart + Time{Rational::make(i, format_.sampleRate)};
-            (void)secondsPerFrame;
-            if (frameTime < clip.timelineStart || frameTime >= clip.timelineEnd) {
-                continue;
+        // 计算重叠区间 [overlapStart, overlapEnd)
+        const Time overlapStart =
+            clip.timelineStart > blockStart ? clip.timelineStart : blockStart;
+        const Time overlapEnd = clip.timelineEnd < blockEnd ? clip.timelineEnd : blockEnd;
+        if (!(overlapStart < overlapEnd)) {
+            continue;
+        }
+
+        // 输出块内的样本偏移与数量（有理数精度 → 四舍五入到采样帧）
+        const Rational offsetFrames = (overlapStart - blockStart) *
+                                      Rational::make(format_.sampleRate);
+        std::int64_t outOffset = static_cast<std::int64_t>(
+            offsetFrames.toDouble() + 0.5);
+        if (outOffset < 0) outOffset = 0;
+        if (outOffset >= blockFrames) continue;
+        const Rational countFrames = (overlapEnd - overlapStart) *
+                                     Rational::make(format_.sampleRate);
+        std::int64_t outCount = static_cast<std::int64_t>(countFrames.toDouble() + 0.5);
+        if (outCount <= 0) continue;
+        if (outOffset + outCount > blockFrames) {
+            outCount = blockFrames - outOffset;
+        }
+
+        // 源时间（含 speed 映射）
+        const Time sourceTime =
+            clip.sourceIn + Time{(overlapStart - clip.timelineStart) * clip.speed};
+        if (!reader->seek(sourceTime).isOk()) {
+            continue;
+        }
+        // 读取一个源块（块大小与输出对齐：1024 采样）
+        AudioBlock sourceBlock;
+        if (!reader->readAudioBlock(sourceBlock) || sourceBlock.samples.empty()) {
+            continue;
+        }
+        const std::int64_t srcFrames = static_cast<std::int64_t>(sourceBlock.frameCount());
+        if (srcFrames <= 0) continue;
+
+        // 拷贝/混入：源块样本 
+        // 采样率不一致时按比率取样（线性近似；精确重采样在平台层）
+        for (std::int64_t i = 0; i < outCount; ++i) {
+            std::int64_t srcIndex = i;
+            if (sourceBlock.sampleRate != format_.sampleRate && sourceBlock.sampleRate > 0) {
+                srcIndex = static_cast<std::int64_t>(
+                    static_cast<double>(i) * sourceBlock.sampleRate / format_.sampleRate);
             }
-            // 时间轴 → 源时间
-            const Time sourceTime =
-                clip.sourceIn + Time{(frameTime - clip.timelineStart) * clip.speed};
-            // 读取源采样（对 Mock 采用 seek+read 一次一帧的简化路径；
-            // 真实实现将在平台层以块缓冲 + 插值实现）
-            reader->seek(sourceTime);
-            AudioBlock sourceBlock;
-            if (!reader->readAudioBlock(sourceBlock) || sourceBlock.samples.empty()) {
-                continue;
+            if (srcIndex < 0 || srcIndex >= srcFrames) {
+                break;  // 源块耗尽
             }
-            // 淡入淡出包络（本地时间 = frameTime - timelineStart）
+            // 淡入淡出包络（本地时间）
+            const Time frameTime = overlapStart + Time{Rational::make(i, format_.sampleRate)};
             const Time localTime = frameTime - clip.timelineStart;
             double envelope = 1.0;
             if (clip.fadeIn.isPositive() && localTime < clip.fadeIn) {
@@ -112,25 +143,26 @@ void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
                 }
             }
             if (envelope < 0.0) envelope = 0.0;
-            // 求和到输出缓冲（前 min(源声道, 输出声道) 个通道）
+            const float gain = static_cast<float>(clip.linearGain * envelope);
+            // 声道映射（源声道不足时用通道 0 复制）
             for (int ch = 0; ch < format_.channels; ++ch) {
                 const int srcCh = ch < sourceBlock.channels ? ch : 0;
-                const float sample =
-                    sourceBlock.samples[static_cast<std::size_t>(srcCh)];
-                buffer[static_cast<std::size_t>(i) * static_cast<std::size_t>(format_.channels) +
-                       static_cast<std::size_t>(ch)] +=
-                    sample * static_cast<float>(clip.linearGain * envelope);
+                const float sample = sourceBlock.samples[
+                    static_cast<std::size_t>(srcIndex) *
+                        static_cast<std::size_t>(sourceBlock.channels) +
+                    static_cast<std::size_t>(srcCh)];
+                buffer[static_cast<std::size_t>(outOffset + i) *
+                           static_cast<std::size_t>(format_.channels) +
+                       static_cast<std::size_t>(ch)] += sample * gain;
             }
         }
     }
-
     // 硬限幅（防削顶保护）
     for (auto& s : buffer) {
         if (s > 1.0f) s = 1.0f;
         if (s < -1.0f) s = -1.0f;
     }
 }
-
 bool AudioMixer::readBlock(OutputAudioBlock& out) {
     if (!(cursor_ < duration_)) {
         return false;

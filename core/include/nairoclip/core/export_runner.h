@@ -47,9 +47,11 @@ using ExportProgressFn = std::function<bool(double)>;
 /// - readerFactory：解码器工厂（如 FFmpegReaderFactory）；
 /// - writerFactory：编码器工厂（如 FFmpegMediaWriter）；
 /// - 失败/取消时写入器 abort()，成功时 finish()。
+/// project：可选（提供时启用真实音频混音；为 nullptr 时音频走简化路径）。
 ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFactory,
                           MediaWriterFactory& writerFactory, const ExportRunConfig& config,
-                          const ExportProgressFn& progress = nullptr);
+                          const ExportProgressFn& progress = nullptr,
+                          const Project* project = nullptr);
 
 }  // namespace core
 }  // namespace nairoclip
