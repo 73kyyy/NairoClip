@@ -63,6 +63,9 @@ struct FFmpegMediaReader::Impl {
     // seek 目标
     Time seekTarget;
     bool afterSeek = false;
+    // 解码器冲刷标志（输入 EOF 后发送空包取缓冲帧）
+    bool videoEof = false;
+    bool audioEof = false;
 
     void reset() {
         if (format != nullptr) {
@@ -215,6 +218,8 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
     impl.seekTarget = sourceTime;
     impl.afterSeek = true;
     impl.frameReady = false;
+    impl.videoEof = false;
+    impl.audioEof = false;
     return Result::ok();
 }
 
@@ -268,9 +273,15 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
         }
         if (err == AVERROR(EAGAIN)) {
             // 需要喂包
+            if (impl.videoEof) {
+                return false;  // 已冲刷完解码器
+            }
             const int readErr = av_read_frame(impl.format, impl.packet);
             if (readErr < 0) {
-                return false;  // EOF
+                // 输入 EOF：冲刷解码器（发送空包）以取出缓冲帧
+                impl.videoEof = true;
+                avcodec_send_packet(impl.videoCodec, nullptr);
+                continue;
             }
             if (impl.packet->stream_index == impl.videoStream) {
                 const int sendErr = avcodec_send_packet(impl.videoCodec, impl.packet);
@@ -338,9 +349,14 @@ bool FFmpegMediaReader::readAudioBlock(AudioBlock& out) {
             return true;
         }
         if (err == AVERROR(EAGAIN)) {
+            if (impl.audioEof) {
+                return false;
+            }
             const int readErr = av_read_frame(impl.format, impl.packet);
             if (readErr < 0) {
-                return false;
+                impl.audioEof = true;
+                avcodec_send_packet(impl.audioCodec, nullptr);
+                continue;
             }
             if (impl.packet->stream_index == impl.audioStream) {
                 const int sendErr = avcodec_send_packet(impl.audioCodec, impl.packet);

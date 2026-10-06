@@ -27,6 +27,7 @@ add_library(nairoclip_core STATIC
     src/project_doctor.cpp
     src/scene_detect.cpp
     src/export_executor.cpp
+    src/export_runner.cpp
     src/media_writer.cpp
 )
 target_include_directories(nairoclip_core PUBLIC

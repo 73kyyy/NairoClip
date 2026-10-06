@@ -60,6 +60,7 @@ enum class ErrorCode {
     Locked,      // 轨道已锁定
     Unsupported,
     Internal,    // 内部一致性错误（通常不应出现；见 asserts）
+    Cancelled,   // 用户取消（导出等长任务）
 };
 
 /// 操作结果：错误码 + 可读信息。
