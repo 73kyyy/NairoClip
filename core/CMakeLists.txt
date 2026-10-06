@@ -9,6 +9,7 @@ add_library(nairoclip_core STATIC
     src/editor.cpp
     src/keyframe.cpp
     src/transition.cpp
+    src/speed_curve.cpp
 )
 
 target_include_directories(nairoclip_core PUBLIC
