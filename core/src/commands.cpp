@@ -1,0 +1,371 @@
+#include "nairoclip/core/commands.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <iterator>
+#include <utility>
+
+namespace nairoclip {
+namespace core {
+
+namespace {
+
+/// 按 start 升序的插入位置。
+std::vector<Clip>::iterator insertionPoint(std::vector<Clip>& clips, const Time& start) {
+    return std::lower_bound(clips.begin(), clips.end(), start,
+                            [](const Clip& c, const Time& s) { return c.start < s; });
+}
+
+}  // namespace
+
+Result validateClipPlacement(const Project& project, const Track& track, const Clip& clip,
+                             ClipId ignoreClipId) {
+    if (!clip.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument, "片段参数不合法");
+    }
+    if (track.locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (track.hasOverlap(clip.start, clip.end(), ignoreClipId)) {
+        return Result::fail(ErrorCode::Overlap, "与轨道上的已有片段重叠");
+    }
+    if (clip.asset.isValid()) {
+        const MediaAsset* asset = project.findAsset(clip.asset);
+        if (asset == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "引用的素材不存在");
+        }
+        if (!asset->isImage() && asset->duration.isPositive()) {
+            if (clip.sourceOut() > asset->duration) {
+                return Result::fail(ErrorCode::OutOfRange, "超出素材可用长度");
+            }
+        }
+    }
+    return Result::ok();
+}
+
+// ---------------- AddTrackCommand ----------------
+
+AddTrackCommand::AddTrackCommand(SequenceId sequenceId, TrackId trackId, TrackType type,
+                                 std::string trackName)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      type_(type),
+      trackName_(std::move(trackName)) {}
+
+Result AddTrackCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    if (seq->findTrack(trackId_) != nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "轨道 ID 已存在");
+    }
+    Track track;
+    track.id = trackId_;
+    track.type = type_;
+    track.name = trackName_;
+    seq->tracks.push_back(std::move(track));
+    return Result::ok();
+}
+
+Result AddTrackCommand::revert(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const auto it = std::find_if(seq->tracks.begin(), seq->tracks.end(),
+                                 [this](const Track& t) { return t.id == trackId_; });
+    if (it == seq->tracks.end()) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    seq->tracks.erase(it);
+    return Result::ok();
+}
+
+// ---------------- RemoveTrackCommand ----------------
+
+RemoveTrackCommand::RemoveTrackCommand(SequenceId sequenceId, TrackId trackId)
+    : sequenceId_(sequenceId), trackId_(trackId) {}
+
+Result RemoveTrackCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const auto it = std::find_if(seq->tracks.begin(), seq->tracks.end(),
+                                 [this](const Track& t) { return t.id == trackId_; });
+    if (it == seq->tracks.end()) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (it->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定，无法删除");
+    }
+    removedTrack_ = *it;
+    removedIndex_ = static_cast<std::size_t>(std::distance(seq->tracks.begin(), it));
+    seq->tracks.erase(it);
+    return Result::ok();
+}
+
+Result RemoveTrackCommand::revert(Project& project) {
+    if (!removedTrack_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少轨道快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const std::size_t index =
+        std::min(removedIndex_.value_or(seq->tracks.size()), seq->tracks.size());
+    seq->tracks.insert(seq->tracks.begin() + static_cast<std::ptrdiff_t>(index),
+                       *removedTrack_);
+    return Result::ok();
+}
+
+// ---------------- InsertClipCommand ----------------
+
+InsertClipCommand::InsertClipCommand(SequenceId sequenceId, TrackId trackId, Clip clip)
+    : sequenceId_(sequenceId), trackId_(trackId), clip_(std::move(clip)) {}
+
+Result InsertClipCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const Result check = validateClipPlacement(project, *track, clip_);
+    if (!check.isOk()) {
+        return check;
+    }
+    track->clips.insert(insertionPoint(track->clips, clip_.start), clip_);
+    return Result::ok();
+}
+
+Result InsertClipCommand::revert(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const auto it = std::find_if(track->clips.begin(), track->clips.end(),
+                                 [this](const Clip& c) { return c.id == clip_.id; });
+    if (it == track->clips.end()) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    track->clips.erase(it);
+    return Result::ok();
+}
+
+// ---------------- RemoveClipCommand ----------------
+
+RemoveClipCommand::RemoveClipCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId) {}
+
+Result RemoveClipCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    const auto it = std::find_if(track->clips.begin(), track->clips.end(),
+                                 [this](const Clip& c) { return c.id == clipId_; });
+    if (it == track->clips.end()) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    removedClip_ = *it;
+    removedIndex_ = static_cast<std::size_t>(std::distance(track->clips.begin(), it));
+    track->clips.erase(it);
+    return Result::ok();
+}
+
+Result RemoveClipCommand::revert(Project& project) {
+    if (!removedClip_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少片段快照");
+    }
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const std::size_t index =
+        std::min(removedIndex_.value_or(track->clips.size()), track->clips.size());
+    track->clips.insert(track->clips.begin() + static_cast<std::ptrdiff_t>(index),
+                        *removedClip_);
+    return Result::ok();
+}
+
+// ---------------- SetClipCommand ----------------
+
+SetClipCommand::SetClipCommand(SequenceId sequenceId, TrackId trackId, Clip after,
+                               std::string actionName)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      after_(std::move(after)),
+      actionName_(std::move(actionName)) {}
+
+Result SetClipCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    Clip* current = track->findClip(after_.id);
+    if (current == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    const Result check = validateClipPlacement(project, *track, after_, after_.id);
+    if (!check.isOk()) {
+        return check;
+    }
+    if (!before_.has_value()) {
+        before_ = *current;
+    }
+    *current = after_;
+    track->sortClips();
+    return Result::ok();
+}
+
+Result SetClipCommand::revert(Project& project) {
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少片段快照");
+    }
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    Clip* current = track->findClip(before_->id);
+    if (current == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    *current = *before_;
+    track->sortClips();
+    return Result::ok();
+}
+
+// ---------------- SplitClipCommand ----------------
+
+SplitClipCommand::SplitClipCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                   const Time& at, ClipId rightClipId)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      at_(at),
+      rightClipId_(rightClipId) {}
+
+Result SplitClipCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    Clip* clip = track->findClip(clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!original_.has_value()) {
+        original_ = *clip;
+    }
+    const Clip& original = *original_;
+    if (!(original.start < at_ && at_ < original.end())) {
+        return Result::fail(ErrorCode::OutOfRange, "分割点必须位于片段内部");
+    }
+    if (track->findClip(rightClipId_) != nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "右侧片段 ID 已被占用");
+    }
+
+    Clip left = original;
+    left.duration = at_ - original.start;
+
+    Clip right = original;
+    right.id = rightClipId_;
+    right.start = at_;
+    right.duration = original.end() - at_;
+    right.sourceIn = original.sourceIn + (at_ - original.start) * original.speed;
+
+    *clip = left;
+    track->clips.insert(insertionPoint(track->clips, right.start), right);
+    return Result::ok();
+}
+
+Result SplitClipCommand::revert(Project& project) {
+    if (!original_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少片段快照");
+    }
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    // 移除右半
+    const auto it = std::find_if(track->clips.begin(), track->clips.end(),
+                                 [this](const Clip& c) { return c.id == rightClipId_; });
+    if (it != track->clips.end()) {
+        track->clips.erase(it);
+    }
+    // 恢复左半
+    Clip* clip = track->findClip(clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    *clip = *original_;
+    return Result::ok();
+}
+
+// ---------------- UndoStack ----------------
+
+Result UndoStack::push(Project& project, std::unique_ptr<Command> command) {
+    if (!command) {
+        return Result::fail(ErrorCode::InvalidArgument, "命令为空");
+    }
+    const Result applied = command->apply(project);
+    if (!applied.isOk()) {
+        return applied;
+    }
+    if (cursor_ < commands_.size()) {
+        commands_.resize(cursor_);  // 截断 redo 分支
+    }
+    commands_.push_back(std::move(command));
+    cursor_ = commands_.size();
+    return Result::ok();
+}
+
+Result UndoStack::undo(Project& project) {
+    if (!canUndo()) {
+        return Result::fail(ErrorCode::OutOfRange, "没有可撤销的操作");
+    }
+    Command& cmd = *commands_[cursor_ - 1];
+    const Result reverted = cmd.revert(project);
+    if (!reverted.isOk()) {
+        return reverted;
+    }
+    --cursor_;
+    return Result::ok();
+}
+
+Result UndoStack::redo(Project& project) {
+    if (!canRedo()) {
+        return Result::fail(ErrorCode::OutOfRange, "没有可重做的操作");
+    }
+    Command& cmd = *commands_[cursor_];
+    const Result applied = cmd.apply(project);
+    if (!applied.isOk()) {
+        return applied;
+    }
+    ++cursor_;
+    return Result::ok();
+}
+
+std::vector<std::string> UndoStack::undoHistoryNames() const {
+    std::vector<std::string> names;
+    names.reserve(cursor_);
+    for (std::size_t i = 0; i < cursor_; ++i) {
+        names.push_back(commands_[i]->name());
+    }
+    return names;
+}
+
+void UndoStack::clear() {
+    commands_.clear();
+    cursor_ = 0;
+}
+
+}  // namespace core
+}  // namespace nairoclip

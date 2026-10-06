@@ -1,0 +1,16 @@
+# 构建产物
+/build/
+/build-*/
+/out/
+cmake-build-*/
+*.o
+*.obj
+
+# IDE
+.idea/
+.vscode/
+*.user
+
+# 系统文件
+.DS_Store
+Thumbs.db
