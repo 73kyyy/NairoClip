@@ -13,8 +13,32 @@ AssetId TimelineEditor::importAsset(MediaAsset asset) {
     if (!asset.id.isValid()) {
         asset.id = AssetId{project_.ids.next()};
     }
-    project_.assets.push_back(std::move(asset));
-    return project_.assets.back().id;
+    const AssetId id = asset.id;
+    const Result r = commit(std::make_unique<ImportAssetCommand>(id, std::move(asset)));
+    if (!r.isOk()) {
+        return AssetId{};
+    }
+    return id;
+}
+
+Result TimelineEditor::removeAsset(AssetId assetId) {
+    if (isAssetReferenced(assetId)) {
+        return Result::fail(ErrorCode::InvalidArgument, "素材仍被时间轴引用，无法删除");
+    }
+    return commit(std::make_unique<RemoveAssetCommand>(assetId));
+}
+
+bool TimelineEditor::isAssetReferenced(AssetId assetId) const {
+    for (const auto& seq : project_.sequences) {
+        for (const auto& track : seq.tracks) {
+            for (const auto& clip : track.clips) {
+                if (clip.asset == assetId) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 Result TimelineEditor::addTrack(SequenceId sequenceId, TrackType type, const std::string& name,

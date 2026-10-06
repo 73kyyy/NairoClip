@@ -601,3 +601,53 @@ NC_TEST(Editor, ClipAudioRejectsInvalid) {
     NC_CHECK(clip->audioGainDb == 0.0);
     NC_CHECK_EQ(editor.undoCount(), std::size_t(1));  // 只有 insert
 }
+NC_TEST(Editor, AssetImportUndoRedo) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    const std::size_t assetCount = f.project.assets.size();
+    MediaAsset a2;
+    a2.name = "第二个素材.mp4";
+    a2.type = MediaType::Video;
+    a2.duration = Rational::make(30);
+    const AssetId id = editor.importAsset(a2);
+    NC_CHECK(id.isValid());
+    NC_CHECK_EQ(f.project.assets.size(), assetCount + 1);
+    // 撤销 → 素材移除
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(f.project.assets.size(), assetCount);
+    // 重做 → 恢复
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK_EQ(f.project.assets.size(), assetCount + 1);
+    NC_CHECK(f.project.findAsset(id) != nullptr);
+}
+NC_TEST(Editor, RemoveAssetRejectedWhenReferenced) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, c).isOk());
+    const Result r = editor.removeAsset(f.assetId);
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::InvalidArgument);
+}
+NC_TEST(Editor, RemoveUnreferencedAssetWithUndo) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    // 导入一个不被引用的素材
+    MediaAsset a2;
+    a2.name = "未使用.mp4";
+    a2.type = MediaType::Video;
+    a2.duration = Rational::make(10);
+    const AssetId id = editor.importAsset(a2);
+    NC_CHECK(id.isValid());
+    const std::size_t after = f.project.assets.size();
+    // 删除
+    NC_CHECK(editor.removeAsset(id).isOk());
+    NC_CHECK_EQ(f.project.assets.size(), after - 1);
+    // 撤销 → 恢复（且位置正确）
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(f.project.assets.size(), after);
+    NC_CHECK(f.project.findAsset(id) != nullptr);
+}

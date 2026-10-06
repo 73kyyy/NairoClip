@@ -439,5 +439,36 @@ private:
     std::optional<std::size_t> removedIndex_;
 };
 
+
+/// 导入素材（进入撤销栈）。
+class ImportAssetCommand : public Command {
+public:
+    ImportAssetCommand(AssetId assetId, MediaAsset asset);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "导入素材"; }
+
+private:
+    AssetId assetId_;
+    MediaAsset asset_;
+    bool hadSnapshot_ = false;
+};
+
+/// 删除素材（排除被引用？由编辑器层校验；本命令只负责数据结构）。
+class RemoveAssetCommand : public Command {
+public:
+    RemoveAssetCommand(AssetId assetId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "删除素材"; }
+
+private:
+    AssetId assetId_;
+    std::optional<MediaAsset> removed_;
+    std::optional<std::size_t> removedIndex_;
+};
+
 }  // namespace core
 }  // namespace nairoclip

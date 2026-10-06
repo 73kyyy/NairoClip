@@ -1262,5 +1262,55 @@ Result RemoveEffectCommand::revert(Project& project) {
     return clip->effects.add(*removed_);
 }
 
+
+// ---------------- 素材命令 ----------------
+
+ImportAssetCommand::ImportAssetCommand(AssetId assetId, MediaAsset asset)
+    : assetId_(assetId), asset_(std::move(asset)) {
+    asset_.id = assetId_;
+}
+
+Result ImportAssetCommand::apply(Project& project) {
+    if (project.findAsset(assetId_) != nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "素材 ID 已存在");
+    }
+    project.assets.push_back(asset_);
+    return Result::ok();
+}
+
+Result ImportAssetCommand::revert(Project& project) {
+    const auto it = std::find_if(project.assets.begin(), project.assets.end(),
+                                 [this](const MediaAsset& a) { return a.id == assetId_; });
+    if (it == project.assets.end()) {
+        return Result::fail(ErrorCode::NotFound, "素材不存在");
+    }
+    project.assets.erase(it);
+    return Result::ok();
+}
+
+RemoveAssetCommand::RemoveAssetCommand(AssetId assetId) : assetId_(assetId) {}
+
+Result RemoveAssetCommand::apply(Project& project) {
+    for (std::size_t i = 0; i < project.assets.size(); ++i) {
+        if (project.assets[i].id == assetId_) {
+            removed_ = project.assets[i];
+            removedIndex_ = i;
+            project.assets.erase(project.assets.begin() + static_cast<std::ptrdiff_t>(i));
+            return Result::ok();
+        }
+    }
+    return Result::fail(ErrorCode::NotFound, "素材不存在");
+}
+
+Result RemoveAssetCommand::revert(Project& project) {
+    if (!removed_.has_value() || !removedIndex_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少素材快照");
+    }
+    const std::size_t index = std::min(*removedIndex_, project.assets.size());
+    project.assets.insert(project.assets.begin() + static_cast<std::ptrdiff_t>(index),
+                          *removed_);
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

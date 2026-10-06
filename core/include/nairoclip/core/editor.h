@@ -20,7 +20,12 @@ public:
     const Project& project() const { return project_; }
 
     // ---- 素材 ----
+    /// 导入素材（进入撤销栈；返回素材 ID）。
     AssetId importAsset(MediaAsset asset);
+    /// 删除素材（进入撤销栈）。
+    Result removeAsset(AssetId assetId);
+    /// 检查素材是否被任何序列引用（删除前校验用）。
+    bool isAssetReferenced(AssetId assetId) const;
 
     // ---- 轨道 ----
     Result addTrack(SequenceId sequenceId, TrackType type, const std::string& name,
