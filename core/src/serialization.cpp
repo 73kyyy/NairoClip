@@ -112,6 +112,124 @@ bool readAsset(const JsonValue& v, MediaAsset& out, std::string& err) {
     return true;
 }
 
+// ---------------- 动画通道读写 ----------------
+
+const char* easingTypeName(EasingType t) {
+    switch (t) {
+        case EasingType::Linear: return "linear";
+        case EasingType::EaseIn: return "easeIn";
+        case EasingType::EaseOut: return "easeOut";
+        case EasingType::EaseInOut: return "easeInOut";
+        case EasingType::Stepped: return "stepped";
+        case EasingType::Bezier: return "bezier";
+    }
+    return "linear";
+}
+
+bool parseEasingType(const std::string& s, EasingType& out) {
+    if (s == "linear") { out = EasingType::Linear; return true; }
+    if (s == "easeIn") { out = EasingType::EaseIn; return true; }
+    if (s == "easeOut") { out = EasingType::EaseOut; return true; }
+    if (s == "easeInOut") { out = EasingType::EaseInOut; return true; }
+    if (s == "stepped") { out = EasingType::Stepped; return true; }
+    if (s == "bezier") { out = EasingType::Bezier; return true; }
+    return false;
+}
+
+JsonValue writeEasing(const Easing& e) {
+    JsonValue o = JsonValue::object();
+    o.set("type", JsonValue::string(easingTypeName(e.type)));
+    if (e.type == EasingType::Bezier) {
+        JsonValue points = JsonValue::array();
+        points.push(JsonValue::number(e.c1x));
+        points.push(JsonValue::number(e.c1y));
+        points.push(JsonValue::number(e.c2x));
+        points.push(JsonValue::number(e.c2y));
+        o.set("points", std::move(points));
+    }
+    return o;
+}
+
+bool readEasing(const JsonValue& v, Easing& out, std::string& err) {
+    if (!v.isObject()) { err = "缓动项应为对象"; return false; }
+    if (!parseEasingType(v.get("type").asString(), out.type)) {
+        err = "未知缓动类型: " + v.get("type").asString();
+        return false;
+    }
+    if (out.type == EasingType::Bezier) {
+        const JsonValue& points = v.get("points");
+        if (!points.isArray() || points.size() != 4) {
+            err = "贝塞尔缓动缺少 points";
+            return false;
+        }
+        out = Easing::bezier(points.at(0).asNumber(), points.at(1).asNumber(),
+                             points.at(2).asNumber(), points.at(3).asNumber());
+    }
+    return true;
+}
+
+JsonValue writeKeyframeTrack(const KeyframeTrack& track) {
+    JsonValue arr = JsonValue::array();
+    for (const auto& k : track.keyframes()) {
+        JsonValue o = JsonValue::object();
+        o.set("time", writeRational(k.time));
+        o.set("value", JsonValue::number(k.value));
+        o.set("easing", writeEasing(k.easing));
+        arr.push(std::move(o));
+    }
+    return arr;
+}
+
+bool readKeyframeTrack(const JsonValue& v, KeyframeTrack& out, std::string& err) {
+    out.clear();
+    if (v.isNull()) return true;
+    if (!v.isArray()) { err = "关键帧通道应为数组"; return false; }
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const JsonValue& kv = v.at(i);
+        if (!kv.isObject()) { err = "关键帧项应为对象"; return false; }
+        Keyframe k;
+        if (!readRational(kv.get("time"), "time", k.time, err)) return false;
+        k.value = kv.get("value").asNumber();
+        if (kv.has("easing")) {
+            if (!readEasing(kv.get("easing"), k.easing, err)) return false;
+        }
+        const Result r = out.insert(k);
+        if (!r.isOk()) { err = r.message; return false; }
+    }
+    return true;
+}
+
+JsonValue writeClipAnimation(const ClipAnimation& anim) {
+    JsonValue o = JsonValue::object();
+    const ClipProperty properties[] = {ClipProperty::Opacity, ClipProperty::Scale,
+                                       ClipProperty::PositionX, ClipProperty::PositionY,
+                                       ClipProperty::Rotation, ClipProperty::Volume};
+    const char* names[] = {"opacity", "scale", "positionX", "positionY", "rotation", "volume"};
+    for (std::size_t i = 0; i < 6; ++i) {
+        const KeyframeTrack* track = anim.findCurve(properties[i]);
+        if (track != nullptr && !track->empty()) {
+            o.set(names[i], writeKeyframeTrack(*track));
+        }
+    }
+    return o;
+}
+
+bool readClipAnimation(const JsonValue& v, ClipAnimation& out, std::string& err) {
+    out.clear();
+    if (v.isNull()) return true;
+    if (!v.isObject()) { err = "animation 应为对象"; return false; }
+    const ClipProperty properties[] = {ClipProperty::Opacity, ClipProperty::Scale,
+                                       ClipProperty::PositionX, ClipProperty::PositionY,
+                                       ClipProperty::Rotation, ClipProperty::Volume};
+    const char* names[] = {"opacity", "scale", "positionX", "positionY", "rotation", "volume"};
+    for (std::size_t i = 0; i < 6; ++i) {
+        if (v.has(names[i])) {
+            if (!readKeyframeTrack(v.get(names[i]), out.curve(properties[i]), err)) return false;
+        }
+    }
+    return true;
+}
+
 JsonValue writeClip(const Clip& c) {
     JsonValue o = JsonValue::object();
     o.set("id", JsonValue::integer(static_cast<std::int64_t>(c.id.value)));
@@ -121,6 +239,9 @@ JsonValue writeClip(const Clip& c) {
     o.set("sourceIn", writeRational(c.sourceIn));
     o.set("speed", writeRational(c.speed));
     o.set("enabled", JsonValue::boolean(c.enabled));
+    if (!c.animation.empty()) {
+        o.set("animation", writeClipAnimation(c.animation));
+    }
     return o;
 }
 
@@ -136,6 +257,10 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
         if (!readRational(v.get("speed"), "speed", out.speed, err)) return false;
     }
     out.enabled = v.get("enabled").asBool(true);
+    out.animation.clear();
+    if (v.has("animation")) {
+        if (!readClipAnimation(v.get("animation"), out.animation, err)) return false;
+    }
     return true;
 }
 

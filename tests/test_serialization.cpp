@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "nairoclip/core/serialization.h"
+#include <cmath>
 using namespace nairoclip::core;
 namespace {
 Project makeSampleProject() {
@@ -110,4 +111,72 @@ NC_TEST(Serialization, FailedLoadLeavesTargetUnmodified) {
     const NclipLoadResult r = loadProjectFromNclip("not json at all", target);
     NC_CHECK(!r.result.isOk());
     NC_CHECK_EQ(target.name, std::string("原工程"));
+}
+NC_TEST(Serialization, AnimationRoundtrip) {
+    Project p;
+    p.name = "动画工程";
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    Clip c;
+    c.id = ClipId{p.ids.next()};
+    c.start = Rational::make(0);
+    c.duration = Rational::make(5);
+    Keyframe k1;
+    k1.time = Rational::make(0);
+    k1.value = 0.0;
+    k1.easing = Easing::easeIn();
+    Keyframe k2;
+    k2.time = Rational::make(2);
+    k2.value = 1.0;
+    Keyframe k3;
+    k3.time = Rational::make(0);
+    k3.value = 1.5;
+    k3.easing = Easing::bezier(0.2, 0.4, 0.8, 0.6);
+    Keyframe k4;
+    k4.time = Rational::make(4);
+    k4.value = 3.0;
+    NC_CHECK(c.animation.curve(ClipProperty::Opacity).insert(k1).isOk());
+    NC_CHECK(c.animation.curve(ClipProperty::Opacity).insert(k2).isOk());
+    NC_CHECK(c.animation.curve(ClipProperty::Scale).insert(k3).isOk());
+    NC_CHECK(c.animation.curve(ClipProperty::Scale).insert(k4).isOk());
+    t.clips.push_back(c);
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+    const std::string text = saveProjectToNclip(p);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
+    const Clip& lc = loaded.sequences[0].tracks[0].clips[0];
+    NC_CHECK(lc.animation.hasCurve(ClipProperty::Opacity));
+    NC_CHECK(lc.animation.hasCurve(ClipProperty::Scale));
+    NC_CHECK_EQ(lc.animation.curveCount(), std::size_t(2));
+    const KeyframeTrack* opacity = lc.animation.findCurve(ClipProperty::Opacity);
+    NC_CHECK(opacity != nullptr);
+    NC_CHECK_EQ(opacity->size(), std::size_t(2));
+    NC_CHECK(opacity->keyframes()[0].easing.type == EasingType::EaseIn);
+    const KeyframeTrack* scale = lc.animation.findCurve(ClipProperty::Scale);
+    NC_CHECK(scale != nullptr);
+    NC_CHECK(scale->keyframes()[0].easing.type == EasingType::Bezier);
+    NC_CHECK(std::abs(scale->keyframes()[0].easing.c1x - 0.2) < 1e-9);
+    NC_CHECK(std::abs(scale->keyframes()[0].easing.c2y - 0.6) < 1e-9);
+}
+NC_TEST(Serialization, ClipWithoutAnimationOmitsField) {
+    Project p;
+    p.name = "n";
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    Clip c;
+    c.id = ClipId{p.ids.next()};
+    c.duration = Rational::make(1);
+    t.clips.push_back(c);
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+    const std::string text = saveProjectToNclip(p);
+    NC_CHECK(text.find("animation") == std::string::npos);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
+    NC_CHECK(loaded.sequences[0].tracks[0].clips[0].animation.empty());
 }
