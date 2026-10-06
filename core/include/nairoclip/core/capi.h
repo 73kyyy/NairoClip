@@ -126,6 +126,41 @@ int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t i
 int32_t nc_clip_get(const NcEditor* editor, int32_t track_index, int32_t clip_index,
                     int64_t* out_start_us, int64_t* out_duration_us, uint64_t* out_asset_id);
 
+// ---- 特效 ----
+
+/// 给片段添加特效（type/value 见 core::EffectType / effectSpec 范围）。
+/// 返回 >0（EffectId）或 0。
+uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, int32_t type,
+                       double value);
+
+/// 删除片段特效。
+int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         uint64_t effect_id);
+
+/// 读取片段特效数量。
+int32_t nc_effect_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
+/// 读取第 index 个特效（类型/数值/启用状态）。
+int32_t nc_effect_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                      int32_t index, int32_t* out_type, double* out_value,
+                      int32_t* out_enabled);
+
+// ---- 关键帧 ----
+
+/// 插入关键帧（property 见 ClipProperty 枚举值：0=Opacity..5=Volume）。
+int32_t nc_insert_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t property, int64_t time_us, double value);
+
+/// 删除关键帧。
+int32_t nc_remove_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t property, int64_t time_us);
+
+// ---- 音频属性 ----
+
+/// 设置片段音频（增益 dB / 淡入微秒 / 淡出微秒）。
+int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_id, double gain_db,
+                          int64_t fade_in_us, int64_t fade_out_us);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

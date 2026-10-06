@@ -188,3 +188,47 @@ NC_TEST(Capi, ClipGet) {
     NC_CHECK_EQ(nc_clip_get(editor, 0, 9, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
     nc_editor_destroy(editor);
 }
+NC_TEST(Capi, EffectCrud) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clipId = nc_insert_clip(editor, 0, assetId, 0, 5000000);
+    NC_CHECK(clipId != 0);
+    // 添加亮度特效（type=1）
+    const std::uint64_t eid = nc_add_effect(editor, 0, clipId, 1, 0.25);
+    NC_CHECK(eid != 0);
+    NC_CHECK_EQ(nc_effect_count(editor, 0, clipId), 1);
+    // 读取
+    std::int32_t type = -1;
+    double value = 0.0;
+    std::int32_t enabled = 0;
+    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &type, &value, &enabled), NC_OK);
+    NC_CHECK_EQ(type, 1);
+    NC_CHECK(std::abs(value - 0.25) < 1e-9);
+    NC_CHECK_EQ(enabled, 1);
+    // 无效类型
+    NC_CHECK_EQ(nc_add_effect(editor, 0, clipId, 99, 0.0), std::uint64_t(0));
+    // 删除
+    NC_CHECK_EQ(nc_remove_effect(editor, 0, clipId, eid), NC_OK);
+    NC_CHECK_EQ(nc_effect_count(editor, 0, clipId), 0);
+    nc_editor_destroy(editor);
+}
+NC_TEST(Capi, KeyframeAndAudio) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clipId = nc_insert_clip(editor, 0, assetId, 0, 5000000);
+    // 关键帧：Opacity（0）
+    NC_CHECK_EQ(nc_insert_keyframe(editor, 0, clipId, 0, 0, 1.0), NC_OK);
+    NC_CHECK_EQ(nc_insert_keyframe(editor, 0, clipId, 0, 2000000, 0.5), NC_OK);
+    // 非法属性
+    NC_CHECK_EQ(nc_insert_keyframe(editor, 0, clipId, 9, 0, 1.0), NC_ERROR_INVALID_ARGUMENT);
+    // 删除关键帧
+    NC_CHECK_EQ(nc_remove_keyframe(editor, 0, clipId, 0, 0), NC_OK);
+    // 音频属性
+    NC_CHECK_EQ(nc_set_clip_audio(editor, 0, clipId, -6.0, 500000, 500000), NC_OK);
+    // 非法音频（淡入淡出超时长）
+    NC_CHECK_EQ(nc_set_clip_audio(editor, 0, clipId, 0.0, 3000000, 3000000),
+                NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}

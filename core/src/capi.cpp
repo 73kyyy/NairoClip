@@ -1,6 +1,7 @@
 #include "nairoclip/core/capi.h"
 
 #include "nairoclip/core/editor.h"
+#include "nairoclip/core/effects.h"
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/serialization.h"
 
@@ -373,6 +374,139 @@ int32_t nc_clip_get(const NcEditor* editor, int32_t track_index, int32_t clip_in
     if (out_duration_us != nullptr) *out_duration_us = toMicroseconds(clip.duration);
     if (out_asset_id != nullptr) *out_asset_id = clip.asset.value;
     return NC_OK;
+}
+
+uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, int32_t type,
+                       double value) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return 0;
+    }
+    if (type <= 0 || type > 12) {
+        return 0;  // 0 = None 无效；1..12 有效
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return 0;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    Effect e;
+    e.id = EffectId{editor->project.ids.next()};
+    e.type = static_cast<EffectType>(type);
+    e.value = value;
+    const Result r = editor->editor->addEffect(main->id, trackId, ClipId{clip_id}, e);
+    return r.isOk() ? e.id.value : 0;
+}
+
+int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         uint64_t effect_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(
+        editor->editor->removeEffect(main->id, trackId, ClipId{clip_id}, EffectId{effect_id}).code);
+}
+
+int32_t nc_effect_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return 0;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    return clip == nullptr ? 0 : static_cast<int32_t>(clip->effects.size());
+}
+
+int32_t nc_effect_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                      int32_t index, int32_t* out_type, double* out_value,
+                      int32_t* out_enabled) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(index) >= clip->effects.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Effect& e = clip->effects.effects()[static_cast<std::size_t>(index)];
+    if (out_type != nullptr) *out_type = static_cast<int32_t>(e.type);
+    if (out_value != nullptr) *out_value = e.value;
+    if (out_enabled != nullptr) *out_enabled = e.enabled ? 1 : 0;
+    return NC_OK;
+}
+
+int32_t nc_insert_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t property, int64_t time_us, double value) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || time_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (property < 0 || property > 5) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    Keyframe k;
+    k.time = fromMicroseconds(time_us);
+    k.value = value;
+    return toNcError(editor->editor
+                         ->insertKeyframe(main->id, trackId, ClipId{clip_id},
+                                          static_cast<ClipProperty>(property), k)
+                         .code);
+}
+
+int32_t nc_remove_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t property, int64_t time_us) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || time_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (property < 0 || property > 5) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor
+                         ->removeKeyframe(main->id, trackId, ClipId{clip_id},
+                                          static_cast<ClipProperty>(property),
+                                          fromMicroseconds(time_us))
+                         .code);
+}
+
+int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_id, double gain_db,
+                          int64_t fade_in_us, int64_t fade_out_us) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || fade_in_us < 0 ||
+        fade_out_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor
+                         ->setClipAudio(main->id, trackId, ClipId{clip_id}, gain_db,
+                                        fromMicroseconds(fade_in_us),
+                                        fromMicroseconds(fade_out_us))
+                         .code);
 }
 
 void nc_free_string(char* text) { delete[] text; }
