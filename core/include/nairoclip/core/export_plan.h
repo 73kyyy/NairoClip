@@ -32,6 +32,8 @@ struct RenderClip {
     bool hasAnimation = false;
     /// 特效栈快照（颜色变换在导出时逐帧应用）。
     EffectStack effects;
+    /// 动画快照（透明度等逐帧采样）。
+    ClipAnimation animation;
 };
 
 /// 导出计划中的转场（含计算好的时间区间）。

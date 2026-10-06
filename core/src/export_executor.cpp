@@ -338,6 +338,23 @@ ExportStats executeExport(
                                                          transform);
                             }
                         }
+                        // 应用动画透明度（alpha 缩放）
+                        if (active->hasAnimation) {
+                            const Time localTime = t - active->timelineStart;
+                            const double opacity =
+                                active->animation.sample(ClipProperty::Opacity, localTime);
+                            if (opacity < 0.999) {
+                                const std::size_t pixelCount =
+                                    static_cast<std::size_t>(plan.width) *
+                                    static_cast<std::size_t>(plan.height);
+                                const double clamped = opacity < 0.0 ? 0.0 : opacity;
+                                for (std::size_t i = 0; i < pixelCount; ++i) {
+                                    const std::size_t alphaIndex = i * 4 + 3;
+                                    const double a = frame.rgba[alphaIndex] * clamped;
+                                    frame.rgba[alphaIndex] = static_cast<std::uint8_t>(a + 0.5);
+                                }
+                            }
+                        }
                         if (activeTransition != nullptr) {
                             frame.transitionType = static_cast<int>(activeTransition->type);
                             frame.transitionProgress = TransitionRenderer::transitionProgress(

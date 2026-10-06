@@ -457,3 +457,44 @@ NC_TEST(ExportRunner, SubtitlesAttachedToFrames) {
     NC_CHECK(sawColor);   // #FF0000 → 0xFF0000FF
     NC_CHECK(sawAnchor);
 }
+
+NC_TEST(ExportRunner, OpacityAnimationApplied) {
+    Fixture f;
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);
+    ClipId clipId;
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, c, &clipId).isOk());
+    // 关键帧：0s 处 alpha 恒 0.5（用两条帧维持住）
+    NC_CHECK(f.editor
+                 .insertKeyframe(f.seqId, f.trackId, clipId, ClipProperty::Opacity,
+                                 Keyframe{Rational::make(0), 0.5})
+                 .isOk());
+    NC_CHECK(f.editor
+                 .insertKeyframe(f.seqId, f.trackId, clipId, ClipProperty::Opacity,
+                                 Keyframe{Rational::make(1), 0.5})
+                 .isOk());
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    RunnerFactory readerFactory;
+    int framesChecked = 0;
+    double minAlphaRatio = 1.0;
+    const ExportStats stats = executeExport(
+        plan, readerFactory,
+        [&](const OutputVideoFrame& frame) {
+            if (framesChecked < 3) {
+                // 检查第一像素 alpha（应为 255*0.5 ≈ 127）
+                if (frame.rgba.size() >= 4) {
+                    const double ratio = frame.rgba[3] / 255.0;
+                    if (ratio < minAlphaRatio) minAlphaRatio = ratio;
+                }
+                ++framesChecked;
+            }
+        },
+        nullptr, nullptr, ExportExecutorOptions{}, &f.project);
+    NC_CHECK(stats.framesWritten > 0);
+    NC_CHECK(framesChecked == 3);
+    // alpha 被缩放 ~0.5
+    NC_CHECK(minAlphaRatio < 0.6);
+    NC_CHECK(minAlphaRatio > 0.4);
+}
