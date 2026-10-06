@@ -11,6 +11,7 @@ add_library(nairoclip_core STATIC
     src/transition.cpp
     src/speed_curve.cpp
     src/json.cpp
+    src/serialization.cpp
 )
 
 target_include_directories(nairoclip_core PUBLIC
