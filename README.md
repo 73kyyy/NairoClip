@@ -66,7 +66,8 @@
 | M2.2 | AI 标识接入导出管线 | ✅ 已完成 |
 | M2.3 | 音频波形生成器 | ✅ 已完成 |
 | M2.4 | 参考仿剪全真实链路端到端验证 | ✅ 已完成 |
-| M2.5 | Android 平台层（JNI + MediaCodec） | ⬜ 计划中 |
+| M2.5 | C ABI 导出接口 nc_export_run | ✅ 已完成 |
+| M2.6 | Android 平台层（JNI + MediaCodec 封装，需 NDK 环境） | ⬜ 计划中 |
 | M2.x | Android 平台壳（Kotlin + JNI），真机跑通时间轴编辑 | ⬜ 计划中 |
 
 ## 仓库结构
