@@ -69,7 +69,9 @@
 | M2.5 | C ABI 导出接口 nc_export_run | ✅ 已完成 |
 | M2.6 | 导出压力测试（性能基线） | ✅ 已完成 |
 | M2.7 | SRT/WebVTT 字幕交换 | ✅ 已完成 |
-| M2.8 | Android 平台层（JNI + MediaCodec 封装，需 NDK 环境） | ⬜ 计划中 |
+| M2.8 | nclip_tool 字幕导入导出命令 | ✅ 已完成 |
+| M2.9 | 导出画幅适配模式（fit/fill/crop） | ⬜ 计划中 |
+| M3.0 | Android 平台层（JNI + MediaCodec 封装，需 NDK 环境） | ⬜ 计划中 |
 | M2.x | Android 平台壳（Kotlin + JNI），真机跑通时间轴编辑 | ⬜ 计划中 |
 
 ## 仓库结构
