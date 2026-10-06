@@ -1,4 +1,5 @@
 #include "test_framework.h"
+#include "nairoclip/core/editor.h"
 #include "nairoclip/core/serialization.h"
 #include <cmath>
 using namespace nairoclip::core;
@@ -332,4 +333,78 @@ NC_TEST(Serialization, EffectsRoundtrip) {
     NC_CHECK(std::abs(lc.effects.effects()[0].value - 1.8) < 1e-9);
     NC_CHECK(lc.effects.effects()[1].type == EffectType::GaussianBlur);
     NC_CHECK(lc.effects.effects()[1].enabled == false);
+}
+
+NC_TEST(Serialization, RoundTripsAnimationAndSpeedCurve) {
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    MediaAsset a;
+    a.id = AssetId{project.ids.next()};
+    a.type = MediaType::Video;
+    a.duration = Rational::make(60);
+    a.path = "/v/a.mp4";
+    project.assets.push_back(a);
+    TrackId trackId;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &trackId).isOk());
+    Clip c;
+    c.asset = project.assets.front().id;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(5);
+    // 关键帧：不透明度 1 → 0
+    NC_CHECK(c.animation.curve(ClipProperty::Opacity)
+                 .insert(Keyframe{Rational::make(0), 1.0})
+                 .isOk());
+    NC_CHECK(c.animation.curve(ClipProperty::Opacity)
+                 .insert(Keyframe{Rational::make(5), 0.0})
+                 .isOk());
+    // 速度曲线：1x → 2x
+    NC_CHECK(c.speedCurve
+                 .addPoint(SpeedPoint{Rational::make(0), Rational::make(1), Easing{}})
+                 .isOk());
+    NC_CHECK(c.speedCurve
+                 .addPoint(SpeedPoint{Rational::make(10), Rational::make(2), Easing{}})
+                 .isOk());
+    // 音频属性
+    c.audioGainDb = -3.0;
+    c.audioFadeIn = Rational::make(1, 2);
+    c.audioFadeOut = Rational::make(1, 4);
+    ClipId clipId;
+    NC_CHECK(editor.insertClip(seqId, trackId, c, &clipId).isOk());
+    // 特效
+    Effect e;
+    e.id = EffectId{project.ids.next()};
+    e.type = EffectType::Brightness;
+    e.value = 0.3;
+    NC_CHECK(editor.addEffect(seqId, trackId, clipId, e).isOk());
+
+    // 存读往返
+    const std::string saved = saveProjectToNclip(project);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(saved, loaded).result.isOk());
+    const Clip& lc = loaded.mainSequence()->tracks[0].clips[0];
+    // 动画
+    const KeyframeTrack* opacityCurve = lc.animation.findCurve(ClipProperty::Opacity);
+    NC_CHECK(opacityCurve != nullptr);
+    NC_CHECK_EQ(opacityCurve->keyframes().size(), std::size_t(2));
+    NC_CHECK(std::abs(lc.animation.sample(ClipProperty::Opacity, Rational::make(0)) - 1.0) <
+             1e-6);
+    NC_CHECK(std::abs(lc.animation.sample(ClipProperty::Opacity, Rational::make(5)) - 0.0) <
+             1e-6);
+    // 速度曲线
+    NC_CHECK(!lc.speedCurve.empty());
+    NC_CHECK_EQ(lc.speedCurve.size(), std::size_t(2));
+    NC_CHECK(std::abs(lc.speedCurve.speedAt(Rational::make(0)) - 1.0) < 1e-6);
+    NC_CHECK(std::abs(lc.speedCurve.speedAt(Rational::make(10)) - 2.0) < 1e-6);
+    // 音频
+    NC_CHECK(std::abs(lc.audioGainDb - (-3.0)) < 1e-9);
+    NC_CHECK(lc.audioFadeIn == Rational::make(1, 2));
+    NC_CHECK(lc.audioFadeOut == Rational::make(1, 4));
+    // 特效
+    NC_CHECK_EQ(lc.effects.size(), std::size_t(1));
+    NC_CHECK(lc.effects.effects()[0].type == EffectType::Brightness);
+    NC_CHECK(std::abs(lc.effects.effects()[0].value - 0.3) < 1e-9);
 }
