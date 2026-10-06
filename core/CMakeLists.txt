@@ -18,6 +18,7 @@ add_library(nairoclip_core STATIC
     src/capi.cpp
     src/subtitle.cpp
     src/media_io.cpp
+    src/effects.cpp
     src/export_executor.cpp
 )
 

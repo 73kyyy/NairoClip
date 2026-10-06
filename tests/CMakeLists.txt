@@ -18,6 +18,7 @@ add_executable(nairoclip_tests
     test_subtitle.cpp
     test_stress.cpp
     test_media_io.cpp
+    test_effects.cpp
     test_export_executor.cpp
     test_ripple.cpp
 )
