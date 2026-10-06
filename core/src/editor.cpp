@@ -173,6 +173,12 @@ Result TimelineEditor::setClipSpeed(SequenceId sequenceId, TrackId trackId, Clip
         std::make_unique<SetClipCommand>(sequenceId, trackId, std::move(after), "变速"));
 }
 
+Result TimelineEditor::moveClipToTrack(SequenceId sequenceId, TrackId fromTrack,
+                                    TrackId toTrack, ClipId clipId, const Time& newStart) {
+    return commit(std::make_unique<MoveClipToTrackCommand>(sequenceId, fromTrack, toTrack,
+                                                           clipId, newStart));
+}
+
 Result TimelineEditor::undo() {
     return undoStack_.undo(project_);
 }

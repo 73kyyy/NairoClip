@@ -113,6 +113,28 @@ private:
     ClipId rightClipId_;
     std::optional<Clip> original_;
 };
+/// 跨轨移动片段：从 (fromTrack) 删除并插入到 (toTrack) 的指定起点。
+/// 校验：目标轨道存在且未锁定、片段类型兼容（视频片段 → 视频/特效轨，
+/// 音频片段 → 音频轨由调用方素材类型判断）、目标区间不重叠、
+/// 源/目标轨道相同时退化为普通移动。
+class MoveClipToTrackCommand : public Command {
+public:
+    MoveClipToTrackCommand(SequenceId sequenceId, TrackId fromTrack, TrackId toTrack,
+                           ClipId clipId, const Time& newStart);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "跨轨移动"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId fromTrack_;
+    TrackId toTrack_;
+    ClipId clipId_;
+    Time newStart_;
+    std::optional<Clip> movedClip_;  // apply 时的源快照（含原参数）
+    std::optional<std::size_t> removedIndex_;
+};
 
 }  // namespace core
 }  // namespace nairoclip

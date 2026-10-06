@@ -37,6 +37,9 @@ public:
     Result trimClipEnd(SequenceId sequenceId, TrackId trackId, ClipId clipId, const Time& newEnd);
     Result setClipSpeed(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                         const Rational& newSpeed);
+    /// 跨轨移动片段到目标轨道指定起点（源=目标时拒绝，请用 moveClip）。
+    Result moveClipToTrack(SequenceId sequenceId, TrackId fromTrack, TrackId toTrack,
+                           ClipId clipId, const Time& newStart);
 
     // ---- 撤销 / 重做 ----
     Result undo();

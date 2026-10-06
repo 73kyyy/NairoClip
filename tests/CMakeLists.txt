@@ -6,6 +6,7 @@ add_executable(nairoclip_tests
     test_editor.cpp
     test_keyframe.cpp
     test_transition.cpp
+    test_crosstrack.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

@@ -367,5 +367,73 @@ void UndoStack::clear() {
     cursor_ = 0;
 }
 
+// ---------------- MoveClipToTrackCommand ----------------
+
+MoveClipToTrackCommand::MoveClipToTrackCommand(SequenceId sequenceId, TrackId fromTrack,
+                                               TrackId toTrack, ClipId clipId,
+                                               const Time& newStart)
+    : sequenceId_(sequenceId),
+      fromTrack_(fromTrack),
+      toTrack_(toTrack),
+      clipId_(clipId),
+      newStart_(newStart) {}
+
+Result MoveClipToTrackCommand::apply(Project& project) {
+    Track* from = findTrack(project, sequenceId_, fromTrack_);
+    Track* to = findTrack(project, sequenceId_, toTrack_);
+    if (from == nullptr || to == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (from->locked || to->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (newStart_.isNegative()) {
+        return Result::fail(ErrorCode::InvalidArgument, "起点不能为负");
+    }
+    if (fromTrack_ == toTrack_) {
+        return Result::fail(ErrorCode::InvalidArgument, "源与目标轨道相同，请使用移动操作");
+    }
+    const Clip* source = from->findClip(clipId_);
+    if (source == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!movedClip_.has_value()) {
+        movedClip_ = *source;
+    }
+    Clip toInsert = *movedClip_;
+    toInsert.start = newStart_;
+    const Result check = validateClipPlacement(project, *to, toInsert);
+    if (!check.isOk()) {
+        return check;
+    }
+    removedIndex_ = static_cast<std::size_t>(from->indexOf(clipId_));
+    const auto it = std::find_if(from->clips.begin(), from->clips.end(),
+                                 [this](const Clip& c) { return c.id == clipId_; });
+    from->clips.erase(it);
+    to->clips.insert(insertionPoint(to->clips, toInsert.start), toInsert);
+    return Result::ok();
+}
+
+Result MoveClipToTrackCommand::revert(Project& project) {
+    if (!movedClip_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少片段快照");
+    }
+    Track* from = findTrack(project, sequenceId_, fromTrack_);
+    Track* to = findTrack(project, sequenceId_, toTrack_);
+    if (from == nullptr || to == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const auto it = std::find_if(to->clips.begin(), to->clips.end(),
+                                 [this](const Clip& c) { return c.id == clipId_; });
+    if (it == to->clips.end()) {
+        return Result::fail(ErrorCode::NotFound, "目标轨道上找不到片段");
+    }
+    to->clips.erase(it);
+    const std::size_t index =
+        std::min(removedIndex_.value_or(from->clips.size()), from->clips.size());
+    from->clips.insert(from->clips.begin() + static_cast<std::ptrdiff_t>(index), *movedClip_);
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip
