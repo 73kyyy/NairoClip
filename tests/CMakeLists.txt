@@ -12,6 +12,7 @@ add_executable(nairoclip_tests
     test_serialization.cpp
     test_recovery.cpp
     test_animation.cpp
+    test_export_plan.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
