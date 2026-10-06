@@ -71,6 +71,11 @@ public:
     std::size_t undoCount() const { return undoStack_.undoCount(); }
     std::size_t redoCount() const { return undoStack_.redoCount(); }
     std::vector<std::string> undoHistoryNames() const { return undoStack_.undoHistoryNames(); }
+    // ---- 事务（手势合并成单条历史）----
+    void beginTransaction(const std::string& name) { undoStack_.beginTransaction(name); }
+    bool endTransaction() { return undoStack_.endTransaction(project_); }
+    bool inTransaction() const { return undoStack_.inTransaction(); }
+    void setMergeEnabled(bool enabled) { undoStack_.setMergeEnabled(enabled); }
 
 private:
     Result commit(std::unique_ptr<Command> command);

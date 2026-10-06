@@ -89,6 +89,15 @@ public:
     Result revert(Project& project) override;
     std::string name() const override { return actionName_; }
 
+    /// 同片段 + 同操作名 + 当前值等于对方目标值 → 可合并（连续拖动/微调）。
+    bool canMergeWith(const Command& other) const override;
+    /// 吸收后续命令的目标状态（before_ 保持不变，撤销回到手势起点）。
+    void mergeFrom(const Command& other) override;
+
+    /// 供编辑器包装类访问（合并判定需要）。
+    ClipId clipId() const { return after_.id; }
+    const std::string& actionName() const { return actionName_; }
+
 private:
     SequenceId sequenceId_;
     TrackId trackId_;

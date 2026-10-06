@@ -22,6 +22,15 @@ public:
 
     /// 展示名称（历史面板用，如「分割片段」）。
     virtual std::string name() const = 0;
+
+    /// 合并钩子：默认可与同类型命令合并（手势拖动场景）。
+    /// 返回 true 时，push 的新命令会调用 mergeFrom 并替代原命令。
+    virtual bool canMergeWith(const Command& other) const {
+        (void)other;
+        return false;
+    }
+    /// 从后续命令吸收状态（canMergeWith 返回 true 时调用）。
+    virtual void mergeFrom(const Command& other) { (void)other; }
 };
 
 /// 撤销栈：线性历史 + 游标。
@@ -45,9 +54,32 @@ public:
 
     void clear();
 
+    /// ---- 事务（手势合并）----
+    /// 开始事务：后续 push 的命令合并为单条历史记录。
+    /// 嵌套 begin 计数，最外层 end 时成形。
+    void beginTransaction(const std::string& name);
+    /// 结束事务：把事务期间命令合并为一条历史记录。
+    /// 返回是否形成了分组（事务期间无命令则返回 false）。
+    bool endTransaction(Project& project);
+    bool inTransaction() const { return transactionDepth_ > 0; }
+
+    /// 合并策略：连续 push 且栈顶命令 canMergeWith 时合并（如拖动微调）。
+    void setMergeEnabled(bool enabled) { mergeEnabled_ = enabled; }
+    bool mergeEnabled() const { return mergeEnabled_; }
+
+    /// 丢弃最近一次 push（用于手势取消：先还原再弹出）。
+    Result dropLast(Project& project);
+
 private:
+    Result pushInternal(Project& project, std::unique_ptr<Command> command);
     std::vector<std::unique_ptr<Command>> commands_;
     std::size_t cursor_ = 0;  // commands_[0, cursor) 处于「已应用」状态
+
+    // 事务状态
+    std::size_t transactionDepth_ = 0;
+    std::string transactionName_;
+    std::vector<std::unique_ptr<Command>> transactionCommands_;
+    bool mergeEnabled_ = false;
 };
 
 }  // namespace core

@@ -365,3 +365,69 @@ NC_TEST(Editor, RemoveMissingSubtitleFails) {
     NC_CHECK(r.code == ErrorCode::NotFound);
     NC_CHECK_EQ(editor.undoCount(), std::size_t(0));
 }
+NC_TEST(Editor, TransactionGroupsCommands) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    f.project.ids.next();
+    editor.beginTransaction("批量移动");
+    NC_CHECK(editor.inTransaction());
+    // 事务内执行 3 次操作
+    ClipId id1;
+    {
+        Clip c;
+        c.asset = f.project.assets.front().id;
+        c.start = Rational::make(0);
+        c.duration = Rational::make(1);
+        NC_CHECK(editor.insertClip(f.seqId, f.trackId, c, &id1).isOk());
+    }
+    NC_CHECK(editor.moveClip(f.seqId, f.trackId, id1, Rational::make(2)).isOk());
+    NC_CHECK(editor.moveClip(f.seqId, f.trackId, id1, Rational::make(4)).isOk());
+    // 事务内不入历史
+    NC_CHECK_EQ(editor.undoCount(), std::size_t(0));
+    const bool grouped = editor.endTransaction();
+    NC_CHECK(grouped);  // 3 条命令合并
+    NC_CHECK(!editor.inTransaction());
+    NC_CHECK_EQ(editor.undoCount(), std::size_t(1));
+    const auto names = editor.undoHistoryNames();
+    NC_CHECK_EQ(names[0], std::string("批量移动"));
+    // 一次撤销全部回退
+    NC_CHECK(editor.undo().isOk());
+    const Track* t = findTrack(f.project, f.seqId, f.trackId);
+    NC_CHECK_EQ(t->clips.size(), std::size_t(0));
+    // 重做全部恢复
+    NC_CHECK(editor.redo().isOk());
+    t = findTrack(f.project, f.seqId, f.trackId);
+    NC_CHECK_EQ(t->clips.size(), std::size_t(1));
+    NC_CHECK(t->clips[0].start == Rational::make(4));
+}
+NC_TEST(Editor, EmptyTransactionNoHistory) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    editor.beginTransaction("空事务");
+    const bool grouped = editor.endTransaction();
+    NC_CHECK(!grouped);
+    NC_CHECK_EQ(editor.undoCount(), std::size_t(0));
+}
+NC_TEST(Editor, NestedTransaction) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    editor.beginTransaction("外层");
+    editor.beginTransaction("内层");
+    Clip c;
+    c.asset = f.project.assets.front().id;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, c).isOk());
+    NC_CHECK(!editor.endTransaction());  // 内层结束不封装
+    NC_CHECK(editor.inTransaction());
+    // 再执行一个操作
+    Clip c2;
+    c2.asset = f.project.assets.front().id;
+    c2.start = Rational::make(2);
+    c2.duration = Rational::make(1);
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, c2).isOk());
+    NC_CHECK(editor.endTransaction());  // 外层结束封装
+    NC_CHECK_EQ(editor.undoCount(), std::size_t(1));
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(findTrack(f.project, f.seqId, f.trackId)->clips.size(), std::size_t(0));
+}

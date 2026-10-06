@@ -223,6 +223,25 @@ Result SetClipCommand::apply(Project& project) {
     return Result::ok();
 }
 
+bool SetClipCommand::canMergeWith(const Command& other) const {
+    const auto* o = dynamic_cast<const SetClipCommand*>(&other);
+    if (o == nullptr) {
+        return false;
+    }
+    // 同一序列、同一轨道、同一片段、同一操作类型 → 可合并
+    return o->sequenceId_ == sequenceId_ && o->trackId_ == trackId_ &&
+           o->after_.id == after_.id && o->actionName_ == actionName_;
+}
+
+void SetClipCommand::mergeFrom(const Command& other) {
+    const auto* o = dynamic_cast<const SetClipCommand*>(&other);
+    if (o == nullptr) {
+        return;
+    }
+    // 目标状态更新为最新值；before_ 保持不变（撤销回到手势起点）
+    after_ = o->after_;
+}
+
 Result SetClipCommand::revert(Project& project) {
     if (!before_.has_value()) {
         return Result::fail(ErrorCode::InvalidArgument, "缺少片段快照");
@@ -316,6 +335,31 @@ Result UndoStack::push(Project& project, std::unique_ptr<Command> command) {
     if (!command) {
         return Result::fail(ErrorCode::InvalidArgument, "命令为空");
     }
+    // 事务期间：命令只执行不入栈，暂存到事务缓冲
+    if (transactionDepth_ > 0) {
+        const Result applied = command->apply(project);
+        if (!applied.isOk()) {
+            return applied;
+        }
+        transactionCommands_.push_back(std::move(command));
+        return Result::ok();
+    }
+    return pushInternal(project, std::move(command));
+}
+
+Result UndoStack::pushInternal(Project& project, std::unique_ptr<Command> command) {
+    // 合并尝试：仅在栈顶可合并且未截断 redo 时
+    if (mergeEnabled_ && cursor_ > 0 && cursor_ == commands_.size()) {
+        Command& top = *commands_[cursor_ - 1];
+        if (top.canMergeWith(*command)) {
+            const Result applied = command->apply(project);
+            if (!applied.isOk()) {
+                return applied;
+            }
+            top.mergeFrom(*command);
+            return Result::ok();
+        }
+    }
     const Result applied = command->apply(project);
     if (!applied.isOk()) {
         return applied;
@@ -325,6 +369,116 @@ Result UndoStack::push(Project& project, std::unique_ptr<Command> command) {
     }
     commands_.push_back(std::move(command));
     cursor_ = commands_.size();
+    return Result::ok();
+}
+
+void UndoStack::beginTransaction(const std::string& name) {
+    if (transactionDepth_ == 0) {
+        transactionName_ = name;
+        transactionCommands_.clear();
+    }
+    ++transactionDepth_;
+}
+
+// 分组命令：把一个事务内的多个命令封装为单个可撤销单元。
+namespace {
+class GroupedCommand : public Command {
+public:
+    GroupedCommand(std::string name, std::vector<std::unique_ptr<Command>> commands)
+        : name_(std::move(name)), commands_(std::move(commands)) {}
+
+    Result apply(Project& project) override {
+        // 正向重做：按顺序重新 apply
+        std::size_t applied = 0;
+        for (; applied < commands_.size(); ++applied) {
+            const Result r = commands_[applied]->apply(project);
+            if (!r.isOk()) {
+                // 回滚已执行的部分
+                for (std::size_t i = applied; i-- > 0;) {
+                    commands_[i]->revert(project);
+                }
+                return r;
+            }
+        }
+        return Result::ok();
+    }
+
+    Result revert(Project& project) override {
+        // 逆序还原
+        for (auto it = commands_.rbegin(); it != commands_.rend(); ++it) {
+            const Result r = (*it)->revert(project);
+            if (!r.isOk()) {
+                return r;
+            }
+        }
+        return Result::ok();
+    }
+
+    std::string name() const override { return name_; }
+
+private:
+    std::string name_;
+    std::vector<std::unique_ptr<Command>> commands_;
+};
+}  // namespace
+
+bool UndoStack::endTransaction(Project& project) {
+    (void)project;
+    if (transactionDepth_ == 0) {
+        return false;
+    }
+    --transactionDepth_;
+    if (transactionDepth_ > 0) {
+        return false;  // 内层结束不封装
+    }
+    if (transactionCommands_.empty()) {
+        return false;
+    }
+    // 如果事务内只有一个命令，直接入栈（不包装）
+    if (transactionCommands_.size() == 1) {
+        if (cursor_ < commands_.size()) {
+            commands_.resize(cursor_);
+        }
+        commands_.push_back(std::move(transactionCommands_.front()));
+        cursor_ = commands_.size();
+        transactionCommands_.clear();
+        return false;
+    }
+    // 多命令：封装为 GroupedCommand 入栈
+    auto grouped = std::make_unique<GroupedCommand>(transactionName_,
+                                                    std::move(transactionCommands_));
+    transactionCommands_.clear();
+    if (cursor_ < commands_.size()) {
+        commands_.resize(cursor_);
+    }
+    commands_.push_back(std::move(grouped));
+    cursor_ = commands_.size();
+    return true;
+}
+
+Result UndoStack::dropLast(Project& project) {
+    if (transactionDepth_ > 0) {
+        if (transactionCommands_.empty()) {
+            return Result::fail(ErrorCode::OutOfRange, "事务中没有可丢弃的命令");
+        }
+        Command& cmd = *transactionCommands_.back();
+        const Result r = cmd.revert(project);
+        if (!r.isOk()) {
+            return r;
+        }
+        transactionCommands_.pop_back();
+        return Result::ok();
+    }
+    if (!canUndo()) {
+        return Result::fail(ErrorCode::OutOfRange, "没有可丢弃的命令");
+    }
+    Command& cmd = *commands_[cursor_ - 1];
+    const Result r = cmd.revert(project);
+    if (!r.isOk()) {
+        return r;
+    }
+    commands_.pop_back();
+    --cursor_;
     return Result::ok();
 }
 
