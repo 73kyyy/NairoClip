@@ -180,3 +180,30 @@ NC_TEST(Serialization, ClipWithoutAnimationOmitsField) {
     NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
     NC_CHECK(loaded.sequences[0].tracks[0].clips[0].animation.empty());
 }
+NC_TEST(Serialization, SubtitleRoundtrip) {
+    Project p;
+    p.name = "字幕工程";
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    SubtitleCue cue;
+    cue.id = SubtitleId{p.ids.next()};
+    cue.start = Rational::make(1);
+    cue.duration = Rational::make(2);
+    cue.text = "你好，世界";
+    cue.style.fontSize = 64.0;
+    cue.style.color = "#FFD700";
+    cue.style.alignment = 2;
+    NC_CHECK(s.subtitles.insert(cue).isOk());
+    p.sequences.push_back(s);
+    const std::string text = saveProjectToNclip(p);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
+    const SubtitleTrack& st = loaded.sequences[0].subtitles;
+    NC_CHECK_EQ(st.size(), std::size_t(1));
+    NC_CHECK(st.cues()[0].text == std::string("你好，世界"));
+    NC_CHECK(st.cues()[0].start == Rational::make(1));
+    NC_CHECK(st.cues()[0].duration == Rational::make(2));
+    NC_CHECK(std::abs(st.cues()[0].style.fontSize - 64.0) < 1e-9);
+    NC_CHECK(st.cues()[0].style.color == std::string("#FFD700"));
+    NC_CHECK_EQ(st.cues()[0].style.alignment, 2);
+}

@@ -320,6 +320,78 @@ bool readMarker(const JsonValue& v, Marker& out, std::string& err) {
     return true;
 }
 
+// ---------------- 字幕读写 ----------------
+
+JsonValue writeSubtitleStyle(const SubtitleStyle& style) {
+    JsonValue o = JsonValue::object();
+    o.set("fontFamily", JsonValue::string(style.fontFamily));
+    o.set("fontSize", JsonValue::number(style.fontSize));
+    o.set("color", JsonValue::string(style.color));
+    o.set("outlineColor", JsonValue::string(style.outlineColor));
+    o.set("outlineWidth", JsonValue::number(style.outlineWidth));
+    o.set("backgroundColor", JsonValue::string(style.backgroundColor));
+    o.set("backgroundPadding", JsonValue::number(style.backgroundPadding));
+    o.set("alignment", JsonValue::integer(style.alignment));
+    o.set("anchorX", JsonValue::number(style.anchorX));
+    o.set("anchorY", JsonValue::number(style.anchorY));
+    return o;
+}
+
+SubtitleStyle readSubtitleStyle(const JsonValue& v) {
+    SubtitleStyle style;
+    if (!v.isObject()) return style;
+    style.fontFamily = v.get("fontFamily").asString();
+    if (style.fontFamily.empty()) style.fontFamily = "默认";
+    style.fontSize = v.get("fontSize").asNumber(48.0);
+    style.color = v.get("color").asString();
+    if (style.color.empty()) style.color = "#FFFFFF";
+    style.outlineColor = v.get("outlineColor").asString();
+    if (style.outlineColor.empty()) style.outlineColor = "#000000";
+    style.outlineWidth = v.get("outlineWidth").asNumber(2.0);
+    style.backgroundColor = v.get("backgroundColor").asString();
+    if (style.backgroundColor.empty()) style.backgroundColor = "#00000000";
+    style.backgroundPadding = v.get("backgroundPadding").asNumber(8.0);
+    style.alignment = static_cast<int>(v.get("alignment").asInteger(1));
+    style.anchorX = v.get("anchorX").asNumber(0.5);
+    style.anchorY = v.get("anchorY").asNumber(0.9);
+    return style;
+}
+
+JsonValue writeSubtitleTrack(const SubtitleTrack& track) {
+    JsonValue arr = JsonValue::array();
+    for (const auto& cue : track.cues()) {
+        JsonValue o = JsonValue::object();
+        o.set("id", JsonValue::integer(static_cast<std::int64_t>(cue.id.value)));
+        o.set("start", writeRational(cue.start));
+        o.set("duration", writeRational(cue.duration));
+        o.set("text", JsonValue::string(cue.text));
+        o.set("enabled", JsonValue::boolean(cue.enabled));
+        o.set("style", writeSubtitleStyle(cue.style));
+        arr.push(std::move(o));
+    }
+    return arr;
+}
+
+bool readSubtitleTrack(const JsonValue& v, SubtitleTrack& out, std::string& err) {
+    out.clear();
+    if (v.isNull()) return true;
+    if (!v.isArray()) { err = "subtitles 应为数组"; return false; }
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const JsonValue& cv = v.at(i);
+        if (!cv.isObject()) { err = "字幕项应为对象"; return false; }
+        SubtitleCue cue;
+        cue.id = SubtitleId{static_cast<std::uint64_t>(cv.get("id").asInteger())};
+        if (!readRational(cv.get("start"), "start", cue.start, err)) return false;
+        if (!readRational(cv.get("duration"), "duration", cue.duration, err)) return false;
+        cue.text = cv.get("text").asString();
+        cue.enabled = cv.get("enabled").asBool(true);
+        cue.style = readSubtitleStyle(cv.get("style"));
+        const Result r = out.insert(std::move(cue));
+        if (!r.isOk()) { err = r.message; return false; }
+    }
+    return true;
+}
+
 JsonValue writeSequence(const Sequence& s) {
     JsonValue o = JsonValue::object();
     o.set("id", JsonValue::integer(static_cast<std::int64_t>(s.id.value)));
@@ -337,6 +409,9 @@ JsonValue writeSequence(const Sequence& s) {
         markers.push(writeMarker(m));
     }
     o.set("markers", std::move(markers));
+    if (!s.subtitles.empty()) {
+        o.set("subtitles", writeSubtitleTrack(s.subtitles));
+    }
     return o;
 }
 
@@ -366,6 +441,10 @@ bool readSequence(const JsonValue& v, Sequence& out, std::string& err) {
             if (!readMarker(markers.at(i), m, err)) return false;
             out.markers.push_back(std::move(m));
         }
+    }
+    out.subtitles.clear();
+    if (v.has("subtitles")) {
+        if (!readSubtitleTrack(v.get("subtitles"), out.subtitles, err)) return false;
     }
     return true;
 }

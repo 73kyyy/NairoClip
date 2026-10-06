@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nairoclip/core/subtitle.h"
 #include "nairoclip/core/track.h"
 
 #include <string>
@@ -25,6 +26,8 @@ struct Sequence {
     int height = 1920;
     std::vector<Track> tracks;
     std::vector<Marker> markers;
+    /// 序列级字幕轨道（独立于普通轨道，字幕事件集合）。
+    SubtitleTrack subtitles;
 
     Track* findTrack(TrackId trackId);
     const Track* findTrack(TrackId trackId) const;
