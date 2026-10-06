@@ -10,6 +10,7 @@ add_executable(nairoclip_tests
     test_speed_curve.cpp
     test_json.cpp
     test_serialization.cpp
+    test_recovery.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
