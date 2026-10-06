@@ -104,32 +104,80 @@ ExportStats executeExport(
             // 找到当前可见片段（仅主视频轨；多层合成 M1.x 实现）
             const RenderClip* active = videoTrack != nullptr ? clipAt(*videoTrack, t) : nullptr;
             if (active == nullptr && activeTransition != nullptr) {
-                // 转场区间内的空档帧：以 toClip 起始处作为参考，输出转场标记帧
-                const RenderClip* toClip = nullptr;
-                if (videoTrack != nullptr) {
-                    for (const auto& c : videoTrack->clips) {
-                        if (c.clipId == activeTransition->toClip) {
-                            toClip = &c;
-                            break;
-                        }
-                    }
-                }
+                // 转场区间内的帧：尝试读取 from/to 两路源帧并混合
                 OutputVideoFrame frame;
                 frame.timestamp = t;
                 frame.width = plan.width;
                 frame.height = plan.height;
-                frame.rgba.assign(static_cast<std::size_t>(plan.width) *
-                                      static_cast<std::size_t>(plan.height) * 4,
-                                  32);
-                for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
-                    frame.rgba[i] = 255;
-                }
                 frame.transitionType = static_cast<int>(activeTransition->type);
                 frame.transitionProgress =
                     TransitionRenderer::transitionProgress(t, activeTransition->start,
                                                            activeTransition->end -
                                                                activeTransition->start);
-                (void)toClip;
+
+                // 定位 from/to 两个 RenderClip
+                const RenderClip* fromClip = nullptr;
+                const RenderClip* toClip = nullptr;
+                for (const auto& c : videoTrack->clips) {
+                    if (c.clipId == activeTransition->fromClip) fromClip = &c;
+                    if (c.clipId == activeTransition->toClip) toClip = &c;
+                }
+
+                bool blendDone = false;
+                if (fromClip != nullptr && toClip != nullptr) {
+                    // 读取两路源帧（Mock 路径：seek + read 一帧）
+                    auto readFrame = [&](const RenderClip* rc, const Time& clampTime,
+                                         VideoFrame& out) -> bool {
+                        MediaReader* r = getReader(rc->asset);
+                        if (r == nullptr) return false;
+                        auto openedIt = readers.find(rc->asset.value);
+                        if (openedIt != readers.end() && !openedIt->second.opened) {
+                            if (!r->open(rc->assetPath).isOk()) return false;
+                            openedIt->second.opened = true;
+                        }
+                        const Time local = clampTime - rc->timelineStart;
+                        const Time srcTime = rc->sourceIn + Time{local * rc->speed};
+                        if (!r->seek(srcTime).isOk()) return false;
+                        return r->readVideoFrame(out);
+                    };
+                    // from 取区间内（钳制到片段尾部），to 取区间内（钳制到片段头部）
+                    const Time fromT = std::min(t, fromClip->timelineEnd -
+                                                       Time{Rational::make(1, 1000)});
+                    const Time toT = std::max(t, toClip->timelineStart);
+                    VideoFrame frameA;
+                    VideoFrame frameB;
+                    const bool hasA = readFrame(fromClip, fromT, frameA);
+                    const bool hasB = readFrame(toClip, toT, frameB);
+                    (void)hasA;
+                    (void)hasB;
+                    // 混合（任一缺失时用占位帧填充）
+                    const int w = plan.width;
+                    const int h = plan.height;
+                    const std::size_t pixelBytes =
+                        static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
+                    std::vector<std::uint8_t> bufA = frameA.pixels.size() >= pixelBytes
+                                                        ? frameA.pixels
+                                                        : std::vector<std::uint8_t>(pixelBytes, 0);
+                    std::vector<std::uint8_t> bufB = frameB.pixels.size() >= pixelBytes
+                                                        ? frameB.pixels
+                                                        : std::vector<std::uint8_t>(pixelBytes, 0);
+                    // 确保 alpha 不透明
+                    for (std::size_t i = 3; i < bufA.size(); i += 4) bufA[i] = 255;
+                    for (std::size_t i = 3; i < bufB.size(); i += 4) bufB[i] = 255;
+                    frame.rgba.assign(pixelBytes, 0);
+                    blendDone = TransitionRenderer::renderFrame(
+                        static_cast<TransitionType>(frame.transitionType), bufA.data(), bufB.data(),
+                        frame.rgba.data(), w, h, frame.transitionProgress);
+                }
+                if (!blendDone) {
+                    // 防御：无有效数据源时输出占位帧（保持管线不断）
+                    frame.rgba.assign(static_cast<std::size_t>(plan.width) *
+                                          static_cast<std::size_t>(plan.height) * 4,
+                                      32);
+                    for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
+                        frame.rgba[i] = 255;
+                    }
+                }
                 videoSink(frame);
                 ++stats.framesWritten;
                 ++frameIndex;

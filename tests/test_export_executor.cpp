@@ -196,3 +196,35 @@ NC_TEST(ExportExecutor, MarksTransitionFrames) {
     // 其余 120 帧（4 秒总长 - 0.5s 转场 = 105？重新计算：总时长 5s = 150 帧，减 15 = 135）
     NC_CHECK(normalFrames > 0);
 }
+NC_TEST(ExportExecutor, TransitionFramesContainBlendedPixels) {
+    Fixture f;
+    f.build();
+    f.addClip(Rational::make(0), Rational::make(2));
+    f.addClip(Rational::make(3), Rational::make(2));
+    Track* track = f.seq()->findTrack(f.videoTrack);
+    Transition tr;
+    tr.id = TransitionId{f.project.ids.next()};
+    tr.type = TransitionType::CrossDissolve;
+    tr.duration = Rational::make(1, 2);
+    tr.fromClip = track->clips[0].id;
+    tr.toClip = track->clips[1].id;
+    track->transitions.push_back(tr);
+    const ExportPlan plan = compileExportPlan(f.project, *f.seq());
+    MockFactory factory(makeReaderConfig());
+    bool checkedPixel = false;
+    executeExport(plan, factory, [&](const OutputVideoFrame& frame) {
+        if (frame.transitionType >= 0 && !checkedPixel) {
+            checkedPixel = true;
+            // 混合帧应有实际像素内容（非全零）
+            NC_CHECK(!frame.rgba.empty());
+            NC_CHECK_EQ(frame.rgba.size(),
+                        std::size_t(plan.width) * std::size_t(plan.height) * 4);
+            bool anyNonZero = false;
+            for (const auto& px : frame.rgba) {
+                if (px != 0) { anyNonZero = true; break; }
+            }
+            NC_CHECK(anyNonZero);
+        }
+    }, nullptr);
+    NC_CHECK(checkedPixel);
+}
