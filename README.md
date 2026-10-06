@@ -64,7 +64,8 @@
 | M1.15 | nclip_tool export（CLI 端到端导出） | ✅ 已完成 |
 | M2.1 | AI 内容标识合规组件 | ✅ 已完成 |
 | M2.2 | AI 标识接入导出管线 | ✅ 已完成 |
-| M2.3 | Android 平台层（JNI + MediaCodec） | ⬜ 计划中 |
+| M2.3 | 音频波形生成器 | ✅ 已完成 |
+| M2.4 | Android 平台层（JNI + MediaCodec） | ⬜ 计划中 |
 | M2.x | Android 平台壳（Kotlin + JNI），真机跑通时间轴编辑 | ⬜ 计划中 |
 
 ## 仓库结构
