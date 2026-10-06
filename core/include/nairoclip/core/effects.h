@@ -99,5 +99,10 @@ struct ColorTransform {
 /// 求值特效栈的颜色变换（忽略空间效果与禁用的特效）。
 ColorTransform evaluateColorTransform(const EffectStack& stack);
 
+/// 对 RGBA8 像素缓冲应用颜色变换（原地修改 RGB，保留 alpha）。
+/// pixels：交错 RGBA8，长度必须是 4 的倍数（stride 处理由调用方负责跨行裁剪）。
+void applyColorTransformToRgba(std::uint8_t* pixels, std::size_t pixelCount,
+                               const ColorTransform& transform);
+
 }  // namespace core
 }  // namespace nairoclip

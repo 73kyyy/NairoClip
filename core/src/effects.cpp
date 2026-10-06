@@ -148,6 +148,20 @@ void ColorTransform::apply(double& r, double& g, double& b) const {
     b = b < 0.0 ? 0.0 : (b > 1.0 ? 1.0 : b);
 }
 
+void applyColorTransformToRgba(std::uint8_t* pixels, std::size_t pixelCount,
+                               const ColorTransform& transform) {
+    for (std::size_t i = 0; i < pixelCount; ++i) {
+        double r = static_cast<double>(pixels[i * 4]) / 255.0;
+        double g = static_cast<double>(pixels[i * 4 + 1]) / 255.0;
+        double b = static_cast<double>(pixels[i * 4 + 2]) / 255.0;
+        transform.apply(r, g, b);
+        pixels[i * 4] = static_cast<std::uint8_t>(r * 255.0 + 0.5);
+        pixels[i * 4 + 1] = static_cast<std::uint8_t>(g * 255.0 + 0.5);
+        pixels[i * 4 + 2] = static_cast<std::uint8_t>(b * 255.0 + 0.5);
+        // alpha 保持不变
+    }
+}
+
 ColorTransform evaluateColorTransform(const EffectStack& stack) {
     ColorTransform t;
     for (const auto& e : stack.effects()) {

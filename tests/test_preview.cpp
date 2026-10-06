@@ -123,3 +123,45 @@ NC_TEST(Preview, HiddenTrackSkipped) {
     // 隐藏轨道 → 无画面
     NC_CHECK_EQ(frame.clipId, std::uint64_t(0));
 }
+NC_TEST(Preview, AppliesColorEffectsToPixels) {
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(2));
+    // 加亮度 +0.5
+    Effect e;
+    e.id = EffectId{f.project.ids.next()};
+    e.type = EffectType::Brightness;
+    e.value = 0.5;
+    NC_CHECK(f.editor.addEffect(f.seqId, f.videoTrack, clip, e).isOk());
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame frame = renderer.renderAt(Rational::make(1));
+    NC_CHECK(!frame.rgba.empty());
+    // Mock 帧灰度 128（0.502），+0.5 后 ≈ 1.0（255）
+    NC_CHECK(frame.rgba[0] >= 254);
+    NC_CHECK(frame.rgba[1] >= 254);
+    NC_CHECK(frame.rgba[2] >= 254);
+    // alpha 不变
+    NC_CHECK_EQ(frame.rgba[3], std::uint8_t(255));
+}
+NC_TEST(Preview, GrayscaleEffectTransformsPixels) {
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(2));
+    // 未加特效的对照帧
+    PreviewMockFactory factory;
+    {
+        PreviewRenderer renderer(f.project, factory);
+        const PreviewFrame plain = renderer.renderAt(Rational::make(1));
+        NC_CHECK(!plain.rgba.empty());
+    }
+    Effect e;
+    e.id = EffectId{f.project.ids.next()};
+    e.type = EffectType::Saturation;
+    e.value = 0.0;  // 完全去饱和
+    NC_CHECK(f.editor.addEffect(f.seqId, f.videoTrack, clip, e).isOk());
+    PreviewRenderer renderer2(f.project, factory);
+    const PreviewFrame frame = renderer2.renderAt(Rational::make(1));
+    NC_CHECK(!frame.rgba.empty());
+    // 灰度化后 RGB 三通道应相等
+    NC_CHECK_EQ(frame.rgba[0], frame.rgba[1]);
+    NC_CHECK_EQ(frame.rgba[1], frame.rgba[2]);
+}

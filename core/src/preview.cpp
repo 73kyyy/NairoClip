@@ -1,4 +1,5 @@
 #include "nairoclip/core/preview.h"
+#include "nairoclip/core/effects.h"
 
 #include <algorithm>
 
@@ -101,6 +102,15 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
         frame.rgba = std::move(source.pixels);
         frame.width = source.width;
         frame.height = source.height;
+        // 应用片段特效栈的颜色变换
+        if (!clip->effects.empty()) {
+            const ColorTransform transform = evaluateColorTransform(clip->effects);
+            const std::size_t pixelCount =
+                static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height);
+            if (frame.rgba.size() >= pixelCount * 4) {
+                applyColorTransformToRgba(frame.rgba.data(), pixelCount, transform);
+            }
+        }
     }
     return frame;
 }
