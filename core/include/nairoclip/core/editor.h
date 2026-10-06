@@ -62,6 +62,10 @@ public:
     /// 删除片段关键帧。
     Result removeKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                           ClipProperty property, const Time& at);
+    // ---- 音频属性 ----
+    /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
+    Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,
+                        const Time& fadeIn, const Time& fadeOut);
     // ---- 标记 ----
     /// 添加/更新标记（同 ID 替换）。
     Result upsertMarker(SequenceId sequenceId, Marker marker);

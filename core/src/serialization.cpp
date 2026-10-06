@@ -282,6 +282,13 @@ JsonValue writeClip(const Clip& c) {
     if (!c.speedCurve.empty()) {
         o.set("speedCurve", writeSpeedCurve(c.speedCurve));
     }
+    if (c.audioGainDb != 0.0 || c.audioFadeIn.isPositive() || c.audioFadeOut.isPositive()) {
+        JsonValue audio = JsonValue::object();
+        audio.set("gainDb", JsonValue::number(c.audioGainDb));
+        audio.set("fadeIn", writeRational(c.audioFadeIn));
+        audio.set("fadeOut", writeRational(c.audioFadeOut));
+        o.set("audio", std::move(audio));
+    }
     return o;
 }
 
@@ -304,6 +311,21 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     out.speedCurve.clear();
     if (v.has("speedCurve")) {
         if (!readSpeedCurve(v.get("speedCurve"), out.speedCurve, err)) return false;
+    }
+    out.audioGainDb = 0.0;
+    out.audioFadeIn = Time{};
+    out.audioFadeOut = Time{};
+    if (v.has("audio")) {
+        const JsonValue& audio = v.get("audio");
+        if (audio.isObject()) {
+            out.audioGainDb = audio.get("gainDb").asNumber(0.0);
+            if (audio.has("fadeIn")) {
+                if (!readRational(audio.get("fadeIn"), "fadeIn", out.audioFadeIn, err)) return false;
+            }
+            if (audio.has("fadeOut")) {
+                if (!readRational(audio.get("fadeOut"), "fadeOut", out.audioFadeOut, err)) return false;
+            }
+        }
     }
     return true;
 }

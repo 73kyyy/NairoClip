@@ -220,6 +220,12 @@ Result TimelineEditor::removeKeyframe(SequenceId sequenceId, TrackId trackId, Cl
         std::make_unique<RemoveKeyframeCommand>(sequenceId, trackId, clipId, property, at));
 }
 
+Result TimelineEditor::setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                     double gainDb, const Time& fadeIn, const Time& fadeOut) {
+    return commit(std::make_unique<SetClipAudioCommand>(sequenceId, trackId, clipId, gainDb,
+                                                        fadeIn, fadeOut, "调整音频"));
+}
+
 Result TimelineEditor::upsertMarker(SequenceId sequenceId, Marker marker) {
     return commit(std::make_unique<UpsertMarkerCommand>(sequenceId, std::move(marker)));
 }

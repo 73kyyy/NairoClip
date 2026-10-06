@@ -1143,5 +1143,54 @@ Result RemoveMarkerCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------- 音频属性命令 ----------------
+
+SetClipAudioCommand::SetClipAudioCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                         double gainDb, const Time& fadeIn, const Time& fadeOut,
+                                         std::string actionName)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      gainDb_(gainDb),
+      fadeIn_(fadeIn),
+      fadeOut_(fadeOut),
+      actionName_(std::move(actionName)) {}
+
+Result SetClipAudioCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) {
+        before_ = Snapshot{clip->audioGainDb, clip->audioFadeIn, clip->audioFadeOut};
+    }
+    clip->audioGainDb = gainDb_;
+    clip->audioFadeIn = fadeIn_;
+    clip->audioFadeOut = fadeOut_;
+    if (!clip->audioValid()) {
+        // 回滚
+        clip->audioGainDb = before_->gainDb;
+        clip->audioFadeIn = before_->fadeIn;
+        clip->audioFadeOut = before_->fadeOut;
+        return Result::fail(ErrorCode::InvalidArgument, "音频参数非法（增益范围或淡入淡出超出片段时长）");
+    }
+    return Result::ok();
+}
+
+Result SetClipAudioCommand::revert(Project& project) {
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少音频快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    clip->audioGainDb = before_->gainDb;
+    clip->audioFadeIn = before_->fadeIn;
+    clip->audioFadeOut = before_->fadeOut;
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

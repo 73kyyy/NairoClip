@@ -374,5 +374,33 @@ private:
     std::optional<Marker> removed_;
 };
 
+
+/// 设置片段音频属性（增益 / 淡入 / 淡出）。
+class SetClipAudioCommand : public Command {
+public:
+    SetClipAudioCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                        double gainDb, const Time& fadeIn, const Time& fadeOut,
+                        std::string actionName);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return actionName_; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    double gainDb_ = 0.0;
+    Time fadeIn_;
+    Time fadeOut_;
+    std::string actionName_;
+    struct Snapshot {
+        double gainDb = 0.0;
+        Time fadeIn;
+        Time fadeOut;
+    };
+    std::optional<Snapshot> before_;
+};
+
 }  // namespace core
 }  // namespace nairoclip

@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "nairoclip/core/editor.h"
+#include <cmath>
 using namespace nairoclip::core;
 namespace {
 struct Fixture {
@@ -548,4 +549,55 @@ NC_TEST(Editor, MarkerCommandsWithUndo) {
     // 撤销删除
     NC_CHECK(editor.undo().isOk());
     NC_CHECK_EQ(f.project.mainSequence()->markers.size(), std::size_t(1));
+}
+NC_TEST(Editor, ClipAudioProperties) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(10);
+    ClipId clipId;
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, c, &clipId).isOk());
+    // 设置增益 -6dB + 淡入 1s + 淡出 2s
+    NC_CHECK(editor.setClipAudio(f.seqId, f.trackId, clipId, -6.0, Rational::make(1),
+                                 Rational::make(2))
+                 .isOk());
+    const Clip* clip = findClip(f.project, f.seqId, f.trackId, clipId);
+    NC_CHECK(clip->audioGainDb == -6.0);
+    NC_CHECK(clip->audioFadeIn == Rational::make(1));
+    NC_CHECK(clip->audioFadeOut == Rational::make(2));
+    NC_CHECK(clip->audioValid());
+    // 淡入中点系数 = 0.5
+    NC_CHECK(std::abs(clip->audioFadeFactor(fromMilliseconds(500)) - 0.5) < 1e-6);
+    // 中段 = 1.0
+    NC_CHECK(std::abs(clip->audioFadeFactor(Rational::make(5)) - 1.0) < 1e-6);
+    // 淡出中段（t=9，距终点 1s，淡出 2s）→ 0.5
+    NC_CHECK(std::abs(clip->audioFadeFactor(Rational::make(9)) - 0.5) < 1e-6);
+    // 撤销
+    NC_CHECK(editor.undo().isOk());
+    clip = findClip(f.project, f.seqId, f.trackId, clipId);
+    NC_CHECK(clip->audioGainDb == 0.0);
+    NC_CHECK(clip->audioFadeIn == Time{});
+}
+NC_TEST(Editor, ClipAudioRejectsInvalid) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(3);
+    ClipId clipId;
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, c, &clipId).isOk());
+    // 增益超范围 → 拒绝
+    const Result r1 = editor.setClipAudio(f.seqId, f.trackId, clipId, 20.0, Time{}, Time{});
+    NC_CHECK(!r1.isOk());
+    // 淡入+淡出超出片段时长 → 拒绝
+    const Result r2 = editor.setClipAudio(f.seqId, f.trackId, clipId, 0.0, Rational::make(2),
+                                          Rational::make(2));
+    NC_CHECK(!r2.isOk());
+    // 失败后工程未被修改、未入历史
+    const Clip* clip = findClip(f.project, f.seqId, f.trackId, clipId);
+    NC_CHECK(clip->audioGainDb == 0.0);
+    NC_CHECK_EQ(editor.undoCount(), std::size_t(1));  // 只有 insert
 }

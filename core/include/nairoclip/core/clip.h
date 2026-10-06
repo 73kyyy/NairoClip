@@ -23,6 +23,37 @@ struct Clip {
     /// 速度曲线（可选）。空曲线 = 恒速（使用 speed 字段）。
     /// 非空时：时间轴时长由曲线积分决定，speed 字段作为基准速度乘数。
     SpeedCurve speedCurve;
+    /// 音频增益（dB，0 = 原始电平；合法范围 [-60, +12]）。
+    double audioGainDb = 0.0;
+    /// 音频淡入时长（从片段起点算起；0 = 无淡入）。
+    Time audioFadeIn;
+    /// 音频淡出时长（至片段终点；0 = 无淡出）。
+    Time audioFadeOut;
+    /// 音频属性是否合法：增益在范围内、淡入淡出不超过片段时长且非负、
+    /// 淡入 + 淡出不超过片段时长。
+    bool audioValid() const {
+        if (audioGainDb < -60.0 || audioGainDb > 12.0) return false;
+        if (audioFadeIn.isNegative() || audioFadeOut.isNegative()) return false;
+        if (audioFadeIn + audioFadeOut > duration) return false;
+        return true;
+    }
+    /// 采样本地时间处的淡入淡出系数（0..1），未考虑增益。
+    double audioFadeFactor(const Time& localTime) const {
+        double factor = 1.0;
+        if (audioFadeIn.isPositive() && localTime < audioFadeIn) {
+            factor *= localTime.toDouble() / audioFadeIn.toDouble();
+        }
+        if (audioFadeOut.isPositive()) {
+            const Time fadeOutStart = duration - audioFadeOut;
+            if (localTime > fadeOutStart) {
+                const double remain = (duration - localTime).toDouble();
+                factor *= remain / audioFadeOut.toDouble();
+            }
+        }
+        if (factor < 0.0) return 0.0;
+        if (factor > 1.0) return 1.0;
+        return factor;
+    }
     /// 时间轴时刻 → 片段本地时间。
     Time toLocalTime(const Time& timelineTime) const { return timelineTime - start; }
 

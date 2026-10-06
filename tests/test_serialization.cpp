@@ -275,3 +275,27 @@ NC_TEST(Serialization, SpeedCurveRoundtrip) {
     NC_CHECK(lc.speedCurve.points()[1].speed == Rational::make(4));
     NC_CHECK(lc.speedCurve.points()[1].easing.type == EasingType::EaseInOut);
 }
+NC_TEST(Serialization, ClipAudioRoundtrip) {
+    Project p;
+    p.name = "音频工程";
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    Clip c;
+    c.id = ClipId{p.ids.next()};
+    c.duration = Rational::make(10);
+    c.audioGainDb = -7.5;
+    c.audioFadeIn = Rational::make(1, 2);
+    c.audioFadeOut = Rational::make(3, 2);
+    t.clips.push_back(c);
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+    const std::string text = saveProjectToNclip(p);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
+    const Clip& lc = loaded.sequences[0].tracks[0].clips[0];
+    NC_CHECK(std::abs(lc.audioGainDb - (-7.5)) < 1e-9);
+    NC_CHECK(lc.audioFadeIn == Rational::make(1, 2));
+    NC_CHECK(lc.audioFadeOut == Rational::make(3, 2));
+}
