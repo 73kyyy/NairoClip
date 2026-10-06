@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/animation.h"
+#include "nairoclip/core/effects.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/rational.h"
 #include "nairoclip/core/time.h"
@@ -23,6 +24,8 @@ struct Clip {
     /// 速度曲线（可选）。空曲线 = 恒速（使用 speed 字段）。
     /// 非空时：时间轴时长由曲线积分决定，speed 字段作为基准速度乘数。
     SpeedCurve speedCurve;
+    /// 视频特效栈（按顺序应用；空间效果由渲染器处理）。
+    EffectStack effects;
     /// 音频增益（dB，0 = 原始电平；合法范围 [-60, +12]）。
     double audioGainDb = 0.0;
     /// 音频淡入时长（从片段起点算起；0 = 无淡入）。

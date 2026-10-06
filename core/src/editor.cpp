@@ -220,6 +220,18 @@ Result TimelineEditor::removeKeyframe(SequenceId sequenceId, TrackId trackId, Cl
         std::make_unique<RemoveKeyframeCommand>(sequenceId, trackId, clipId, property, at));
 }
 
+Result TimelineEditor::addEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                  Effect effect) {
+    return commit(std::make_unique<AddEffectCommand>(sequenceId, trackId, clipId,
+                                                     std::move(effect)));
+}
+
+Result TimelineEditor::removeEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                    EffectId effectId) {
+    return commit(
+        std::make_unique<RemoveEffectCommand>(sequenceId, trackId, clipId, effectId));
+}
+
 Result TimelineEditor::setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                                      double gainDb, const Time& fadeIn, const Time& fadeOut) {
     return commit(std::make_unique<SetClipAudioCommand>(sequenceId, trackId, clipId, gainDb,

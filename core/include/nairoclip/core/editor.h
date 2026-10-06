@@ -62,6 +62,11 @@ public:
     /// 删除片段关键帧。
     Result removeKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                           ClipProperty property, const Time& at);
+    // ---- 特效 ----
+    /// 添加/更新片段特效。
+    Result addEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, Effect effect);
+    /// 删除片段特效。
+    Result removeEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, EffectId effectId);
     // ---- 音频属性 ----
     /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
     Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,

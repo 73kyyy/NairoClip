@@ -299,3 +299,37 @@ NC_TEST(Serialization, ClipAudioRoundtrip) {
     NC_CHECK(lc.audioFadeIn == Rational::make(1, 2));
     NC_CHECK(lc.audioFadeOut == Rational::make(3, 2));
 }
+NC_TEST(Serialization, EffectsRoundtrip) {
+    Project p;
+    p.name = "特效工程";
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    Clip c;
+    c.id = ClipId{p.ids.next()};
+    c.duration = Rational::make(5);
+    Effect e1;
+    e1.id = EffectId{p.ids.next()};
+    e1.type = EffectType::Contrast;
+    e1.value = 1.8;
+    Effect e2;
+    e2.id = EffectId{p.ids.next()};
+    e2.type = EffectType::GaussianBlur;
+    e2.value = 12.5;
+    e2.enabled = false;
+    NC_CHECK(c.effects.add(e1).isOk());
+    NC_CHECK(c.effects.add(e2).isOk());
+    t.clips.push_back(c);
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+    const std::string text = saveProjectToNclip(p);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
+    const Clip& lc = loaded.sequences[0].tracks[0].clips[0];
+    NC_CHECK_EQ(lc.effects.size(), std::size_t(2));
+    NC_CHECK(lc.effects.effects()[0].type == EffectType::Contrast);
+    NC_CHECK(std::abs(lc.effects.effects()[0].value - 1.8) < 1e-9);
+    NC_CHECK(lc.effects.effects()[1].type == EffectType::GaussianBlur);
+    NC_CHECK(lc.effects.effects()[1].enabled == false);
+}

@@ -402,5 +402,42 @@ private:
     std::optional<Snapshot> before_;
 };
 
+
+/// 添加/更新片段特效。
+class AddEffectCommand : public Command {
+public:
+    AddEffectCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId, Effect effect);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "添加特效"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    Effect effect_;
+    bool isReplace_ = false;
+    Effect previous_;
+};
+
+/// 删除片段特效。
+class RemoveEffectCommand : public Command {
+public:
+    RemoveEffectCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId, EffectId effectId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "删除特效"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    EffectId effectId_;
+    std::optional<Effect> removed_;
+    std::optional<std::size_t> removedIndex_;
+};
+
 }  // namespace core
 }  // namespace nairoclip

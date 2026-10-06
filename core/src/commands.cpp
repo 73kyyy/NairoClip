@@ -1192,5 +1192,75 @@ Result SetClipAudioCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------- 特效命令 ----------------
+
+AddEffectCommand::AddEffectCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                   Effect effect)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), effect_(std::move(effect)) {}
+
+Result AddEffectCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    const Effect* existing = clip->effects.find(effect_.id);
+    if (existing != nullptr) {
+        if (!isReplace_) {
+            previous_ = *existing;
+        }
+        isReplace_ = true;
+    }
+    return clip->effects.add(effect_);
+}
+
+Result AddEffectCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (isReplace_) {
+        return clip->effects.add(previous_);
+    }
+    clip->effects.remove(effect_.id);
+    return Result::ok();
+}
+
+RemoveEffectCommand::RemoveEffectCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                         EffectId effectId)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), effectId_(effectId) {}
+
+Result RemoveEffectCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    const Effect* existing = clip->effects.find(effectId_);
+    if (existing == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "特效不存在");
+    }
+    removed_ = *existing;
+    // 记录原位置
+    for (std::size_t i = 0; i < clip->effects.effects().size(); ++i) {
+        if (clip->effects.effects()[i].id == effectId_) {
+            removedIndex_ = i;
+            break;
+        }
+    }
+    clip->effects.remove(effectId_);
+    return Result::ok();
+}
+
+Result RemoveEffectCommand::revert(Project& project) {
+    if (!removed_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少特效快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    return clip->effects.add(*removed_);
+}
+
 }  // namespace core
 }  // namespace nairoclip

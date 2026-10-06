@@ -114,3 +114,53 @@ NC_TEST(Effects, MultipliedEffectsCombine) {
     const ColorTransform t = evaluateColorTransform(stack);
     NC_CHECK(nearly(t.contrast, 3.0, 1e-9));
 }
+#include "nairoclip/core/editor.h"
+NC_TEST(Effects, EditorEffectCommandsWithUndo) {
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    MediaAsset a;
+    a.id = AssetId{project.ids.next()};
+    a.type = MediaType::Video;
+    a.duration = Rational::make(60);
+    project.assets.push_back(a);
+    TrackId trackId;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &trackId).isOk());
+    Clip c;
+    c.asset = a.id;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(5);
+    ClipId clipId;
+    NC_CHECK(editor.insertClip(seqId, trackId, c, &clipId).isOk());
+    // 添加特效
+    Effect e;
+    e.id = EffectId{project.ids.next()};
+    e.type = EffectType::Brightness;
+    e.value = 0.15;
+    NC_CHECK(editor.addEffect(seqId, trackId, clipId, e).isOk());
+    const Clip* clip = findClip(project, seqId, trackId, clipId);
+    NC_CHECK_EQ(clip->effects.size(), std::size_t(1));
+    // 替换
+    e.value = 0.3;
+    NC_CHECK(editor.addEffect(seqId, trackId, clipId, e).isOk());
+    NC_CHECK(clip->effects.size() == std::size_t(1));
+    NC_CHECK(std::abs(findClip(project, seqId, trackId, clipId)->effects.find(e.id)->value - 0.3) < 1e-9);
+    // 撤销替换 → 回到 0.15
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(std::abs(findClip(project, seqId, trackId, clipId)->effects.find(e.id)->value - 0.15) < 1e-9);
+    // 撤销添加 → 无特效
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(findClip(project, seqId, trackId, clipId)->effects.empty());
+    // 重做两次 → 0.3
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK(editor.redo().isOk());
+    // 删除特效
+    NC_CHECK(editor.removeEffect(seqId, trackId, clipId, e.id).isOk());
+    NC_CHECK(findClip(project, seqId, trackId, clipId)->effects.empty());
+    // 撤销删除 → 恢复
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(findClip(project, seqId, trackId, clipId)->effects.size(), std::size_t(1));
+}

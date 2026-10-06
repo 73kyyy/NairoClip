@@ -1,6 +1,7 @@
 #include "nairoclip/core/serialization.h"
 
 #include "nairoclip/core/media.h"
+#include "nairoclip/core/effects.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/transition_types.h"
 
@@ -267,6 +268,44 @@ bool readSpeedCurve(const JsonValue& v, SpeedCurve& out, std::string& err) {
     return true;
 }
 
+// ---------------- 特效读写 ----------------
+
+JsonValue writeEffects(const EffectStack& stack) {
+    JsonValue arr = JsonValue::array();
+    for (const auto& e : stack.effects()) {
+        JsonValue o = JsonValue::object();
+        o.set("id", JsonValue::integer(static_cast<std::int64_t>(e.id.value)));
+        o.set("type", JsonValue::integer(static_cast<std::int64_t>(e.type)));
+        o.set("value", JsonValue::number(e.value));
+        o.set("enabled", JsonValue::boolean(e.enabled));
+        arr.push(std::move(o));
+    }
+    return arr;
+}
+
+bool readEffects(const JsonValue& v, EffectStack& out, std::string& err) {
+    out.clear();
+    if (v.isNull()) return true;
+    if (!v.isArray()) { err = "effects 应为数组"; return false; }
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const JsonValue& ev = v.at(i);
+        if (!ev.isObject()) { err = "特效项应为对象"; return false; }
+        Effect e;
+        e.id = EffectId{static_cast<std::uint64_t>(ev.get("id").asInteger())};
+        const std::int64_t typeValue = ev.get("type").asInteger();
+        if (typeValue < 0 || typeValue > 12) {
+            err = "未知特效类型";
+            return false;
+        }
+        e.type = static_cast<EffectType>(typeValue);
+        e.value = ev.get("value").asNumber();
+        e.enabled = ev.get("enabled").asBool(true);
+        const Result r = out.add(e);
+        if (!r.isOk()) { err = r.message; return false; }
+    }
+    return true;
+}
+
 JsonValue writeClip(const Clip& c) {
     JsonValue o = JsonValue::object();
     o.set("id", JsonValue::integer(static_cast<std::int64_t>(c.id.value)));
@@ -281,6 +320,9 @@ JsonValue writeClip(const Clip& c) {
     }
     if (!c.speedCurve.empty()) {
         o.set("speedCurve", writeSpeedCurve(c.speedCurve));
+    }
+    if (!c.effects.empty()) {
+        o.set("effects", writeEffects(c.effects));
     }
     if (c.audioGainDb != 0.0 || c.audioFadeIn.isPositive() || c.audioFadeOut.isPositive()) {
         JsonValue audio = JsonValue::object();
@@ -311,6 +353,10 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     out.speedCurve.clear();
     if (v.has("speedCurve")) {
         if (!readSpeedCurve(v.get("speedCurve"), out.speedCurve, err)) return false;
+    }
+    out.effects.clear();
+    if (v.has("effects")) {
+        if (!readEffects(v.get("effects"), out.effects, err)) return false;
     }
     out.audioGainDb = 0.0;
     out.audioFadeIn = Time{};
