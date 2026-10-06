@@ -24,6 +24,7 @@ add_executable(nairoclip_tests
     test_reference_style.cpp
     test_transition_render.cpp
     test_auto_edit.cpp
+    test_boundary.cpp
     test_project_doctor.cpp
     test_export_executor.cpp
     test_ripple.cpp
