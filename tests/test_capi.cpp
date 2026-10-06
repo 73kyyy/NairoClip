@@ -118,3 +118,73 @@ NC_TEST(Capi, CollisionRejectedWithCode) {
     NC_CHECK_EQ(nc_clip_count(editor, 0), 1);
     nc_editor_destroy(editor);
 }
+NC_TEST(Capi, SubtitleCrud) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t sid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
+    NC_CHECK(sid != 0);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 1);
+    // 读取
+    std::int64_t start = 0;
+    std::int64_t duration = 0;
+    char* text = nullptr;
+    NC_CHECK_EQ(nc_subtitle_get(editor, 0, &start, &duration, &text), NC_OK);
+    NC_CHECK_EQ(start, std::int64_t(1000000));
+    NC_CHECK_EQ(duration, std::int64_t(2000000));
+    NC_CHECK(text != nullptr);
+    if (text != nullptr) {
+        NC_CHECK_EQ(std::string(text), std::string("你好世界"));
+        nc_free_string(text);
+    }
+    // 删除
+    NC_CHECK_EQ(nc_remove_subtitle(editor, sid), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 0);
+    // 越界
+    NC_CHECK_EQ(nc_subtitle_get(editor, 5, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
+    nc_editor_destroy(editor);
+}
+NC_TEST(Capi, TransitionCrud) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t c1 = nc_insert_clip(editor, 0, assetId, 0, 2000000);
+    const std::uint64_t c2 = nc_insert_clip(editor, 0, assetId, 3000000, 2000000);
+    NC_CHECK(c1 != 0 && c2 != 0);
+    // 添加转场（类型 0 = 交叉溶解，时长 0.5s = 500000us；间隙 1s 够用）
+    const std::uint64_t tid = nc_add_transition(editor, 0, 0, 500000, c1, c2);
+    NC_CHECK(tid != 0);
+    NC_CHECK_EQ(nc_transition_count(editor, 0), 1);
+    // 读取
+    std::int32_t type = -1;
+    std::int64_t duration = 0;
+    std::uint64_t from = 0;
+    std::uint64_t to = 0;
+    char* name = nullptr;
+    NC_CHECK_EQ(nc_transition_get(editor, 0, 0, &type, &duration, &from, &to, &name), NC_OK);
+    NC_CHECK_EQ(type, 0);
+    NC_CHECK_EQ(duration, std::int64_t(500000));
+    NC_CHECK_EQ(from, c1);
+    NC_CHECK_EQ(to, c2);
+    if (name != nullptr) {
+        NC_CHECK(std::strlen(name) > 0);
+        nc_free_string(name);
+    }
+    // 删除
+    NC_CHECK_EQ(nc_remove_transition(editor, 0, tid), NC_OK);
+    NC_CHECK_EQ(nc_transition_count(editor, 0), 0);
+    nc_editor_destroy(editor);
+}
+NC_TEST(Capi, ClipGet) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    NC_CHECK(nc_insert_clip(editor, 0, assetId, 1000000, 2000000) != 0);
+    std::int64_t start = 0;
+    std::int64_t duration = 0;
+    std::uint64_t gotAsset = 0;
+    NC_CHECK_EQ(nc_clip_get(editor, 0, 0, &start, &duration, &gotAsset), NC_OK);
+    NC_CHECK_EQ(start, std::int64_t(1000000));
+    NC_CHECK_EQ(duration, std::int64_t(2000000));
+    NC_CHECK_EQ(gotAsset, assetId);
+    NC_CHECK_EQ(nc_clip_get(editor, 0, 9, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
+    nc_editor_destroy(editor);
+}

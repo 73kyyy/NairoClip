@@ -83,6 +83,49 @@ uint64_t nc_insert_clip(NcEditor* editor, int32_t track_index, uint64_t asset_id
 int32_t nc_undo(NcEditor* editor);
 int32_t nc_redo(NcEditor* editor);
 
+// ---- 字幕 ----
+
+/// 添加/更新字幕。返回 >0 成功（返回 SubtitleId），0 失败。
+/// start_us/duration_us 为微秒。
+uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
+                            const char* text);
+
+/// 删除字幕，返回错误码。
+int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id);
+
+/// 字幕数量。
+int32_t nc_subtitle_count(const NcEditor* editor);
+
+/// 读取第 index 条字幕的时间范围（微秒）与文本。
+/// out_text 需 nc_free_string。下标越界返回错误码。
+int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us,
+                        int64_t* duration_us, char** out_text);
+
+// ---- 转场 ----
+
+/// 在轨道上添加转场（type 枚举值同 core::TransitionType）。
+/// from/to 为片段 ID。返回 >0（TransitionId）或 0。
+uint64_t nc_add_transition(NcEditor* editor, int32_t track_index, int32_t transition_type,
+                           int64_t duration_us, uint64_t from_clip_id, uint64_t to_clip_id);
+
+/// 删除转场。
+int32_t nc_remove_transition(NcEditor* editor, int32_t track_index, uint64_t transition_id);
+
+/// 轨道上的转场数量。
+int32_t nc_transition_count(const NcEditor* editor, int32_t track_index);
+
+/// 读取第 index 个转场描述：类型/时长/两端片段。
+/// out_name 需 nc_free_string（可为 NULL）。
+int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t index,
+                          int32_t* out_type, int64_t* out_duration_us, uint64_t* out_from_clip,
+                          uint64_t* out_to_clip, char** out_name);
+
+// ---- 片段查询扩展 ----
+
+/// 读取轨道上第 index 个片段的时间信息（微秒）。
+int32_t nc_clip_get(const NcEditor* editor, int32_t track_index, int32_t clip_index,
+                    int64_t* out_start_us, int64_t* out_duration_us, uint64_t* out_asset_id);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

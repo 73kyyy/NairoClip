@@ -1,6 +1,7 @@
 #include "nairoclip/core/capi.h"
 
 #include "nairoclip/core/editor.h"
+#include "nairoclip/core/transition.h"
 #include "nairoclip/core/serialization.h"
 
 #include <cstring>
@@ -215,6 +216,162 @@ int32_t nc_redo(NcEditor* editor) {
         return NC_ERROR_INVALID_ARGUMENT;
     }
     return toNcError(editor->editor->redo().code);
+}
+
+uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
+                            const char* text) {
+    if (editor == nullptr || text == nullptr || start_us < 0 || duration_us <= 0) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return 0;
+    }
+    SubtitleCue cue;
+    cue.id = SubtitleId{editor->project.ids.next()};
+    cue.start = fromMicroseconds(start_us);
+    cue.duration = fromMicroseconds(duration_us);
+    cue.text = text;
+    const Result r = editor->editor->upsertSubtitle(main->id, std::move(cue));
+    if (!r.isOk()) {
+        return 0;
+    }
+    const SubtitleTrack& subtitles = editor->project.mainSequence()->subtitles;
+    // 返回最新插入的字幕 ID（按时间匹配最后一条）
+    const SubtitleCue* found = nullptr;
+    for (const auto& c : subtitles.cues()) {
+        if (c.start == fromMicroseconds(start_us) && c.text == std::string(text)) {
+            found = &c;
+        }
+    }
+    return found != nullptr ? found->id.value : 0;
+}
+
+int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id) {
+    if (editor == nullptr || subtitle_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    return toNcError(editor->editor->removeSubtitle(main->id, SubtitleId{subtitle_id}).code);
+}
+
+int32_t nc_subtitle_count(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    return main == nullptr ? 0 : static_cast<int32_t>(main->subtitles.size());
+}
+
+int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us,
+                        int64_t* duration_us, char** out_text) {
+    if (editor == nullptr || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(index) >= main->subtitles.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const SubtitleCue& cue = main->subtitles.cues()[static_cast<std::size_t>(index)];
+    if (start_us != nullptr) *start_us = toMicroseconds(cue.start);
+    if (duration_us != nullptr) *duration_us = toMicroseconds(cue.duration);
+    if (out_text != nullptr) *out_text = dupString(cue.text);
+    return NC_OK;
+}
+
+uint64_t nc_add_transition(NcEditor* editor, int32_t track_index, int32_t transition_type,
+                           int64_t duration_us, uint64_t from_clip_id, uint64_t to_clip_id) {
+    if (editor == nullptr || track_index < 0 || duration_us <= 0) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return 0;
+    }
+    if (transition_type < 0 || transition_type > 7) {
+        return 0;
+    }
+    Transition tr;
+    tr.id = TransitionId{editor->project.ids.next()};
+    tr.type = static_cast<TransitionType>(transition_type);
+    tr.duration = fromMicroseconds(duration_us);
+    tr.fromClip = ClipId{from_clip_id};
+    tr.toClip = ClipId{to_clip_id};
+    tr.name = transitionName(tr.type);
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    const Result r = editor->editor->addTransition(main->id, trackId, std::move(tr));
+    return r.isOk() ? editor->project.ids.peek() : 0;
+}
+
+int32_t nc_remove_transition(NcEditor* editor, int32_t track_index, uint64_t transition_id) {
+    if (editor == nullptr || track_index < 0 || transition_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(
+        editor->editor->removeTransition(main->id, trackId, TransitionId{transition_id}).code);
+}
+
+int32_t nc_transition_count(const NcEditor* editor, int32_t track_index) {
+    if (editor == nullptr || track_index < 0) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return 0;
+    }
+    return static_cast<int32_t>(
+        main->tracks[static_cast<std::size_t>(track_index)].transitions.size());
+}
+
+int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t index,
+                          int32_t* out_type, int64_t* out_duration_us, uint64_t* out_from_clip,
+                          uint64_t* out_to_clip, char** out_name) {
+    if (editor == nullptr || track_index < 0 || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (static_cast<std::size_t>(index) >= track.transitions.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Transition& tr = track.transitions[static_cast<std::size_t>(index)];
+    if (out_type != nullptr) *out_type = static_cast<int32_t>(tr.type);
+    if (out_duration_us != nullptr) *out_duration_us = toMicroseconds(tr.duration);
+    if (out_from_clip != nullptr) *out_from_clip = tr.fromClip.value;
+    if (out_to_clip != nullptr) *out_to_clip = tr.toClip.value;
+    if (out_name != nullptr) *out_name = dupString(tr.name);
+    return NC_OK;
+}
+
+int32_t nc_clip_get(const NcEditor* editor, int32_t track_index, int32_t clip_index,
+                    int64_t* out_start_us, int64_t* out_duration_us, uint64_t* out_asset_id) {
+    if (editor == nullptr || track_index < 0 || clip_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (static_cast<std::size_t>(clip_index) >= track.clips.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Clip& clip = track.clips[static_cast<std::size_t>(clip_index)];
+    if (out_start_us != nullptr) *out_start_us = toMicroseconds(clip.start);
+    if (out_duration_us != nullptr) *out_duration_us = toMicroseconds(clip.duration);
+    if (out_asset_id != nullptr) *out_asset_id = clip.asset.value;
+    return NC_OK;
 }
 
 void nc_free_string(char* text) { delete[] text; }
