@@ -7,6 +7,7 @@ add_library(nairoclip_core STATIC
     src/project.cpp
     src/commands.cpp
     src/editor.cpp
+    src/keyframe.cpp
 )
 
 target_include_directories(nairoclip_core PUBLIC
