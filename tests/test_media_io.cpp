@@ -68,8 +68,14 @@ NC_TEST(MediaIo, ReadAudioBlocks) {
         NC_CHECK_EQ(block.channels, 2);
         NC_CHECK_EQ(block.frameCount(), std::size_t(256));
         NC_CHECK_EQ(block.samples.size(), std::size_t(512));
-        // 首个样点接近 0（440Hz 正弦从 0 开始）
-        NC_CHECK(block.samples[0] > -0.01f && block.samples[0] < 0.01f);
+        // 相位跟随绝对时间：首块首样点接近 0（sin(0)）
+        if (count == 1) {
+            NC_CHECK(block.samples[0] > -0.01f && block.samples[0] < 0.01f);
+        }
+        // 所有样本幅度不超过 0.25（正弦幅度）
+        for (const float s : block.samples) {
+            NC_CHECK(s >= -0.2501f && s <= 0.2501f);
+        }
     }
     NC_CHECK_EQ(count, 3);
 }

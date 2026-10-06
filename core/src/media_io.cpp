@@ -68,9 +68,11 @@ bool MockMediaReader::readAudioBlock(AudioBlock& out) {
     out.sampleRate = sampleRate;
     out.channels = channels;
     out.samples.resize(static_cast<std::size_t>(frames) * static_cast<std::size_t>(channels));
-    // 生成 440Hz 正弦波（测试参考信号）
+    // 生成 440Hz 正弦波（测试参考信号）：相位跟随绝对时间，
+    // 保证 seek 后波形相位连续（与真实解码器一致）。
+    const double baseSeconds = out.start.toDouble();
     for (int i = 0; i < frames; ++i) {
-        const double t = static_cast<double>(i) / sampleRate;
+        const double t = baseSeconds + static_cast<double>(i) / sampleRate;
         const float v = static_cast<float>(0.25 * std::sin(2.0 * 3.141592653589793 * 440.0 * t));
         for (int ch = 0; ch < channels; ++ch) {
             out.samples[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) +

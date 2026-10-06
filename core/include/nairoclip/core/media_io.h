@@ -39,6 +39,22 @@ struct AudioBlock {
     }
 };
 
+/// 渲染输出的一帧（导出器/混音器消费）。
+struct OutputVideoFrame {
+    Time timestamp;
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> rgba;  // 交错 RGBA8
+};
+
+/// 音频输出块（多轨混音后）。
+struct OutputAudioBlock {
+    Time start;
+    int sampleRate = 0;
+    int channels = 0;
+    std::vector<float> samples;  // 交错
+};
+
 /// 一帧视频图像（RGB/A 由实现约定；本工程内部约定 RGBA8 交错）。
 struct VideoFrame {
     /// 时间戳（源素材时间轴）。

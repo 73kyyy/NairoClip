@@ -13,21 +13,7 @@
 namespace nairoclip {
 namespace core {
 
-/// 渲染输出的一帧（导出器消费）。
-struct OutputVideoFrame {
-    Time timestamp;
-    int width = 0;
-    int height = 0;
-    std::vector<std::uint8_t> rgba;  // 交错 RGBA8
-};
-
-/// 音频输出块（多轨混音后）。
-struct OutputAudioBlock {
-    Time start;
-    int sampleRate = 0;
-    int channels = 0;
-    std::vector<float> samples;  // 交错
-};
+// OutputVideoFrame / OutputAudioBlock 已移至 media_io.h（基础类型）。
 
 /// 导出执行器：把 ExportPlan 逐帧/逐块驱动渲染，
 /// 通过回调把输出交给平台编码器（FFmpeg/MediaCodec）。
