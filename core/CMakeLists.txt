@@ -21,6 +21,7 @@ add_library(nairoclip_core STATIC
     src/effects.cpp
     src/audio_mixer.cpp
     src/preview.cpp
+    src/reference_style.cpp
     src/export_executor.cpp
 )
 
