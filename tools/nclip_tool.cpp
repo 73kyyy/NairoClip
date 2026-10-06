@@ -7,6 +7,7 @@
 //
 // 退出码：0 = 成功，1 = 文件错误，2 = 参数错误
 
+#include "nairoclip/core/project_doctor.h"
 #include "nairoclip/core/serialization.h"
 
 #include <cstdio>
@@ -114,15 +115,66 @@ int commandValidate(const std::string& path) {
             return 1;
         }
     }
-    std::printf("校验通过：%s（%zu 序列，%zu 素材）\n", path.c_str(), project.sequences.size(),
-                project.assets.size());
+    // 深度校验：使用 project doctor
+    const HealthReport health = checkProjectHealth(project);
+    bool ok = true;
+    for (const auto& issue : health.issues) {
+        const char* level = issue.level == HealthLevel::Error     ? "错误"
+                            : issue.level == HealthLevel::Warning ? "警告"
+                                                                  : "信息";
+        std::printf("[%s] %s：%s\n", level, issue.code.c_str(), issue.message.c_str());
+        if (issue.level == HealthLevel::Error) {
+            ok = false;
+        }
+    }
+    if (!ok) {
+        std::fprintf(stderr, "校验失败：发现 %zu 个错误（可用 doctor 命令修复）\n",
+                     health.errorCount());
+        return 1;
+    }
+    std::printf("校验通过：%s（%zu 序列，%zu 素材，%zu 警告）\n", path.c_str(),
+                project.sequences.size(), project.assets.size(), health.warningCount());
     return 0;
+}
+
+int commandDoctor(const std::string& path, bool writeBack) {
+    std::string text;
+    if (!readFile(path, text)) {
+        return 1;
+    }
+    Project project;
+    const NclipLoadResult result = loadProjectFromNclip(text, project);
+    if (!result.result.isOk()) {
+        std::fprintf(stderr, "加载失败：%s\n", result.result.message.c_str());
+        return 1;
+    }
+    const RepairReport repair = repairProject(project);
+    if (repair.actions.empty()) {
+        std::printf("未发现需要修复的问题\n");
+        return 0;
+    }
+    for (const auto& action : repair.actions) {
+        std::printf("修复：%s（影响 %zu 处）\n", action.description.c_str(), action.affected);
+    }
+    if (writeBack) {
+        std::ofstream out(path, std::ios::binary);
+        if (!out) {
+            std::fprintf(stderr, "错误：无法写回 %s\n", path.c_str());
+            return 1;
+        }
+        out << saveProjectToNclip(project);
+        std::printf("已写回：%s\n", path.c_str());
+    } else {
+        std::printf("（未写回；加 --fix 参数以保存修复结果）\n");
+    }
+    return repair.after.healthy() ? 0 : 1;
 }
 
 void printUsage() {
     std::printf("用法：\n");
     std::printf("  nclip_tool info <file.nclip>      显示工程摘要\n");
     std::printf("  nclip_tool validate <file.nclip>  校验工程文件\n");
+    std::printf("  nclip_tool doctor <file.nclip> [--fix] 修复工程文件\n");
     std::printf("  nclip_tool version                版本信息\n");
 }
 
@@ -152,6 +204,10 @@ int main(int argc, char** argv) {
     }
     if (command == "validate") {
         return commandValidate(path);
+    }
+    if (command == "doctor") {
+        const bool fix = argc >= 4 && std::string(argv[3]) == "--fix";
+        return commandDoctor(path, fix);
     }
     std::fprintf(stderr, "错误：未知命令 %s\n", command.c_str());
     printUsage();

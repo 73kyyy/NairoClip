@@ -667,10 +667,23 @@ uint64_t maxIdOf(const Project& project) {
             if (t.id.value > maxId) maxId = t.id.value;
             for (const auto& c : t.clips) {
                 if (c.id.value > maxId) maxId = c.id.value;
+                // 特效 ID 也在全局分配器空间内
+                for (const auto& e : c.effects.effects()) {
+                    if (e.id.value > maxId) maxId = e.id.value;
+                }
+            }
+            // 转场 ID
+            for (const auto& tr : t.transitions) {
+                if (tr.id.value > maxId) maxId = tr.id.value;
             }
         }
+        // 标记 ID
         for (const auto& m : s.markers) {
             if (m.id.value > maxId) maxId = m.id.value;
+        }
+        // 字幕 ID
+        for (const auto& cue : s.subtitles.cues()) {
+            if (cue.id.value > maxId) maxId = cue.id.value;
         }
     }
     return maxId;
