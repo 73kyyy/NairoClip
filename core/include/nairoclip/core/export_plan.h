@@ -16,6 +16,8 @@ namespace core {
 struct RenderClip {
     ClipId clipId;
     AssetId asset;
+    /// 素材文件路径（编译时从工程素材表复制，导出器用）。
+    std::string assetPath;
     /// 时间轴区间 [timelineStart, timelineEnd)。
     Time timelineStart;
     Time timelineEnd;

@@ -9,6 +9,9 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     RenderClip rc;
     rc.clipId = clip.id;
     rc.asset = clip.asset;
+    if (const MediaAsset* asset = project.findAsset(clip.asset)) {
+        rc.assetPath = asset->path;
+    }
     rc.timelineStart = clip.start;
     rc.timelineEnd = clip.end();
     rc.sourceIn = clip.sourceIn;
