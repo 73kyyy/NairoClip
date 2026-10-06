@@ -1,0 +1,125 @@
+#include "test_framework.h"
+#include "nairoclip/core/preview.h"
+#include "nairoclip/core/editor.h"
+using namespace nairoclip::core;
+namespace {
+class PreviewMockFactory : public MediaReaderFactory {
+public:
+    std::unique_ptr<MediaReader> create() override {
+        MockMediaReader::Config cfg;
+        cfg.probe.type = MediaType::Video;
+        cfg.probe.frameRate = fps30();
+        cfg.probe.width = 64;
+        cfg.probe.height = 48;
+        cfg.probe.duration = Rational::make(60);
+        cfg.videoFrameCount = 100000;
+        return std::make_unique<MockMediaReader>(cfg);
+    }
+};
+struct Fixture {
+    Project project;
+    TimelineEditor editor{project};
+    SequenceId seqId;
+    TrackId videoTrack;
+    AssetId assetId;
+    Fixture() {
+        Sequence seq;
+        seq.id = SequenceId{project.ids.next()};
+        seq.width = 64;
+        seq.height = 48;
+        project.sequences.push_back(seq);
+        seqId = project.sequences.front().id;
+        MediaAsset a;
+        a.id = AssetId{project.ids.next()};
+        a.path = "/video/a.mp4";
+        a.type = MediaType::Video;
+        a.duration = Rational::make(60);
+        project.assets.push_back(a);
+        assetId = project.assets.front().id;
+        editor.addTrack(seqId, TrackType::Video, "V1", &videoTrack);
+    }
+    ClipId addClip(const Time& start, const Time& duration) {
+        Clip c;
+        c.asset = assetId;
+        c.start = start;
+        c.duration = duration;
+        ClipId id;
+        editor.insertClip(seqId, videoTrack, c, &id);
+        return id;
+    }
+};
+}  // namespace
+NC_TEST(Preview, RendersActiveClip) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame frame = renderer.renderAt(Rational::make(1));
+    NC_CHECK(frame.clipId != 0);
+    NC_CHECK_EQ(frame.width, 64);
+    NC_CHECK_EQ(frame.height, 48);
+    NC_CHECK(!frame.rgba.empty());
+    NC_CHECK_EQ(frame.rgba.size(), std::size_t(64 * 48 * 4));
+    // 无动画通道 → 默认 1.0
+    NC_CHECK(std::abs(frame.opacity - 1.0) < 1e-9);
+}
+NC_TEST(Preview, EmptyGapReturnsNoClip) {
+    Fixture f;
+    f.addClip(Rational::make(5), Rational::make(2));  // [5,7)
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame frame = renderer.renderAt(Rational::make(1));
+    NC_CHECK_EQ(frame.clipId, std::uint64_t(0));
+    NC_CHECK(frame.rgba.empty());
+    NC_CHECK(std::abs(frame.opacity) < 1e-9);  // 黑场标记
+}
+NC_TEST(Preview, IncludesSubtitles) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(5));
+    SubtitleCue cue;
+    cue.id = SubtitleId{f.project.ids.next()};
+    cue.start = Rational::make(1);
+    cue.duration = Rational::make(2);
+    cue.text = "预览字幕";
+    NC_CHECK(f.editor.upsertSubtitle(f.seqId, cue).isOk());
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    // t=1.5 有字幕
+    const PreviewFrame withSub = renderer.renderAt(fromMilliseconds(1500));
+    NC_CHECK_EQ(withSub.subtitles.size(), std::size_t(1));
+    NC_CHECK_EQ(withSub.subtitles[0], std::string("预览字幕"));
+    // t=4 无字幕
+    const PreviewFrame noSub = renderer.renderAt(Rational::make(4));
+    NC_CHECK(noSub.subtitles.empty());
+}
+NC_TEST(Preview, AppliesAnimationOpacity) {
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(4));
+    Keyframe k1;
+    k1.time = Rational::make(0);
+    k1.value = 0.0;
+    Keyframe k2;
+    k2.time = Rational::make(4);
+    k2.value = 1.0;
+    NC_CHECK(f.editor
+                 .insertKeyframe(f.seqId, f.videoTrack, clip, ClipProperty::Opacity, k1)
+                 .isOk());
+    NC_CHECK(f.editor
+                 .insertKeyframe(f.seqId, f.videoTrack, clip, ClipProperty::Opacity, k2)
+                 .isOk());
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    // t=2 → 线性中点 0.5
+    const PreviewFrame frame = renderer.renderAt(Rational::make(2));
+    NC_CHECK(std::abs(frame.opacity - 0.5) < 1e-6);
+}
+NC_TEST(Preview, HiddenTrackSkipped) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    NC_CHECK(f.editor.setTrackHidden(f.seqId, f.videoTrack, true).isOk());
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame frame = renderer.renderAt(Rational::make(1));
+    // 隐藏轨道 → 无画面
+    NC_CHECK_EQ(frame.clipId, std::uint64_t(0));
+}
