@@ -220,6 +220,13 @@ Result TimelineEditor::removeKeyframe(SequenceId sequenceId, TrackId trackId, Cl
         std::make_unique<RemoveKeyframeCommand>(sequenceId, trackId, clipId, property, at));
 }
 
+Result TimelineEditor::detachAudio(SequenceId sequenceId, TrackId videoTrackId,
+                                    ClipId videoClipId, TrackId audioTrackId) {
+    return commit(std::make_unique<DetachAudioCommand>(sequenceId, videoTrackId, videoClipId,
+                                                       audioTrackId,
+                                                       ClipId{project_.ids.next()}));
+}
+
 Result TimelineEditor::addTransition(SequenceId sequenceId, TrackId trackId,
                                      Transition transition) {
     return commit(std::make_unique<AddTransitionCommand>(sequenceId, trackId, std::move(transition)));

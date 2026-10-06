@@ -321,5 +321,26 @@ private:
     std::optional<bool> beforeBool_;
 };
 
+
+/// 音画分离：在音频轨创建与视频片段同时间的音频片段。
+/// 音频片段引用同一素材（真实实现按音频流读取）。
+class DetachAudioCommand : public Command {
+public:
+    DetachAudioCommand(SequenceId sequenceId, TrackId videoTrackId, ClipId videoClipId,
+                       TrackId audioTrackId, ClipId newAudioClipId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "音画分离"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId videoTrackId_;
+    ClipId videoClipId_;
+    TrackId audioTrackId_;
+    ClipId newAudioClipId_;
+    std::optional<Clip> created_;  // apply 时生成的音频片段快照
+};
+
 }  // namespace core
 }  // namespace nairoclip

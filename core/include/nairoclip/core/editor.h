@@ -62,6 +62,10 @@ public:
     /// 删除片段关键帧。
     Result removeKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                           ClipProperty property, const Time& at);
+    // ---- 音画分离 ----
+    /// 将视频片段分离出音频片段到目标音频轨（同素材同时间）。
+    Result detachAudio(SequenceId sequenceId, TrackId videoTrackId, ClipId videoClipId,
+                       TrackId audioTrackId);
     // ---- 转场 ----
     /// 添加转场（自动校验；失败不入撤销栈）。
     Result addTransition(SequenceId sequenceId, TrackId trackId, Transition transition);

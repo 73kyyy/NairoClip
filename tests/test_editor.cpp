@@ -467,3 +467,52 @@ NC_TEST(Editor, LockedTrackRejectsEdits) {
     NC_CHECK(!r.isOk());
     NC_CHECK(r.code == ErrorCode::Locked);
 }
+NC_TEST(Editor, DetachAudioCreatesAudioClip) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    // 建音频轨
+    TrackId audioTrack;
+    NC_CHECK(editor.addTrack(f.seqId, TrackType::Audio, "A1", &audioTrack).isOk());
+    // 插入视频片段
+    Clip vc;
+    vc.asset = f.assetId;
+    vc.start = Rational::make(1);
+    vc.duration = Rational::make(3);
+    ClipId videoClip;
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, vc, &videoClip).isOk());
+    // 音画分离
+    NC_CHECK(editor.detachAudio(f.seqId, f.trackId, videoClip, audioTrack).isOk());
+    const Track* at = findTrack(f.project, f.seqId, audioTrack);
+    NC_CHECK_EQ(at->clips.size(), std::size_t(1));
+    NC_CHECK(at->clips[0].start == Rational::make(1));
+    NC_CHECK(at->clips[0].duration == Rational::make(3));
+    NC_CHECK(at->clips[0].asset == f.assetId);
+    NC_CHECK(at->clips[0].id != videoClip);
+    // 撤销 → 音频消失
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(findTrack(f.project, f.seqId, audioTrack)->clips.size(), std::size_t(0));
+    // 重做 → 恢复
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK_EQ(findTrack(f.project, f.seqId, audioTrack)->clips.size(), std::size_t(1));
+}
+NC_TEST(Editor, DetachAudioRejectsOverlap) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    TrackId audioTrack;
+    NC_CHECK(editor.addTrack(f.seqId, TrackType::Audio, "A1", &audioTrack).isOk());
+    Clip vc;
+    vc.asset = f.assetId;
+    vc.start = Rational::make(0);
+    vc.duration = Rational::make(3);
+    ClipId videoClip;
+    NC_CHECK(editor.insertClip(f.seqId, f.trackId, vc, &videoClip).isOk());
+    // 音频轨已有冲突片段
+    Clip existing;
+    existing.asset = f.assetId;
+    existing.start = Rational::make(1);
+    existing.duration = Rational::make(1);
+    NC_CHECK(editor.insertClip(f.seqId, audioTrack, existing).isOk());
+    const Result r = editor.detachAudio(f.seqId, f.trackId, videoClip, audioTrack);
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::Overlap);
+}

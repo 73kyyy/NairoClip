@@ -1004,5 +1004,59 @@ Result SetTrackCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------- 音画分离命令 ----------------
+
+DetachAudioCommand::DetachAudioCommand(SequenceId sequenceId, TrackId videoTrackId,
+                                       ClipId videoClipId, TrackId audioTrackId,
+                                       ClipId newAudioClipId)
+    : sequenceId_(sequenceId),
+      videoTrackId_(videoTrackId),
+      videoClipId_(videoClipId),
+      audioTrackId_(audioTrackId),
+      newAudioClipId_(newAudioClipId) {}
+
+Result DetachAudioCommand::apply(Project& project) {
+    const Track* videoTrack = findTrack(project, sequenceId_, videoTrackId_);
+    Track* audioTrack = findTrack(project, sequenceId_, audioTrackId_);
+    if (videoTrack == nullptr || audioTrack == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (!created_.has_value()) {
+        const Clip* videoClip = videoTrack->findClip(videoClipId_);
+        if (videoClip == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "视频片段不存在");
+        }
+        // 生成音频片段：同素材、同时间，新 ID
+        Clip audio = *videoClip;
+        audio.id = newAudioClipId_;
+        created_ = audio;
+    }
+    // 校验目标音频轨放置合法性（锁定/重叠）
+    const Result check = validateClipPlacement(project, *audioTrack, *created_);
+    if (!check.isOk()) {
+        return check;
+    }
+    audioTrack->clips.insert(insertionPoint(audioTrack->clips, created_->start), *created_);
+    return Result::ok();
+}
+
+Result DetachAudioCommand::revert(Project& project) {
+    if (!created_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少音频片段快照");
+    }
+    Track* audioTrack = findTrack(project, sequenceId_, audioTrackId_);
+    if (audioTrack == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const auto it = std::find_if(audioTrack->clips.begin(), audioTrack->clips.end(),
+                                 [this](const Clip& c) { return c.id == newAudioClipId_; });
+    if (it == audioTrack->clips.end()) {
+        return Result::fail(ErrorCode::NotFound, "音频片段不存在");
+    }
+    audioTrack->clips.erase(it);
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip
