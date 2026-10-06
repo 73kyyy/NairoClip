@@ -1,6 +1,7 @@
 #include "nairoclip/core/serialization.h"
 
 #include "nairoclip/core/media.h"
+#include "nairoclip/core/transition_types.h"
 
 namespace nairoclip {
 namespace core {
@@ -264,6 +265,61 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     return true;
 }
 
+// ---------------- 转场读写 ----------------
+
+const char* transitionTypeName(TransitionType t) {
+    switch (t) {
+        case TransitionType::CrossDissolve: return "crossDissolve";
+        case TransitionType::FadeToBlack: return "fadeToBlack";
+        case TransitionType::FadeFromBlack: return "fadeFromBlack";
+        case TransitionType::FlashWhite: return "flashWhite";
+        case TransitionType::WipeLeft: return "wipeLeft";
+        case TransitionType::WipeRight: return "wipeRight";
+        case TransitionType::SlideUp: return "slideUp";
+        case TransitionType::Zoom: return "zoom";
+    }
+    return "crossDissolve";
+}
+
+bool parseTransitionType(const std::string& s, TransitionType& out) {
+    if (s == "crossDissolve") { out = TransitionType::CrossDissolve; return true; }
+    if (s == "fadeToBlack") { out = TransitionType::FadeToBlack; return true; }
+    if (s == "fadeFromBlack") { out = TransitionType::FadeFromBlack; return true; }
+    if (s == "flashWhite") { out = TransitionType::FlashWhite; return true; }
+    if (s == "wipeLeft") { out = TransitionType::WipeLeft; return true; }
+    if (s == "wipeRight") { out = TransitionType::WipeRight; return true; }
+    if (s == "slideUp") { out = TransitionType::SlideUp; return true; }
+    if (s == "zoom") { out = TransitionType::Zoom; return true; }
+    return false;
+}
+
+JsonValue writeTransition(const Transition& t) {
+    JsonValue o = JsonValue::object();
+    o.set("id", JsonValue::integer(static_cast<std::int64_t>(t.id.value)));
+    o.set("type", JsonValue::string(transitionTypeName(t.type)));
+    o.set("duration", writeRational(t.duration));
+    o.set("fromClip", JsonValue::integer(static_cast<std::int64_t>(t.fromClip.value)));
+    o.set("toClip", JsonValue::integer(static_cast<std::int64_t>(t.toClip.value)));
+    if (!t.name.empty()) {
+        o.set("name", JsonValue::string(t.name));
+    }
+    return o;
+}
+
+bool readTransition(const JsonValue& v, Transition& out, std::string& err) {
+    if (!v.isObject()) { err = "转场项应为对象"; return false; }
+    out.id = TransitionId{static_cast<std::uint64_t>(v.get("id").asInteger())};
+    if (!parseTransitionType(v.get("type").asString(), out.type)) {
+        err = "未知转场类型: " + v.get("type").asString();
+        return false;
+    }
+    if (!readRational(v.get("duration"), "duration", out.duration, err)) return false;
+    out.fromClip = ClipId{static_cast<std::uint64_t>(v.get("fromClip").asInteger())};
+    out.toClip = ClipId{static_cast<std::uint64_t>(v.get("toClip").asInteger())};
+    out.name = v.get("name").asString();
+    return true;
+}
+
 JsonValue writeTrack(const Track& t) {
     JsonValue o = JsonValue::object();
     o.set("id", JsonValue::integer(static_cast<std::int64_t>(t.id.value)));
@@ -277,6 +333,13 @@ JsonValue writeTrack(const Track& t) {
         clips.push(writeClip(c));
     }
     o.set("clips", std::move(clips));
+    if (!t.transitions.empty()) {
+        JsonValue transitions = JsonValue::array();
+        for (const auto& tr : t.transitions) {
+            transitions.push(writeTransition(tr));
+        }
+        o.set("transitions", std::move(transitions));
+    }
     return o;
 }
 
@@ -298,6 +361,15 @@ bool readTrack(const JsonValue& v, Track& out, std::string& err) {
         Clip c;
         if (!readClip(clips.at(i), c, err)) return false;
         out.clips.push_back(std::move(c));
+    }
+    out.transitions.clear();
+    const JsonValue& transitions = v.get("transitions");
+    if (transitions.isArray()) {
+        for (std::size_t i = 0; i < transitions.size(); ++i) {
+            Transition tr;
+            if (!readTransition(transitions.at(i), tr, err)) return false;
+            out.transitions.push_back(std::move(tr));
+        }
     }
     return true;
 }

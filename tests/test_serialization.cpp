@@ -207,3 +207,41 @@ NC_TEST(Serialization, SubtitleRoundtrip) {
     NC_CHECK(st.cues()[0].style.color == std::string("#FFD700"));
     NC_CHECK_EQ(st.cues()[0].style.alignment, 2);
 }
+NC_TEST(Serialization, TransitionRoundtrip) {
+    Project p;
+    p.name = "转场工程";
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    Clip c1;
+    c1.id = ClipId{p.ids.next()};
+    c1.start = Rational::make(0);
+    c1.duration = Rational::make(2);
+    Clip c2;
+    c2.id = ClipId{p.ids.next()};
+    c2.start = Rational::make(3);
+    c2.duration = Rational::make(2);
+    t.clips.push_back(c1);
+    t.clips.push_back(c2);
+    Transition tr;
+    tr.id = TransitionId{p.ids.next()};
+    tr.type = TransitionType::WipeLeft;
+    tr.duration = Rational::make(3, 2);
+    tr.fromClip = c1.id;
+    tr.toClip = c2.id;
+    tr.name = "左向擦除";
+    t.transitions.push_back(tr);
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+    const std::string text = saveProjectToNclip(p);
+    Project loaded;
+    NC_CHECK(loadProjectFromNclip(text, loaded).result.isOk());
+    const Track& lt = loaded.sequences[0].tracks[0];
+    NC_CHECK_EQ(lt.transitions.size(), std::size_t(1));
+    NC_CHECK(lt.transitions[0].type == TransitionType::WipeLeft);
+    NC_CHECK(lt.transitions[0].duration == Rational::make(3, 2));
+    NC_CHECK(lt.transitions[0].fromClip == c1.id);
+    NC_CHECK(lt.transitions[0].toClip == c2.id);
+    NC_CHECK(lt.transitions[0].name == std::string("左向擦除"));
+}
