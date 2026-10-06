@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/command.h"
+#include "nairoclip/core/animation.h"
 #include "nairoclip/core/transition_types.h"
 
 #include <cstddef>
@@ -199,6 +200,46 @@ private:
     TrackId trackId_;
     TransitionId transitionId_;
     std::optional<Transition> removed_;
+};
+
+
+/// 插入/更新片段动画关键帧。
+class InsertKeyframeCommand : public Command {
+public:
+    InsertKeyframeCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          ClipProperty property, Keyframe keyframe);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "添加关键帧"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    ClipProperty property_;
+    Keyframe keyframe_;
+    bool isReplace_ = false;
+    Keyframe previous_;  // 替换时的旧值快照
+};
+
+/// 删除片段动画关键帧。
+class RemoveKeyframeCommand : public Command {
+public:
+    RemoveKeyframeCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          ClipProperty property, Time at);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "删除关键帧"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    ClipProperty property_;
+    Time at_;
+    std::optional<Keyframe> removed_;
 };
 
 }  // namespace core

@@ -187,6 +187,18 @@ Result TimelineEditor::removeSubtitle(SequenceId sequenceId, SubtitleId subtitle
     return commit(std::make_unique<RemoveSubtitleCommand>(sequenceId, subtitleId));
 }
 
+Result TimelineEditor::insertKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                     ClipProperty property, Keyframe keyframe) {
+    return commit(std::make_unique<InsertKeyframeCommand>(sequenceId, trackId, clipId, property,
+                                                          std::move(keyframe)));
+}
+
+Result TimelineEditor::removeKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                      ClipProperty property, const Time& at) {
+    return commit(
+        std::make_unique<RemoveKeyframeCommand>(sequenceId, trackId, clipId, property, at));
+}
+
 Result TimelineEditor::addTransition(SequenceId sequenceId, TrackId trackId,
                                      Transition transition) {
     return commit(std::make_unique<AddTransitionCommand>(sequenceId, trackId, std::move(transition)));

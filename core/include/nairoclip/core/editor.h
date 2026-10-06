@@ -46,6 +46,13 @@ public:
     Result upsertSubtitle(SequenceId sequenceId, SubtitleCue cue);
     /// 删除字幕。
     Result removeSubtitle(SequenceId sequenceId, SubtitleId subtitleId);
+    // ---- 关键帧 ----
+    /// 插入/更新片段关键帧（同时刻替换；失败不入撤销栈）。
+    Result insertKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          ClipProperty property, Keyframe keyframe);
+    /// 删除片段关键帧。
+    Result removeKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          ClipProperty property, const Time& at);
     // ---- 转场 ----
     /// 添加转场（自动校验；失败不入撤销栈）。
     Result addTransition(SequenceId sequenceId, TrackId trackId, Transition transition);

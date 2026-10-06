@@ -86,3 +86,58 @@ NC_TEST(Animation, EasedCurveSample) {
     const double mid = anim.sample(ClipProperty::Opacity, Rational::make(1, 2));
     NC_CHECK(mid > 0.0 && mid < 0.5);
 }
+#include "nairoclip/core/editor.h"
+NC_TEST(Animation, EditorKeyframeWithUndo) {
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    MediaAsset a;
+    a.id = AssetId{project.ids.next()};
+    a.type = MediaType::Video;
+    a.duration = Rational::make(60);
+    project.assets.push_back(a);
+    TrackId trackId;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &trackId).isOk());
+    Clip clip;
+    clip.asset = a.id;
+    clip.start = Rational::make(0);
+    clip.duration = Rational::make(5);
+    ClipId clipId;
+    NC_CHECK(editor.insertClip(seqId, trackId, clip, &clipId).isOk());
+    Keyframe k;
+    k.time = Rational::make(0);
+    k.value = 0.0;
+    NC_CHECK(editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Opacity, k).isOk());
+    Keyframe k2;
+    k2.time = Rational::make(2);
+    k2.value = 1.0;
+    NC_CHECK(editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Opacity, k2).isOk());
+    // 验证采样
+    const Clip* c = findClip(project, seqId, trackId, clipId);
+    NC_CHECK(c != nullptr);
+    NC_CHECK(c->animation.hasCurve(ClipProperty::Opacity));
+    NC_CHECK(nearly(c->animation.sample(ClipProperty::Opacity, Rational::make(1)), 0.5));
+    // 撤销
+    NC_CHECK(editor.undo().isOk());
+    c = findClip(project, seqId, trackId, clipId);
+    const KeyframeTrack* curve = c->animation.findCurve(ClipProperty::Opacity);
+    NC_CHECK(curve != nullptr);
+    NC_CHECK_EQ(curve->size(), std::size_t(1));
+    // 重做
+    NC_CHECK(editor.redo().isOk());
+    c = findClip(project, seqId, trackId, clipId);
+    NC_CHECK_EQ(c->animation.findCurve(ClipProperty::Opacity)->size(), std::size_t(2));
+    // 删除关键帧
+    NC_CHECK(editor.removeKeyframe(seqId, trackId, clipId, ClipProperty::Opacity,
+                                   Rational::make(0))
+                 .isOk());
+    c = findClip(project, seqId, trackId, clipId);
+    NC_CHECK_EQ(c->animation.findCurve(ClipProperty::Opacity)->size(), std::size_t(1));
+    // 撤销删除 → 恢复
+    NC_CHECK(editor.undo().isOk());
+    c = findClip(project, seqId, trackId, clipId);
+    NC_CHECK_EQ(c->animation.findCurve(ClipProperty::Opacity)->size(), std::size_t(2));
+}

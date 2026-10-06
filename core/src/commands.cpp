@@ -563,5 +563,84 @@ Result RemoveTransitionCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------- 关键帧命令 ----------------
+
+InsertKeyframeCommand::InsertKeyframeCommand(SequenceId sequenceId, TrackId trackId,
+                                             ClipId clipId, ClipProperty property,
+                                             Keyframe keyframe)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      property_(property),
+      keyframe_(std::move(keyframe)) {}
+
+Result InsertKeyframeCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    KeyframeTrack& track = clip->animation.curve(property_);
+    for (const auto& k : track.keyframes()) {
+        if (k.time == keyframe_.time) {
+            isReplace_ = true;
+            previous_ = k;
+            break;
+        }
+    }
+    return track.insert(keyframe_);
+}
+
+Result InsertKeyframeCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    KeyframeTrack& track = clip->animation.curve(property_);
+    if (isReplace_) {
+        return track.insert(previous_);
+    }
+    track.remove(keyframe_.time);
+    return Result::ok();
+}
+
+RemoveKeyframeCommand::RemoveKeyframeCommand(SequenceId sequenceId, TrackId trackId,
+                                             ClipId clipId, ClipProperty property, Time at)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      property_(property),
+      at_(at) {}
+
+Result RemoveKeyframeCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    KeyframeTrack& track = clip->animation.curve(property_);
+    for (const auto& k : track.keyframes()) {
+        if (k.time == at_) {
+            removed_ = k;
+            break;
+        }
+    }
+    if (!removed_.has_value()) {
+        return Result::fail(ErrorCode::NotFound, "关键帧不存在");
+    }
+    track.remove(at_);
+    return Result::ok();
+}
+
+Result RemoveKeyframeCommand::revert(Project& project) {
+    if (!removed_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少关键帧快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    return clip->animation.curve(property_).insert(*removed_);
+}
+
 }  // namespace core
 }  // namespace nairoclip
