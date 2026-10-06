@@ -325,3 +325,80 @@ NC_TEST(ExportRunner, RealAudioMixToEncodedFile) {
     reader.close();
 }
 #endif
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+/// 音频增益与淡入淡出导出验证：给音频片段加 -6dB 增益 + 0.2s 淡入，
+/// 导出后回读检查首段淡入包络（前段样本幅度明显小于后段）。
+NC_TEST(ExportRunner, AudioGainAndFadeApplied) {
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    seq.width = 160;
+    seq.height = 120;
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    MediaAsset a;
+    a.id = AssetId{project.ids.next()};
+    a.path = "/tmp/media_gen/test_av.mp4";
+    a.type = MediaType::Video;
+    a.duration = Rational::make(3);
+    project.assets.push_back(a);
+    const AssetId assetId = project.assets.front().id;
+    TrackId audioTrack;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Audio, "A1", &audioTrack).isOk());
+    Clip ac;
+    ac.asset = assetId;
+    ac.start = Rational::make(0);
+    ac.duration = Rational::make(2);
+    ClipId audioClipId;
+    NC_CHECK(editor.insertClip(seqId, audioTrack, ac, &audioClipId).isOk());
+    // 设置增益 -6dB + 0.5s 淡入 + 0.5s 淡出
+    NC_CHECK(editor.setClipAudio(seqId, audioTrack, audioClipId, -6.0,
+                                 Rational::make(1, 2), Rational::make(1, 2))
+                 .isOk());
+    const ExportPlan plan = compileExportPlan(project, *project.mainSequence());
+    FFmpegReaderFactory readerFactory;
+    class RW4 : public MediaWriterFactory {
+    public:
+        std::unique_ptr<MediaWriter> create() override {
+            return std::make_unique<FFmpegMediaWriter>();
+        }
+    };
+    RW4 writerFactory;
+    ExportRunConfig config;
+    config.outputPath = "/tmp/media_gen/runner_gain.mp4";
+    config.writer.width = 160;
+    config.writer.height = 120;
+    config.writer.crf = 35;
+    config.writer.includeAudio = true;
+    config.writer.audioSampleRate = 44100;
+    config.writer.audioChannels = 1;
+    const ExportRunResult result = runExport(plan, readerFactory, writerFactory, config,
+                                             nullptr, &project);
+    NC_CHECK(result.result.isOk());
+    NC_CHECK(result.fileWritten);
+    // 回读音频：检查淡入（起始段幅度 < 中段）
+    FFmpegMediaReader reader;
+    NC_CHECK(reader.open(config.outputPath).isOk());
+    // 跳过视频解码直接读音频块（ffmpeg 交错流：先读几块音频）
+    AudioBlock block;
+    double earlyPeak = 0.0;   // 前 0.3s 峰值
+    double middlePeak = 0.0;  // 0.6s-1.2s 峰值
+    int blocksRead = 0;
+    while (reader.readAudioBlock(block) && blocksRead < 60) {
+        const double start = block.start.toDouble();
+        for (const float s : block.samples) {
+            const double a = s < 0 ? -s : s;
+            if (start < 0.3 && a > earlyPeak) earlyPeak = a;
+            if (start >= 0.6 && start < 1.2 && a > middlePeak) middlePeak = a;
+        }
+        ++blocksRead;
+    }
+    NC_CHECK(blocksRead > 0);
+    NC_CHECK(middlePeak > 0.001);          // 中段有信号
+    // 淡入区间峰值应显著小于中段（约 0.3/0.5 = 60% 处包络，再乘增益）
+    NC_CHECK(earlyPeak < middlePeak * 0.9);
+    reader.close();
+}
+#endif
