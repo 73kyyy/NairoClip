@@ -51,7 +51,20 @@
 | NC_ERROR_LOCKED | Locked | 轨道已锁定 |
 | NC_ERROR_UNSUPPORTED | Unsupported | .nclip 版本过高 |
 
-## 7. Android JNI 接入示例（规划）
+## 7. 导出接口（nc_export_run）
+```c
+int64_t nc_export_run(nc_editor* h, const char* out_path, int crf, int include_audio,
+                      int attach_ai_label, const char* ai_label_text,
+                      int (*progress_cb)(double), char** out_error);
+```
+- **返回**：成功 = 输出视频帧数（>=0）；失败 = -1（错误信息经 `out_error`，需 `nc_free_string`）；
+- **attach_ai_label**：合规开关——App 在「本次编辑使用了 AI 成片 / TTS 配音」时必须传 1；
+  标识渲染规格由 UI 层按算法备案要求绘制（core 只产出标准描述）；
+- **progress_cb**：进度回调（0..1），返回 0 取消导出；可在工作线程调用，但需自行 post 到 UI 线程；
+- **线程**：导出为长任务，必须在工作线程执行，禁止占用 UI 线程；
+- 注意：回调禁止回调 `nc_editor_*` 写操作（避免同句柄重入）。
+
+## 8. Android JNI 接入示例（规划）
 
 ```kotlin
 // Kotlin 侧（示意，M2.x 实现）
