@@ -178,6 +178,22 @@ int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profil
                      const double* usable_seconds, int32_t material_count, int32_t apply_color,
                      char** out_error);
 
+// ---- 导出（桌面 FFmpeg 路径；Android MediaCodec 走平台适配层）----
+
+/// 导出主序列到文件。
+/// 参数：
+///  - out_path：输出路径（UTF-8）；
+///  - crf：H.264 质量（0-51；23 默认）；
+///  - include_audio：是否包含音频（0/1）；
+///  - attach_ai_label：是否附加 AI 内容标识（合规；0/1）；
+///  - ai_label_text：标识文案（可空 =「AI 生成」）；
+///  - progress_cb：进度回调（0..1，返回 0 取消）；可为 NULL；
+///  - out_error：错误信息（需 nc_free_string）；可为 NULL。
+/// 返回：成功 = 输出帧数（>=0）；失败 = -1。
+int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32_t include_audio,
+                      int32_t attach_ai_label, const char* ai_label_text,
+                      int32_t (*progress_cb)(double), char** out_error);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

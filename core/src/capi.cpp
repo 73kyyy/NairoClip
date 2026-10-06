@@ -6,6 +6,13 @@
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/serialization.h"
 
+#ifdef NAIROCLIP_HAS_FFMPEG
+#include "nairoclip/core/export_plan.h"
+#include "nairoclip/core/export_runner.h"
+#include "nairoclip/core/media_ffmpeg.h"
+#include "nairoclip/core/media_ffmpeg_writer.h"
+#endif
+
 #include <cstring>
 #include <new>
 #include <string>
@@ -563,6 +570,64 @@ int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profil
     if (out_error != nullptr) *out_error = nullptr;
     return static_cast<int32_t>(result.clipsInserted);
 }
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32_t include_audio,
+                      int32_t attach_ai_label, const char* ai_label_text,
+                      int32_t (*progress_cb)(double), char** out_error) {
+    if (editor == nullptr || out_path == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return -1;
+    }
+    const ExportPlan plan = compileExportPlan(editor->project, *seq);
+    FFmpegReaderFactory readerFactory;
+    class FFWriterFactory : public MediaWriterFactory {
+    public:
+        std::unique_ptr<MediaWriter> create() override {
+            return std::make_unique<FFmpegMediaWriter>();
+        }
+    };
+    FFWriterFactory writerFactory;
+    ExportRunConfig config;
+    config.outputPath = out_path;
+    config.writer.width = plan.width;
+    config.writer.height = plan.height;
+    config.writer.frameRate = plan.frameRate;
+    config.writer.crf = crf > 0 ? crf : 23;
+    config.writer.includeAudio = include_audio != 0;
+    config.executor.attachAiLabel = attach_ai_label != 0;
+    if (ai_label_text != nullptr && ai_label_text[0] != '\0') {
+        config.executor.aiLabelText = ai_label_text;
+    }
+    const ExportRunResult result = runExport(
+        plan, readerFactory, writerFactory, config,
+        [progress_cb](double p) {
+            if (progress_cb == nullptr) return true;
+            return progress_cb(p) != 0;
+        },
+        &editor->project);
+    if (!result.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(result.result.message);
+        return -1;
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return static_cast<int64_t>(result.stats.framesWritten);
+}
+
+#else
+
+int64_t nc_export_run(NcEditor*, const char*, int32_t, int32_t, int32_t, const char*,
+                      int32_t (*)(double), char** out_error) {
+    if (out_error != nullptr) *out_error = dupString("此构建未包含 FFmpeg");
+    return -1;
+}
+
+#endif
 
 void nc_free_string(char* text) { delete[] text; }
 
