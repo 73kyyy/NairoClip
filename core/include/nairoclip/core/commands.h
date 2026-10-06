@@ -136,5 +136,37 @@ private:
     std::optional<std::size_t> removedIndex_;
 };
 
+
+/// 添加/更新字幕（新增或替换；撤销时恢复旧值或删除）。
+class UpsertSubtitleCommand : public Command {
+public:
+    UpsertSubtitleCommand(SequenceId sequenceId, SubtitleCue cue);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "添加字幕"; }
+
+private:
+    SequenceId sequenceId_;
+    SubtitleCue cue_;
+    bool isReplace_ = false;
+    SubtitleCue previous_;  // 替换时的旧值快照
+};
+
+/// 删除字幕。
+class RemoveSubtitleCommand : public Command {
+public:
+    RemoveSubtitleCommand(SequenceId sequenceId, SubtitleId subtitleId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "删除字幕"; }
+
+private:
+    SequenceId sequenceId_;
+    SubtitleId subtitleId_;
+    std::optional<SubtitleCue> removed_;  // apply 时快照
+};
+
 }  // namespace core
 }  // namespace nairoclip

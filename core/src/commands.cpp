@@ -435,5 +435,64 @@ Result MoveClipToTrackCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------- 字幕命令 ----------------
+
+UpsertSubtitleCommand::UpsertSubtitleCommand(SequenceId sequenceId, SubtitleCue cue)
+    : sequenceId_(sequenceId), cue_(std::move(cue)) {}
+
+Result UpsertSubtitleCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const SubtitleCue* existing = seq->subtitles.findCue(cue_.id);
+    if (existing != nullptr) {
+        isReplace_ = true;
+        previous_ = *existing;
+    }
+    return seq->subtitles.insert(cue_);
+}
+
+Result UpsertSubtitleCommand::revert(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    if (isReplace_) {
+        return seq->subtitles.insert(previous_);
+    }
+    seq->subtitles.remove(cue_.id);
+    return Result::ok();
+}
+
+RemoveSubtitleCommand::RemoveSubtitleCommand(SequenceId sequenceId, SubtitleId subtitleId)
+    : sequenceId_(sequenceId), subtitleId_(subtitleId) {}
+
+Result RemoveSubtitleCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const SubtitleCue* existing = seq->subtitles.findCue(subtitleId_);
+    if (existing == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "字幕不存在");
+    }
+    removed_ = *existing;
+    seq->subtitles.remove(subtitleId_);
+    return Result::ok();
+}
+
+Result RemoveSubtitleCommand::revert(Project& project) {
+    if (!removed_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少字幕快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    return seq->subtitles.insert(*removed_);
+}
+
 }  // namespace core
 }  // namespace nairoclip

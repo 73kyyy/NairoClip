@@ -313,3 +313,55 @@ NC_TEST(Editor, ImportAsset) {
     NC_CHECK(f.project.findAsset(id) != nullptr);
     NC_CHECK(f.project.findAsset(id)->name == std::string("音乐.mp3"));
 }
+NC_TEST(Editor, UpsertSubtitleWithUndo) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    SubtitleCue cue;
+    cue.id = SubtitleId{f.project.ids.next()};
+    cue.start = Rational::make(1);
+    cue.duration = Rational::make(2);
+    cue.text = "你好";
+    NC_CHECK(editor.upsertSubtitle(f.seqId, cue).isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->subtitles.size(), std::size_t(1));
+    // 替换同 ID
+    cue.text = "你好，世界";
+    NC_CHECK(editor.upsertSubtitle(f.seqId, cue).isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->subtitles.size(), std::size_t(1));
+    NC_CHECK(f.project.mainSequence()->subtitles.cues()[0].text == std::string("你好，世界"));
+    // 撤销替换 → 恢复旧文本
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(f.project.mainSequence()->subtitles.cues()[0].text == std::string("你好"));
+    // 撤销新增 → 空
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(f.project.mainSequence()->subtitles.empty());
+    // 重做两次 → 最新文本
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK(f.project.mainSequence()->subtitles.cues()[0].text == std::string("你好，世界"));
+    const auto names = editor.undoHistoryNames();
+    NC_CHECK_EQ(names.size(), std::size_t(2));
+    NC_CHECK_EQ(names[0], std::string("添加字幕"));
+}
+NC_TEST(Editor, RemoveSubtitleWithUndo) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    SubtitleCue cue;
+    cue.id = SubtitleId{f.project.ids.next()};
+    cue.start = Rational::make(0);
+    cue.duration = Rational::make(1);
+    cue.text = "删除测试";
+    NC_CHECK(editor.upsertSubtitle(f.seqId, cue).isOk());
+    NC_CHECK(editor.removeSubtitle(f.seqId, cue.id).isOk());
+    NC_CHECK(f.project.mainSequence()->subtitles.empty());
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->subtitles.size(), std::size_t(1));
+    NC_CHECK(f.project.mainSequence()->subtitles.cues()[0].text == std::string("删除测试"));
+}
+NC_TEST(Editor, RemoveMissingSubtitleFails) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    const Result r = editor.removeSubtitle(f.seqId, SubtitleId{999});
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::NotFound);
+    NC_CHECK_EQ(editor.undoCount(), std::size_t(0));
+}

@@ -41,6 +41,11 @@ public:
     Result moveClipToTrack(SequenceId sequenceId, TrackId fromTrack, TrackId toTrack,
                            ClipId clipId, const Time& newStart);
 
+    // ---- 字幕 ----
+    /// 添加或更新字幕（同 ID 替换）。
+    Result upsertSubtitle(SequenceId sequenceId, SubtitleCue cue);
+    /// 删除字幕。
+    Result removeSubtitle(SequenceId sequenceId, SubtitleId subtitleId);
     // ---- 撤销 / 重做 ----
     Result undo();
     Result redo();

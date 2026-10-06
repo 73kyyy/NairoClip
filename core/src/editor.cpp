@@ -179,6 +179,14 @@ Result TimelineEditor::moveClipToTrack(SequenceId sequenceId, TrackId fromTrack,
                                                            clipId, newStart));
 }
 
+Result TimelineEditor::upsertSubtitle(SequenceId sequenceId, SubtitleCue cue) {
+    return commit(std::make_unique<UpsertSubtitleCommand>(sequenceId, std::move(cue)));
+}
+
+Result TimelineEditor::removeSubtitle(SequenceId sequenceId, SubtitleId subtitleId) {
+    return commit(std::make_unique<RemoveSubtitleCommand>(sequenceId, subtitleId));
+}
+
 Result TimelineEditor::undo() {
     return undoStack_.undo(project_);
 }
