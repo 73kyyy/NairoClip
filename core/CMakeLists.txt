@@ -17,6 +17,7 @@ add_library(nairoclip_core STATIC
     src/export_plan.cpp
     src/capi.cpp
     src/subtitle.cpp
+    src/media_io.cpp
 )
 
 target_include_directories(nairoclip_core PUBLIC

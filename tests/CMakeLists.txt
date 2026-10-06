@@ -17,6 +17,7 @@ add_executable(nairoclip_tests
     test_roundtrip.cpp
     test_subtitle.cpp
     test_stress.cpp
+    test_media_io.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
