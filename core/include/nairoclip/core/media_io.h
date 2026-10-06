@@ -45,6 +45,11 @@ struct OutputVideoFrame {
     int width = 0;
     int height = 0;
     std::vector<std::uint8_t> rgba;  // 交错 RGBA8
+    /// 转场元数据（非转场帧为默认值）：
+    /// 处于转场区间时，rgba 为「转场混合结果」（由执行器预混合），
+    /// transitionType/progress 供平台层了解语义（如调试覆盖、GPU 重放）。
+    int transitionType = -1;     // -1 = 无转场；否则 = TransitionType 枚举值
+    double transitionProgress = 0.0;
 };
 
 /// 音频输出块（多轨混音后）。

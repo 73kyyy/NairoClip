@@ -1,5 +1,7 @@
 #include "nairoclip/core/export_executor.h"
 
+#include "nairoclip/core/transition_render.h"
+
 #include <algorithm>
 #include <map>
 
@@ -88,8 +90,51 @@ ExportStats executeExport(
                 }
             }
 
+            // ---- 转场检测（优先于空档判断）----
+            const RenderTransition* activeTransition = nullptr;
+            if (videoTrack != nullptr) {
+                for (const auto& tr : videoTrack->transitions) {
+                    if (tr.start <= t && t < tr.end) {
+                        activeTransition = &tr;
+                        break;
+                    }
+                }
+            }
+
             // 找到当前可见片段（仅主视频轨；多层合成 M1.x 实现）
             const RenderClip* active = videoTrack != nullptr ? clipAt(*videoTrack, t) : nullptr;
+            if (active == nullptr && activeTransition != nullptr) {
+                // 转场区间内的空档帧：以 toClip 起始处作为参考，输出转场标记帧
+                const RenderClip* toClip = nullptr;
+                if (videoTrack != nullptr) {
+                    for (const auto& c : videoTrack->clips) {
+                        if (c.clipId == activeTransition->toClip) {
+                            toClip = &c;
+                            break;
+                        }
+                    }
+                }
+                OutputVideoFrame frame;
+                frame.timestamp = t;
+                frame.width = plan.width;
+                frame.height = plan.height;
+                frame.rgba.assign(static_cast<std::size_t>(plan.width) *
+                                      static_cast<std::size_t>(plan.height) * 4,
+                                  32);
+                for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
+                    frame.rgba[i] = 255;
+                }
+                frame.transitionType = static_cast<int>(activeTransition->type);
+                frame.transitionProgress =
+                    TransitionRenderer::transitionProgress(t, activeTransition->start,
+                                                           activeTransition->end -
+                                                               activeTransition->start);
+                (void)toClip;
+                videoSink(frame);
+                ++stats.framesWritten;
+                ++frameIndex;
+                continue;
+            }
             if (active == nullptr) {
                 // 空档：输出黑帧（保持时间轴节奏）
                 OutputVideoFrame frame;
@@ -109,6 +154,7 @@ ExportStats executeExport(
             }
 
             ++stats.clipsVisited;
+
             MediaReader* reader = getReader(active->asset);
             if (reader == nullptr) {
                 stats.warnings.push_back("无法创建素材读取器");
@@ -142,6 +188,13 @@ ExportStats executeExport(
                               32);  // 占位像素（真实解码在平台层）
             for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
                 frame.rgba[i] = 255;
+            }
+            if (activeTransition != nullptr) {
+                frame.transitionType = static_cast<int>(activeTransition->type);
+                frame.transitionProgress =
+                    TransitionRenderer::transitionProgress(t, activeTransition->start,
+                                                           activeTransition->end -
+                                                               activeTransition->start);
             }
             videoSink(frame);
             ++stats.framesWritten;

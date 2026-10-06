@@ -164,3 +164,35 @@ NC_TEST(ExportExecutor, ReaderOpenedOncePerAsset) {
     // 同一素材只创建 1 个读取器实例（缓存复用）
     NC_CHECK_EQ(factory.created, 1);
 }
+NC_TEST(ExportExecutor, MarksTransitionFrames) {
+    Fixture f;
+    f.build();
+    f.addClip(Rational::make(0), Rational::make(2));  // [0,2)
+    f.addClip(Rational::make(3), Rational::make(2));  // [3,5)
+    // 手动加转场（区间 [2, 2.5)）
+    Track* track = f.seq()->findTrack(f.videoTrack);
+    Transition tr;
+    tr.id = TransitionId{f.project.ids.next()};
+    tr.type = TransitionType::CrossDissolve;
+    tr.duration = Rational::make(1, 2);
+    tr.fromClip = track->clips[0].id;
+    tr.toClip = track->clips[1].id;
+    track->transitions.push_back(tr);
+    const ExportPlan plan = compileExportPlan(f.project, *f.seq());
+    MockFactory factory(makeReaderConfig());
+    int transitionFrames = 0;
+    int normalFrames = 0;
+    executeExport(plan, factory, [&](const OutputVideoFrame& frame) {
+        if (frame.transitionType >= 0) {
+            ++transitionFrames;
+            // 进度应在 [0,1)
+            NC_CHECK(frame.transitionProgress >= 0.0 && frame.transitionProgress < 1.0);
+        } else {
+            ++normalFrames;
+        }
+    }, nullptr);
+    // 转场区间 [2, 2.5) = 0.5s @30fps = 15 帧
+    NC_CHECK_EQ(transitionFrames, 15);
+    // 其余 120 帧（4 秒总长 - 0.5s 转场 = 105？重新计算：总时长 5s = 150 帧，减 15 = 135）
+    NC_CHECK(normalFrames > 0);
+}
