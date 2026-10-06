@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/project.h"
+#include "nairoclip/core/transition_types.h"
 #include "nairoclip/core/sequence.h"
 
 #include <cstdint>
@@ -30,6 +31,16 @@ struct RenderClip {
     bool hasAnimation = false;
 };
 
+/// 导出计划中的转场（含计算好的时间区间）。
+struct RenderTransition {
+    TransitionId transitionId;
+    TransitionType type = TransitionType::CrossDissolve;
+    Time start;      // 转场区间起点（= fromClip.end()）
+    Time end;        // 转场区间终点（= start + duration）
+    ClipId fromClip;
+    ClipId toClip;
+};
+
 /// 单个轨道在导出计划中的快照。
 struct RenderTrack {
     TrackId trackId;
@@ -37,6 +48,8 @@ struct RenderTrack {
     bool muted = false;    // 音频轨：静音则跳过
     bool hidden = false;   // 视频轨：隐藏则跳过
     std::vector<RenderClip> clips;
+    /// 转场列表（视频轨有效；已按 start 升序）。
+    std::vector<RenderTransition> transitions;
 };
 
 /// 完整导出计划。

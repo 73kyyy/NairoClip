@@ -113,3 +113,26 @@ NC_TEST(ExportPlan, RejectsInvalidPlan) {
     plan.frameRate = fps30();
     NC_CHECK(!exportPlanValid(plan));
 }
+NC_TEST(ExportPlan, CompilesTransitions) {
+    Fixture f;
+    const TrackId v1 = f.addTrack(TrackType::Video, "V1");
+    f.addClip(v1, Rational::make(0), Rational::make(2));   // [0,2)
+    f.addClip(v1, Rational::make(3), Rational::make(2));   // [3,5)
+    // 手动追加转场（跳过编辑器校验路径，聚焦编译器）
+    Track* track = f.track(v1);
+    Transition tr;
+    tr.id = TransitionId{f.project.ids.next()};
+    tr.type = TransitionType::CrossDissolve;
+    tr.duration = Rational::make(1, 2);
+    tr.fromClip = track->clips[0].id;
+    tr.toClip = track->clips[1].id;
+    track->transitions.push_back(tr);
+    const ExportPlan plan = compileExportPlan(f.project, *f.seq());
+    NC_CHECK_EQ(plan.tracks[0].transitions.size(), std::size_t(1));
+    const RenderTransition& rt = plan.tracks[0].transitions[0];
+    NC_CHECK(rt.type == TransitionType::CrossDissolve);
+    // start = fromClip.end() = 2；end = 2 + 0.5 = 2.5
+    NC_CHECK(rt.start == Rational::make(2));
+    NC_CHECK(rt.end == Rational::make(5, 2));
+    NC_CHECK(rt.fromClip == track->clips[0].id);
+}

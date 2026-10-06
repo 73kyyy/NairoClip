@@ -1,5 +1,7 @@
 #include "nairoclip/core/export_plan.h"
 
+#include <algorithm>
+
 namespace nairoclip {
 namespace core {
 
@@ -62,6 +64,27 @@ ExportPlan compileExportPlan(const Project& project, const Sequence& sequence) {
                 }
             }
             rt.clips.push_back(compileClip(clip, project));
+        }
+        // 编译转场（仅视频轨）：start = fromClip.end(), end = start + duration
+        if (track.type == TrackType::Video) {
+            for (const auto& tr : track.transitions) {
+                const Clip* from = track.findClip(tr.fromClip);
+                if (from == nullptr) {
+                    continue;  // 悬空引用：跳过并警告
+                }
+                RenderTransition compiled;
+                compiled.transitionId = tr.id;
+                compiled.type = tr.type;
+                compiled.start = from->end();
+                compiled.end = compiled.start + tr.duration;
+                compiled.fromClip = tr.fromClip;
+                compiled.toClip = tr.toClip;
+                rt.transitions.push_back(std::move(compiled));
+            }
+            std::sort(rt.transitions.begin(), rt.transitions.end(),
+                      [](const RenderTransition& a, const RenderTransition& b) {
+                          return a.start < b.start;
+                      });
         }
         plan.tracks.push_back(std::move(rt));
     }
