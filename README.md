@@ -61,6 +61,7 @@
 | M1.12 | 序列化往返验证 | ✅ 已完成 |
 | M1.13 | 多视频轨遮挡式合成 | ✅ 已完成 |
 | M1.14 | 多层 alpha 混合合成 | ✅ 已完成 |
+| M1.15 | nclip_tool export（CLI 端到端导出） | ✅ 已完成 |
 | M2.0 | Android 平台层（JNI + MediaCodec） | ⬜ 计划中 |
 | M2.x | Android 平台壳（Kotlin + JNI），真机跑通时间轴编辑 | ⬜ 计划中 |
 
