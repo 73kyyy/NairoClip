@@ -5,6 +5,7 @@ add_executable(nairoclip_tests
     test_model.cpp
     test_editor.cpp
     test_keyframe.cpp
+    test_transition.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

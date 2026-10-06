@@ -8,6 +8,7 @@ add_library(nairoclip_core STATIC
     src/commands.cpp
     src/editor.cpp
     src/keyframe.cpp
+    src/transition.cpp
 )
 
 target_include_directories(nairoclip_core PUBLIC
