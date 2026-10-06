@@ -192,27 +192,22 @@ ExportStats executeExport(
                 }
             }
 
-            // 找到当前可见片段：从顶层（后加入的视频轨）到底层找第一个活动片段
-            // 说明：本版实现「遮挡式合成」（上层全覆盖下层）；
-            // 透明叠加（带 alpha 的上下层混合）留给后续版本。
-            const RenderClip* active = nullptr;
-            const RenderTrack* activeTrack = nullptr;
-            {
-                bool found = false;
-                for (auto it = videoTracks.rbegin(); it != videoTracks.rend() && !found; ++it) {
-                    const RenderClip* candidate = clipAt(**it, t);
-                    if (candidate != nullptr) {
-                        active = candidate;
-                        activeTrack = *it;
-                        found = true;
-                    }
-                }
-                if (activeTrack == nullptr) {
-                    activeTrack = videoTrack;  // 兜底（转场路径等）
+            // 收集当前时刻所有活动层（从顶层到底层）
+            // 合成策略：
+            //  - 仅一层：快路径（直接输出）；
+            //  - 多层：从底层往上做 alpha 混合（上层 opacity < 1 时透出下层）；
+            //    上层 opacity == 1 时遮挡下层（仍逐层解码，性能后续优化）。
+            struct ActiveLayer {
+                const RenderClip* clip;
+            };
+            std::vector<ActiveLayer> layers;
+            for (auto it = videoTracks.rbegin(); it != videoTracks.rend(); ++it) {
+                const RenderClip* candidate = clipAt(**it, t);
+                if (candidate != nullptr) {
+                    layers.push_back(ActiveLayer{candidate});
                 }
             }
-            // 兼容性：转场检测仍基于主视频轨
-            const bool topIsMain = activeTrack == videoTrack;
+            const RenderClip* active = layers.empty() ? nullptr : layers.front().clip;
             if (active == nullptr && activeTransition != nullptr) {
                 // 转场区间内的帧：尝试读取 from/to 两路源帧并混合
                 OutputVideoFrame frame;
@@ -377,6 +372,71 @@ ExportStats executeExport(
                                                          static_cast<std::size_t>(plan.width) *
                                                              static_cast<std::size_t>(plan.height),
                                                          transform);
+                            }
+                        }
+                        // 多层合成：当前帧是顶层；若存在下层且顶层透明度 < 1，
+                        // 则解码下层并将两层按 alpha 混合。（多层 > 2 递归处理为后续优化）
+                        if (layers.size() > 1) {
+                            // 顶层透明度（无动画视为 1）
+                            double topAlpha = 1.0;
+                            if (active->hasAnimation) {
+                                topAlpha = active->animation.sample(ClipProperty::Opacity,
+                                                                   t - active->timelineStart);
+                                if (topAlpha < 0.0) topAlpha = 0.0;
+                                if (topAlpha > 1.0) topAlpha = 1.0;
+                            }
+                            if (topAlpha < 0.999) {
+                                const RenderClip* lower = layers[1].clip;
+                                // 解码下层
+                                MediaReader* lowerReader = getReader(lower->asset);
+                                bool lowerDecoded = false;
+                                if (lowerReader != nullptr) {
+                                    const auto lowerOpenedIt = readers.find(lower->asset.value);
+                                    if (lowerOpenedIt != readers.end() &&
+                                        !lowerOpenedIt->second.opened) {
+                                        if (lowerReader->open(lower->assetPath).isOk()) {
+                                            lowerOpenedIt->second.opened = true;
+                                        }
+                                    }
+                                    if (lowerReader->isOpen()) {
+                                        const Time lowerSource = mapSourceTime(*lower, t);
+                                        if (lowerReader->seek(lowerSource).isOk()) {
+                                            VideoFrame lowerFrame;
+                                            if (lowerReader->readVideoFrame(lowerFrame)) {
+                                                lowerDecoded = true;
+                                                const int w = std::min(lowerFrame.width, plan.width);
+                                                const int h = std::min(lowerFrame.height, plan.height);
+                                                const int lowerStride = lowerFrame.stride > 0
+                                                                            ? lowerFrame.stride
+                                                                            : lowerFrame.width * 4;
+                                                const double bottomWeight = 1.0 - topAlpha;
+                                                for (int row = 0; row < h; ++row) {
+                                                    const std::uint8_t* src =
+                                                        lowerFrame.pixels.data() +
+                                                        static_cast<std::size_t>(row) *
+                                                            static_cast<std::size_t>(lowerStride);
+                                                    std::uint8_t* dst =
+                                                        frame.rgba.data() +
+                                                        static_cast<std::size_t>(row) *
+                                                            static_cast<std::size_t>(plan.width) * 4;
+                                                    for (int col = 0; col < w; ++col) {
+                                                        for (int ch = 0; ch < 3; ++ch) {
+                                                            const std::size_t idx =
+                                                                static_cast<std::size_t>(col) * 4 +
+                                                                static_cast<std::size_t>(ch);
+                                                            const double top = dst[idx] * topAlpha;
+                                                            const double bot =
+                                                                src[idx] * bottomWeight;
+                                                            dst[idx] = static_cast<std::uint8_t>(
+                                                                top + bot + 0.5);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                (void)lowerDecoded;
                             }
                         }
                         // 应用动画透明度（alpha 缩放）

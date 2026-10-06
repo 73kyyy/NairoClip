@@ -601,3 +601,78 @@ NC_TEST(ExportRunner, MultiVideoTrackTopWins) {
     // 两段来源不同（源区间不同 → Mock 灰度不同）
     NC_CHECK(earlyPixel != latePixel);
 }
+
+NC_TEST(ExportRunner, MultiLayerAlphaBlend) {
+    Fixture f;
+    // 渐变 Mock
+    class GReader : public MediaReader {
+    public:
+        GReader() {
+            MockMediaReader::Config cfg;
+            cfg.probe.type = MediaType::Video;
+            cfg.probe.frameRate = fps30();
+            cfg.probe.width = 64;
+            cfg.probe.height = 64;
+            cfg.probe.duration = Rational::make(60);
+            cfg.videoFrameCount = 100000;
+            cfg.grayByTime = true;
+            reader_ = std::make_unique<MockMediaReader>(cfg);
+        }
+        Result open(const std::string& p) override { return reader_->open(p); }
+        void close() override { reader_->close(); }
+        bool isOpen() const override { return reader_->isOpen(); }
+        const MediaProbeResult& probe() const override { return reader_->probe(); }
+        Result seek(const Time& t) override { return reader_->seek(t); }
+        bool readVideoFrame(VideoFrame& o) override { return reader_->readVideoFrame(o); }
+        bool readAudioBlock(AudioBlock& o) override { return reader_->readAudioBlock(o); }
+    private:
+        std::unique_ptr<MockMediaReader> reader_;
+    };
+    class GFactory : public MediaReaderFactory {
+    public:
+        std::unique_ptr<MediaReader> create() override { return std::make_unique<GReader>(); }
+    };
+    // 第二条视频轨（上层，半透明）
+    TrackId v2;
+    NC_CHECK(f.editor.addTrack(f.seqId, TrackType::Video, "V2", &v2).isOk());
+    // 底层 V1: [0,1)，源 0 起
+    Clip c1;
+    c1.asset = f.assetId;
+    c1.start = Rational::make(0);
+    c1.duration = Rational::make(1);
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, c1).isOk());
+    // 上层 V2: [0,1)，源 5s 起（灰度差异大），alpha 0.5 恒定
+    Clip c2;
+    c2.asset = f.assetId;
+    c2.start = Rational::make(0);
+    c2.duration = Rational::make(1);
+    c2.sourceIn = Rational::make(5);
+    c2.animation.curve(ClipProperty::Opacity)
+        .insert(Keyframe{Rational::make(0), 0.5});
+    c2.animation.curve(ClipProperty::Opacity)
+        .insert(Keyframe{Rational::make(1), 0.5});
+    NC_CHECK(f.editor.insertClip(f.seqId, v2, c2).isOk());
+
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    GFactory readerFactory;
+    // 混合结果：每帧 color ≈ top*0.5 + bottom*0.5
+    // top 源 5s 起 gray≈(5000/100)=50 取模；bottom 源 0 起 gray 随帧变化
+    std::vector<std::uint8_t> blended;
+    executeExport(
+        plan, readerFactory,
+        [&](const OutputVideoFrame& frame) {
+            if (frame.rgba.size() >= 4 && frame.timestamp.toDouble() < 0.1) {
+                blended = {frame.rgba[0], frame.rgba[1], frame.rgba[2]};
+            }
+        },
+        nullptr, nullptr, ExportExecutorOptions{}, &f.project);
+    NC_CHECK(!blended.empty());
+    // 分析：
+    //  - top（源 5s 起）gray ≈ (5000+offset)ms/100 ≈ 50
+    //  - bottom（源 0 起）gray ≈ offset/100 ≈ 0-1
+    //  - 混合（alpha=0.5）：≈ 25
+    // 若纯 top 输出：≈ 50；若纯 bottom：≈ 0。断言 15..40 以确认真实混合。
+    const int v = blended[0];
+    NC_CHECK(v > 15);
+    NC_CHECK(v < 40);
+}
