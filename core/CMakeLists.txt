@@ -27,6 +27,7 @@ add_library(nairoclip_core STATIC
     src/project_doctor.cpp
     src/scene_detect.cpp
     src/export_executor.cpp
+    src/media_writer.cpp
 )
 target_include_directories(nairoclip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -41,7 +42,7 @@ if(PkgConfig_FOUND)
         libavformat libavcodec libavutil libswscale libswresample)
     if(FFMPEG_FOUND)
         set(NAIROCLIP_FFMPEG_FOUND TRUE)
-        target_sources(nairoclip_core PRIVATE src/media_ffmpeg.cpp)
+        target_sources(nairoclip_core PRIVATE src/media_ffmpeg.cpp src/media_ffmpeg_writer.cpp)
         target_link_libraries(nairoclip_core PUBLIC PkgConfig::FFMPEG)
         target_compile_definitions(nairoclip_core PUBLIC NAIROCLIP_HAS_FFMPEG=1)
         message(STATUS "NairoClip: FFmpeg found — real media decoding enabled")
