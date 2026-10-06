@@ -161,6 +161,23 @@ int32_t nc_remove_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_
 int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_id, double gain_db,
                           int64_t fade_in_us, int64_t fade_out_us);
 
+// ---- 自动剪辑（参考风格生成）----
+
+/// 在空轨道上执行自动剪辑。
+/// - profile_shots：镜头边界数组（4 个 double 一组：[start_s, end_s, motion, brightness]）；
+/// - shot_count：边界数量；
+/// - avg_r/g/b/saturation/contrast：色调画像参数（0..1）；
+/// - asset_ids：用户素材 ID 数组；usable_seconds：对应可用时长（double 秒）；
+/// - material_count：素材数量；
+/// - apply_color：是否应用参考色调。
+/// 返回：成功返回生成的片段数量（>=0 且 *out_error 为 NULL），失败返回 -1 并
+/// 通过 out_error（需 nc_free_string）给出原因。
+int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,
+                     int32_t shot_count, double avg_r, double avg_g, double avg_b,
+                     double avg_saturation, double avg_contrast, const uint64_t* asset_ids,
+                     const double* usable_seconds, int32_t material_count, int32_t apply_color,
+                     char** out_error);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

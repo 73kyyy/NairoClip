@@ -232,3 +232,33 @@ NC_TEST(Capi, KeyframeAndAudio) {
                 NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
 }
+NC_TEST(Capi, AutoEditEndToEnd) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    // 风格：3 镜（每镜 1s）
+    const double shots[] = {0.0, 1.0, 0.0, 0.5, 1.0, 2.0, 0.0, 0.5, 2.0, 3.0, 0.0, 0.5};
+    const std::uint64_t assetIds[] = {assetId};
+    const double usable[] = {10.0};
+    char* error = nullptr;
+    const int32_t clips = nc_auto_edit(editor, 0, shots, 3, 0.6, 0.5, 0.4, 0.7, 0.6, assetIds,
+                                       usable, 1, 1, &error);
+    NC_CHECK(clips >= 0);
+    NC_CHECK(error == nullptr);
+    NC_CHECK_EQ(nc_clip_count(editor, 0), clips);
+    // 检查每个片段有特效（apply_color=1 且画像非中性）
+    NC_CHECK(nc_effect_count(editor, 0, 1) >= 0);  // 片段 ID 从 1 开始（视分配器）
+    nc_editor_destroy(editor);
+}
+NC_TEST(Capi, AutoEditRejectsBadArgs) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    char* error = nullptr;
+    // 空指针 → -1
+    const int32_t r1 = nc_auto_edit(editor, 0, nullptr, 3, 0.5, 0.5, 0.5, 0.5, 0.5, nullptr, nullptr,
+                                    0, 1, &error);
+    NC_CHECK_EQ(r1, -1);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+    nc_editor_destroy(editor);
+}

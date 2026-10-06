@@ -2,6 +2,7 @@
 
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/serialization.h"
 
@@ -507,6 +508,60 @@ int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_i
                                         fromMicroseconds(fade_in_us),
                                         fromMicroseconds(fade_out_us))
                          .code);
+}
+
+int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,
+                     int32_t shot_count, double avg_r, double avg_g, double avg_b,
+                     double avg_saturation, double avg_contrast, const uint64_t* asset_ids,
+                     const double* usable_seconds, int32_t material_count, int32_t apply_color,
+                     char** out_error) {
+    if (editor == nullptr || profile_shots == nullptr || shot_count <= 0 ||
+        asset_ids == nullptr || usable_seconds == nullptr || material_count <= 0) {
+        if (out_error != nullptr) *out_error = dupString("参数为空或数量非法");
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        if (out_error != nullptr) *out_error = dupString("轨道下标越界");
+        return -1;
+    }
+
+    // 构造风格画像（只含节奏与色调）
+    StyleProfile profile;
+    std::vector<ShotBoundary> shots;
+    shots.reserve(static_cast<std::size_t>(shot_count));
+    for (int32_t i = 0; i < shot_count; ++i) {
+        ShotBoundary b;
+        b.start = Rational::make(static_cast<std::int64_t>(profile_shots[i * 4] * 1000.0), 1000);
+        b.end = Rational::make(static_cast<std::int64_t>(profile_shots[i * 4 + 1] * 1000.0), 1000);
+        shots.push_back(std::move(b));
+    }
+    profile.rhythm = analyzeRhythm(shots);
+    profile.color = analyzeColor(avg_r, avg_g, avg_b, avg_saturation, avg_contrast);
+
+    // 用户素材列表
+    std::vector<MaterialSegment> material;
+    material.reserve(static_cast<std::size_t>(material_count));
+    for (int32_t i = 0; i < material_count; ++i) {
+        MaterialSegment m;
+        m.asset = AssetId{asset_ids[i]};
+        m.usableDuration = Rational::make(
+            static_cast<std::int64_t>(usable_seconds[i] * 1000.0 + 0.5), 1000);
+        material.push_back(std::move(m));
+    }
+
+    AutoEditOptions options;
+    options.applyColor = apply_color != 0;
+
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    const AutoEditResult result = applyAutoEdit(*editor->editor, editor->project, main->id,
+                                                trackId, profile, material, options);
+    if (!result.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(result.result.message);
+        return -1;
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return static_cast<int32_t>(result.clipsInserted);
 }
 
 void nc_free_string(char* text) { delete[] text; }
