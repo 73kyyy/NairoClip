@@ -20,6 +20,7 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.sourceOut = clip.sourceOut();
     rc.speed = clip.speed;
     rc.hasAnimation = !clip.animation.empty();
+    rc.effects = clip.effects;
     (void)project;
     return rc;
 }

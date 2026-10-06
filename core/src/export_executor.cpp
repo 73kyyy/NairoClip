@@ -1,6 +1,9 @@
 #include "nairoclip/core/export_executor.h"
 
+#include <cstring>
+
 #include "nairoclip/core/transition_render.h"
+#include "nairoclip/core/effects.h"
 
 #include <algorithm>
 #include <map>
@@ -224,28 +227,75 @@ ExportStats executeExport(
                 }
                 openedIt->second.opened = true;
             }
+            // 真实解码：seek 到源时间并读取一帧
+            bool decoded = false;
             if (reader->isOpen()) {
-                reader->seek(sourceTime);
+                if (reader->seek(sourceTime).isOk()) {
+                    VideoFrame source;
+                    if (reader->readVideoFrame(source)) {
+                        decoded = true;
+                        // 输出帧尺寸以计划为准；源尺寸不同则居中放置（简化：直接拷贝到左上角）
+                        OutputVideoFrame frame;
+                        frame.timestamp = t;
+                        frame.width = plan.width;
+                        frame.height = plan.height;
+                        const std::size_t outBytes = static_cast<std::size_t>(plan.width) *
+                                                     static_cast<std::size_t>(plan.height) * 4;
+                        frame.rgba.assign(outBytes, 0);
+                        for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
+                            frame.rgba[i] = 255;
+                        }
+                        const int copyW = std::min(source.width, plan.width);
+                        const int copyH = std::min(source.height, plan.height);
+                        const int srcStride = source.stride > 0 ? source.stride : source.width * 4;
+                        for (int row = 0; row < copyH; ++row) {
+                            const std::uint8_t* src = source.pixels.data() +
+                                static_cast<std::size_t>(row) * static_cast<std::size_t>(srcStride);
+                            std::uint8_t* dst = frame.rgba.data() +
+                                static_cast<std::size_t>(row) *
+                                    static_cast<std::size_t>(plan.width) * 4;
+                            std::memcpy(dst, src,
+                                        static_cast<std::size_t>(copyW) * 4);
+                        }
+                        // 应用片段特效（颜色变换）
+                        if (!active->effects.empty()) {
+                            const ColorTransform transform = evaluateColorTransform(active->effects);
+                            if (!transform.isIdentity()) {
+                                applyColorTransformToRgba(frame.rgba.data(),
+                                                         static_cast<std::size_t>(plan.width) *
+                                                             static_cast<std::size_t>(plan.height),
+                                                         transform);
+                            }
+                        }
+                        if (activeTransition != nullptr) {
+                            frame.transitionType = static_cast<int>(activeTransition->type);
+                            frame.transitionProgress = TransitionRenderer::transitionProgress(
+                                t, activeTransition->start,
+                                activeTransition->end - activeTransition->start);
+                        }
+                        videoSink(frame);
+                        ++stats.framesWritten;
+                        ++frameIndex;
+                        continue;
+                    }
+                }
             }
-            OutputVideoFrame frame;
-            frame.timestamp = t;
-            frame.width = plan.width;
-            frame.height = plan.height;
-            frame.rgba.assign(static_cast<std::size_t>(plan.width) *
-                                  static_cast<std::size_t>(plan.height) * 4,
-                              32);  // 占位像素（真实解码在平台层）
-            for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
-                frame.rgba[i] = 255;
+            if (!decoded) {
+                // 解码失败：输出警告色帧（保持管线不断；统计可见）
+                stats.warnings.push_back("帧解码失败 @ " + sourceTime.toString());
+                OutputVideoFrame frame;
+                frame.timestamp = t;
+                frame.width = plan.width;
+                frame.height = plan.height;
+                frame.rgba.assign(static_cast<std::size_t>(plan.width) *
+                                      static_cast<std::size_t>(plan.height) * 4,
+                                  32);
+                for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
+                    frame.rgba[i] = 255;
+                }
+                videoSink(frame);
+                ++stats.framesWritten;
             }
-            if (activeTransition != nullptr) {
-                frame.transitionType = static_cast<int>(activeTransition->type);
-                frame.transitionProgress =
-                    TransitionRenderer::transitionProgress(t, activeTransition->start,
-                                                           activeTransition->end -
-                                                               activeTransition->start);
-            }
-            videoSink(frame);
-            ++stats.framesWritten;
             ++frameIndex;
         }
     }

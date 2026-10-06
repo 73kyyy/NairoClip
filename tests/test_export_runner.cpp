@@ -171,3 +171,74 @@ NC_TEST(ExportRunner, RealEncodeEndToEnd) {
     reader.close();
 }
 #endif
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+/// 真实解码路径验证：用生成的测试视频做源素材，导出后检查像素非占位色。
+NC_TEST(ExportRunner, RealDecodeWithFFmpegSource) {
+    // 准备：素材用 /tmp/media_gen/test_av.mp4（160x120, testsrc 彩条）
+    // 序列尺寸设为 160x120 匹配源
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    seq.width = 160;
+    seq.height = 120;
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    MediaAsset a;
+    a.id = AssetId{project.ids.next()};
+    a.path = "/tmp/media_gen/test_av.mp4";
+    a.type = MediaType::Video;
+    a.duration = Rational::make(3);
+    project.assets.push_back(a);
+    const AssetId assetId = project.assets.front().id;
+    TrackId trackId;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &trackId).isOk());
+    Clip c;
+    c.asset = assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);  // 1 秒
+    NC_CHECK(editor.insertClip(seqId, trackId, c).isOk());
+    const ExportPlan plan = compileExportPlan(project, *project.mainSequence());
+    // 用真实 FFmpeg 读取器
+    FFmpegReaderFactory readerFactory;
+    class RealWriterFactory2 : public MediaWriterFactory {
+    public:
+        std::unique_ptr<MediaWriter> create() override {
+            return std::make_unique<FFmpegMediaWriter>();
+        }
+    };
+    RealWriterFactory2 writerFactory;
+    ExportRunConfig config;
+    config.outputPath = "/tmp/media_gen/runner_decoded.mp4";
+    config.writer.width = 160;
+    config.writer.height = 120;
+    config.writer.crf = 28;
+    config.writer.includeAudio = false;
+    int frameCount = 0;
+    bool sawColor = false;
+    const ExportRunResult result = runExport(
+        plan, readerFactory, writerFactory, config,
+        [&](double) {
+            return true;
+        });
+    NC_CHECK(result.result.isOk());
+    NC_CHECK(result.fileWritten);
+    NC_CHECK(result.stats.warnings.empty());
+    NC_CHECK_EQ(result.stats.framesWritten, std::int64_t(30));
+    // 回读验证：解码后的首帧应有颜色（testsrc 是彩色图案）
+    FFmpegMediaReader reader;
+    NC_CHECK(reader.open(config.outputPath).isOk());
+    VideoFrame frame;
+    NC_CHECK(reader.readVideoFrame(frame));
+    for (std::size_t i = 0; i + 3 < frame.pixels.size(); i += 4) {
+        if (frame.pixels[i] > 40 || frame.pixels[i + 1] > 40 || frame.pixels[i + 2] > 40) {
+            sawColor = true;
+            break;
+        }
+    }
+    NC_CHECK(sawColor);
+    reader.close();
+    (void)frameCount;
+}
+#endif

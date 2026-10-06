@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nairoclip/core/effects.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/transition_types.h"
 #include "nairoclip/core/sequence.h"
@@ -29,6 +30,8 @@ struct RenderClip {
     /// 导出用：该片段的动画采样（关键属性，逐帧渲染时重采样）。
     /// 这里仅携带标记；具体采样由渲染器在每帧调用 animation 完成。
     bool hasAnimation = false;
+    /// 特效栈快照（颜色变换在导出时逐帧应用）。
+    EffectStack effects;
 };
 
 /// 导出计划中的转场（含计算好的时间区间）。

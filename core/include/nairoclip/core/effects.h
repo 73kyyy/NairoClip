@@ -94,6 +94,13 @@ struct ColorTransform {
 
     /// 对单个 RGB 像素应用变换（输入/输出 [0,1]）。
     void apply(double& r, double& g, double& b) const;
+
+    /// 是否为单位变换（无任何调整；跳过像素处理用）。
+    bool isIdentity() const {
+        return brightness == 0.0 && contrast == 1.0 && saturation == 1.0 &&
+               temperature == 0.0 && tint == 0.0 && grayscale == 0.0 && sepia == 0.0 &&
+               fade == 0.0;
+    }
 };
 
 /// 求值特效栈的颜色变换（忽略空间效果与禁用的特效）。
