@@ -35,6 +35,7 @@ add_executable(nairoclip_tests
     test_ai_label.cpp
     test_waveform.cpp
     test_reference_workflow_ffmpeg.cpp
+    test_export_stress.cpp
     test_project_doctor.cpp
     test_export_executor.cpp
     test_ripple.cpp
