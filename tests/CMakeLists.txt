@@ -30,6 +30,7 @@ add_executable(nairoclip_tests
     test_media_ffmpeg.cpp
     test_media_writer.cpp
     test_export_runner.cpp
+    test_preview_ffmpeg.cpp
     test_project_doctor.cpp
     test_export_executor.cpp
     test_ripple.cpp
