@@ -23,6 +23,7 @@ add_library(nairoclip_core STATIC
     src/preview.cpp
     src/reference_style.cpp
     src/transition_render.cpp
+    src/auto_edit.cpp
     src/export_executor.cpp
 )
 
