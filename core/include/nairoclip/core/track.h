@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/clip.h"
+#include "nairoclip/core/transition_types.h"
 
 #include <string>
 #include <vector>
@@ -24,6 +25,8 @@ struct Track {
     bool muted = false;
     bool hidden = false;
     std::vector<Clip> clips;
+    /// 转场列表（作用于 clips 中相邻的片段对）。
+    std::vector<Transition> transitions;
 
     const Clip* findClip(ClipId clipId) const;
     Clip* findClip(ClipId clipId);

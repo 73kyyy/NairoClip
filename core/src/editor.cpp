@@ -187,6 +187,16 @@ Result TimelineEditor::removeSubtitle(SequenceId sequenceId, SubtitleId subtitle
     return commit(std::make_unique<RemoveSubtitleCommand>(sequenceId, subtitleId));
 }
 
+Result TimelineEditor::addTransition(SequenceId sequenceId, TrackId trackId,
+                                     Transition transition) {
+    return commit(std::make_unique<AddTransitionCommand>(sequenceId, trackId, std::move(transition)));
+}
+
+Result TimelineEditor::removeTransition(SequenceId sequenceId, TrackId trackId,
+                                        TransitionId transitionId) {
+    return commit(std::make_unique<RemoveTransitionCommand>(sequenceId, trackId, transitionId));
+}
+
 Result TimelineEditor::undo() {
     return undoStack_.undo(project_);
 }

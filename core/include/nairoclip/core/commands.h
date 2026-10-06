@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/command.h"
+#include "nairoclip/core/transition_types.h"
 
 #include <cstddef>
 #include <optional>
@@ -166,6 +167,38 @@ private:
     SequenceId sequenceId_;
     SubtitleId subtitleId_;
     std::optional<SubtitleCue> removed_;  // apply 时快照
+};
+
+
+/// 新增转场（校验通过后追加到轨道转场列表）。
+class AddTransitionCommand : public Command {
+public:
+    AddTransitionCommand(SequenceId sequenceId, TrackId trackId, Transition transition);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "添加转场"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    Transition transition_;
+};
+
+/// 删除转场。
+class RemoveTransitionCommand : public Command {
+public:
+    RemoveTransitionCommand(SequenceId sequenceId, TrackId trackId, TransitionId transitionId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "删除转场"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    TransitionId transitionId_;
+    std::optional<Transition> removed_;
 };
 
 }  // namespace core

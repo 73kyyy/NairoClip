@@ -1,4 +1,5 @@
 #include "nairoclip/core/commands.h"
+#include "nairoclip/core/transition.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -492,6 +493,74 @@ Result RemoveSubtitleCommand::revert(Project& project) {
         return Result::fail(ErrorCode::NotFound, "序列不存在");
     }
     return seq->subtitles.insert(*removed_);
+}
+
+
+// ---------------- 转场命令 ----------------
+
+AddTransitionCommand::AddTransitionCommand(SequenceId sequenceId, TrackId trackId,
+                                           Transition transition)
+    : sequenceId_(sequenceId), trackId_(trackId), transition_(std::move(transition)) {}
+
+Result AddTransitionCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    const Result validation = validateTransition(*track, transition_, track->transitions);
+    if (!validation.isOk()) {
+        return validation;
+    }
+    track->transitions.push_back(transition_);
+    return Result::ok();
+}
+
+Result AddTransitionCommand::revert(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const auto it = std::find_if(track->transitions.begin(), track->transitions.end(),
+                                 [this](const Transition& t) { return t.id == transition_.id; });
+    if (it == track->transitions.end()) {
+        return Result::fail(ErrorCode::NotFound, "转场不存在");
+    }
+    track->transitions.erase(it);
+    return Result::ok();
+}
+
+RemoveTransitionCommand::RemoveTransitionCommand(SequenceId sequenceId, TrackId trackId,
+                                                 TransitionId transitionId)
+    : sequenceId_(sequenceId), trackId_(trackId), transitionId_(transitionId) {}
+
+Result RemoveTransitionCommand::apply(Project& project) {
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const auto it = std::find_if(track->transitions.begin(), track->transitions.end(),
+                                 [this](const Transition& t) { return t.id == transitionId_; });
+    if (it == track->transitions.end()) {
+        return Result::fail(ErrorCode::NotFound, "转场不存在");
+    }
+    removed_ = *it;
+    track->transitions.erase(it);
+    return Result::ok();
+}
+
+Result RemoveTransitionCommand::revert(Project& project) {
+    if (!removed_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少转场快照");
+    }
+    Track* track = findTrack(project, sequenceId_, trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    track->transitions.push_back(*removed_);
+    return Result::ok();
 }
 
 }  // namespace core

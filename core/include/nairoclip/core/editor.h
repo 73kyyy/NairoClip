@@ -46,6 +46,11 @@ public:
     Result upsertSubtitle(SequenceId sequenceId, SubtitleCue cue);
     /// 删除字幕。
     Result removeSubtitle(SequenceId sequenceId, SubtitleId subtitleId);
+    // ---- 转场 ----
+    /// 添加转场（自动校验；失败不入撤销栈）。
+    Result addTransition(SequenceId sequenceId, TrackId trackId, Transition transition);
+    /// 删除转场。
+    Result removeTransition(SequenceId sequenceId, TrackId trackId, TransitionId transitionId);
     // ---- 撤销 / 重做 ----
     Result undo();
     Result redo();

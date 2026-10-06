@@ -82,3 +82,71 @@ NC_TEST(Transition, AllowsSelfInExisting) {
     const std::vector<Transition> existing{a};
     NC_CHECK(validateTransition(track, a, existing).isOk());
 }
+#include "nairoclip/core/editor.h"
+NC_TEST(Transition, EditorAddAndUndo) {
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    MediaAsset a;
+    a.id = AssetId{project.ids.next()};
+    a.type = MediaType::Video;
+    a.duration = Rational::make(60);
+    project.assets.push_back(a);
+    TrackId trackId;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &trackId).isOk());
+    ClipId c1;
+    ClipId c2;
+    Clip clip1;
+    clip1.asset = a.id;
+    clip1.start = Rational::make(0);
+    clip1.duration = Rational::make(2);
+    Clip clip2;
+    clip2.asset = a.id;
+    clip2.start = Rational::make(3);
+    clip2.duration = Rational::make(2);
+    NC_CHECK(editor.insertClip(seqId, trackId, clip1, &c1).isOk());
+    NC_CHECK(editor.insertClip(seqId, trackId, clip2, &c2).isOk());
+    Transition tr;
+    tr.id = TransitionId{project.ids.next()};
+    tr.type = TransitionType::CrossDissolve;
+    tr.duration = Rational::make(1);
+    tr.fromClip = c1;
+    tr.toClip = c2;
+    NC_CHECK(editor.addTransition(seqId, trackId, tr).isOk());
+    const Track* track = findTrack(project, seqId, trackId);
+    NC_CHECK_EQ(track->transitions.size(), std::size_t(1));
+    // 撤销 → 移除
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(findTrack(project, seqId, trackId)->transitions.size(), std::size_t(0));
+    // 重做 → 恢复
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK_EQ(findTrack(project, seqId, trackId)->transitions.size(), std::size_t(1));
+    // 删除转场
+    NC_CHECK(editor.removeTransition(seqId, trackId, tr.id).isOk());
+    NC_CHECK_EQ(findTrack(project, seqId, trackId)->transitions.size(), std::size_t(0));
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(findTrack(project, seqId, trackId)->transitions.size(), std::size_t(1));
+}
+NC_TEST(Transition, EditorRejectsInvalid) {
+    Project project;
+    TimelineEditor editor(project);
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    TrackId trackId;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &trackId).isOk());
+    // 不存在的片段 → 拒绝
+    Transition tr;
+    tr.id = TransitionId{project.ids.next()};
+    tr.fromClip = ClipId{99};
+    tr.toClip = ClipId{100};
+    const std::size_t undoBefore = editor.undoCount();
+    const Result r = editor.addTransition(seqId, trackId, tr);
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::NotFound);
+    NC_CHECK_EQ(editor.undoCount(), undoBefore);  // 失败不入栈
+}
