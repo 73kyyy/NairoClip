@@ -25,11 +25,14 @@ std::string avErrorString(int err) {
     return buffer;
 }
 
-/// 取有理数帧率（优先 avg_frame_rate，退化 r_frame_rate）。
+/// 取有理数帧率。
+/// 策略：以 r_frame_rate（标称帧率）为主；仅当标称帧率无效时才用 avg_frame_rate。
+/// 理由：容器量化会让 avg_frame_rate 产生漂移（如 30fps 被记为 900/29），
+/// 时间轴映射必须用标称帧率，否则逐帧步进会漂移。
 FrameRate frameRateOf(const AVStream* stream) {
-    AVRational rate = stream->avg_frame_rate;
+    AVRational rate = stream->r_frame_rate;
     if (rate.num <= 0 || rate.den <= 0) {
-        rate = stream->r_frame_rate;
+        rate = stream->avg_frame_rate;
     }
     if (rate.num <= 0 || rate.den <= 0) {
         return fps30();
