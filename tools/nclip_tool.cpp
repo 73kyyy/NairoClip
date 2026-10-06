@@ -16,6 +16,7 @@
 #include "nairoclip/core/media_ffmpeg_writer.h"
 #endif
 #include "nairoclip/core/serialization.h"
+#include "nairoclip/core/subtitle_io.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -252,12 +253,92 @@ int commandExport(const std::string&, const std::string&, int, const std::string
 }
 #endif
 
+/// 导出序列字幕为 SRT 文件。
+/// 用法：nclip_tool subs <file.nclip> <out.srt>
+int commandSubtitles(const std::string& path, const std::string& outPath) {
+    std::string text;
+    if (!readFile(path, text)) {
+        return 1;
+    }
+    Project project;
+    const NclipLoadResult loadResult = loadProjectFromNclip(text, project);
+    if (!loadResult.result.isOk()) {
+        std::fprintf(stderr, "加载失败：%s\n", loadResult.result.message.c_str());
+        return 1;
+    }
+    const Sequence* seq = project.mainSequence();
+    if (seq == nullptr) {
+        std::fprintf(stderr, "工程没有主序列\n");
+        return 1;
+    }
+    const std::string srt = exportSrt(seq->subtitles.cues());
+    std::ofstream out(outPath, std::ios::binary);
+    if (!out) {
+        std::fprintf(stderr, "无法写入 %s\n", outPath.c_str());
+        return 1;
+    }
+    out << srt;
+    std::printf("已导出 %zu 条字幕 → %s\n", seq->subtitles.cues().size(), outPath.c_str());
+    return 0;
+}
+
+/// 导入 SRT 字幕到工程。
+/// 用法：nclip_tool subs-import <file.nclip> <in.srt> <out.nclip>
+int commandSubtitlesImport(const std::string& path, const std::string& srtPath,
+                           const std::string& outPath) {
+    std::string text;
+    if (!readFile(path, text)) {
+        return 1;
+    }
+    Project project;
+    const NclipLoadResult loadResult = loadProjectFromNclip(text, project);
+    if (!loadResult.result.isOk()) {
+        std::fprintf(stderr, "加载失败：%s\n", loadResult.result.message.c_str());
+        return 1;
+    }
+    Sequence* seq = project.mainSequence();
+    if (seq == nullptr) {
+        std::fprintf(stderr, "工程没有主序列\n");
+        return 1;
+    }
+    std::string srtText;
+    if (!readFile(srtPath, srtText)) {
+        return 1;
+    }
+    const SubtitleParseResult parsed = parseSrt(srtText);
+    if (parsed.cues.empty()) {
+        std::fprintf(stderr, "未解析到字幕\n");
+        return 1;
+    }
+    for (const auto& cue : parsed.cues) {
+        SubtitleCue withId = cue;
+        withId.id = SubtitleId{project.ids.next()};
+        if (!seq->subtitles.insert(withId).isOk()) {
+            std::fprintf(stderr, "插入字幕失败\n");
+            return 1;
+        }
+    }
+    std::ofstream out(outPath, std::ios::binary);
+    if (!out) {
+        std::fprintf(stderr, "无法写入 %s\n", outPath.c_str());
+        return 1;
+    }
+    out << saveProjectToNclip(project);
+    std::printf("已导入 %zu 条字幕 → %s\n", parsed.cues.size(), outPath.c_str());
+    for (const auto& w : parsed.warnings) {
+        std::fprintf(stderr, "警告：%s\n", w.c_str());
+    }
+    return 0;
+}
+
 void printUsage() {
     std::printf("用法：\n");
     std::printf("  nclip_tool info <file.nclip>      显示工程摘要\n");
     std::printf("  nclip_tool validate <file.nclip>  校验工程文件\n");
     std::printf("  nclip_tool doctor <file.nclip> [--fix] 修复工程文件\n");
     std::printf("  nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P] 导出视频\n");
+    std::printf("  nclip_tool subs <file.nclip> <out.srt> 导出字幕\n");
+    std::printf("  nclip_tool subs-import <file.nclip> <in.srt> <out.nclip> 导入字幕\n");
     std::printf("  nclip_tool version                版本信息\n");
 }
 
@@ -310,6 +391,22 @@ int main(int argc, char** argv) {
             }
         }
         return commandExport(path, outPath, crf, preset);
+    }
+    if (command == "subs") {
+        if (argc < 4) {
+            std::fprintf(stderr, "错误：subs 需要输出路径参数\n");
+            printUsage();
+            return 2;
+        }
+        return commandSubtitles(path, argv[3]);
+    }
+    if (command == "subs-import") {
+        if (argc < 5) {
+            std::fprintf(stderr, "错误：subs-import 需要 SRT 输入与输出路径\n");
+            printUsage();
+            return 2;
+        }
+        return commandSubtitlesImport(path, argv[3], argv[4]);
     }
     std::fprintf(stderr, "错误：未知命令 %s\n", command.c_str());
     printUsage();
