@@ -25,6 +25,7 @@ add_library(nairoclip_core STATIC
     src/transition_render.cpp
     src/auto_edit.cpp
     src/project_doctor.cpp
+    src/scene_detect.cpp
     src/export_executor.cpp
 )
 
