@@ -8,6 +8,7 @@ add_executable(nairoclip_tests
     test_transition.cpp
     test_crosstrack.cpp
     test_speed_curve.cpp
+    test_json.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
