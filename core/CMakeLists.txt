@@ -15,6 +15,7 @@ add_library(nairoclip_core STATIC
     src/recovery.cpp
     src/animation.cpp
     src/export_plan.cpp
+    src/capi.cpp
 )
 
 target_include_directories(nairoclip_core PUBLIC
