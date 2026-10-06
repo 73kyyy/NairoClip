@@ -1058,5 +1058,90 @@ Result DetachAudioCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------- 标记命令 ----------------
+
+UpsertMarkerCommand::UpsertMarkerCommand(SequenceId sequenceId, Marker marker)
+    : sequenceId_(sequenceId), marker_(std::move(marker)) {}
+
+Result UpsertMarkerCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    if (marker_.time.isNegative()) {
+        return Result::fail(ErrorCode::InvalidArgument, "标记时间不能为负");
+    }
+    for (auto& m : seq->markers) {
+        if (m.id == marker_.id) {
+            if (!isReplace_) {
+                previous_ = m;
+            }
+            isReplace_ = true;
+            m = marker_;
+            return Result::ok();
+        }
+    }
+    seq->markers.push_back(marker_);
+    std::sort(seq->markers.begin(), seq->markers.end(),
+              [](const Marker& a, const Marker& b) { return a.time < b.time; });
+    return Result::ok();
+}
+
+Result UpsertMarkerCommand::revert(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    if (isReplace_) {
+        for (auto& m : seq->markers) {
+            if (m.id == marker_.id) {
+                m = previous_;
+                return Result::ok();
+            }
+        }
+        return Result::fail(ErrorCode::NotFound, "标记不存在");
+    }
+    const auto it = std::find_if(seq->markers.begin(), seq->markers.end(),
+                                 [this](const Marker& m) { return m.id == marker_.id; });
+    if (it == seq->markers.end()) {
+        return Result::fail(ErrorCode::NotFound, "标记不存在");
+    }
+    seq->markers.erase(it);
+    return Result::ok();
+}
+
+RemoveMarkerCommand::RemoveMarkerCommand(SequenceId sequenceId, MarkerId markerId)
+    : sequenceId_(sequenceId), markerId_(markerId) {}
+
+Result RemoveMarkerCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const auto it = std::find_if(seq->markers.begin(), seq->markers.end(),
+                                 [this](const Marker& m) { return m.id == markerId_; });
+    if (it == seq->markers.end()) {
+        return Result::fail(ErrorCode::NotFound, "标记不存在");
+    }
+    removed_ = *it;
+    seq->markers.erase(it);
+    return Result::ok();
+}
+
+Result RemoveMarkerCommand::revert(Project& project) {
+    if (!removed_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少标记快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    seq->markers.push_back(*removed_);
+    std::sort(seq->markers.begin(), seq->markers.end(),
+              [](const Marker& a, const Marker& b) { return a.time < b.time; });
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

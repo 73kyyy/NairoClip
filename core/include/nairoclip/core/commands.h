@@ -342,5 +342,37 @@ private:
     std::optional<Clip> created_;  // apply 时生成的音频片段快照
 };
 
+
+/// 添加/更新标记。
+class UpsertMarkerCommand : public Command {
+public:
+    UpsertMarkerCommand(SequenceId sequenceId, Marker marker);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "添加标记"; }
+
+private:
+    SequenceId sequenceId_;
+    Marker marker_;
+    bool isReplace_ = false;
+    Marker previous_;
+};
+
+/// 删除标记。
+class RemoveMarkerCommand : public Command {
+public:
+    RemoveMarkerCommand(SequenceId sequenceId, MarkerId markerId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "删除标记"; }
+
+private:
+    SequenceId sequenceId_;
+    MarkerId markerId_;
+    std::optional<Marker> removed_;
+};
+
 }  // namespace core
 }  // namespace nairoclip

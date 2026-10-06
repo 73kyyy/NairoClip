@@ -516,3 +516,36 @@ NC_TEST(Editor, DetachAudioRejectsOverlap) {
     NC_CHECK(!r.isOk());
     NC_CHECK(r.code == ErrorCode::Overlap);
 }
+NC_TEST(Editor, MarkerCommandsWithUndo) {
+    Fixture f;
+    TimelineEditor editor(f.project);
+    Marker m;
+    m.id = MarkerId{f.project.ids.next()};
+    m.time = Rational::make(3);
+    m.name = "高潮";
+    m.color = "#FF453A";
+    NC_CHECK(editor.upsertMarker(f.seqId, m).isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->markers.size(), std::size_t(1));
+    NC_CHECK(f.project.mainSequence()->markers[0].name == std::string("高潮"));
+    // 替换
+    m.name = "高潮2";
+    NC_CHECK(editor.upsertMarker(f.seqId, m).isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->markers.size(), std::size_t(1));
+    NC_CHECK(f.project.mainSequence()->markers[0].name == std::string("高潮2"));
+    // 撤销替换
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(f.project.mainSequence()->markers[0].name == std::string("高潮"));
+    // 撤销添加
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->markers.size(), std::size_t(0));
+    // 重做两次
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK(f.project.mainSequence()->markers[0].name == std::string("高潮2"));
+    // 删除
+    NC_CHECK(editor.removeMarker(f.seqId, m.id).isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->markers.size(), std::size_t(0));
+    // 撤销删除
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(f.project.mainSequence()->markers.size(), std::size_t(1));
+}

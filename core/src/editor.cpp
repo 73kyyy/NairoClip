@@ -220,6 +220,14 @@ Result TimelineEditor::removeKeyframe(SequenceId sequenceId, TrackId trackId, Cl
         std::make_unique<RemoveKeyframeCommand>(sequenceId, trackId, clipId, property, at));
 }
 
+Result TimelineEditor::upsertMarker(SequenceId sequenceId, Marker marker) {
+    return commit(std::make_unique<UpsertMarkerCommand>(sequenceId, std::move(marker)));
+}
+
+Result TimelineEditor::removeMarker(SequenceId sequenceId, MarkerId markerId) {
+    return commit(std::make_unique<RemoveMarkerCommand>(sequenceId, markerId));
+}
+
 Result TimelineEditor::detachAudio(SequenceId sequenceId, TrackId videoTrackId,
                                     ClipId videoClipId, TrackId audioTrackId) {
     return commit(std::make_unique<DetachAudioCommand>(sequenceId, videoTrackId, videoClipId,

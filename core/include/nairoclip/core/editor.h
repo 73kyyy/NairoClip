@@ -62,6 +62,11 @@ public:
     /// 删除片段关键帧。
     Result removeKeyframe(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                           ClipProperty property, const Time& at);
+    // ---- 标记 ----
+    /// 添加/更新标记（同 ID 替换）。
+    Result upsertMarker(SequenceId sequenceId, Marker marker);
+    /// 删除标记。
+    Result removeMarker(SequenceId sequenceId, MarkerId markerId);
     // ---- 音画分离 ----
     /// 将视频片段分离出音频片段到目标音频轨（同素材同时间）。
     Result detachAudio(SequenceId sequenceId, TrackId videoTrackId, ClipId videoClipId,
