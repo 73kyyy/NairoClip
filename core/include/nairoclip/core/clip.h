@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nairoclip/core/animation.h"
 #include "nairoclip/core/rational.h"
 #include "nairoclip/core/time.h"
 #include "nairoclip/core/types.h"
@@ -16,6 +17,10 @@ struct Clip {
     Time sourceIn;    // 源素材入点
     Rational speed = Rational::make(1);  // 播放速度倍率（1 = 原速）
     bool enabled = true;
+    /// 动画通道（透明度/缩放/位移/旋转/音量），采样用「片段本地时间」。
+    ClipAnimation animation;
+    /// 时间轴时刻 → 片段本地时间。
+    Time toLocalTime(const Time& timelineTime) const { return timelineTime - start; }
 
     /// 时间轴终点。
     Time end() const { return start + duration; }
