@@ -31,6 +31,7 @@ add_library(nairoclip_core STATIC
     src/thumbnail.cpp
     src/ai_label.cpp
     src/waveform.cpp
+    src/subtitle_io.cpp
     src/media_writer.cpp
 )
 target_include_directories(nairoclip_core PUBLIC
