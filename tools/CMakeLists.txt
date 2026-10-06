@@ -1,0 +1,7 @@
+add_executable(nclip_tool nclip_tool.cpp)
+target_link_libraries(nclip_tool PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nclip_tool PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nclip_tool PRIVATE -Wall -Wextra)
+endif()

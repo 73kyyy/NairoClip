@@ -12,6 +12,7 @@ endif()
 option(NAIROCLIP_BUILD_TESTS "Build NairoClip tests" ON)
 
 add_subdirectory(core)
+add_subdirectory(tools)
 
 if(NAIROCLIP_BUILD_TESTS)
     enable_testing()
