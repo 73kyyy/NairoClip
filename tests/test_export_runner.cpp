@@ -676,3 +676,54 @@ NC_TEST(ExportRunner, MultiLayerAlphaBlend) {
     NC_CHECK(v > 15);
     NC_CHECK(v < 40);
 }
+
+NC_TEST(ExportRunner, AiLabelAttachedWhenRequested) {
+    Fixture f;
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, c).isOk());
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    RunnerFactory readerFactory;
+    int framesWithLabel = 0;
+    bool sawText = false;
+    bool sawPosition = false;
+    ExportExecutorOptions options;
+    options.attachAiLabel = true;
+    options.aiLabelText = "AI 生成";
+    const ExportStats stats = executeExport(
+        plan, readerFactory,
+        [&](const OutputVideoFrame& frame) {
+            for (const auto& item : frame.subtitles) {
+                if (item.text == "AI 生成") {
+                    sawText = true;
+                    if (item.anchorY > 0.9 && item.anchorX < 0.05) sawPosition = true;
+                }
+            }
+            if (sawText && sawPosition) ++framesWithLabel;
+        },
+        nullptr, nullptr, options, &f.project);
+    NC_CHECK(stats.framesWritten > 0);
+    // AI 标识应出现在每一帧
+    NC_CHECK_EQ(framesWithLabel, static_cast<int>(stats.framesWritten));
+}
+NC_TEST(ExportRunner, NoAiLabelWhenNotRequested) {
+    Fixture f;
+    Clip c;
+    c.asset = f.assetId;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(1);
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, c).isOk());
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    RunnerFactory readerFactory;
+    int framesWithAnySubtitle = 0;
+    executeExport(
+        plan, readerFactory,
+        [&](const OutputVideoFrame& frame) {
+            if (!frame.subtitles.empty()) ++framesWithAnySubtitle;
+        },
+        nullptr, nullptr, ExportExecutorOptions{}, &f.project);
+    // 未请求标识且无字幕 → 不应有标识
+    NC_CHECK_EQ(framesWithAnySubtitle, 0);
+}

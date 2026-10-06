@@ -33,6 +33,10 @@ struct ExportExecutorOptions {
     int overrideFps = 0;
     /// 最大输出帧数（0 = 不限制；测试用保护）。
     std::int64_t maxFrames = 0;
+    /// 是否附加 AI 内容标识（深度合成合规；由平台层根据功能使用情况决定）。
+    bool attachAiLabel = false;
+    /// AI 标识文案（attachAiLabel 时生效）。
+    std::string aiLabelText = "AI 生成";
 };
 
 /// 执行统计。

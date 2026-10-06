@@ -4,6 +4,7 @@
 
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/ai_label.h"
 #include "nairoclip/core/audio_mixer.h"
 
 #include <algorithm>
@@ -286,6 +287,11 @@ ExportStats executeExport(
                 if (project != nullptr) {
                     frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
                 }
+                if (options.attachAiLabel) {
+                    AiLabelConfig labelConfig;
+                    labelConfig.text = options.aiLabelText;
+                    frame.subtitles.push_back(buildAiLabelItem(labelConfig));
+                }
                 videoSink(frame);
                 ++stats.framesWritten;
                 ++frameIndex;
@@ -305,6 +311,11 @@ ExportStats executeExport(
                 }
                 if (project != nullptr) {
                     frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
+                }
+                if (options.attachAiLabel) {
+                    AiLabelConfig labelConfig;
+                    labelConfig.text = options.aiLabelText;
+                    frame.subtitles.push_back(buildAiLabelItem(labelConfig));
                 }
                 videoSink(frame);
                 ++stats.framesWritten;
@@ -465,6 +476,11 @@ ExportStats executeExport(
                         if (project != nullptr) {
                             frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
                         }
+                        if (options.attachAiLabel) {
+                            AiLabelConfig labelConfig;
+                            labelConfig.text = options.aiLabelText;
+                            frame.subtitles.push_back(buildAiLabelItem(labelConfig));
+                        }
                         videoSink(frame);
                         ++stats.framesWritten;
                         ++frameIndex;
@@ -487,6 +503,11 @@ ExportStats executeExport(
                 }
                 if (project != nullptr) {
                     frame.subtitles = subtitlesAt(*project, plan.sequenceId, t);
+                }
+                if (options.attachAiLabel) {
+                    AiLabelConfig labelConfig;
+                    labelConfig.text = options.aiLabelText;
+                    frame.subtitles.push_back(buildAiLabelItem(labelConfig));
                 }
                 videoSink(frame);
                 ++stats.framesWritten;
