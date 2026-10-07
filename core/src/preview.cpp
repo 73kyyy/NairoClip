@@ -203,9 +203,25 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
     }
     VideoFrame source;
     if (reader->readVideoFrame(source)) {
-        frame.rgba = std::move(source.pixels);
-        frame.width = source.width;
-        frame.height = source.height;
+        const int canvasW = seq != nullptr && seq->width > 0 ? seq->width : source.width;
+        const int canvasH = seq != nullptr && seq->height > 0 ? seq->height : source.height;
+        const FrameFit fit = seq != nullptr ? seq->frameFit : FrameFit::Fit;
+        const std::uint32_t background = seq != nullptr ? seq->backgroundRgba : 0x000000FF;
+        if (source.width == canvasW && source.height == canvasH) {
+            frame.rgba = std::move(source.pixels);
+            frame.width = source.width;
+            frame.height = source.height;
+        } else {
+            // 源尺寸与画布不一致：按序列画幅适配策略渲染（与导出管线保持一致）。
+            std::vector<std::uint8_t> canvas(
+                static_cast<std::size_t>(canvasW) * static_cast<std::size_t>(canvasH) * 4, 0);
+            const int stride = source.stride > 0 ? source.stride : source.width * 4;
+            renderFrameFit(source.pixels.data(), source.width, source.height, stride,
+                           canvas.data(), canvasW, canvasH, fit, background);
+            frame.rgba = std::move(canvas);
+            frame.width = canvasW;
+            frame.height = canvasH;
+        }
         // 应用片段特效栈的颜色变换
         if (!clip->effects.empty()) {
             const ColorTransform transform = evaluateColorTransform(clip->effects);

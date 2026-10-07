@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.6，测试 308 用例全绿）
+## 7. 里程碑（截至 M2.9，测试 336 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -82,9 +82,12 @@
 - M2.4 ✅ 参考仿剪全真实链路端到端验证（核心卖点）
 - M2.5 ✅ C ABI 导出接口 nc_export_run
 - M2.6 ✅ 导出压力测试（性能基线）
+- M2.7 ✅ SRT/WebVTT 字幕交换（解析容错 + 导出排序 + 序号行误判修复）
+- M2.8 ✅ nclip_tool 字幕命令（SRT 导出/导入工程）
+- M2.9 ✅ 导出画幅适配模式（fit 信箱 / fill 铺满裁切 / crop 居中1:1；含序列化、预览、CLI `--fit`、C ABI）
 
 ### 待办
-- M2.7 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
+- M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
 - 后续 ⬜ 本地 AI 推理（模型分发走国内云）+ 平台壳（Kotlin/Qt）
 
 ## 8. 兼容性预留

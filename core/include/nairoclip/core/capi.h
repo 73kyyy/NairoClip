@@ -194,6 +194,18 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
                       int32_t attach_ai_label, const char* ai_label_text,
                       int32_t (*progress_cb)(double), char** out_error);
 
+// ---- 画幅适配（导出预设 9:16 / 16:9 / 1:1、智能重构图横转竖）----
+
+/// 设置主序列的画幅适配模式（0=fit 等比内缩留黑边 1=fill 铺满居中裁切 2=crop 居中1:1裁切）。
+/// 非法值返回 NC_ERROR_INVALID_ARGUMENT。影响后续导出与预览。
+int32_t nc_set_frame_fit(NcEditor* editor, int32_t mode);
+
+/// 读取主序列的画幅适配模式（返回 0/1/2；句柄为空返回 -1）。
+int32_t nc_get_frame_fit(const NcEditor* editor);
+
+/// 设置画幅适配的背景填充色（Fit 模式的信箱/邮筒边颜色；0xRRGGBBAA）。
+int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

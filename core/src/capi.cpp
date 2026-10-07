@@ -2,6 +2,7 @@
 
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/serialization.h"
@@ -515,6 +516,45 @@ int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_i
                                         fromMicroseconds(fade_in_us),
                                         fromMicroseconds(fade_out_us))
                          .code);
+}
+
+int32_t nc_set_frame_fit(NcEditor* editor, int32_t mode) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    FrameFit fit;
+    if (!frameFitFromInt(mode, fit)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    main->frameFit = fit;
+    return NC_OK;
+}
+
+int32_t nc_get_frame_fit(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return -1;
+    }
+    return static_cast<int32_t>(main->frameFit);
+}
+
+int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    main->backgroundRgba = rgba;
+    return NC_OK;
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

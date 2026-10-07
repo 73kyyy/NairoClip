@@ -84,8 +84,8 @@ int commandInfo(const std::string& path) {
                     static_cast<unsigned long long>(s.id.value), s.name.c_str(),
                     formatTime(s.duration()).c_str(), s.width, s.height,
                     s.frameRate.toDouble());
-        std::printf("    轨道=%zu  标记=%zu  字幕=%zu\n", s.tracks.size(), s.markers.size(),
-                    s.subtitles.size());
+        std::printf("    轨道=%zu  标记=%zu  字幕=%zu  画幅适配=%s\n", s.tracks.size(),
+                    s.markers.size(), s.subtitles.size(), frameFitName(s.frameFit));
         for (const auto& t : s.tracks) {
             std::printf("    - %s（%s）片段=%zu 转场=%zu%s%s%s\n", t.name.c_str(),
                         t.type == TrackType::Video    ? "视频"
@@ -181,9 +181,9 @@ int commandDoctor(const std::string& path, bool writeBack) {
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 /// 导出工程到 MP4（需要 FFmpeg 构建）。
-/// 用法：nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P]
+/// 用法：nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P] [--fit fit|fill|crop]
 int commandExport(const std::string& path, const std::string& outPath, int crf,
-                  const std::string& preset) {
+                  const std::string& preset, FrameFit fitMode) {
     std::string text;
     if (!readFile(path, text)) {
         return 1;
@@ -194,11 +194,13 @@ int commandExport(const std::string& path, const std::string& outPath, int crf,
         std::fprintf(stderr, "加载失败：%s\n", loadResult.result.message.c_str());
         return 1;
     }
-    const Sequence* seq = project.mainSequence();
+    Sequence* seq = project.mainSequence();
     if (seq == nullptr) {
         std::fprintf(stderr, "工程没有主序列\n");
         return 1;
     }
+    // 命令行指定的画幅适配模式覆盖工程设置（导出预设 9:16 / 16:9 / 1:1 场景）。
+    seq->frameFit = fitMode;
     const ExportPlan plan = compileExportPlan(project, *seq);
     for (const auto& warning : plan.warnings) {
         std::fprintf(stderr, "警告：%s\n", warning.c_str());
@@ -220,8 +222,9 @@ int commandExport(const std::string& path, const std::string& outPath, int crf,
     config.writer.preset = preset;
     config.writer.includeAudio = true;
     std::printf("开始导出：%s → %s\n", path.c_str(), outPath.c_str());
-    std::printf("  分辨率：%dx%d @ %.3ffps，时长：%.2fs\n", plan.width, plan.height,
-                plan.frameRate.toDouble(), plan.duration.toDouble());
+    std::printf("  分辨率：%dx%d @ %.3ffps，时长：%.2fs，画幅适配：%s\n", plan.width, plan.height,
+                plan.frameRate.toDouble(), plan.duration.toDouble(),
+                frameFitName(plan.frameFit));
     int lastPercent = -1;
     const ExportRunResult result = runExport(
         plan, readerFactory, writerFactory, config,
@@ -247,7 +250,8 @@ int commandExport(const std::string& path, const std::string& outPath, int crf,
     return 0;
 }
 #else
-int commandExport(const std::string&, const std::string&, int, const std::string&) {
+int commandExport(const std::string&, const std::string&, int, const std::string&,
+                  FrameFit) {
     std::fprintf(stderr, "此构建未包含 FFmpeg，无法导出。\n");
     return 1;
 }
@@ -336,7 +340,7 @@ void printUsage() {
     std::printf("  nclip_tool info <file.nclip>      显示工程摘要\n");
     std::printf("  nclip_tool validate <file.nclip>  校验工程文件\n");
     std::printf("  nclip_tool doctor <file.nclip> [--fix] 修复工程文件\n");
-    std::printf("  nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P] 导出视频\n");
+    std::printf("  nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P] [--fit fit|fill|crop] 导出视频\n");
     std::printf("  nclip_tool subs <file.nclip> <out.srt> 导出字幕\n");
     std::printf("  nclip_tool subs-import <file.nclip> <in.srt> <out.nclip> 导入字幕\n");
     std::printf("  nclip_tool version                版本信息\n");
@@ -382,15 +386,21 @@ int main(int argc, char** argv) {
         const std::string outPath = argv[3];
         int crf = 23;
         std::string preset = "veryfast";
+        FrameFit fitMode = FrameFit::Fit;
         for (int i = 4; i + 1 < argc; i += 2) {
             const std::string flag = argv[i];
             if (flag == "--crf") {
                 crf = std::atoi(argv[i + 1]);
             } else if (flag == "--preset") {
                 preset = argv[i + 1];
+            } else if (flag == "--fit") {
+                if (!frameFitFromString(argv[i + 1], fitMode)) {
+                    std::fprintf(stderr, "错误：--fit 仅支持 fit / fill / crop\n");
+                    return 2;
+                }
             }
         }
-        return commandExport(path, outPath, crf, preset);
+        return commandExport(path, outPath, crf, preset, fitMode);
     }
     if (command == "subs") {
         if (argc < 4) {

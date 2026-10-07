@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/ai_label.h"
@@ -261,19 +262,40 @@ ExportStats executeExport(
                     const int h = plan.height;
                     const std::size_t pixelBytes =
                         static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
-                    std::vector<std::uint8_t> bufA = frameA.pixels.size() >= pixelBytes
-                                                        ? frameA.pixels
-                                                        : std::vector<std::uint8_t>(pixelBytes, 0);
-                    std::vector<std::uint8_t> bufB = frameB.pixels.size() >= pixelBytes
-                                                        ? frameB.pixels
-                                                        : std::vector<std::uint8_t>(pixelBytes, 0);
+                    // 源帧按画幅适配渲染到画布尺寸（信源缺失时用背景色）
+                    auto toCanvas = [&](const VideoFrame& source, bool present) {
+                        std::vector<std::uint8_t> buffer(pixelBytes, 0);
+                        const std::uint32_t bg = plan.backgroundRgba;
+                        for (std::size_t i = 0; i + 3 < buffer.size(); i += 4) {
+                            buffer[i] = static_cast<std::uint8_t>((bg >> 24) & 0xFF);
+                            buffer[i + 1] = static_cast<std::uint8_t>((bg >> 16) & 0xFF);
+                            buffer[i + 2] = static_cast<std::uint8_t>((bg >> 8) & 0xFF);
+                            buffer[i + 3] = static_cast<std::uint8_t>(bg & 0xFF);
+                        }
+                        if (present && !source.pixels.empty() && source.width > 0 &&
+                            source.height > 0) {
+                            const int stride =
+                                source.stride > 0 ? source.stride : source.width * 4;
+                            if (source.width == w && source.height == h) {
+                                std::memcpy(buffer.data(), source.pixels.data(),
+                                            std::min(pixelBytes, source.pixels.size()));
+                            } else {
+                                renderFrameFit(source.pixels.data(), source.width,
+                                               source.height, stride, buffer.data(), w, h,
+                                               plan.frameFit, bg);
+                            }
+                        }
+                        return buffer;
+                    };
+                    std::vector<std::uint8_t> bufA = toCanvas(frameA, hasA);
+                    std::vector<std::uint8_t> bufB = toCanvas(frameB, hasB);
                     // 确保 alpha 不透明
                     for (std::size_t i = 3; i < bufA.size(); i += 4) bufA[i] = 255;
                     for (std::size_t i = 3; i < bufB.size(); i += 4) bufB[i] = 255;
                     frame.rgba.assign(pixelBytes, 0);
                     blendDone = TransitionRenderer::renderFrame(
-                        static_cast<TransitionType>(frame.transitionType), bufA.data(), bufB.data(),
-                        frame.rgba.data(), w, h, frame.transitionProgress);
+                        static_cast<TransitionType>(frame.transitionType), bufA.data(),
+                        bufB.data(), frame.rgba.data(), w, h, frame.transitionProgress);
                 }
                 if (!blendDone) {
                     // 防御：无有效数据源时输出占位帧（保持管线不断）
@@ -352,7 +374,8 @@ ExportStats executeExport(
                     VideoFrame source;
                     if (reader->readVideoFrame(source)) {
                         decoded = true;
-                        // 输出帧尺寸以计划为准；源尺寸不同则居中放置（简化：直接拷贝到左上角）
+                        // 输出帧尺寸以计划为准；源尺寸不同时按画幅适配策略处理
+                        // （Fit 信箱 / Fill 铺满裁切 / Crop 居中精确裁切）。
                         OutputVideoFrame frame;
                         frame.timestamp = t;
                         frame.width = plan.width;
@@ -360,20 +383,24 @@ ExportStats executeExport(
                         const std::size_t outBytes = static_cast<std::size_t>(plan.width) *
                                                      static_cast<std::size_t>(plan.height) * 4;
                         frame.rgba.assign(outBytes, 0);
-                        for (std::size_t i = 3; i < frame.rgba.size(); i += 4) {
-                            frame.rgba[i] = 255;
-                        }
-                        const int copyW = std::min(source.width, plan.width);
-                        const int copyH = std::min(source.height, plan.height);
                         const int srcStride = source.stride > 0 ? source.stride : source.width * 4;
-                        for (int row = 0; row < copyH; ++row) {
-                            const std::uint8_t* src = source.pixels.data() +
-                                static_cast<std::size_t>(row) * static_cast<std::size_t>(srcStride);
-                            std::uint8_t* dst = frame.rgba.data() +
-                                static_cast<std::size_t>(row) *
-                                    static_cast<std::size_t>(plan.width) * 4;
-                            std::memcpy(dst, src,
-                                        static_cast<std::size_t>(copyW) * 4);
+                        if (source.width == plan.width && source.height == plan.height) {
+                            // 尺寸一致：直接拷贝（零缩放损失快路径）
+                            const int rows = std::min(source.height, plan.height);
+                            for (int row = 0; row < rows; ++row) {
+                                const std::uint8_t* src = source.pixels.data() +
+                                    static_cast<std::size_t>(row) *
+                                        static_cast<std::size_t>(srcStride);
+                                std::uint8_t* dst = frame.rgba.data() +
+                                    static_cast<std::size_t>(row) *
+                                        static_cast<std::size_t>(plan.width) * 4;
+                                std::memcpy(dst, src,
+                                            static_cast<std::size_t>(plan.width) * 4);
+                            }
+                        } else {
+                            renderFrameFit(source.pixels.data(), source.width, source.height,
+                                           srcStride, frame.rgba.data(), plan.width, plan.height,
+                                           plan.frameFit, plan.backgroundRgba);
                         }
                         // 应用片段特效（颜色变换）
                         if (!active->effects.empty()) {
@@ -415,17 +442,39 @@ ExportStats executeExport(
                                             VideoFrame lowerFrame;
                                             if (lowerReader->readVideoFrame(lowerFrame)) {
                                                 lowerDecoded = true;
-                                                const int w = std::min(lowerFrame.width, plan.width);
-                                                const int h = std::min(lowerFrame.height, plan.height);
-                                                const int lowerStride = lowerFrame.stride > 0
-                                                                            ? lowerFrame.stride
-                                                                            : lowerFrame.width * 4;
+                                                const int lowerStride =
+                                                    lowerFrame.stride > 0
+                                                        ? lowerFrame.stride
+                                                        : lowerFrame.width * 4;
+                                                // 下层按画幅适配渲染到画布尺寸后再混合
+                                                std::vector<std::uint8_t> lowerCanvas;
+                                                const std::uint8_t* lowerPixels =
+                                                    lowerFrame.pixels.data();
+                                                if (lowerFrame.width != plan.width ||
+                                                    lowerFrame.height != plan.height) {
+                                                    lowerCanvas.assign(
+                                                        static_cast<std::size_t>(plan.width) *
+                                                            static_cast<std::size_t>(plan.height) *
+                                                            4,
+                                                        0);
+                                                    renderFrameFit(
+                                                        lowerFrame.pixels.data(),
+                                                        lowerFrame.width, lowerFrame.height,
+                                                        lowerStride, lowerCanvas.data(),
+                                                        plan.width, plan.height, plan.frameFit,
+                                                        plan.backgroundRgba);
+                                                    lowerPixels = lowerCanvas.data();
+                                                }
+                                                const int lowerCanvasStride = plan.width * 4;
+                                                const int w = std::min(plan.width, plan.width);
+                                                const int h = std::min(plan.height, plan.height);
                                                 const double bottomWeight = 1.0 - topAlpha;
                                                 for (int row = 0; row < h; ++row) {
                                                     const std::uint8_t* src =
-                                                        lowerFrame.pixels.data() +
+                                                        lowerPixels +
                                                         static_cast<std::size_t>(row) *
-                                                            static_cast<std::size_t>(lowerStride);
+                                                            static_cast<std::size_t>(
+                                                                lowerCanvasStride);
                                                     std::uint8_t* dst =
                                                         frame.rgba.data() +
                                                         static_cast<std::size_t>(row) *

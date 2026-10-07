@@ -33,6 +33,7 @@ add_library(nairoclip_core STATIC
     src/waveform.cpp
     src/subtitle_io.cpp
     src/media_writer.cpp
+    src/frame_fit.cpp
 )
 target_include_directories(nairoclip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

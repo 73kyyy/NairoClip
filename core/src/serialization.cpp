@@ -582,6 +582,13 @@ JsonValue writeSequence(const Sequence& s) {
     o.set("frameRate", writeFrameRate(s.frameRate));
     o.set("width", JsonValue::integer(s.width));
     o.set("height", JsonValue::integer(s.height));
+    // 画幅适配（仅非默认值写入，保持 .nclip 向后兼容与 diff 稳定）。
+    if (s.frameFit != FrameFit::Fit) {
+        o.set("frameFit", JsonValue::string(frameFitName(s.frameFit)));
+    }
+    if (s.backgroundRgba != 0x000000FF) {
+        o.set("backgroundRgba", JsonValue::integer(static_cast<std::int64_t>(s.backgroundRgba)));
+    }
     JsonValue tracks = JsonValue::array();
     for (const auto& t : s.tracks) {
         tracks.push(writeTrack(t));
@@ -608,6 +615,20 @@ bool readSequence(const JsonValue& v, Sequence& out, std::string& err) {
     }
     out.width = static_cast<int>(v.get("width").asInteger());
     out.height = static_cast<int>(v.get("height").asInteger());
+    // 画幅适配（缺省 = Fit；非法值降级为默认并继续，保证工程可打开）。
+    out.frameFit = FrameFit::Fit;
+    if (v.has("frameFit")) {
+        const std::string& fitText = v.get("frameFit").asString();
+        FrameFit parsed;
+        if (frameFitFromString(fitText.c_str(), parsed)) {
+            out.frameFit = parsed;
+        }
+    }
+    out.backgroundRgba = 0x000000FF;
+    if (v.has("backgroundRgba")) {
+        out.backgroundRgba =
+            static_cast<std::uint32_t>(v.get("backgroundRgba").asInteger()) & 0xFFFFFFFFu;
+    }
     const JsonValue& tracks = v.get("tracks");
     if (!tracks.isArray()) { err = "序列缺少 tracks 数组"; return false; }
     out.tracks.clear();

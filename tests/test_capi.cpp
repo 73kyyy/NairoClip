@@ -303,3 +303,45 @@ NC_TEST(Capi, AiLabelParamPlumbsThrough) {
     NC_CHECK(true);
 }
 #endif
+
+// ---- 画幅适配 C ABI（导出预设 9:16 / 16:9 / 1:1 场景）----
+NC_TEST(Capi, FrameFitSetGet) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    // 默认 Fit
+    NC_CHECK_EQ(nc_get_frame_fit(editor), 0);
+    // 设置 Fill
+    NC_CHECK_EQ(nc_set_frame_fit(editor, 1), NC_OK);
+    NC_CHECK_EQ(nc_get_frame_fit(editor), 1);
+    // 设置 Crop
+    NC_CHECK_EQ(nc_set_frame_fit(editor, 2), NC_OK);
+    NC_CHECK_EQ(nc_get_frame_fit(editor), 2);
+    // 非法值拒绝
+    NC_CHECK_EQ(nc_set_frame_fit(editor, 9), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_frame_fit(editor), 2);  // 保持原值
+    // 背景色
+    NC_CHECK_EQ(nc_set_background_color(editor, 0x1E1E1EFF), NC_OK);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, FrameFitNullSafety) {
+    NC_CHECK_EQ(nc_set_frame_fit(nullptr, 1), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_frame_fit(nullptr), -1);
+    NC_CHECK_EQ(nc_set_background_color(nullptr, 0), NC_ERROR_INVALID_ARGUMENT);
+}
+
+NC_TEST(Capi, FrameFitPersistsThroughSaveLoad) {
+    // 画幅设置属于工程数据：存档 → 读档后必须保持。
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK_EQ(nc_set_frame_fit(editor, 2), NC_OK);
+    char* saved = nc_project_save(editor);
+    NC_CHECK(saved != nullptr);
+    NcEditor* editor2 = nc_editor_create();
+    char* detail = nullptr;
+    NC_CHECK_EQ(nc_project_load(editor2, saved, &detail), NC_OK);
+    NC_CHECK_EQ(nc_get_frame_fit(editor2), 2);
+    nc_free_string(saved);
+    if (detail != nullptr) nc_free_string(detail);
+    nc_editor_destroy(editor);
+    nc_editor_destroy(editor2);
+}

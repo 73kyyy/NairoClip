@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/transition_types.h"
@@ -70,6 +71,11 @@ struct ExportPlan {
     std::vector<RenderTrack> tracks;
     /// 校验错误（为空 = 计划可用）。
     std::vector<std::string> warnings;
+    /// 画幅适配模式：源素材比例与序列画布不一致时的处理策略
+    /// （导出预设 9:16 / 16:9 / 1:1、智能重构图横转竖依赖此设置）。
+    FrameFit frameFit = FrameFit::Fit;
+    /// 背景填充色（0xRRGGBBAA；Fit 模式的信箱/邮筒边颜色）。
+    std::uint32_t backgroundRgba = 0x000000FF;
 };
 
 /// 将序列编译为导出计划。

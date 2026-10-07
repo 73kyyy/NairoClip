@@ -70,7 +70,7 @@
 | M2.6 | 导出压力测试（性能基线） | ✅ 已完成 |
 | M2.7 | SRT/WebVTT 字幕交换 | ✅ 已完成 |
 | M2.8 | nclip_tool 字幕导入导出命令 | ✅ 已完成 |
-| M2.9 | 导出画幅适配模式（fit/fill/crop） | ⬜ 计划中 |
+| M2.9 | 导出画幅适配模式（fit/fill/crop，含序列化/预览/CLI/C ABI） | ✅ 已完成 |
 | M3.0 | Android 平台层（JNI + MediaCodec 封装，需 NDK 环境） | ⬜ 计划中 |
 | M2.x | Android 平台壳（Kotlin + JNI），真机跑通时间轴编辑 | ⬜ 计划中 |
 
@@ -82,6 +82,7 @@ NairoClip/
 │   ├── include/nairoclip/core/ # 公开头文件（rational/time/types/media/clip/track/sequence/project/command/commands/editor）
 │   └── src/                    # 实现
 ├── tests/                      # 单元测试（零依赖自研框架）
+│   └── fixtures/               # 测试素材生成脚本（FFmpeg 真实编解码测试依赖）
 ├── docs/ARCHITECTURE.md        # 架构设计说明
 └── .github/workflows/ci.yml    # CI：三平台构建 + 测试
 ```
@@ -89,10 +90,15 @@ NairoClip/
 ## 构建与测试
 
 ```bash
+# FFmpeg 真实编解码测试需要测试素材（首次或清理后执行一次）
+bash tests/fixtures/generate_media.sh
+
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 cd build && ctest -C Release --output-on-failure
 ```
+
+> 未生成测试素材时，依赖真实视频的用例会跳过（不会给出假绿：跳过是显式的素材缺失检查）。
 
 ## 核心设计要点
 

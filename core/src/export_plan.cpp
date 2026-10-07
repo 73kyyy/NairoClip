@@ -36,6 +36,8 @@ ExportPlan compileExportPlan(const Project& project, const Sequence& sequence) {
     plan.width = sequence.width;
     plan.height = sequence.height;
     plan.duration = sequence.duration();
+    plan.frameFit = sequence.frameFit;
+    plan.backgroundRgba = sequence.backgroundRgba;
 
     for (const auto& track : sequence.tracks) {
         RenderTrack rt;
