@@ -634,6 +634,26 @@ JsonValue writeSequence(const Sequence& s) {
     if (s.backgroundRgba != 0x000000FF) {
         o.set("backgroundRgba", JsonValue::integer(static_cast<std::int64_t>(s.backgroundRgba)));
     }
+    // 智能重构图轨迹（启用时写入；文档「AI工具 → 智能重构图」）
+    if (s.reframe.valid()) {
+        JsonValue reframe = JsonValue::object();
+        reframe.set("srcWidth", JsonValue::integer(s.reframe.srcWidth));
+        reframe.set("srcHeight", JsonValue::integer(s.reframe.srcHeight));
+        reframe.set("trackingSensitivity", JsonValue::number(s.reframe.trackingSensitivity));
+        if (!s.reframe.note.empty()) {
+            reframe.set("note", JsonValue::string(s.reframe.note));
+        }
+        JsonValue keys = JsonValue::array();
+        for (const auto& kf : s.reframe.keyframes) {
+            JsonValue k = JsonValue::object();
+            k.set("t", writeRational(kf.time));
+            k.set("centerX", JsonValue::number(kf.centerX));
+            k.set("centerY", JsonValue::number(kf.centerY));
+            keys.push(std::move(k));
+        }
+        reframe.set("keyframes", std::move(keys));
+        o.set("reframe", std::move(reframe));
+    }
     JsonValue tracks = JsonValue::array();
     for (const auto& t : s.tracks) {
         tracks.push(writeTrack(t));
@@ -673,6 +693,33 @@ bool readSequence(const JsonValue& v, Sequence& out, std::string& err) {
     if (v.has("backgroundRgba")) {
         out.backgroundRgba =
             static_cast<std::uint32_t>(v.get("backgroundRgba").asInteger()) & 0xFFFFFFFFu;
+    }
+    // 智能重构图轨迹（缺省 = 未启用；非法数据降级为未启用，保证工程可打开）
+    out.reframe = ReframeTrack{};
+    if (v.has("reframe")) {
+        const JsonValue& reframe = v.get("reframe");
+        ReframeTrack track;
+        track.srcWidth = static_cast<int>(reframe.get("srcWidth").asInteger());
+        track.srcHeight = static_cast<int>(reframe.get("srcHeight").asInteger());
+        track.trackingSensitivity = reframe.get("trackingSensitivity").asNumber(0.5);
+        if (reframe.has("note")) {
+            track.note = reframe.get("note").asString();
+        }
+        const JsonValue& keys = reframe.get("keyframes");
+        if (keys.isArray()) {
+            for (std::size_t i = 0; i < keys.size(); ++i) {
+                const JsonValue& kv = keys.at(i);
+                ReframeKeyframe kf;
+                if (!readRational(kv.get("t"), "reframe.t", kf.time, err)) return false;
+                kf.centerX = kv.get("centerX").asNumber(0.5);
+                kf.centerY = kv.get("centerY").asNumber(0.5);
+                track.keyframes.push_back(kf);
+            }
+        }
+        // 仅在合法时采纳（防御：空关键帧/非法尺寸不参与渲染）
+        if (track.valid()) {
+            out.reframe = std::move(track);
+        }
     }
     const JsonValue& tracks = v.get("tracks");
     if (!tracks.isArray()) { err = "序列缺少 tracks 数组"; return false; }

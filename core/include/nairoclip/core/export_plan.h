@@ -2,6 +2,7 @@
 
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/frame_fit.h"
+#include "nairoclip/core/reframe.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/transition_types.h"
@@ -22,6 +23,9 @@ struct RenderClip {
     AssetId asset;
     /// 素材文件路径（编译时从工程素材表复制，导出器用）。
     std::string assetPath;
+    /// 复合片段展开来源：非空表示本片段来自复合片段的嵌套序列
+    /// （值为外层复合片段的 ID）。用于导出诊断与 UI 提示。
+    ClipId fromCompound;
     /// 时间轴区间 [timelineStart, timelineEnd)。
     Time timelineStart;
     Time timelineEnd;
@@ -76,6 +80,10 @@ struct ExportPlan {
     FrameFit frameFit = FrameFit::Fit;
     /// 背景填充色（0xRRGGBBAA；Fit 模式的信箱/邮筒边颜色）。
     std::uint32_t backgroundRgba = 0x000000FF;
+    /// 智能重构图轨迹（非空时优先于画幅适配：按主体跟踪裁剪 + 缩放，
+    /// 对应文档「AI工具 → 智能重构图：横转竖/竖转横/跟踪灵敏度」）。
+    /// 由 planReframe 生成；为空则走 frameFit 路径。
+    ReframeTrack reframe;
 };
 
 /// 将序列编译为导出计划。

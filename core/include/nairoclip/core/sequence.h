@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/frame_fit.h"
+#include "nairoclip/core/reframe.h"
 #include "nairoclip/core/subtitle.h"
 #include "nairoclip/core/track.h"
 
@@ -31,6 +32,9 @@ struct Sequence {
     FrameFit frameFit = FrameFit::Fit;
     /// 背景填充色（0xRRGGBBAA；Fit 模式的信箱/邮筒边颜色）。
     std::uint32_t backgroundRgba = 0x000000FF;
+    /// 智能重构图轨迹（非空时导出/预览优先按主体跟踪裁剪；
+    /// 对应文档「AI工具 → 智能重构图」）。空 = 使用 frameFit。
+    ReframeTrack reframe;
     std::vector<Track> tracks;
     std::vector<Marker> markers;
     /// 序列级字幕轨道（独立于普通轨道，字幕事件集合）。

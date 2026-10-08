@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.12，测试 401 用例全绿）
+## 7. 里程碑（截至 M2.13，测试 427 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -93,6 +93,14 @@
   · UnwrapCompoundClipCommand：还原内部片段并删除嵌套序列
   · 编辑器门面（预分配 ID 保证 redo 确定性）+ 序列化 + 引用完整性校验（悬空嵌套序列拒绝载入）
   · C ABI：nc_create_compound_clip / nc_unwrap_compound_clip / nc_clip_is_compound
+  · 导出计划编译期展开（递归 + 循环引用阻断）：复合片段内容真实参与渲染
+- M2.13 ✅ 智能重构图（文档第 7 部分「AI工具 → 智能重构图：横转竖/竖转横/跟踪灵敏度」）：
+  · computeFrameSaliency：从 RGBA8 帧提取主体重心（中心/上部先验 + 运动能量）
+  · planReframe：时间平滑 + 平移速度限制 + 源内边界钳制 → 逐帧裁剪窗口轨迹
+  · reframeRenderFrameAt：逐帧裁剪 + 双线性缩放（复用 frame_fit 缩放器）
+  · 接入导出计划/执行器：ExportPlan::reframe 非空时优先于 frameFit 走跟踪裁剪
+  · 序列化持久化（默认未启用不写入文件；非法数据降级为未启用）
+  · 端到端验证：16:9 源 → 9:16 竖屏真实导出 108x192（100% 有效像素）
 
 ### 待办
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）

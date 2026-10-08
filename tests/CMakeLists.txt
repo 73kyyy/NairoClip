@@ -44,6 +44,7 @@ add_executable(nairoclip_tests
     test_beat_detect.cpp
     test_auto_duck.cpp
     test_compound.cpp
+    test_reframe.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

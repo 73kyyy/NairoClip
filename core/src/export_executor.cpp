@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "nairoclip/core/frame_fit.h"
+#include "nairoclip/core/reframe.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/ai_label.h"
@@ -384,7 +385,13 @@ ExportStats executeExport(
                                                      static_cast<std::size_t>(plan.height) * 4;
                         frame.rgba.assign(outBytes, 0);
                         const int srcStride = source.stride > 0 ? source.stride : source.width * 4;
-                        if (source.width == plan.width && source.height == plan.height) {
+                        if (plan.reframe.valid()) {
+                            // 智能重构图：按主体跟踪轨迹裁剪 + 缩放到画布
+                            // （「横转竖/竖转横」的真实渲染路径）
+                            reframeRenderFrameAt(plan.reframe, t, source.pixels.data(),
+                                                 source.width, source.height, srcStride,
+                                                 frame.rgba.data(), plan.width, plan.height);
+                        } else if (source.width == plan.width && source.height == plan.height) {
                             // 尺寸一致：直接拷贝（零缩放损失快路径）
                             const int rows = std::min(source.height, plan.height);
                             for (int row = 0; row < rows; ++row) {
