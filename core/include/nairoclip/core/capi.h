@@ -275,6 +275,20 @@ int32_t nc_can_add_track(const NcEditor* editor);
 /// 供导出页在用户选择分辨率时提前提示（文档 3.3 付费墙触发条件）。
 int32_t nc_would_clamp_export(const NcEditor* editor, int32_t width, int32_t height);
 
+// ---- AI 检查（文档第 7 部分 4.5：字幕重叠/音频峰值 → 跳转查看 + 全部自动修复）----
+
+/// 执行 AI 检查（只读；不修改工程）。
+/// - 返回问题数量（>= 0）；失败返回 -1 并写入 out_error（需 nc_free_string）；
+/// - out_report_json：出参（可空）问题清单 JSON（供 UI 列表渲染；字段：
+///   type / severity / time_us / entity_id / track_id / message / auto_fixable /
+///   measured_value / summary）；需 nc_free_string 释放。
+/// 说明：音频类检查需要真实解码器（此构建含 FFmpeg 时自动使用）。
+int32_t nc_ai_check(NcEditor* editor, char** out_report_json, char** out_error);
+
+/// 自动修复全部可修复问题（经编辑器命令，可撤销）。
+/// 返回修复成功数量（>= 0）；失败返回 -1 并写入 out_error（需 nc_free_string）。
+int32_t nc_ai_check_fix_all(NcEditor* editor, char** out_error);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

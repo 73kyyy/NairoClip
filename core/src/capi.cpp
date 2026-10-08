@@ -4,9 +4,11 @@
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/entitlement.h"
 #include "nairoclip/core/frame_fit.h"
+#include "nairoclip/core/ai_check.h"
 #include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/track.h"
+#include "nairoclip/core/json.h"
 #include "nairoclip/core/serialization.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -765,6 +767,91 @@ int32_t nc_would_clamp_export(const NcEditor* editor, int32_t width, int32_t hei
     int outW = width;
     int outH = height;
     return clampSizeToShortSide(width, height, policy.maxExportShortSide, outW, outH) ? 1 : 0;
+}
+
+// ---- AI 检查（文档 4.5）----
+
+namespace {
+
+/// 把检查报告序列化为 JSON（供 UI 列表渲染；时间用微秒整数避免浮点误差）。
+std::string aiCheckReportToJson(const AiCheckReport& report) {
+    JsonValue root = JsonValue::object();
+    root.set("issueCount", JsonValue::integer(static_cast<std::int64_t>(report.issues.size())));
+    root.set("scannedDurationUs",
+             JsonValue::integer(toMicroseconds(report.scannedDuration)));
+    root.set("summary", JsonValue::string(report.summary()));
+    JsonValue issues = JsonValue::array();
+    for (const auto& issue : report.issues) {
+        JsonValue item = JsonValue::object();
+        item.set("type", JsonValue::integer(static_cast<std::int64_t>(issue.type)));
+        item.set("typeName", JsonValue::string(aiCheckIssueName(issue.type)));
+        item.set("severity", JsonValue::integer(static_cast<std::int64_t>(issue.severity)));
+        item.set("timeUs", JsonValue::integer(toMicroseconds(issue.time)));
+        item.set("entityId", JsonValue::integer(static_cast<std::int64_t>(issue.entityId)));
+        item.set("trackId", JsonValue::integer(static_cast<std::int64_t>(issue.trackId.value)));
+        item.set("message", JsonValue::string(issue.message));
+        item.set("autoFixable", JsonValue::boolean(issue.autoFixable));
+        item.set("measuredValue", JsonValue::number(issue.measuredValue));
+        issues.push(std::move(item));
+    }
+    root.set("issues", std::move(issues));
+    JsonValue notes = JsonValue::array();
+    for (const auto& note : report.notes) {
+        notes.push(JsonValue::string(note));
+    }
+    root.set("notes", std::move(notes));
+    return toJsonString(root);
+}
+
+}  // namespace
+
+int32_t nc_ai_check(NcEditor* editor, char** out_report_json, char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return -1;
+    }
+    // 音频类检查需要真实解码器（含 FFmpeg 构建时可用）
+    AiCheckReport report;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    FFmpegReaderFactory readerFactory;
+    report = checkSequence(editor->project, seq->id, &readerFactory);
+#else
+    report = checkSequence(editor->project, seq->id, nullptr);
+#endif
+    if (out_report_json != nullptr) {
+        *out_report_json = dupString(aiCheckReportToJson(report));
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return static_cast<int32_t>(report.issues.size());
+}
+
+int32_t nc_ai_check_fix_all(NcEditor* editor, char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return -1;
+    }
+    // 固定输入：对当前工程重新检查后修复（避免调用方传入过期问题列表）
+    AiCheckReport report;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    FFmpegReaderFactory readerFactory;
+    report = checkSequence(editor->project, seq->id, &readerFactory);
+#else
+    report = checkSequence(editor->project, seq->id, nullptr);
+#endif
+    const AiCheckFixResult fixResult =
+        fixAllIssues(*editor->editor, editor->project, seq->id, report.issues);
+    if (out_error != nullptr) *out_error = nullptr;
+    return static_cast<int32_t>(fixResult.fixed);
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

@@ -38,6 +38,7 @@ add_library(nairoclip_core STATIC
     src/auto_duck.cpp
     src/watermark.cpp
     src/entitlement.cpp
+    src/ai_check.cpp
     src/reframe.cpp
 )
 target_include_directories(nairoclip_core PUBLIC

@@ -548,3 +548,51 @@ NC_TEST(Capi, EntitlementNullSafety) {
     NC_CHECK_EQ(nc_can_add_track(nullptr), -1);
     NC_CHECK_EQ(nc_would_clamp_export(nullptr, 100, 100), -1);
 }
+
+// ---- AI 检查 C ABI（文档 4.5：问题列表 + 全部自动修复）----
+NC_TEST(Capi, AiCheckReportsIssuesAndFixes) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    // 两条重叠字幕
+    const std::uint64_t s1 = nc_upsert_subtitle(editor, 0, 2000000, "第一条");
+    const std::uint64_t s2 = nc_upsert_subtitle(editor, 1000000, 2000000, "第二条");
+    NC_CHECK(s1 != 0 || s2 != 0);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 2);
+    // 检查：应报重叠
+    char* json = nullptr;
+    char* err = nullptr;
+    const int32_t count = nc_ai_check(editor, &json, &err);
+    NC_CHECK(count >= 1);
+    NC_CHECK(json != nullptr);
+    const std::string report = json != nullptr ? std::string(json) : std::string();
+    NC_CHECK(report.find("SubtitleOverlap") == std::string::npos);  // JSON 用数值枚举
+    NC_CHECK(report.find("字幕重叠") != std::string::npos);
+    NC_CHECK(report.find("\"autoFixable\":true") != std::string::npos);
+    nc_free_string(json);
+    if (err != nullptr) nc_free_string(err);
+    // 自动修复
+    char* fixErr = nullptr;
+    const int32_t fixed = nc_ai_check_fix_all(editor, &fixErr);
+    NC_CHECK(fixed >= 1);
+    if (fixErr != nullptr) nc_free_string(fixErr);
+    // 修复后应无重叠
+    char* json2 = nullptr;
+    nc_ai_check(editor, &json2, nullptr);
+    const std::string report2 = json2 != nullptr ? std::string(json2) : std::string();
+    NC_CHECK(report2.find("字幕重叠") == std::string::npos);
+    nc_free_string(json2);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, AiCheckNullSafety) {
+    NC_CHECK_EQ(nc_ai_check(nullptr, nullptr, nullptr), -1);
+    NC_CHECK_EQ(nc_ai_check_fix_all(nullptr, nullptr), -1);
+    // 空工程：检查应为 0 问题（不崩溃）
+    NcEditor* editor = nc_editor_create();
+    char* json = nullptr;
+    NC_CHECK_EQ(nc_ai_check(editor, &json, nullptr), 0);
+    NC_CHECK(json != nullptr);
+    nc_free_string(json);
+    nc_editor_destroy(editor);
+}

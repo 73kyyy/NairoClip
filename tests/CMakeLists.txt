@@ -47,6 +47,7 @@ add_executable(nairoclip_tests
     test_mixer_console.cpp
     test_watermark.cpp
     test_entitlement.cpp
+    test_ai_check.cpp
     test_reframe.cpp
 )
 
