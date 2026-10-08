@@ -30,6 +30,14 @@ Result validateClipPlacement(const Project& project, const Track& track, const C
     if (track.hasOverlap(clip.start, clip.end(), ignoreClipId)) {
         return Result::fail(ErrorCode::Overlap, "与轨道上的已有片段重叠");
     }
+    // 复合片段（嵌套序列）：校验收件序列存在
+    if (clip.isCompound()) {
+        const Sequence* nested = project.findSequence(clip.nestedSequence);
+        if (nested == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "复合片段引用的嵌套序列不存在");
+        }
+        return Result::ok();
+    }
     if (clip.asset.isValid()) {
         const MediaAsset* asset = project.findAsset(clip.asset);
         if (asset == nullptr) {
@@ -1327,6 +1335,260 @@ Result RemoveAssetCommand::revert(Project& project) {
     const std::size_t index = std::min(*removedIndex_, project.assets.size());
     project.assets.insert(project.assets.begin() + static_cast<std::ptrdiff_t>(index),
                           *removed_);
+    return Result::ok();
+}
+
+
+// =============================================================================
+// 复合片段 / 嵌套序列（文档第 3 部分「嵌套序列/复合片段」）
+// =============================================================================
+
+CreateCompoundClipCommand::CreateCompoundClipCommand(SequenceId sourceSequenceId, TrackId trackId,
+                                                     std::vector<ClipId> selectedClipIds,
+                                                     SequenceId newSequenceId, TrackId newTrackId,
+                                                     ClipId compoundClipId,
+                                                     std::string compoundName)
+    : sourceSequenceId_(sourceSequenceId),
+      trackId_(trackId),
+      selectedClipIds_(std::move(selectedClipIds)),
+      newSequenceId_(newSequenceId),
+      newTrackId_(newTrackId),
+      compoundClipId_(compoundClipId),
+      compoundName_(std::move(compoundName)) {}
+
+Result CreateCompoundClipCommand::apply(Project& project) {
+    // 1) 校验
+    if (selectedClipIds_.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, "未选择任何片段");
+    }
+    if (!newSequenceId_.isValid()) {
+        return Result::fail(ErrorCode::InvalidArgument, "嵌套序列 ID 无效");
+    }
+    if (project.findSequence(newSequenceId_) != nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "嵌套序列 ID 已被占用");
+    }
+    Sequence* source = project.findSequence(sourceSequenceId_);
+    if (source == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "源序列不存在");
+    }
+    Track* track = source->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "源轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "源轨道已锁定");
+    }
+    // 收集选中片段（保持时间顺序），并定位索引
+    std::vector<std::size_t> indexes;
+    for (const auto& clipId : selectedClipIds_) {
+        const int index = track->indexOf(clipId);
+        if (index < 0) {
+            return Result::fail(ErrorCode::NotFound, "选中的片段不存在");
+        }
+        indexes.push_back(static_cast<std::size_t>(index));
+    }
+    std::sort(indexes.begin(), indexes.end());
+    // 区间必须连续：首尾之间不能夹带未选中的片段
+    for (std::size_t i = 1; i < indexes.size(); ++i) {
+        if (indexes[i] != indexes[i - 1] + 1) {
+            return Result::fail(ErrorCode::InvalidArgument,
+                                "选中的片段区间必须连续（不能夹带未选片段）");
+        }
+    }
+    const Time spanStart = track->clips[indexes.front()].start;
+    const Time spanEnd = track->clips[indexes.back()].end();
+    if (!(spanEnd > spanStart)) {
+        return Result::fail(ErrorCode::InvalidArgument, "选中片段区间无效");
+    }
+
+    // 2) 构建嵌套序列（保留相对时间：以 spanStart 为原点）
+    Sequence nested;
+    nested.id = newSequenceId_;
+    nested.name = compoundName_.empty() ? "复合片段" : compoundName_;
+    nested.frameRate = source->frameRate;
+    nested.width = source->width;
+    nested.height = source->height;
+    nested.frameFit = source->frameFit;
+    nested.backgroundRgba = source->backgroundRgba;
+    // 同类型轨道承载（视频片段放入视频轨、音频放入音频轨；特效/字幕轨按类型映射）
+    for (std::size_t i = 0; i < indexes.size(); ++i) {
+        Clip copy = track->clips[indexes[i]];
+        // 相对时间（嵌套序列从 0 开始）
+        copy.start = copy.start - spanStart;
+        const TrackType trackType = track->type;
+        Track* target = nullptr;
+        for (auto& candidate : nested.tracks) {
+            if (candidate.type == trackType) {
+                target = &candidate;
+                break;
+            }
+        }
+        if (target == nullptr) {
+            Track created;
+            // 预分配 ID（保证 redo 确定性；与既有命令约定一致）
+            created.id = newTrackId_;
+            created.type = trackType;
+            created.name = track->name;
+            nested.tracks.push_back(created);
+            target = &nested.tracks.back();
+        }
+        target->clips.push_back(std::move(copy));
+    }
+    // 嵌套序列内容时长 = span 长度
+    createdSequence_ = nested;
+
+    // 3) 修改工程：插入嵌套序列 + 摘除片段 + 插入复合片段
+    project.sequences.push_back(nested);
+    // 3a) 摘除原片段（降序删除，索引稳定）
+    std::vector<std::size_t> descendingIndexes(indexes.rbegin(), indexes.rend());
+    for (const std::size_t index : descendingIndexes) {
+        if (index < track->clips.size()) {
+            removedClips_.insert(removedClips_.begin(), track->clips[index]);
+            track->clips.erase(track->clips.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+    }
+    // 索引记录（重做为升序插入位置）
+    removedIndexes_ = indexes;
+    // 3b) 插入复合片段（覆盖原区间）
+    Clip compound;
+    // 预分配 ID（保证 redo 确定性）
+    compound.id = compoundClipId_;
+    compound.asset = AssetId{};  // 复合片段不引用素材
+    compound.nestedSequence = newSequenceId_;
+    compound.compoundName = nested.name;
+    compound.start = spanStart;
+    compound.duration = spanEnd - spanStart;
+    compoundClip_ = compound;
+    track->clips.insert(insertionPoint(track->clips, compound.start), compound);
+    return Result::ok();
+}
+
+Result CreateCompoundClipCommand::revert(Project& project) {
+    if (!createdSequence_.has_value() || !compoundClip_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少创建快照");
+    }
+    Sequence* source = project.findSequence(sourceSequenceId_);
+    if (source == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "源序列不存在");
+    }
+    Track* track = source->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "源轨道不存在");
+    }
+    // 移除复合片段
+    const int compoundIndex = track->indexOf(compoundClip_->id);
+    if (compoundIndex >= 0) {
+        track->clips.erase(track->clips.begin() + compoundIndex);
+    }
+    // 还原原片段（按记录索引升序插回；插入位置用起点排序确保一致性）
+    for (const auto& clip : removedClips_) {
+        track->clips.insert(insertionPoint(track->clips, clip.start), clip);
+    }
+    // 移除嵌套序列
+    for (std::size_t i = 0; i < project.sequences.size(); ++i) {
+        if (project.sequences[i].id == newSequenceId_) {
+            project.sequences.erase(project.sequences.begin() + static_cast<std::ptrdiff_t>(i));
+            break;
+        }
+    }
+    return Result::ok();
+}
+
+UnwrapCompoundClipCommand::UnwrapCompoundClipCommand(SequenceId sequenceId, TrackId trackId,
+                                                     ClipId compoundClipId)
+    : sequenceId_(sequenceId), trackId_(trackId), compoundClipId_(compoundClipId) {}
+
+Result UnwrapCompoundClipCommand::apply(Project& project) {
+    Sequence* sequence = project.findSequence(sequenceId_);
+    if (sequence == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    Track* track = sequence->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    const Clip* compound = track->findClip(compoundClipId_);
+    if (compound == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "复合片段不存在");
+    }
+    if (!compound->isCompound()) {
+        return Result::fail(ErrorCode::InvalidArgument, "该片段不是复合片段");
+    }
+    Sequence* nested = project.findSequence(compound->nestedSequence);
+    if (nested == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "复合片段引用的嵌套序列不存在");
+    }
+    // 收集嵌套序列中的所有片段（按轨道顺序，保持相对时间）
+    const Time offset = compound->start;
+    std::vector<Clip> restored;
+    for (const auto& nestedTrack : nested->tracks) {
+        if (nestedTrack.type != track->type) {
+            continue;  // 仅还原到同类型轨道（跨类型还原需要多轨，UI 侧按需扩展）
+        }
+        for (const auto& nestedClip : nestedTrack.clips) {
+            Clip copy = nestedClip;
+            copy.start = copy.start + offset;
+            restored.push_back(copy);
+        }
+    }
+    if (restored.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, "复合片段内容为空（无同类型片段）");
+    }
+    removedCompound_ = *compound;
+    removedSequence_ = *nested;
+    restoredClips_ = restored;
+    // 移除复合片段
+    const int compoundIndex = track->indexOf(compoundClipId_);
+    if (compoundIndex >= 0) {
+        track->clips.erase(track->clips.begin() + compoundIndex);
+    }
+    // 插入还原片段
+    for (const auto& clip : restored) {
+        track->clips.insert(insertionPoint(track->clips, clip.start), clip);
+    }
+    // 移除嵌套序列
+    for (std::size_t i = 0; i < project.sequences.size(); ++i) {
+        if (project.sequences[i].id == nested->id) {
+            project.sequences.erase(project.sequences.begin() + static_cast<std::ptrdiff_t>(i));
+            break;
+        }
+    }
+    return Result::ok();
+}
+
+Result UnwrapCompoundClipCommand::revert(Project& project) {
+    if (!removedCompound_.has_value() || !removedSequence_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少解除快照");
+    }
+    Sequence* sequence = project.findSequence(sequenceId_);
+    if (sequence == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    Track* track = sequence->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    // 移除还原片段
+    for (auto it = track->clips.begin(); it != track->clips.end();) {
+        bool isRestored = false;
+        for (const auto& restored : restoredClips_) {
+            if (it->id == restored.id) {
+                isRestored = true;
+                break;
+            }
+        }
+        if (isRestored) {
+            it = track->clips.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // 还原嵌套序列与复合片段
+    project.sequences.push_back(*removedSequence_);
+    track->clips.insert(insertionPoint(track->clips, removedCompound_->start), *removedCompound_);
     return Result::ok();
 }
 

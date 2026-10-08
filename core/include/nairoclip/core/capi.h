@@ -219,6 +219,24 @@ int32_t nc_set_track_auto_duck(NcEditor* editor, int32_t track_index, int32_t en
 int32_t nc_get_track_auto_duck(const NcEditor* editor, int32_t track_index, int32_t* out_enabled,
                                double* out_sensitivity, double* out_duck_amount_db);
 
+// ---- 复合片段 / 嵌套序列（文档第 3 部分「嵌套序列/复合片段」）----
+
+/// 创建复合片段：把轨道上连续的片段打组为嵌套序列。
+/// - track_index：目标轨道（主序列内）；
+/// - clip_ids：片段 ID 数组（count 个；必须连续且同一轨道）；
+/// - name：复合片段名称（UTF-8；可空 = 默认名）；
+/// - out_sequence_id：出参，嵌套序列 ID（可空）；out_clip_id：出参，复合片段 ID（可空）。
+/// 返回 NC_OK 或错误码（失败不入撤销栈、无副作用）。
+int32_t nc_create_compound_clip(NcEditor* editor, int32_t track_index, const uint64_t* clip_ids,
+                                int32_t count, const char* name, uint64_t* out_sequence_id,
+                                uint64_t* out_clip_id);
+
+/// 解除复合片段：把嵌套序列内容还原到原位置并删除嵌套序列。
+int32_t nc_unwrap_compound_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
+/// 查询片段是否为复合片段（返回 1/0；-1 = 参数错误）。
+int32_t nc_clip_is_compound(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

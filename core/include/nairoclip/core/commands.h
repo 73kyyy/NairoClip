@@ -477,5 +477,72 @@ private:
     std::optional<std::size_t> removedIndex_;
 };
 
+/// ---------------------------------------------------------------------------
+/// 创建复合片段（嵌套序列）—— 文档第 3 部分「嵌套序列/复合片段」
+/// ---------------------------------------------------------------------------
+/// 语义：把选中片段从原轨道摘除，放入新建的嵌套序列（保留相对时间），
+///       并在摘除位置的空档处插入一个「复合片段」引用该嵌套序列。
+/// 约束：
+///  - 所有选中片段必须位于同一轨道（UI 侧约束）；
+///  - 片段区间不连续时，嵌套序列内保留间隙（不挤压时间）；
+///  - 创建后复合片段时长 = 选中片段覆盖的总区间长度（含内部间隙）；
+///  - 原轨道上被摘除区间必须连续（首个起点到末个终点之间无未选片段）。
+class CreateCompoundClipCommand : public Command {
+public:
+    /// selectedClipIds：待打包的片段（升序或无序均可）。
+    /// ID 全部由调用方预分配（保证 redo 确定性，与 AddTrackCommand 同一约定）：
+    ///  - newSequenceId：嵌套序列 ID；
+    ///  - newTrackId：嵌套序列内轨道 ID（选中片段来自同一轨道，内部仅 1 条轨道）；
+    ///  - compoundClipId：复合片段 ID。
+    CreateCompoundClipCommand(SequenceId sourceSequenceId, TrackId trackId,
+                              std::vector<ClipId> selectedClipIds, SequenceId newSequenceId,
+                              TrackId newTrackId, ClipId compoundClipId, std::string compoundName);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "创建复合片段"; }
+
+    /// 复合片段 ID（apply 后可用；供 UI 选中新片段）。
+    ClipId compoundClipId() const { return compoundClipId_; }
+
+private:
+    SequenceId sourceSequenceId_;
+    TrackId trackId_;
+    std::vector<ClipId> selectedClipIds_;
+    SequenceId newSequenceId_;
+    TrackId newTrackId_;
+    ClipId compoundClipId_;
+    std::string compoundName_;
+    // apply 时记录（供 revert 精确还原）
+    std::optional<Sequence> createdSequence_;
+    std::optional<Clip> compoundClip_;
+    std::vector<Clip> removedClips_;
+    std::vector<std::size_t> removedIndexes_;  // 升序删除索引
+};
+
+/// ---------------------------------------------------------------------------
+/// 解除复合片段（还原为独立片段/轨道）—— 文档「右键菜单：解除复合片段」
+/// ---------------------------------------------------------------------------
+/// 语义：把复合片段引用的嵌套序列内容还原到原轨道（时间偏移对齐），
+///       删除复合片段与嵌套序列。还原后的片段保留各自素材与特效。
+class UnwrapCompoundClipCommand : public Command {
+public:
+    UnwrapCompoundClipCommand(SequenceId sequenceId, TrackId trackId, ClipId compoundClipId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "解除复合片段"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId compoundClipId_;
+    // 快照
+    std::optional<Clip> removedCompound_;
+    std::optional<Sequence> removedSequence_;
+    std::vector<Clip> restoredClips_;
+    std::vector<std::size_t> restoredIndexes_;
+};
+
 }  // namespace core
 }  // namespace nairoclip

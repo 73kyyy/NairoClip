@@ -44,6 +44,17 @@ public:
     /// 设置音频自动闪避（开关/灵敏度/压低幅度；文档「🎵音频 → 自动闪避」）。
     Result setTrackAutoDuck(SequenceId sequenceId, TrackId trackId,
                             const AutoDuckSettings& settings);
+    // ---- 复合片段 / 嵌套序列（文档第 3 部分「嵌套序列/复合片段」）----
+    /// 创建复合片段：把轨道上连续的片段打包为嵌套序列，并在原位置留下引用片段
+    /// （时间轴显示「📦复合片段」；双击进入内部编辑由 UI 层用嵌套序列实现）。
+    /// - clipIds：待打包片段（必须连续、同一轨道）；
+    /// - outSequenceId：出参，嵌套序列 ID；outClipId：出参，复合片段 ID。
+    Result createCompoundClip(SequenceId sequenceId, TrackId trackId,
+                              std::vector<ClipId> clipIds, const std::string& name,
+                              SequenceId* outSequenceId = nullptr,
+                              ClipId* outClipId = nullptr);
+    /// 解除复合片段：把嵌套序列内容还原到复合片段所在位置并删除嵌套序列。
+    Result unwrapCompoundClip(SequenceId sequenceId, TrackId trackId, ClipId compoundClipId);
     // ---- 片段 ----
     Result insertClip(SequenceId sequenceId, TrackId trackId, Clip clip, ClipId* outId = nullptr);
     Result removeClip(SequenceId sequenceId, TrackId trackId, ClipId clipId);

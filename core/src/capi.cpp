@@ -596,6 +596,67 @@ int32_t nc_get_track_auto_duck(const NcEditor* editor, int32_t track_index, int3
     return NC_OK;
 }
 
+int32_t nc_create_compound_clip(NcEditor* editor, int32_t track_index, const uint64_t* clip_ids,
+                                int32_t count, const char* name, uint64_t* out_sequence_id,
+                                uint64_t* out_clip_id) {
+    if (editor == nullptr || clip_ids == nullptr || count <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    std::vector<ClipId> ids;
+    ids.reserve(static_cast<std::size_t>(count));
+    for (int32_t i = 0; i < count; ++i) {
+        ids.push_back(ClipId{clip_ids[i]});
+    }
+    const std::string compoundName = (name != nullptr && name[0] != '\0')
+                                         ? std::string(name)
+                                         : std::string("复合片段");
+    SequenceId outSeq;
+    ClipId outClip;
+    const Result r =
+        editor->editor->createCompoundClip(main->id, trackId, std::move(ids), compoundName,
+                                           &outSeq, &outClip);
+    if (!r.isOk()) {
+        return toNcError(r.code);
+    }
+    if (out_sequence_id != nullptr) *out_sequence_id = outSeq.value;
+    if (out_clip_id != nullptr) *out_clip_id = outClip.value;
+    return NC_OK;
+}
+
+int32_t nc_unwrap_compound_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(
+        editor->editor->unwrapCompoundClip(main->id, trackId, ClipId{clip_id}).code);
+}
+
+int32_t nc_clip_is_compound(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    return clip->isCompound() ? 1 : 0;
+}
+
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,
                      int32_t shot_count, double avg_r, double avg_g, double avg_b,
                      double avg_saturation, double avg_contrast, const uint64_t* asset_ids,

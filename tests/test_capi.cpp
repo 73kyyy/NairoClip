@@ -388,3 +388,65 @@ NC_TEST(Capi, AutoDuckNullSafety) {
     NC_CHECK_EQ(nc_get_track_auto_duck(nullptr, 0, nullptr, nullptr, nullptr),
                 NC_ERROR_INVALID_ARGUMENT);
 }
+
+
+// ---- 复合片段 / 嵌套序列 C ABI（文档「创建复合片段 / 解除复合片段」）----
+NC_TEST(Capi, CompoundClipCreateAndUnwrap) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    const std::uint64_t assetId =
+        nc_import_asset(editor, "a.mp4", "/videos/a.mp4", 0, 60000000);
+    NC_CHECK(assetId != 0);
+    const std::uint64_t trackId = nc_add_track(editor, "V1", 0);
+    NC_CHECK(trackId != 0);
+    // 两个相邻片段
+    const std::uint64_t c1 = nc_insert_clip(editor, 0, assetId, 0, 1000000);
+    const std::uint64_t c2 = nc_insert_clip(editor, 0, assetId, 1000000, 1000000);
+    NC_CHECK(c1 != 0);
+    NC_CHECK(c2 != 0);
+    // 打组
+    const uint64_t ids[2] = {c1, c2};
+    uint64_t outSeq = 0;
+    uint64_t outClip = 0;
+    NC_CHECK_EQ(nc_create_compound_clip(editor, 0, ids, 2, "复合片段A", &outSeq, &outClip),
+                NC_OK);
+    NC_CHECK(outSeq != 0);
+    NC_CHECK(outClip != 0);
+    // 复合片段识别
+    NC_CHECK_EQ(nc_clip_is_compound(editor, 0, outClip), 1);
+    NC_CHECK_EQ(nc_clip_is_compound(editor, 0, c1), -1);  // 已不在轨道上
+    // 轨道上只剩 1 个片段（复合片段）
+    NC_CHECK_EQ(nc_clip_count(editor, 0), 1);
+    // 撤销 → 还原 2 个片段
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_clip_count(editor, 0), 2);
+    // 重做 → 复合片段恢复
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(nc_clip_count(editor, 0), 1);
+    // 解除复合片段 → 2 个片段还原
+    NC_CHECK_EQ(nc_unwrap_compound_clip(editor, 0, outClip), NC_OK);
+    NC_CHECK_EQ(nc_clip_count(editor, 0), 2);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, CompoundClipRejectsBadArgs) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t trackId = nc_add_track(editor, "V1", 0);
+    NC_CHECK(trackId != 0);
+    const uint64_t ids[1] = {1};
+    // 空指针 / 空数组
+    NC_CHECK_EQ(nc_create_compound_clip(nullptr, 0, ids, 1, nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_create_compound_clip(editor, 0, nullptr, 1, nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_create_compound_clip(editor, 0, ids, 0, nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    // 轨道越界
+    NC_CHECK_EQ(nc_create_compound_clip(editor, 9, ids, 1, nullptr, nullptr, nullptr),
+                NC_ERROR_OUT_OF_RANGE);
+    // 解除不存在的复合片段
+    NC_CHECK_EQ(nc_unwrap_compound_clip(editor, 0, 9999), NC_ERROR_NOT_FOUND);
+    // 空安全
+    NC_CHECK_EQ(nc_clip_is_compound(nullptr, 0, 1), -1);
+    nc_editor_destroy(editor);
+}

@@ -89,6 +89,35 @@ Result TimelineEditor::setTrackAutoDuck(SequenceId sequenceId, TrackId trackId,
     return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, settings, "自动闪避"));
 }
 
+Result TimelineEditor::createCompoundClip(SequenceId sequenceId, TrackId trackId,
+                                          std::vector<ClipId> clipIds, const std::string& name,
+                                          SequenceId* outSequenceId, ClipId* outClipId) {
+    if (clipIds.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, "未选择任何片段");
+    }
+    // 预分配所有实体 ID（保证 redo 确定性；与既有命令约定一致）
+    const SequenceId newSequenceId{project_.ids.next()};
+    const TrackId newTrackId{project_.ids.next()};
+    const ClipId newClipId{project_.ids.next()};
+    auto command = std::make_unique<CreateCompoundClipCommand>(
+        sequenceId, trackId, std::move(clipIds), newSequenceId, newTrackId, newClipId, name);
+    const Result r = commit(std::move(command));
+    if (r.isOk()) {
+        if (outSequenceId != nullptr) {
+            *outSequenceId = newSequenceId;
+        }
+        if (outClipId != nullptr) {
+            *outClipId = newClipId;
+        }
+    }
+    return r;
+}
+
+Result TimelineEditor::unwrapCompoundClip(SequenceId sequenceId, TrackId trackId,
+                                          ClipId compoundClipId) {
+    return commit(std::make_unique<UnwrapCompoundClipCommand>(sequenceId, trackId, compoundClipId));
+}
+
 Result TimelineEditor::removeTrack(SequenceId sequenceId, TrackId trackId) {
     return commit(std::make_unique<RemoveTrackCommand>(sequenceId, trackId));
 }

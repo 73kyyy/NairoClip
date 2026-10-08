@@ -310,6 +310,14 @@ JsonValue writeClip(const Clip& c) {
     JsonValue o = JsonValue::object();
     o.set("id", JsonValue::integer(static_cast<std::int64_t>(c.id.value)));
     o.set("asset", JsonValue::integer(static_cast<std::int64_t>(c.asset.value)));
+    // 复合片段（嵌套序列引用；文档「嵌套序列/复合片段」）
+    if (c.nestedSequence.isValid()) {
+        o.set("nestedSequence",
+              JsonValue::integer(static_cast<std::int64_t>(c.nestedSequence.value)));
+        if (!c.compoundName.empty()) {
+            o.set("compoundName", JsonValue::string(c.compoundName));
+        }
+    }
     o.set("start", writeRational(c.start));
     o.set("duration", writeRational(c.duration));
     o.set("sourceIn", writeRational(c.sourceIn));
@@ -338,6 +346,16 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     if (!v.isObject()) { err = "片段项应为对象"; return false; }
     out.id = ClipId{static_cast<std::uint64_t>(v.get("id").asInteger())};
     out.asset = AssetId{static_cast<std::uint64_t>(v.get("asset").asInteger())};
+    // 复合片段（嵌套序列引用；缺省 = 普通片段，向后兼容）
+    out.nestedSequence = SequenceId{};
+    out.compoundName.clear();
+    if (v.has("nestedSequence")) {
+        out.nestedSequence = SequenceId{
+            static_cast<std::uint64_t>(v.get("nestedSequence").asInteger())};
+        if (v.has("compoundName")) {
+            out.compoundName = v.get("compoundName").asString();
+        }
+    }
     if (!readRational(v.get("start"), "start", out.start, err)) return false;
     if (!readRational(v.get("duration"), "duration", out.duration, err)) return false;
     if (!readRational(v.get("sourceIn"), "sourceIn", out.sourceIn, err)) return false;
@@ -693,6 +711,12 @@ bool validateReferences(const Project& project, std::string& err) {
                     err = "片段引用了不存在的素材";
                     return false;
                 }
+                // 复合片段：引用的嵌套序列必须存在
+                if (clip.nestedSequence.isValid() &&
+                    project.findSequence(clip.nestedSequence) == nullptr) {
+                    err = "复合片段引用了不存在的嵌套序列";
+                    return false;
+                }
             }
             if (!track.invariantsHold()) {
                 err = "轨道不变量被破坏（排序或重叠）";
@@ -715,6 +739,9 @@ uint64_t maxIdOf(const Project& project) {
             if (t.id.value > maxId) maxId = t.id.value;
             for (const auto& c : t.clips) {
                 if (c.id.value > maxId) maxId = c.id.value;
+                // 复合片段引用的嵌套序列 ID 也在全局分配器空间内
+                // （否则重开工程后新建序列可能与之冲突）
+                if (c.nestedSequence.value > maxId) maxId = c.nestedSequence.value;
                 // 特效 ID 也在全局分配器空间内
                 for (const auto& e : c.effects.effects()) {
                     if (e.id.value > maxId) maxId = e.id.value;

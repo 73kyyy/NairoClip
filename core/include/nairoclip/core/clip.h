@@ -7,6 +7,8 @@
 #include "nairoclip/core/time.h"
 #include "nairoclip/core/types.h"
 
+#include <string>
+
 namespace nairoclip {
 namespace core {
 
@@ -14,6 +16,13 @@ namespace core {
 struct Clip {
     ClipId id;
     AssetId asset;    // 引用的素材（可为空，如文字片段）
+    /// 嵌套序列引用（复合片段：非空时本片段代表另一条序列的渲染结果，
+    /// 文档第 3 部分「嵌套序列/复合片段」）。
+    /// 语义：asset 与 nestedSequence 二选一（嵌套时 asset 应为空）；
+    /// duration 由嵌套序列的内容时长决定（创建时写入，解除时还原）。
+    SequenceId nestedSequence;
+    /// 复合片段名称（可选；空则用嵌套序列名）。用于时间轴显示「📦复合片段A」。
+    std::string compoundName;
     Time start;       // 时间轴起点
     Time duration;    // 时间轴时长
     Time sourceIn;    // 源素材入点
@@ -62,6 +71,9 @@ struct Clip {
 
     /// 时间轴终点。
     Time end() const { return start + duration; }
+
+    /// 是否为复合片段（引用嵌套序列）。
+    bool isCompound() const { return nestedSequence.isValid(); }
 
     /// 消耗的源素材范围终点：sourceIn + duration * speed。
     Time sourceOut() const { return sourceIn + duration * speed; }
