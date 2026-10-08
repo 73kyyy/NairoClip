@@ -339,6 +339,24 @@ JsonValue writeClip(const Clip& c) {
         audio.set("fadeOut", writeRational(c.audioFadeOut));
         o.set("audio", std::move(audio));
     }
+    // 蒙版（文档「✂️剪辑 → 蒙版」；仅启用时写入，保持文件向后兼容）
+    if (c.hasMask && c.mask.shape != MaskShape::None) {
+        JsonValue mask = JsonValue::object();
+        mask.set("shape", JsonValue::string(maskShapeName(c.mask.shape)));
+        mask.set("centerX", JsonValue::number(c.mask.centerX));
+        mask.set("centerY", JsonValue::number(c.mask.centerY));
+        mask.set("rotationDegrees", JsonValue::number(c.mask.rotationDegrees));
+        mask.set("width", JsonValue::number(c.mask.width));
+        mask.set("height", JsonValue::number(c.mask.height));
+        mask.set("feather", JsonValue::number(c.mask.feather));
+        if (c.mask.cornerRadius != 0.0) {
+            mask.set("cornerRadius", JsonValue::number(c.mask.cornerRadius));
+        }
+        if (c.mask.invert) {
+            mask.set("invert", JsonValue::boolean(true));
+        }
+        o.set("mask", std::move(mask));
+    }
     return o;
 }
 
@@ -388,6 +406,30 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
             }
             if (audio.has("fadeOut")) {
                 if (!readRational(audio.get("fadeOut"), "fadeOut", out.audioFadeOut, err)) return false;
+            }
+        }
+    }
+        // 蒙版（缺省 = 不使用；非法形状/参数降级为不使用，保证工程可打开）
+    out.hasMask = false;
+    out.mask = Mask{};
+    if (v.has("mask")) {
+        const JsonValue& maskValue = v.get("mask");
+        Mask parsedMask;
+        MaskShape shape = MaskShape::None;
+        if (maskShapeFromString(maskValue.get("shape").asString().c_str(), shape) &&
+            shape != MaskShape::None) {
+            parsedMask.shape = shape;
+            parsedMask.centerX = maskValue.get("centerX").asNumber(0.5);
+            parsedMask.centerY = maskValue.get("centerY").asNumber(0.5);
+            parsedMask.rotationDegrees = maskValue.get("rotationDegrees").asNumber(0.0);
+            parsedMask.width = maskValue.get("width").asNumber(0.5);
+            parsedMask.height = maskValue.get("height").asNumber(0.5);
+            parsedMask.feather = maskValue.get("feather").asNumber(0.0);
+            parsedMask.cornerRadius = maskValue.get("cornerRadius").asNumber(0.0);
+            parsedMask.invert = maskValue.get("invert").asBool(false);
+            if (parsedMask.valid()) {
+                out.hasMask = true;
+                out.mask = parsedMask;
             }
         }
     }

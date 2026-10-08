@@ -3,6 +3,7 @@
 #include "nairoclip/core/command.h"
 #include "nairoclip/core/animation.h"
 #include "nairoclip/core/transition_types.h"
+#include "nairoclip/core/mask.h"
 #include "nairoclip/core/track.h"
 
 #include <cstddef>
@@ -480,6 +481,26 @@ private:
     AssetId assetId_;
     std::optional<MediaAsset> removed_;
     std::optional<std::size_t> removedIndex_;
+};
+
+/// ---------------------------------------------------------------------------
+/// 设置片段蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）
+/// ---------------------------------------------------------------------------
+class SetClipMaskCommand : public Command {
+public:
+    SetClipMaskCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId, Mask mask);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string name() const override { return "设置蒙版"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    Mask mask_;
+    std::optional<Mask> beforeMask_;
+    std::optional<bool> beforeHasMask_;
 };
 
 /// ---------------------------------------------------------------------------

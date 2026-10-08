@@ -192,7 +192,26 @@
   · 与自动闪避（只降音量）/音乐卡点（按节拍切分）的区别已在头文件注明
   · C ABI：nc_speech_analyze（真实解码统计）/ nc_speech_cut_apply（默认首个音频轨）
 
+- M2.20 ✅ 蒙版（文档第 2 部分「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）：
+  · mask 模块（确定性像素运算，零第三方依赖）：
+    · 四种形状：线性（单侧半平面 + 法线旋转 + 偏移）/ 镜面（中心带状窗口）/
+      圆形椭圆（各向异性半轴）/ 矩形（旋转 + 圆角 SDF）
+    · 羽化：smoothstep 过渡带（相对画面短边；横竖屏视觉一致）
+    · 反转：可见区与隐藏区互换
+    · 两种混合模式：Transparent（蒙版外 alpha=0，多层合成透出下层）/
+      Background（蒙版外填充背景色，单层导出不透明输出）
+    · 覆盖率评估（maskCoverageAt 像素级 / maskCoverageRatio 采样估计，供 UI 展示）
+  · Clip 增加 hasMask/mask 字段；RenderClip 携带蒙版快照
+  · 导出执行器：解码帧后应用蒙版（Transparent 模式，与多层 alpha 合成衔接）
+  · 预览器：同一实现（预览与导出一致）
+  · SetClipMaskCommand（撤销重做）+ 编辑器 setClipMask（参数校验/仅视频轨）
+  · 序列化（默认不写入；载入非法参数降级为未启用）
+  · C ABI：nc_set_clip_mask / nc_get_clip_mask
+
 ### 待办
+- ⬜ 超分辨率（2x/4x，需模型推理接口）
+- ⬜ 光流补帧（60/120fps，需模型推理接口）
+- ⬜ 批量多选操作（文档第 3 部分第八节：框选/批量删除/批量变速/打组）
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
 - 后续 ⬜ 本地 AI 推理（模型分发走国内云）+ 平台壳（Kotlin/Qt）
 

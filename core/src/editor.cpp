@@ -118,6 +118,25 @@ Result TimelineEditor::unwrapCompoundClip(SequenceId sequenceId, TrackId trackId
     return commit(std::make_unique<UnwrapCompoundClipCommand>(sequenceId, trackId, compoundClipId));
 }
 
+Result TimelineEditor::setClipMask(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                    Mask mask) {
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (track->findClip(clipId) == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!mask.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "蒙版参数非法（羽化/圆角需在 0..0.5，尺寸需为正）");
+    }
+    return commit(std::make_unique<SetClipMaskCommand>(sequenceId, trackId, clipId, mask));
+}
+
 Result TimelineEditor::setTrackSolo(SequenceId sequenceId, TrackId trackId, bool solo) {
     const Track* track = findTrack(project_, sequenceId, trackId);
     if (track == nullptr) {

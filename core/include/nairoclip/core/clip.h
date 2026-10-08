@@ -2,6 +2,7 @@
 
 #include "nairoclip/core/animation.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/mask.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/rational.h"
 #include "nairoclip/core/time.h"
@@ -35,6 +36,10 @@ struct Clip {
     SpeedCurve speedCurve;
     /// 视频特效栈（按顺序应用；空间效果由渲染器处理）。
     EffectStack effects;
+    /// 片段蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）。
+    /// hasMask 为 true 时导出/预览按蒙版裁剪可见区域；false = 不使用蒙版。
+    bool hasMask = false;
+    Mask mask;
     /// 音频增益（dB，0 = 原始电平；合法范围 [-60, +12]）。
     double audioGainDb = 0.0;
     /// 音频淡入时长（从片段起点算起；0 = 无淡入）。

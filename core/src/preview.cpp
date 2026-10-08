@@ -231,6 +231,15 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
                 applyColorTransformToRgba(frame.rgba.data(), pixelCount, transform);
             }
         }
+        // 应用片段蒙版（文档「✂️剪辑 → 蒙版」）
+        // 预览用 Background 模式：蒙版外填充序列背景色，UI 直接显示最终画面效果。
+        if (clip->hasMask && clip->mask.shape != MaskShape::None &&
+            frame.rgba.size() >=
+                static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height) * 4) {
+            const std::uint32_t background = seq != nullptr ? seq->backgroundRgba : 0x000000FF;
+            applyMaskToFrame(frame.rgba.data(), frame.width, frame.height, clip->mask,
+                             MaskBlendMode::Background, background);
+        }
     }
     return frame;
 }

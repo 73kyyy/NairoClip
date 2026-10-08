@@ -38,6 +38,9 @@ struct RenderClip {
     bool hasAnimation = false;
     /// 特效栈快照（颜色变换在导出时逐帧应用）。
     EffectStack effects;
+    /// 蒙版快照（hasMask 时导出逐帧裁剪可见区域）。
+    bool hasMask = false;
+    Mask mask;
     /// 动画快照（透明度等逐帧采样）。
     ClipAnimation animation;
     /// 速度曲线快照（非空时变速映射按曲线积分）。

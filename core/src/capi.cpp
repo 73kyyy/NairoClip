@@ -10,6 +10,7 @@
 #include "nairoclip/core/track.h"
 #include "nairoclip/core/json.h"
 #include "nairoclip/core/export_preset.h"
+#include "nairoclip/core/mask.h"
 #include "nairoclip/core/speech_cut.h"
 #include "nairoclip/core/proxy.h"
 #include "nairoclip/core/serialization.h"
@@ -1142,6 +1143,69 @@ int32_t nc_speech_cut_apply(NcEditor* editor, int32_t track_index, char** out_er
     }
     if (out_error != nullptr) *out_error = nullptr;
     return static_cast<int32_t>(applyResult.clipsInserted);
+}
+
+// ---- 蒙版 ----
+
+int32_t nc_set_clip_mask(NcEditor* editor, int32_t track_index, uint64_t clip_id, int32_t shape,
+                         double center_x, double center_y, double rotation_degrees, double width,
+                         double height, double feather, double corner_radius, int32_t invert) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    MaskShape maskShape;
+    if (!maskShapeFromInt(shape, maskShape)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    Mask mask;
+    mask.shape = maskShape;
+    mask.centerX = center_x;
+    mask.centerY = center_y;
+    mask.rotationDegrees = rotation_degrees;
+    mask.width = width;
+    mask.height = height;
+    mask.feather = feather;
+    mask.cornerRadius = corner_radius;
+    mask.invert = invert != 0;
+    return toNcError(
+        editor->editor->setClipMask(main->id, trackId, ClipId{clip_id}, mask).code);
+}
+
+int32_t nc_get_clip_mask(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         int32_t* out_shape, double* out_center_x, double* out_center_y,
+                         double* out_rotation_degrees, double* out_width, double* out_height,
+                         double* out_feather, double* out_corner_radius, int32_t* out_invert) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    if (!clip->hasMask) {
+        if (out_shape != nullptr) *out_shape = 0;
+        return 0;
+    }
+    if (out_shape != nullptr) *out_shape = static_cast<int32_t>(clip->mask.shape);
+    if (out_center_x != nullptr) *out_center_x = clip->mask.centerX;
+    if (out_center_y != nullptr) *out_center_y = clip->mask.centerY;
+    if (out_rotation_degrees != nullptr) *out_rotation_degrees = clip->mask.rotationDegrees;
+    if (out_width != nullptr) *out_width = clip->mask.width;
+    if (out_height != nullptr) *out_height = clip->mask.height;
+    if (out_feather != nullptr) *out_feather = clip->mask.feather;
+    if (out_corner_radius != nullptr) *out_corner_radius = clip->mask.cornerRadius;
+    if (out_invert != nullptr) *out_invert = clip->mask.invert ? 1 : 0;
+    return 1;
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

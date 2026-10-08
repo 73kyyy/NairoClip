@@ -6,6 +6,7 @@
 #include "nairoclip/core/reframe.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/mask.h"
 #include "nairoclip/core/ai_label.h"
 #include "nairoclip/core/audio_mixer.h"
 
@@ -165,9 +166,15 @@ ExportStats executeExport(
                                                   : plan.frameRate;
     const Time totalDuration = plan.duration;
 
-    // 水印应用（会员门控）：所有输出帧路径统一走此处，避免遗漏。
+    // 帧收尾（所有输出帧路径统一走此处，避免遗漏）：水印（会员门控）。
+    // 说明：动画不透明度产生的 alpha 有意保留（供平台层/上层合成语义使用）；
+    // 蒙版外的透明像素在「蒙版应用点」就地与序列背景合成（见下方蒙版分支），
+    // 从而不影响动画透明度的既有行为。
     auto finalizeFrame = [&](OutputVideoFrame& frame) {
-        if (options.watermark.enabled && !frame.rgba.empty()) {
+        if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) {
+            return;
+        }
+        if (options.watermark.enabled) {
             applyWatermark(frame.rgba.data(), frame.width, frame.height, options.watermark,
                            &frame.subtitles);
         }
@@ -429,6 +436,17 @@ ExportStats executeExport(
                                                          transform);
                             }
                         }
+                        // 应用片段蒙版（文档「✂️剪辑 → 蒙版」）：
+                        // 多层场景 → Transparent（蒙版外 alpha=0，供下方逐像素混合透出下层）；
+                        // 单层场景 → Background（直接合成序列背景色，导出像素有效）。
+                        if (active->hasMask && active->mask.shape != MaskShape::None) {
+                            const bool hasLowerLayer = layers.size() > 1;
+                            applyMaskToFrame(
+                                frame.rgba.data(), plan.width, plan.height, active->mask,
+                                hasLowerLayer ? MaskBlendMode::Transparent
+                                              : MaskBlendMode::Background,
+                                plan.backgroundRgba);
+                        }
                         // 多层合成：当前帧是顶层；若存在下层且顶层透明度 < 1，
                         // 则解码下层并将两层按 alpha 混合。（多层 > 2 递归处理为后续优化）
                         if (layers.size() > 1) {
@@ -440,7 +458,11 @@ ExportStats executeExport(
                                 if (topAlpha < 0.0) topAlpha = 0.0;
                                 if (topAlpha > 1.0) topAlpha = 1.0;
                             }
-                            if (topAlpha < 0.999) {
+                            // 注意：除动画不透明度外，蒙版也会产生逐像素 alpha；
+                            // 因此当存在蒙版时也必须进入混合路径。
+                            const bool topHasMask =
+                                active->hasMask && active->mask.shape != MaskShape::None;
+                            if (topAlpha < 0.999 || topHasMask) {
                                 const RenderClip* lower = layers[1].clip;
                                 // 解码下层
                                 MediaReader* lowerReader = getReader(lower->asset);
@@ -483,9 +505,8 @@ ExportStats executeExport(
                                                     lowerPixels = lowerCanvas.data();
                                                 }
                                                 const int lowerCanvasStride = plan.width * 4;
-                                                const int w = std::min(plan.width, plan.width);
-                                                const int h = std::min(plan.height, plan.height);
-                                                const double bottomWeight = 1.0 - topAlpha;
+                                                const int w = plan.width;
+                                                const int h = plan.height;
                                                 for (int row = 0; row < h; ++row) {
                                                     const std::uint8_t* src =
                                                         lowerPixels +
@@ -497,16 +518,31 @@ ExportStats executeExport(
                                                         static_cast<std::size_t>(row) *
                                                             static_cast<std::size_t>(plan.width) * 4;
                                                     for (int col = 0; col < w; ++col) {
+                                                        const std::size_t base =
+                                                            static_cast<std::size_t>(col) * 4;
+                                                        // 混合权重 = 动画不透明度 × 蒙版覆盖率：
+                                                        //  - 蒙版已在此之前把 alpha 缩放为
+                                                        //    255×覆盖率（Transparent 模式）；
+                                                        //  - 动画不透明度（topAlpha）在混合之后
+                                                        //    才应用到整帧（既有语义，保持不变）。
+                                                        const double maskCoverage =
+                                                            static_cast<double>(dst[base + 3]) /
+                                                            255.0;
+                                                        const double mixWeight =
+                                                            topAlpha * maskCoverage;
+                                                        const double bottomWeight =
+                                                            1.0 - mixWeight;
                                                         for (int ch = 0; ch < 3; ++ch) {
-                                                            const std::size_t idx =
-                                                                static_cast<std::size_t>(col) * 4 +
+                                                            const std::size_t idx = base +
                                                                 static_cast<std::size_t>(ch);
-                                                            const double top = dst[idx] * topAlpha;
+                                                            const double top = dst[idx] * mixWeight;
                                                             const double bot =
                                                                 src[idx] * bottomWeight;
                                                             dst[idx] = static_cast<std::uint8_t>(
                                                                 top + bot + 0.5);
                                                         }
+                                                        // 已与下层完成合成 → 结果不透明
+                                                        dst[base + 3] = 255;
                                                     }
                                                 }
                                             }

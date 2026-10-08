@@ -814,3 +814,43 @@ NC_TEST(Capi, SpeechCutRealAudioEndToEnd) {
     nc_editor_destroy(editor);
 }
 #endif
+
+// ---- 蒙版 C ABI（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）----
+NC_TEST(Capi, ClipMaskSetGetAndClear) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "a.mp4", "/v/a.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clipId = nc_insert_clip(editor, 0, assetId, 0, 2000000);
+    NC_CHECK(clipId != 0);
+    // 默认无蒙版
+    NC_CHECK_EQ(nc_get_clip_mask(editor, 0, clipId, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                 nullptr, nullptr, nullptr, nullptr),
+                0);
+    // 设置圆形蒙版（shape=3）
+    NC_CHECK_EQ(nc_set_clip_mask(editor, 0, clipId, 3, 0.5, 0.4, 0.0, 0.3, 0.3, 0.05, 0.0, 0),
+                NC_OK);
+    int32_t shape = -1;
+    double cx = 0.0, cy = 0.0, rot = 0.0, w = 0.0, h = 0.0, feather = 0.0, corner = 0.0;
+    int32_t invert = -1;
+    NC_CHECK_EQ(nc_get_clip_mask(editor, 0, clipId, &shape, &cx, &cy, &rot, &w, &h, &feather,
+                                 &corner, &invert),
+                1);
+    NC_CHECK_EQ(shape, 3);
+    NC_CHECK(std::abs(cx - 0.5) < 1e-9);
+    NC_CHECK(std::abs(cy - 0.4) < 1e-9);
+    NC_CHECK(std::abs(feather - 0.05) < 1e-9);
+    NC_CHECK_EQ(invert, 0);
+    // 撤销恢复
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_get_clip_mask(editor, 0, clipId, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                 nullptr, nullptr, nullptr, nullptr),
+                0);
+    // 非法形状拒绝
+    NC_CHECK_EQ(nc_set_clip_mask(editor, 0, clipId, 9, 0.5, 0.5, 0.0, 0.3, 0.3, 0.0, 0.0, 0),
+                NC_ERROR_INVALID_ARGUMENT);
+    // 空安全
+    NC_CHECK_EQ(nc_get_clip_mask(nullptr, 0, clipId, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                 nullptr, nullptr, nullptr, nullptr),
+                -1);
+    nc_editor_destroy(editor);
+}

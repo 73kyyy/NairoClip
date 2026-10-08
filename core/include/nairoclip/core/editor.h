@@ -93,6 +93,9 @@ public:
     Result addEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, Effect effect);
     /// 删除片段特效。
     Result removeEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, EffectId effectId);
+    // ---- 蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）----
+    /// 设置片段蒙版（shape=None 等价于清除蒙版）；参数非法/片段不存在时失败且不入撤销栈。
+    Result setClipMask(SequenceId sequenceId, TrackId trackId, ClipId clipId, Mask mask);
     // ---- 音频属性 ----
     /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
     Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,

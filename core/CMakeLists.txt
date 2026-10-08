@@ -42,6 +42,7 @@ add_library(nairoclip_core STATIC
     src/proxy.cpp
     src/export_preset.cpp
     src/speech_cut.cpp
+    src/mask.cpp
     src/reframe.cpp
 )
 target_include_directories(nairoclip_core PUBLIC

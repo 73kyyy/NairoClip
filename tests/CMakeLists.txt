@@ -51,6 +51,7 @@ add_executable(nairoclip_tests
     test_proxy.cpp
     test_export_preset.cpp
     test_speech_cut.cpp
+    test_mask.cpp
     test_reframe.cpp
 )
 

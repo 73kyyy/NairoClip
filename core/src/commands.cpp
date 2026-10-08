@@ -1642,5 +1642,42 @@ Result UnwrapCompoundClipCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ---------------------------------------------------------------------------
+// 设置片段蒙版
+// ---------------------------------------------------------------------------
+
+SetClipMaskCommand::SetClipMaskCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                       Mask mask)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), mask_(mask) {}
+
+Result SetClipMaskCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!mask_.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument, "蒙版参数非法（羽化/圆角需在 0..0.5）");
+    }
+    if (!beforeHasMask_.has_value()) beforeHasMask_ = clip->hasMask;
+    if (!beforeMask_.has_value()) beforeMask_ = clip->mask;
+    clip->hasMask = mask_.shape != MaskShape::None;
+    clip->mask = mask_;
+    return Result::ok();
+}
+
+Result SetClipMaskCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforeHasMask_.has_value() || !beforeMask_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少蒙版快照");
+    }
+    clip->hasMask = *beforeHasMask_;
+    clip->mask = *beforeMask_;
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

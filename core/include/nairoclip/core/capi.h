@@ -380,6 +380,25 @@ int32_t nc_speech_analyze(NcEditor* editor, uint64_t asset_id, int64_t* out_spee
 /// - 返回：>=0 = 插入的片段数；-1 = 错误（见 out_error）。
 int32_t nc_speech_cut_apply(NcEditor* editor, int32_t track_index, char** out_error);
 
+// ---- 蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）----
+
+/// 设置片段蒙版。
+/// - shape：0=none 1=linear 2=mirror 3=circle 4=rectangle（非法返回错误码）；
+/// - center_x/center_y：归一化中心（0..1）；
+/// - rotation_degrees：旋转角；width/height/feather/corner_radius：归一化尺寸参数；
+/// - invert：是否反转（0/1）。
+int32_t nc_set_clip_mask(NcEditor* editor, int32_t track_index, uint64_t clip_id, int32_t shape,
+                         double center_x, double center_y, double rotation_degrees,
+                         double width, double height, double feather, double corner_radius,
+                         int32_t invert);
+
+/// 读取片段蒙版（多个出参可空）。
+/// 返回：1 = 已启用蒙版（出参有效），0 = 未启用，-1 = 参数错误。
+int32_t nc_get_clip_mask(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         int32_t* out_shape, double* out_center_x, double* out_center_y,
+                         double* out_rotation_degrees, double* out_width, double* out_height,
+                         double* out_feather, double* out_corner_radius, int32_t* out_invert);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。
