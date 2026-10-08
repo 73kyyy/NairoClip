@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.15，测试 466 用例全绿）
+## 7. 里程碑（截至 M2.21，测试 622 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -207,6 +207,17 @@
   · SetClipMaskCommand（撤销重做）+ 编辑器 setClipMask（参数校验/仅视频轨）
   · 序列化（默认不写入；载入非法参数降级为未启用）
   · C ABI：nc_set_clip_mask / nc_get_clip_mask
+
+- M2.21 ✅ 批量多选操作（文档第 3 部分「八、框选/多选批量操作」）：
+  · batchDelete（可选波纹删除）/ batchApplyTransitions / batchSetAudio /
+    batchSetSpeed / batchAlignStart；逐项回报成功/失败/消息，不阻断其余项
+  · 全部经编辑器命令 + 事务（可整体撤销；历史名 = 用户操作名）
+  · 修复两处真实缺陷：
+    1) validateTransition 占用规则过严——禁止任何片段被两个转场引用，
+       导致 A→B→C 转场链无法建立；改为「同一对重复」/「同起点」/「同终点」
+       三种精确冲突判定（保留原冲突测试语义）
+    2) 单命令事务丢失事务名（历史面板显示底层命令名如「添加转场」而非
+       「批量应用转场」）；Command 增加 setDisplayName 覆盖机制
 
 ### 待办
 - ⬜ 超分辨率（2x/4x，需模型推理接口）

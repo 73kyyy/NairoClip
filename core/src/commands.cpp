@@ -422,7 +422,7 @@ public:
         return Result::ok();
     }
 
-    std::string name() const override { return name_; }
+    std::string nameImpl() const override { return name_; }
 
 private:
     std::string name_;
@@ -443,7 +443,11 @@ bool UndoStack::endTransaction(Project& project) {
         return false;
     }
     // 如果事务内只有一个命令，直接入栈（不包装）
+    // 注意：单一命令仍应显示**事务名**（用户视角的操作名，如「批量应用转场」），
+    // 因此这里用事务名为其重命名（避免历史面板显示底层命令名如「添加转场」，
+    // 与用户操作语义不符）。
     if (transactionCommands_.size() == 1) {
+        transactionCommands_.front()->setDisplayName(transactionName_);
         if (cursor_ < commands_.size()) {
             commands_.resize(cursor_);
         }

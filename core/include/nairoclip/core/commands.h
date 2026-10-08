@@ -25,7 +25,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "添加轨道"; }
+    std::string nameImpl() const override { return "添加轨道"; }
 
 private:
     SequenceId sequenceId_;
@@ -41,7 +41,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除轨道"; }
+    std::string nameImpl() const override { return "删除轨道"; }
 
 private:
     SequenceId sequenceId_;
@@ -57,7 +57,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "添加片段"; }
+    std::string nameImpl() const override { return "添加片段"; }
 
 private:
     SequenceId sequenceId_;
@@ -72,7 +72,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除片段"; }
+    std::string nameImpl() const override { return "删除片段"; }
 
 private:
     SequenceId sequenceId_;
@@ -89,7 +89,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return actionName_; }
+    std::string nameImpl() const override { return actionName_; }
 
     /// 同片段 + 同操作名 + 当前值等于对方目标值 → 可合并（连续拖动/微调）。
     bool canMergeWith(const Command& other) const override;
@@ -116,7 +116,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "分割片段"; }
+    std::string nameImpl() const override { return "分割片段"; }
 
 private:
     SequenceId sequenceId_;
@@ -137,7 +137,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "跨轨移动"; }
+    std::string nameImpl() const override { return "跨轨移动"; }
 
 private:
     SequenceId sequenceId_;
@@ -157,7 +157,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "添加字幕"; }
+    std::string nameImpl() const override { return "添加字幕"; }
 
 private:
     SequenceId sequenceId_;
@@ -173,7 +173,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除字幕"; }
+    std::string nameImpl() const override { return "删除字幕"; }
 
 private:
     SequenceId sequenceId_;
@@ -189,7 +189,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "添加转场"; }
+    std::string nameImpl() const override { return "添加转场"; }
 
 private:
     SequenceId sequenceId_;
@@ -204,7 +204,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除转场"; }
+    std::string nameImpl() const override { return "删除转场"; }
 
 private:
     SequenceId sequenceId_;
@@ -222,7 +222,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "添加关键帧"; }
+    std::string nameImpl() const override { return "添加关键帧"; }
 
 private:
     SequenceId sequenceId_;
@@ -242,7 +242,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除关键帧"; }
+    std::string nameImpl() const override { return "删除关键帧"; }
 
 private:
     SequenceId sequenceId_;
@@ -262,7 +262,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "波纹删除"; }
+    std::string nameImpl() const override { return "波纹删除"; }
 
 private:
     struct RemovedClip {
@@ -285,7 +285,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "插入编辑"; }
+    std::string nameImpl() const override { return "插入编辑"; }
 
 private:
     SequenceId sequenceId_;
@@ -315,7 +315,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return actionName_; }
+    std::string nameImpl() const override { return actionName_; }
 
 private:
     SequenceId sequenceId_;
@@ -344,7 +344,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "音画分离"; }
+    std::string nameImpl() const override { return "音画分离"; }
 
 private:
     SequenceId sequenceId_;
@@ -363,7 +363,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "添加标记"; }
+    std::string nameImpl() const override { return "添加标记"; }
 
 private:
     SequenceId sequenceId_;
@@ -379,7 +379,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除标记"; }
+    std::string nameImpl() const override { return "删除标记"; }
 
 private:
     SequenceId sequenceId_;
@@ -397,7 +397,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return actionName_; }
+    std::string nameImpl() const override { return actionName_; }
 
 private:
     SequenceId sequenceId_;
@@ -423,7 +423,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "添加特效"; }
+    std::string nameImpl() const override { return "添加特效"; }
 
 private:
     SequenceId sequenceId_;
@@ -441,7 +441,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除特效"; }
+    std::string nameImpl() const override { return "删除特效"; }
 
 private:
     SequenceId sequenceId_;
@@ -460,7 +460,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "导入素材"; }
+    std::string nameImpl() const override { return "导入素材"; }
 
 private:
     AssetId assetId_;
@@ -475,7 +475,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "删除素材"; }
+    std::string nameImpl() const override { return "删除素材"; }
 
 private:
     AssetId assetId_;
@@ -492,7 +492,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "设置蒙版"; }
+    std::string nameImpl() const override { return "设置蒙版"; }
 
 private:
     SequenceId sequenceId_;
@@ -526,7 +526,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "创建复合片段"; }
+    std::string nameImpl() const override { return "创建复合片段"; }
 
     /// 复合片段 ID（apply 后可用；供 UI 选中新片段）。
     ClipId compoundClipId() const { return compoundClipId_; }
@@ -557,7 +557,7 @@ public:
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
-    std::string name() const override { return "解除复合片段"; }
+    std::string nameImpl() const override { return "解除复合片段"; }
 
 private:
     SequenceId sequenceId_;

@@ -21,7 +21,15 @@ public:
     virtual Result revert(Project& project) = 0;
 
     /// 展示名称（历史面板用，如「分割片段」）。
-    virtual std::string name() const = 0;
+    /// 若设置了覆盖名（setDisplayName），返回覆盖名（事务名等用户视角名称）。
+    std::string name() const {
+        return displayNameOverride_.empty() ? nameImpl() : displayNameOverride_;
+    }
+
+    /// 设置展示名覆盖（用于事务命名：把底层命令名替换为用户操作名）。
+    void setDisplayName(std::string displayName) {
+        displayNameOverride_ = std::move(displayName);
+    }
 
     /// 合并钩子：默认可与同类型命令合并（手势拖动场景）。
     /// 返回 true 时，push 的新命令会调用 mergeFrom 并替代原命令。
@@ -31,6 +39,13 @@ public:
     }
     /// 从后续命令吸收状态（canMergeWith 返回 true 时调用）。
     virtual void mergeFrom(const Command& other) { (void)other; }
+
+protected:
+    /// 子类实现的原始名称（默认由 name() 转发）。
+    virtual std::string nameImpl() const = 0;
+
+private:
+    std::string displayNameOverride_;
 };
 
 /// 撤销栈：线性历史 + 游标。
