@@ -45,6 +45,8 @@ add_executable(nairoclip_tests
     test_auto_duck.cpp
     test_compound.cpp
     test_mixer_console.cpp
+    test_watermark.cpp
+    test_entitlement.cpp
     test_reframe.cpp
 )
 

@@ -3,6 +3,7 @@
 #include "nairoclip/core/export_plan.h"
 #include "nairoclip/core/media_io.h"
 #include "nairoclip/core/project.h"
+#include "nairoclip/core/watermark.h"
 
 #include <cstdint>
 #include <functional>
@@ -37,6 +38,9 @@ struct ExportExecutorOptions {
     bool attachAiLabel = false;
     /// AI 标识文案（attachAiLabel 时生效）。
     std::string aiLabelText = "AI 生成";
+    /// 水印（会员门控；enabled 时逐帧应用，几何按输出帧尺寸计算）。
+    /// 对应文档 6.3.9 水印渲染规格与 3.1 权益矩阵「免费版导出水印」。
+    WatermarkSpec watermark = {};
 };
 
 /// 执行统计。

@@ -165,6 +165,14 @@ ExportStats executeExport(
                                                   : plan.frameRate;
     const Time totalDuration = plan.duration;
 
+    // 水印应用（会员门控）：所有输出帧路径统一走此处，避免遗漏。
+    auto finalizeFrame = [&](OutputVideoFrame& frame) {
+        if (options.watermark.enabled && !frame.rgba.empty()) {
+            applyWatermark(frame.rgba.data(), frame.width, frame.height, options.watermark,
+                           &frame.subtitles);
+        }
+    };
+
     // ---- 视频遍历 ----
     if (options.outputVideo && videoSink && !plan.tracks.empty()) {
         std::int64_t frameIndex = 0;
@@ -315,6 +323,7 @@ ExportStats executeExport(
                     labelConfig.text = options.aiLabelText;
                     frame.subtitles.push_back(buildAiLabelItem(labelConfig));
                 }
+                finalizeFrame(frame);
                 videoSink(frame);
                 ++stats.framesWritten;
                 ++frameIndex;
@@ -340,6 +349,7 @@ ExportStats executeExport(
                     labelConfig.text = options.aiLabelText;
                     frame.subtitles.push_back(buildAiLabelItem(labelConfig));
                 }
+                finalizeFrame(frame);
                 videoSink(frame);
                 ++stats.framesWritten;
                 ++frameIndex;
@@ -537,6 +547,7 @@ ExportStats executeExport(
                             labelConfig.text = options.aiLabelText;
                             frame.subtitles.push_back(buildAiLabelItem(labelConfig));
                         }
+                        finalizeFrame(frame);
                         videoSink(frame);
                         ++stats.framesWritten;
                         ++frameIndex;
@@ -565,6 +576,7 @@ ExportStats executeExport(
                     labelConfig.text = options.aiLabelText;
                     frame.subtitles.push_back(buildAiLabelItem(labelConfig));
                 }
+                finalizeFrame(frame);
                 videoSink(frame);
                 ++stats.framesWritten;
             }

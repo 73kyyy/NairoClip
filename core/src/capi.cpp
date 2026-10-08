@@ -2,6 +2,7 @@
 
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/entitlement.h"
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/transition.h"
@@ -16,6 +17,7 @@
 #endif
 
 #include <cstring>
+#include <ctime>
 #include <new>
 #include <string>
 
@@ -25,6 +27,9 @@ using namespace nairoclip::core;
 struct NcEditor {
     Project project;
     TimelineEditor* editor;  // 堆分配（依赖 project 引用，必须在 project 之后构造）
+    /// 会员权益快照（账号级状态；由平台层在服务端校验后经
+    /// nc_set_entitlement 更新；默认 Free = fail-closed）。
+    Entitlement entitlement;
 };
 
 namespace {
@@ -720,6 +725,48 @@ int32_t nc_get_master_gain(const NcEditor* editor, double* out_gain_db) {
     return NC_OK;
 }
 
+int32_t nc_set_entitlement(NcEditor* editor, int32_t tier, int32_t lifetime,
+                           int64_t expires_at_unix) {
+    if (editor == nullptr || (tier != 0 && tier != 1)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    editor->entitlement.tier =
+        tier == 1 ? MembershipTier::Pro : MembershipTier::Free;
+    editor->entitlement.lifetime = lifetime != 0;
+    editor->entitlement.expiresAtUnix = expires_at_unix < 0 ? 0 : expires_at_unix;
+    return NC_OK;
+}
+
+int32_t nc_get_entitlement(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return -1;
+    }
+    return editor->entitlement.tier == MembershipTier::Pro ? 1 : 0;
+}
+
+int32_t nc_can_add_track(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    const int trackCount = main == nullptr ? 0 : static_cast<int>(main->tracks.size());
+    return editor->entitlement.canAddTrack(trackCount) ? 1 : 0;
+}
+
+int32_t nc_would_clamp_export(const NcEditor* editor, int32_t width, int32_t height) {
+    if (editor == nullptr || width <= 0 || height <= 0) {
+        return -1;
+    }
+    const ExportPolicy policy = makeExportPolicy(
+        editor->entitlement, static_cast<std::int64_t>(std::time(nullptr)));
+    if (policy.maxExportShortSide <= 0) {
+        return 0;
+    }
+    int outW = width;
+    int outH = height;
+    return clampSizeToShortSide(width, height, policy.maxExportShortSide, outW, outH) ? 1 : 0;
+}
+
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,
                      int32_t shot_count, double avg_r, double avg_g, double avg_b,
                      double avg_saturation, double avg_contrast, const uint64_t* asset_ids,
@@ -807,6 +854,10 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
     if (ai_label_text != nullptr && ai_label_text[0] != '\0') {
         config.executor.aiLabelText = ai_label_text;
     }
+    // 会员门控：免费/过期会员 → 输出降级 1080p + 附加水印（文档 3.10）。
+    // 使用系统时钟做到期判定；tier 由平台层经服务端心跳维护（文档第 8 部分）。
+    config.policy = makeExportPolicy(editor->entitlement,
+                                     static_cast<std::int64_t>(std::time(nullptr)));
     const ExportRunResult result = runExport(
         plan, readerFactory, writerFactory, config,
         [progress_cb](double p) {

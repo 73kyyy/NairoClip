@@ -494,3 +494,57 @@ NC_TEST(Capi, MixerConsoleNullSafety) {
     NC_CHECK_EQ(nc_get_track_mixer(nullptr, 0, nullptr, nullptr, nullptr),
                 NC_ERROR_INVALID_ARGUMENT);
 }
+
+// ---- 会员权益 C ABI（文档第 6 部分「会员订阅体系」）----
+NC_TEST(Capi, EntitlementSetGetAndTrackGate) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    // 默认 Free（fail-closed）
+    NC_CHECK_EQ(nc_get_entitlement(editor), 0);
+    // 免费：可添加到 4 条，第 5 条被拒（UI 置灰依据）
+    NC_CHECK_EQ(nc_can_add_track(editor), 1);
+    NC_CHECK(nc_add_track(editor, "T1", 0) != 0);
+    NC_CHECK(nc_add_track(editor, "T2", 1) != 0);
+    NC_CHECK(nc_add_track(editor, "T3", 1) != 0);
+    NC_CHECK(nc_add_track(editor, "T4", 1) != 0);
+    NC_CHECK_EQ(nc_can_add_track(editor), 0);  // 已达 4 条
+    // 升级 Pro → 无限轨道
+    NC_CHECK_EQ(nc_set_entitlement(editor, 1, 0, 0), NC_OK);
+    NC_CHECK_EQ(nc_get_entitlement(editor), 1);
+    NC_CHECK_EQ(nc_can_add_track(editor), 1);
+    NC_CHECK(nc_add_track(editor, "T5", 1) != 0);
+    // 降回 Free → 再次置灰
+    NC_CHECK_EQ(nc_set_entitlement(editor, 0, 0, 0), NC_OK);
+    NC_CHECK_EQ(nc_can_add_track(editor), 0);
+    // 非法 tier
+    NC_CHECK_EQ(nc_set_entitlement(editor, 7, 0, 0), NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, EntitlementExportClampQuery) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    // 免费：4K 会被降级、1080p 不降级
+    NC_CHECK_EQ(nc_would_clamp_export(editor, 3840, 2160), 1);
+    NC_CHECK_EQ(nc_would_clamp_export(editor, 1920, 1080), 0);
+    NC_CHECK_EQ(nc_would_clamp_export(editor, 1080, 1920), 0);
+    NC_CHECK_EQ(nc_would_clamp_export(editor, 2160, 3840), 1);
+    // Pro：不降级
+    NC_CHECK_EQ(nc_set_entitlement(editor, 1, 1, 0), NC_OK);  // 永久买断
+    NC_CHECK_EQ(nc_would_clamp_export(editor, 3840, 2160), 0);
+    // 到期 Pro：恢复降级（fail-closed，文档 3.10）
+    const int64_t past = 100;  // 1970 年的时间戳 → 必然过期
+    NC_CHECK_EQ(nc_set_entitlement(editor, 1, 0, past), NC_OK);
+    NC_CHECK_EQ(nc_would_clamp_export(editor, 3840, 2160), 1);
+    // 参数错误
+    NC_CHECK_EQ(nc_would_clamp_export(editor, 0, 1080), -1);
+    NC_CHECK_EQ(nc_would_clamp_export(nullptr, 1920, 1080), -1);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, EntitlementNullSafety) {
+    NC_CHECK_EQ(nc_set_entitlement(nullptr, 1, 0, 0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_entitlement(nullptr), -1);
+    NC_CHECK_EQ(nc_can_add_track(nullptr), -1);
+    NC_CHECK_EQ(nc_would_clamp_export(nullptr, 100, 100), -1);
+}

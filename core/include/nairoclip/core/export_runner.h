@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nairoclip/core/entitlement.h"
 #include "nairoclip/core/export_executor.h"
 #include "nairoclip/core/export_plan.h"
 #include "nairoclip/core/media_io.h"
@@ -30,6 +31,11 @@ struct ExportRunConfig {
     std::string outputPath;
     WriterConfig writer;
     ExportExecutorOptions executor;
+    /// 会员门控策略（由 makeExportPolicy 按权益构造；默认不限制、无水印，
+    /// 避免对未接入会员体系的调用方产生行为变化）。
+    /// 生效时：输出分辨率按 maxExportShortSide 等比降级，watermark 逐帧附加
+    /// （文档 3.10「到期后…导出时强制降级 1080p + 水印」）。
+    ExportPolicy policy;
 };
 
 /// 导出运行结果。

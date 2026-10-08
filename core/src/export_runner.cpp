@@ -8,6 +8,27 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
                           const ExportProgressFn& progress, const Project* project) {
     ExportRunResult result;
 
+    // 0) 会员门控（文档 3.10）：免费/过期会员导出时强制降级分辨率 + 附加水印。
+    //    - 降级只缩不放；仅当需要降级时复制计划（不影响常规路径）；
+    //    - 水印经执行器逐帧应用（几何按最终输出帧尺寸计算）。
+    const ExportPlan* renderPlan = &plan;
+    ExportPlan clampedPlan;
+    int clampedWidth = plan.width;
+    int clampedHeight = plan.height;
+    const bool resolutionClamped = clampSizeToShortSide(
+        plan.width, plan.height, config.policy.maxExportShortSide, clampedWidth, clampedHeight);
+    if (resolutionClamped) {
+        clampedPlan = plan;
+        clampedPlan.width = clampedWidth;
+        clampedPlan.height = clampedHeight;
+        renderPlan = &clampedPlan;
+    }
+    ExportExecutorOptions executorOptions = config.executor;
+    if (config.policy.watermark.enabled) {
+        // 门控水印优先于调用方自带的水印规格（门控是产品约束，不可被覆盖）
+        executorOptions.watermark = config.policy.watermark;
+    }
+
     // 1) 打开写入器
     auto writer = writerFactory.create();
     if (writer == nullptr) {
@@ -16,13 +37,18 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
     }
     WriterConfig writerConfig = config.writer;
     if (writerConfig.width <= 0) {
-        writerConfig.width = plan.width;
+        writerConfig.width = renderPlan->width;
     }
     if (writerConfig.height <= 0) {
-        writerConfig.height = plan.height;
+        writerConfig.height = renderPlan->height;
+    }
+    if (resolutionClamped) {
+        // 门控降级生效：输出尺寸以门控结果为准（避免帧与文件尺寸不一致）
+        writerConfig.width = clampedWidth;
+        writerConfig.height = clampedHeight;
     }
     if (writerConfig.frameRate.toDouble() <= 0.0) {
-        writerConfig.frameRate = plan.frameRate;
+        writerConfig.frameRate = renderPlan->frameRate;
     }
     const Result openResult = writer->open(config.outputPath, writerConfig);
     if (!openResult.isOk()) {
@@ -34,7 +60,7 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
     bool sinkFailed = false;
     Result sinkError;
     result.stats = executeExport(
-        plan, readerFactory,
+        *renderPlan, readerFactory,
         [&](const OutputVideoFrame& frame) {
             if (sinkFailed) return;
             const Result r = writer->writeVideoFrame(frame);
@@ -51,7 +77,17 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
                 sinkError = r;
             }
         },
-        progress, config.executor, project);
+        progress, executorOptions, project);
+
+    // 2a) 门控说明（供 UI 提示；如「免费版已降级 1080p 并附加水印」）
+    if (resolutionClamped) {
+        result.stats.warnings.push_back("会员门控：导出分辨率已降级为 " +
+                                        std::to_string(clampedWidth) + "x" +
+                                        std::to_string(clampedHeight));
+    }
+    if (executorOptions.watermark.enabled) {
+        result.stats.warnings.push_back("会员门控：已附加导出水印");
+    }
 
     // 3) 收尾
     if (result.stats.cancelled) {

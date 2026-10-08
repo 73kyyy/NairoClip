@@ -255,6 +255,26 @@ int32_t nc_set_master_gain(NcEditor* editor, double gain_db);
 /// 读取主输出增益。
 int32_t nc_get_master_gain(const NcEditor* editor, double* out_gain_db);
 
+// ---- 会员权益（本地门控；tier 由平台层在服务端校验后更新）----
+
+/// 设置会员权益（平台层在服务端心跳校验后调用；默认 Free = fail-closed）。
+/// - tier：0 = Free，1 = Pro（其他值返回 NC_ERROR_INVALID_ARGUMENT）；
+/// - lifetime：是否永久买断（0/1）；
+/// - expires_at_unix：到期时间（Unix 秒；0 = 无到期信息）。
+int32_t nc_set_entitlement(NcEditor* editor, int32_t tier, int32_t lifetime,
+                           int64_t expires_at_unix);
+
+/// 读取当前会员层级（0 = Free，1 = Pro；-1 = 句柄为空）。
+int32_t nc_get_entitlement(const NcEditor* editor);
+
+/// 查询能力：当前轨道数下是否还能新增轨道（UI 置灰依据；1/0；-1 = 句柄为空）。
+/// 按当前会员层级判定（免费版上限 4 条）。
+int32_t nc_can_add_track(const NcEditor* editor);
+
+/// 查询能力：给定输出尺寸在当前权益下是否会被降级（1 = 会降级，0 = 不降级，-1 = 错误）。
+/// 供导出页在用户选择分辨率时提前提示（文档 3.3 付费墙触发条件）。
+int32_t nc_would_clamp_export(const NcEditor* editor, int32_t width, int32_t height);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。
