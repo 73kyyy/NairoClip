@@ -7,6 +7,7 @@
 //
 // 退出码：0 = 成功，1 = 文件错误，2 = 参数错误
 
+#include "nairoclip/core/beat_detect.h"
 #include "nairoclip/core/export_plan.h"
 #include "nairoclip/core/export_runner.h"
 #include "nairoclip/core/project_doctor.h"
@@ -257,6 +258,62 @@ int commandExport(const std::string&, const std::string&, int, const std::string
 }
 #endif
 
+/// 分析音频文件的节拍（音乐卡点前端；需 FFmpeg）。
+/// 用法：nclip_tool beats <audio-file> [--json]
+int commandBeats(const std::string& audioPath, bool jsonOutput) {
+#ifdef NAIROCLIP_HAS_FFMPEG
+    FFmpegMediaReader reader;
+    const Result openResult = reader.open(audioPath);
+    if (!openResult.isOk()) {
+        std::fprintf(stderr, "无法打开音频：%s\n", openResult.message.c_str());
+        return 1;
+    }
+    std::vector<AudioBlock> blocks;
+    AudioBlock block;
+    // 上限保护：最多读取 30 分钟音频（约 1758 块/秒 @1024 帧 48kHz）
+    const std::size_t maxBlocks = 200000;
+    while (reader.readAudioBlock(block) && blocks.size() < maxBlocks) {
+        blocks.push_back(block);
+    }
+    reader.close();
+    const BeatAnalysis analysis = analyzeBeats(blocks);
+    if (jsonOutput) {
+        // 供平台层/脚本消费（节拍点时间用微秒，避免浮点误差）
+        std::printf("{\"bpm\":%.3f,\"confidence\":%.3f,\"onsets\":%zu,\"beats\":[",
+                    analysis.bpm, analysis.confidence, analysis.onsets.size());
+        for (std::size_t i = 0; i < analysis.beats.size(); ++i) {
+            std::printf("%s%lld", i == 0 ? "" : ",",
+                        static_cast<long long>(toMicroseconds(analysis.beats[i].time)));
+        }
+        std::printf("],\"note\":\"%s\"}\n", analysis.note.c_str());
+    } else {
+        std::printf("=== 节拍分析：%s ===\n", audioPath.c_str());
+        std::printf("时长：%.2f s，采样率：%d，声道：%d\n",
+                    analysis.analyzedDuration.toDouble(), blocks.empty() ? 0 : blocks.front().sampleRate,
+                    blocks.empty() ? 0 : blocks.front().channels);
+        std::printf("BPM：%.2f（置信度 %.3f）\n", analysis.bpm, analysis.confidence);
+        std::printf("起音点：%zu 个，节拍：%zu 个\n", analysis.onsets.size(),
+                    analysis.beats.size());
+        for (std::size_t i = 0; i < analysis.beats.size() && i < 20; ++i) {
+            std::printf("  节拍 %2zu: %s\n", i + 1,
+                        formatClock(analysis.beats[i].time).c_str());
+        }
+        if (analysis.beats.size() > 20) {
+            std::printf("  ...（共 %zu 个）\n", analysis.beats.size());
+        }
+        if (!analysis.note.empty()) {
+            std::printf("诊断：%s\n", analysis.note.c_str());
+        }
+    }
+    return analysis.valid() ? 0 : 1;
+#else
+    (void)audioPath;
+    (void)jsonOutput;
+    std::fprintf(stderr, "此构建未包含 FFmpeg，无法分析音频节拍。\n");
+    return 1;
+#endif
+}
+
 /// 导出序列字幕为 SRT 文件。
 /// 用法：nclip_tool subs <file.nclip> <out.srt>
 int commandSubtitles(const std::string& path, const std::string& outPath) {
@@ -343,6 +400,7 @@ void printUsage() {
     std::printf("  nclip_tool export <file.nclip> <out.mp4> [--crf N] [--preset P] [--fit fit|fill|crop] 导出视频\n");
     std::printf("  nclip_tool subs <file.nclip> <out.srt> 导出字幕\n");
     std::printf("  nclip_tool subs-import <file.nclip> <in.srt> <out.nclip> 导入字幕\n");
+    std::printf("  nclip_tool beats <audio> [--json] 分析音频节拍（音乐卡点）\n");
     std::printf("  nclip_tool version                版本信息\n");
 }
 
@@ -409,6 +467,11 @@ int main(int argc, char** argv) {
             return 2;
         }
         return commandSubtitles(path, argv[3]);
+    }
+    if (command == "beats") {
+        // beats <audio> [--json]：音频文件路径由 argv[2] 提供
+        const bool jsonOutput = argc >= 4 && std::string(argv[3]) == "--json";
+        return commandBeats(path, jsonOutput);
     }
     if (command == "subs-import") {
         if (argc < 5) {

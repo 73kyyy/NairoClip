@@ -125,5 +125,68 @@ AutoEditResult applyAutoEdit(TimelineEditor& editor, Project& project, SequenceI
     return result;
 }
 
+// =============================================================================
+// 音乐卡点落盘（AI成片 → 音乐卡点）
+// =============================================================================
+
+AutoEditResult applyBeatSync(TimelineEditor& editor, Project& project, SequenceId sequenceId,
+                             TrackId trackId, const BeatAnalysis& analysis,
+                             const std::vector<MaterialSegment>& material,
+                             const BeatSyncOptions& options,
+                             const std::string& transactionName) {
+    AutoEditResult result;
+
+    // 1) 前置校验：与 applyAutoEdit 一致（轨道存在、为空、未锁定）
+    Track* track = findTrack(project, sequenceId, trackId);
+    if (track == nullptr) {
+        result.result = Result::fail(ErrorCode::NotFound, "目标轨道不存在");
+        return result;
+    }
+    if (!track->clips.empty()) {
+        result.result = Result::fail(ErrorCode::InvalidArgument,
+                                     "目标轨道非空，音乐卡点仅支持空轨道");
+        return result;
+    }
+    if (track->locked) {
+        result.result = Result::fail(ErrorCode::Locked, "目标轨道已锁定");
+        return result;
+    }
+
+    // 2) 生成节拍剪辑建议（在事务外先算好，失败不产生副作用）
+    const BeatSyncPlan plan = planBeatSync(analysis, material, options);
+    result.warnings = plan.warnings;
+    if (!plan.result.isOk()) {
+        result.result = plan.result;
+        return result;
+    }
+
+    // 3) 开事务执行（整体可一次撤销）
+    editor.beginTransaction(transactionName);
+    Time cursor;
+    for (const auto& cut : plan.cuts) {
+        Clip clip;
+        clip.asset = cut.asset;
+        clip.start = cursor;
+        clip.duration = cut.duration;
+        clip.sourceIn = cut.start;
+        ClipId insertedId;
+        const Result r = editor.insertClip(sequenceId, trackId, clip, &insertedId);
+        if (!r.isOk()) {
+            result.warnings.push_back("片段插入失败：" + r.message);
+            break;
+        }
+        ++result.clipsInserted;
+        cursor = cursor + cut.duration;
+    }
+    const bool grouped = editor.endTransaction();
+    (void)grouped;
+    if (result.clipsInserted == 0) {
+        result.result = Result::fail(ErrorCode::Internal, "音乐卡点未插入任何片段");
+        return result;
+    }
+    result.result = Result::ok();
+    return result;
+}
+
 }  // namespace core
 }  // namespace nairoclip

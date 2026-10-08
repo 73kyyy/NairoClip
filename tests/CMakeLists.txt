@@ -41,6 +41,7 @@ add_executable(nairoclip_tests
     test_export_executor.cpp
     test_ripple.cpp
     test_frame_fit.cpp
+    test_beat_detect.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

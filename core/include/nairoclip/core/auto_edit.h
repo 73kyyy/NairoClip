@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nairoclip/core/beat_detect.h"
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/reference_style.h"
 
@@ -49,6 +50,22 @@ AutoEditResult applyAutoEdit(TimelineEditor& editor, Project& project, SequenceI
                              TrackId trackId, const StyleProfile& profile,
                              const std::vector<MaterialSegment>& material,
                              const AutoEditOptions& options = {});
+
+/// ---------------------------------------------------------------------------
+/// 音乐卡点落盘（AI成片 → 音乐卡点）
+/// ---------------------------------------------------------------------------
+/// 把 planBeatSync 的剪辑建议真实写入时间轴（一条撤销事务可整体回退）：
+///  - 前置条件：目标轨道存在且为空（与其他自动剪辑一致，避免破坏用户已有剪辑）；
+///  - 每个节拍区间一个片段，素材按顺序循环取用；
+///  - 全部操作包在一个事务里，历史面板显示为「音乐卡点」。
+///
+/// 与 applyAutoEdit 的区别：节奏来源不同（音乐节拍 vs 参考素材镜头节奏），
+/// 落盘流程与失败语义一致（部分失败时保留已插入片段并记录警告）。
+AutoEditResult applyBeatSync(TimelineEditor& editor, Project& project, SequenceId sequenceId,
+                             TrackId trackId, const BeatAnalysis& analysis,
+                             const std::vector<MaterialSegment>& material,
+                             const BeatSyncOptions& options = {},
+                             const std::string& transactionName = "音乐卡点");
 
 }  // namespace core
 }  // namespace nairoclip
