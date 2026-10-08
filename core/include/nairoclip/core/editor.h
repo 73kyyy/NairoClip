@@ -55,6 +55,13 @@ public:
                               ClipId* outClipId = nullptr);
     /// 解除复合片段：把嵌套序列内容还原到复合片段所在位置并删除嵌套序列。
     Result unwrapCompoundClip(SequenceId sequenceId, TrackId trackId, ClipId compoundClipId);
+    // ---- 混音台（文档第 3 部分「专业混音台视图」）----
+    /// 设置轨道独奏（任一轨道 solo 时只有 solo 的音频轨参与混音）。
+    Result setTrackSolo(SequenceId sequenceId, TrackId trackId, bool solo);
+    /// 设置轨道增益（dB；-60..+12）。
+    Result setTrackGain(SequenceId sequenceId, TrackId trackId, double gainDb);
+    /// 设置序列主输出增益（dB；-60..+12）。
+    Result setMasterGain(SequenceId sequenceId, double gainDb);
     // ---- 片段 ----
     Result insertClip(SequenceId sequenceId, TrackId trackId, Clip clip, ClipId* outId = nullptr);
     Result removeClip(SequenceId sequenceId, TrackId trackId, ClipId clipId);

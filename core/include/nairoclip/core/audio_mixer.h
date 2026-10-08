@@ -52,6 +52,10 @@ public:
     /// 混音台高亮联动、导出前预览）。未启用或无区间时返回空。
     std::vector<DuckRegion> duckRegions(TrackId trackId) const;
 
+    /// 混音台：查询某条轨道当前是否参与混音（静音/独奏过滤后的结果）。
+    /// 供 UI 高亮显示（文档「混音台高亮联动」）。
+    bool trackAudible(TrackId trackId) const;
+
     /// dB → 线性增益转换（-60dB 及以下 → 0）。
     static double dbToLinear(double db);
 
@@ -71,6 +75,8 @@ private:
         TrackId trackId;
         /// 该片段所属轨道是否启用自动闪避（启用时应用压低包络）。
         bool ducked = false;
+        /// 轨道级增益（dB → 线性；混音台推子/数值输入）。
+        double trackGain = 1.0;
     };
 
     /// 混音一块到缓冲区（样本级）。
@@ -87,6 +93,10 @@ private:
     Time duration_;
     Time cursor_;          // 当前输出时间
     std::int64_t blockFrames_ = 1024;
+    /// 主输出增益（线性；混音台「主输出」推子）。
+    double masterGain_ = 1.0;
+    /// 是否存在独奏轨（存在时仅独奏轨参与混音）。
+    bool hasSolo_ = false;
     /// 自动闪避区间（按被压低轨分组；仅启用自动闪避的轨道有条目）。
     struct DuckPlan {
         TrackId trackId;

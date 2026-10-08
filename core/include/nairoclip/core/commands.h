@@ -301,12 +301,15 @@ private:
 class SetTrackCommand : public Command {
 public:
     /// 属性字段选择（单字段修改，可组合扩展）。
-    enum class Field { Name, Locked, Muted, Hidden, AutoDuck };
+    enum class Field { Name, Locked, Muted, Hidden, AutoDuck, Solo, Gain, SeqMasterGain };
 
     SetTrackCommand(SequenceId sequenceId, TrackId trackId, Field field, std::string nameValue,
                     bool boolValue, std::string actionName);
     /// 自动闪避专用构造（Field::AutoDuck）。
     SetTrackCommand(SequenceId sequenceId, TrackId trackId, const AutoDuckSettings& duckSettings,
+                    std::string actionName);
+    /// 增益专用构造（Field::Solo / Field::Gain：轨道级混音台控制）。
+    SetTrackCommand(SequenceId sequenceId, TrackId trackId, Field field, double gainValue,
                     std::string actionName);
 
     Result apply(Project& project) override;
@@ -319,12 +322,14 @@ private:
     Field field_;
     std::string nameValue_;
     bool boolValue_ = false;
+    double gainValue_ = 0.0;
     std::string actionName_;
     /// 自动闪避设置（Field::AutoDuck 时有效）。
     AutoDuckSettings duckSettings_;
     // 快照
     std::optional<std::string> beforeName_;
     std::optional<bool> beforeBool_;
+    std::optional<double> beforeGain_;
     std::optional<AutoDuckSettings> beforeDuck_;
 };
 

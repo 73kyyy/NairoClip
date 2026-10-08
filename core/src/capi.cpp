@@ -657,6 +657,69 @@ int32_t nc_clip_is_compound(const NcEditor* editor, int32_t track_index, uint64_
     return clip->isCompound() ? 1 : 0;
 }
 
+int32_t nc_set_track_solo(NcEditor* editor, int32_t track_index, int32_t solo) {
+    if (editor == nullptr || track_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor->setTrackSolo(main->id, trackId, solo != 0).code);
+}
+
+int32_t nc_set_track_gain(NcEditor* editor, int32_t track_index, double gain_db) {
+    if (editor == nullptr || track_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor->setTrackGain(main->id, trackId, gain_db).code);
+}
+
+int32_t nc_get_track_mixer(const NcEditor* editor, int32_t track_index, int32_t* out_muted,
+                           int32_t* out_solo, double* out_gain_db) {
+    if (editor == nullptr || track_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (out_muted != nullptr) *out_muted = track.muted ? 1 : 0;
+    if (out_solo != nullptr) *out_solo = track.solo ? 1 : 0;
+    if (out_gain_db != nullptr) *out_gain_db = track.gainDb;
+    return NC_OK;
+}
+
+int32_t nc_set_master_gain(NcEditor* editor, double gain_db) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    return toNcError(editor->editor->setMasterGain(main->id, gain_db).code);
+}
+
+int32_t nc_get_master_gain(const NcEditor* editor, double* out_gain_db) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (out_gain_db != nullptr) *out_gain_db = main->masterGainDb;
+    return NC_OK;
+}
+
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,
                      int32_t shot_count, double avg_r, double avg_g, double avg_b,
                      double avg_saturation, double avg_contrast, const uint64_t* asset_ids,

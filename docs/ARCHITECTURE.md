@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.13，测试 427 用例全绿）
+## 7. 里程碑（截至 M2.14，测试 442 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -101,6 +101,19 @@
   · 接入导出计划/执行器：ExportPlan::reframe 非空时优先于 frameFit 走跟踪裁剪
   · 序列化持久化（默认未启用不写入文件；非法数据降级为未启用）
   · 端到端验证：16:9 源 → 9:16 竖屏真实导出 108x192（100% 有效像素）
+- M2.14 ✅ 专业混音台（文档第 3 部分「专业混音台视图」）：
+  · Track 增加 solo/gainDb（轨道级混音控制）；Sequence 增加 masterGainDb（主输出）
+  · 混音器 prepare：静音排除 → 独奏过滤（solo 是「选听」聚合语义，多条 solo 全部保留）；
+    片段级增益 × 轨道增益 × 闪避包络 × 主输出，逐块应用后限幅
+  · 编辑器 setTrackSolo/setTrackGain/setMasterGain（参数校验、撤销重做、历史名）
+  · trackAudible 查询（供 UI 混音台高亮联动）
+  · 序列化（默认值不写入；越界值载入截断到合法范围）
+  · C ABI：nc_set_track_solo / nc_set_track_gain / nc_get_track_mixer /
+    nc_set_master_gain / nc_get_master_gain
+  · 修复 SetTrackCommand::apply 的真实缺陷：SeqMasterGain 不属于轨道，
+    原实现先查轨道导致主输出永远失败（revert 同步修复）
+  · 端到端验证：真实 MP4 回读测量——音乐 -12dB → ×0.24；主输出 -6dB → 两轨各 ×0.5；
+    独奏音乐 → 旁白降至频谱泄漏底（完全静音）
 
 ### 待办
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）

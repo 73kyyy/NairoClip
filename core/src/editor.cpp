@@ -118,6 +118,41 @@ Result TimelineEditor::unwrapCompoundClip(SequenceId sequenceId, TrackId trackId
     return commit(std::make_unique<UnwrapCompoundClipCommand>(sequenceId, trackId, compoundClipId));
 }
 
+Result TimelineEditor::setTrackSolo(SequenceId sequenceId, TrackId trackId, bool solo) {
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId,
+                                                    SetTrackCommand::Field::Solo,
+                                                    solo ? 1.0 : 0.0, solo ? "独奏" : "取消独奏"));
+}
+
+Result TimelineEditor::setTrackGain(SequenceId sequenceId, TrackId trackId, double gainDb) {
+    if (!(gainDb >= -60.0) || !(gainDb <= 12.0)) {
+        return Result::fail(ErrorCode::InvalidArgument, "轨道增益需在 -60dB 到 +12dB 之间");
+    }
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId,
+                                                    SetTrackCommand::Field::Gain, gainDb,
+                                                    "调整轨道音量"));
+}
+
+Result TimelineEditor::setMasterGain(SequenceId sequenceId, double gainDb) {
+    if (!(gainDb >= -60.0) || !(gainDb <= 12.0)) {
+        return Result::fail(ErrorCode::InvalidArgument, "主输出增益需在 -60dB 到 +12dB 之间");
+    }
+    const Sequence* seq = project_.findSequence(sequenceId);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    return commit(std::make_unique<SetTrackCommand>(
+        sequenceId, TrackId{}, SetTrackCommand::Field::SeqMasterGain, gainDb, "调整主输出音量"));
+}
+
 Result TimelineEditor::removeTrack(SequenceId sequenceId, TrackId trackId) {
     return commit(std::make_unique<RemoveTrackCommand>(sequenceId, trackId));
 }

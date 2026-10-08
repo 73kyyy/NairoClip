@@ -68,11 +68,22 @@ struct Track {
     bool locked = false;
     bool muted = false;
     bool hidden = false;
+    /// 独奏（混音台）——文档第 3 部分「每条轨道独立静音(Mute)/独奏(Solo)」。
+    /// 语义：任一轨道 solo 时，只有 solo 的音频轨参与混音（视频/字幕轨不受影响）。
+    bool solo = false;
+    /// 轨道增益（dB；0 = 原始电平；合法范围 [-60, +12]）。
+    /// 混音台的分贝数值直接输入即修改此值（轨道级总音量，与片段级增益相乘）。
+    double gainDb = 0.0;
     std::vector<Clip> clips;
     /// 转场列表（作用于 clips 中相邻的片段对）。
     std::vector<Transition> transitions;
     /// 音频自动闪避设置（仅音频轨有效；默认关闭）。
     AutoDuckSettings autoDuck;
+
+    /// 独奏状态是否有效（音频轨语义）。
+    bool soloActive() const { return solo; }
+    /// 增益是否合法。
+    bool gainValid() const { return gainDb >= -60.0 && gainDb <= 12.0; }
 
     const Clip* findClip(ClipId clipId) const;
     Clip* findClip(ClipId clipId);

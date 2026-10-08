@@ -44,6 +44,7 @@ add_executable(nairoclip_tests
     test_beat_detect.cpp
     test_auto_duck.cpp
     test_compound.cpp
+    test_mixer_console.cpp
     test_reframe.cpp
 )
 

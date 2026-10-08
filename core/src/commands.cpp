@@ -967,7 +967,25 @@ SetTrackCommand::SetTrackCommand(SequenceId sequenceId, TrackId trackId,
       actionName_(std::move(actionName)),
       duckSettings_(duckSettings) {}
 
+SetTrackCommand::SetTrackCommand(SequenceId sequenceId, TrackId trackId, Field field,
+                                 double gainValue, std::string actionName)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      field_(field),
+      gainValue_(gainValue),
+      actionName_(std::move(actionName)) {}
+
 Result SetTrackCommand::apply(Project& project) {
+    // 主输出增益作用于序列（非轨道）：单独处理（其余字段均需轨道存在）
+    if (field_ == Field::SeqMasterGain) {
+        Sequence* seq = project.findSequence(sequenceId_);
+        if (seq == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "序列不存在");
+        }
+        if (!beforeGain_.has_value()) beforeGain_ = seq->masterGainDb;
+        seq->masterGainDb = gainValue_;
+        return Result::ok();
+    }
     Track* track = findTrack(project, sequenceId_, trackId_);
     if (track == nullptr) {
         return Result::fail(ErrorCode::NotFound, "轨道不存在");
@@ -994,11 +1012,31 @@ Result SetTrackCommand::apply(Project& project) {
             if (!beforeDuck_.has_value()) beforeDuck_ = track->autoDuck;
             track->autoDuck = duckSettings_;
             break;
+        case Field::Solo:
+            if (!beforeBool_.has_value()) beforeBool_ = track->solo;
+            track->solo = gainValue_ != 0.0;
+            break;
+        case Field::Gain:
+            if (!beforeGain_.has_value()) beforeGain_ = track->gainDb;
+            track->gainDb = gainValue_;
+            break;
     }
     return Result::ok();
 }
 
 Result SetTrackCommand::revert(Project& project) {
+    // 主输出增益作用于序列（非轨道）：单独处理，避免误判「轨道不存在」
+    if (field_ == Field::SeqMasterGain) {
+        Sequence* seq = project.findSequence(sequenceId_);
+        if (seq == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "序列不存在");
+        }
+        if (!beforeGain_.has_value()) {
+            return Result::fail(ErrorCode::InvalidArgument, "缺少主输出增益快照");
+        }
+        seq->masterGainDb = *beforeGain_;
+        return Result::ok();
+    }
     Track* track = findTrack(project, sequenceId_, trackId_);
     if (track == nullptr) {
         return Result::fail(ErrorCode::NotFound, "轨道不存在");
@@ -1025,6 +1063,18 @@ Result SetTrackCommand::revert(Project& project) {
                 return Result::fail(ErrorCode::InvalidArgument, "缺少自动闪避快照");
             }
             track->autoDuck = *beforeDuck_;
+            break;
+        case Field::Solo:
+            if (!beforeBool_.has_value()) {
+                return Result::fail(ErrorCode::InvalidArgument, "缺少独奏快照");
+            }
+            track->solo = *beforeBool_;
+            break;
+        case Field::Gain:
+            if (!beforeGain_.has_value()) {
+                return Result::fail(ErrorCode::InvalidArgument, "缺少增益快照");
+            }
+            track->gainDb = *beforeGain_;
             break;
     }
     return Result::ok();

@@ -35,6 +35,8 @@ struct Sequence {
     /// 智能重构图轨迹（非空时导出/预览优先按主体跟踪裁剪；
     /// 对应文档「AI工具 → 智能重构图」）。空 = 使用 frameFit。
     ReframeTrack reframe;
+    /// 主输出增益（dB；混音台「主输出」推子；合法范围 [-60, +12]）。
+    double masterGainDb = 0.0;
     std::vector<Track> tracks;
     std::vector<Marker> markers;
     /// 序列级字幕轨道（独立于普通轨道，字幕事件集合）。

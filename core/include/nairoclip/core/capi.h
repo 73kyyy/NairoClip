@@ -237,6 +237,24 @@ int32_t nc_unwrap_compound_clip(NcEditor* editor, int32_t track_index, uint64_t 
 /// 查询片段是否为复合片段（返回 1/0；-1 = 参数错误）。
 int32_t nc_clip_is_compound(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
 
+// ---- 混音台（文档第 3 部分「专业混音台视图」）----
+
+/// 设置轨道独奏（任一轨道 solo 时只有 solo 的音频轨参与混音）。
+int32_t nc_set_track_solo(NcEditor* editor, int32_t track_index, int32_t solo);
+
+/// 设置轨道增益（dB；-60..+12；混音台推子/数值输入）。
+int32_t nc_set_track_gain(NcEditor* editor, int32_t track_index, double gain_db);
+
+/// 读取轨道混音参数（出参可空）。
+int32_t nc_get_track_mixer(const NcEditor* editor, int32_t track_index, int32_t* out_muted,
+                           int32_t* out_solo, double* out_gain_db);
+
+/// 设置主输出增益（dB；-60..+12；混音台「主输出」）。
+int32_t nc_set_master_gain(NcEditor* editor, double gain_db);
+
+/// 读取主输出增益。
+int32_t nc_get_master_gain(const NcEditor* editor, double* out_gain_db);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

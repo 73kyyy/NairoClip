@@ -450,3 +450,47 @@ NC_TEST(Capi, CompoundClipRejectsBadArgs) {
     NC_CHECK_EQ(nc_clip_is_compound(nullptr, 0, 1), -1);
     nc_editor_destroy(editor);
 }
+
+// ---- 混音台 C ABI（文档第 3 部分「专业混音台视图」）----
+NC_TEST(Capi, MixerConsoleControls) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    NC_CHECK(nc_add_track(editor, "音乐", 1) != 0);
+    NC_CHECK(nc_add_track(editor, "旁白", 1) != 0);
+    // 默认值
+    int32_t muted = -1, solo = -1;
+    double gainDb = -999.0;
+    NC_CHECK_EQ(nc_get_track_mixer(editor, 0, &muted, &solo, &gainDb), NC_OK);
+    NC_CHECK_EQ(muted, 0);
+    NC_CHECK_EQ(solo, 0);
+    NC_CHECK_EQ(gainDb, 0.0);
+    // 设置增益 / 独奏
+    NC_CHECK_EQ(nc_set_track_gain(editor, 0, -12.0), NC_OK);
+    NC_CHECK_EQ(nc_set_track_solo(editor, 0, 1), NC_OK);
+    NC_CHECK_EQ(nc_get_track_mixer(editor, 0, &muted, &solo, &gainDb), NC_OK);
+    NC_CHECK_EQ(solo, 1);
+    NC_CHECK(std::abs(gainDb + 12.0) < 1e-9);
+    // 主输出
+    NC_CHECK_EQ(nc_set_master_gain(editor, -3.0), NC_OK);
+    double master = 0.0;
+    NC_CHECK_EQ(nc_get_master_gain(editor, &master), NC_OK);
+    NC_CHECK(std::abs(master + 3.0) < 1e-9);
+    // 越界拒绝
+    NC_CHECK_EQ(nc_set_track_gain(editor, 0, -99.0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_master_gain(editor, 99.0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_track_gain(editor, 9, -3.0), NC_ERROR_OUT_OF_RANGE);
+    // 撤销可回退（历史面板）
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);  // 撤销主输出
+    NC_CHECK_EQ(nc_get_master_gain(editor, &master), NC_OK);
+    NC_CHECK_EQ(master, 0.0);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, MixerConsoleNullSafety) {
+    NC_CHECK_EQ(nc_set_track_solo(nullptr, 0, 1), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_track_gain(nullptr, 0, 0.0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_master_gain(nullptr, 0.0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_master_gain(nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_track_mixer(nullptr, 0, nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+}

@@ -40,9 +40,36 @@ bool AudioMixer::prepare(const ExportPlan& plan, const Project& project) {
     duckPlans_.clear();
     duration_ = plan.duration;
     cursor_ = Rational::make(0);
+    masterGain_ = 1.0;
+    hasSolo_ = false;
+
+    // 混音台：先扫描是否存在独奏轨（决定静音过滤策略）
+    for (const auto& track : plan.tracks) {
+        if (track.type != TrackType::Audio) {
+            continue;
+        }
+        const Track* sourceTrack = findTrack(project, plan.sequenceId, track.trackId);
+        if (sourceTrack != nullptr && sourceTrack->solo) {
+            hasSolo_ = true;
+            break;
+        }
+    }
+    // 主输出增益（序列级）
+    const Sequence* sequence = project.findSequence(plan.sequenceId);
+    if (sequence != nullptr) {
+        masterGain_ = dbToLinear(sequence->masterGainDb);
+    }
 
     for (const auto& track : plan.tracks) {
-        if (track.type != TrackType::Audio || track.muted) {
+        if (track.type != TrackType::Audio) {
+            continue;
+        }
+        const Track* sourceTrack = findTrack(project, plan.sequenceId, track.trackId);
+        // 混音台过滤：静音优先排除；有独奏时非独奏轨排除
+        if (track.muted) {
+            continue;
+        }
+        if (hasSolo_ && (sourceTrack == nullptr || !sourceTrack->solo)) {
             continue;
         }
         for (const auto& renderClip : track.clips) {
@@ -65,10 +92,12 @@ bool AudioMixer::prepare(const ExportPlan& plan, const Project& project) {
                 tc.fadeIn = source->audioFadeIn;
                 tc.fadeOut = source->audioFadeOut;
             }
-            // 轨道级自动闪避开关（从工程轨道读取）
-            const Track* sourceTrack = findTrack(project, plan.sequenceId, track.trackId);
-            if (sourceTrack != nullptr && sourceTrack->autoDuck.enabled) {
-                tc.ducked = true;
+            // 轨道级混音台控制
+            if (sourceTrack != nullptr) {
+                tc.trackGain = dbToLinear(sourceTrack->gainDb);
+                if (sourceTrack->autoDuck.enabled) {
+                    tc.ducked = true;
+                }
             }
             clips_.push_back(std::move(tc));
         }
@@ -79,6 +108,15 @@ bool AudioMixer::prepare(const ExportPlan& plan, const Project& project) {
 
     // 无音频片段：仍可产出静音流（返回 false 提示调用方）
     return !clips_.empty();
+}
+
+bool AudioMixer::trackAudible(TrackId trackId) const {
+    for (const auto& clip : clips_) {
+        if (clip.trackId == trackId) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void AudioMixer::buildDuckPlans(const ExportPlan& plan, const Project& project) {
@@ -292,7 +330,7 @@ void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
                     }
                 }
             }
-            const float gain = static_cast<float>(clip.linearGain * envelope);
+            const float gain = static_cast<float>(clip.linearGain * clip.trackGain * envelope);
             // 声道映射（源声道不足时用通道 0 复制）
             for (int ch = 0; ch < format_.channels; ++ch) {
                 const int srcCh = ch < sourceBlock.channels ? ch : 0;
@@ -306,8 +344,9 @@ void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
             }
         }
     }
-    // 硬限幅（防削顶保护）
+    // 硬限幅（防削顶保护）；先应用主输出增益（混音台「主输出」推子）
     for (auto& s : buffer) {
+        s = static_cast<float>(s * masterGain_);
         if (s > 1.0f) s = 1.0f;
         if (s < -1.0f) s = -1.0f;
     }

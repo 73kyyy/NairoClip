@@ -457,6 +457,13 @@ JsonValue writeTrack(const Track& t) {
     o.set("locked", JsonValue::boolean(t.locked));
     o.set("muted", JsonValue::boolean(t.muted));
     o.set("hidden", JsonValue::boolean(t.hidden));
+    // 混音台（仅非默认值写入；文档「专业混音台视图」）
+    if (t.solo) {
+        o.set("solo", JsonValue::boolean(true));
+    }
+    if (t.gainDb != 0.0) {
+        o.set("gainDb", JsonValue::number(t.gainDb));
+    }
     // 自动闪避（仅启用时写入，保持文件向后兼容与 diff 稳定）
     if (t.autoDuck.enabled || t.autoDuck.sensitivity != 0.5 ||
         t.autoDuck.duckAmountDb != 12.0 || t.autoDuck.attackSeconds != 0.08 ||
@@ -496,6 +503,11 @@ bool readTrack(const JsonValue& v, Track& out, std::string& err) {
     out.locked = v.get("locked").asBool(false);
     out.muted = v.get("muted").asBool(false);
     out.hidden = v.get("hidden").asBool(false);
+    // 混音台（缺省 = 无独奏/0dB；越界值截断到合法范围，保证工程可打开）
+    out.solo = v.get("solo").asBool(false);
+    out.gainDb = v.get("gainDb").asNumber(0.0);
+    if (out.gainDb < -60.0) out.gainDb = -60.0;
+    if (out.gainDb > 12.0) out.gainDb = 12.0;
     out.autoDuck = AutoDuckSettings{};
     if (v.has("autoDuck")) {
         const JsonValue& duck = v.get("autoDuck");
@@ -627,6 +639,10 @@ JsonValue writeSequence(const Sequence& s) {
     o.set("frameRate", writeFrameRate(s.frameRate));
     o.set("width", JsonValue::integer(s.width));
     o.set("height", JsonValue::integer(s.height));
+    // 主输出增益（混音台；仅非默认值写入）
+    if (s.masterGainDb != 0.0) {
+        o.set("masterGainDb", JsonValue::number(s.masterGainDb));
+    }
     // 画幅适配（仅非默认值写入，保持 .nclip 向后兼容与 diff 稳定）。
     if (s.frameFit != FrameFit::Fit) {
         o.set("frameFit", JsonValue::string(frameFitName(s.frameFit)));
@@ -678,6 +694,10 @@ bool readSequence(const JsonValue& v, Sequence& out, std::string& err) {
     if (v.has("frameRate")) {
         if (!readFrameRate(v.get("frameRate"), out.frameRate, err)) return false;
     }
+    // 主输出增益（缺省 0dB；越界值截断到合法范围）
+    out.masterGainDb = v.get("masterGainDb").asNumber(0.0);
+    if (out.masterGainDb < -60.0) out.masterGainDb = -60.0;
+    if (out.masterGainDb > 12.0) out.masterGainDb = 12.0;
     out.width = static_cast<int>(v.get("width").asInteger());
     out.height = static_cast<int>(v.get("height").asInteger());
     // 画幅适配（缺省 = Fit；非法值降级为默认并继续，保证工程可打开）。
