@@ -206,6 +206,19 @@ int32_t nc_get_frame_fit(const NcEditor* editor);
 /// 设置画幅适配的背景填充色（Fit 模式的信箱/邮筒边颜色；0xRRGGBBAA）。
 int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba);
 
+// ---- 音频自动闪避（文档「🎵音频 → 自动闪避」）----
+
+/// 设置轨道自动闪避（轨道下标；enabled 0/1；sensitivity 0..1；
+/// duck_amount_db 0..24；attack/release/hold 单位微秒）。
+/// 仅音频轨有效；参数非法或非音频轨返回错误码，失败不入撤销栈。
+int32_t nc_set_track_auto_duck(NcEditor* editor, int32_t track_index, int32_t enabled,
+                               double sensitivity, double duck_amount_db,
+                               int64_t attack_us, int64_t release_us, int64_t hold_us);
+
+/// 读取轨道自动闪避设置（出参可空；返回 NC_OK / 错误码）。
+int32_t nc_get_track_auto_duck(const NcEditor* editor, int32_t track_index, int32_t* out_enabled,
+                               double* out_sensitivity, double* out_duck_amount_db);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

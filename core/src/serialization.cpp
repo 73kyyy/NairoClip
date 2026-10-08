@@ -439,6 +439,19 @@ JsonValue writeTrack(const Track& t) {
     o.set("locked", JsonValue::boolean(t.locked));
     o.set("muted", JsonValue::boolean(t.muted));
     o.set("hidden", JsonValue::boolean(t.hidden));
+    // 自动闪避（仅启用时写入，保持文件向后兼容与 diff 稳定）
+    if (t.autoDuck.enabled || t.autoDuck.sensitivity != 0.5 ||
+        t.autoDuck.duckAmountDb != 12.0 || t.autoDuck.attackSeconds != 0.08 ||
+        t.autoDuck.releaseSeconds != 0.35 || t.autoDuck.holdSeconds != 0.25) {
+        JsonValue duck = JsonValue::object();
+        duck.set("enabled", JsonValue::boolean(t.autoDuck.enabled));
+        duck.set("sensitivity", JsonValue::number(t.autoDuck.sensitivity));
+        duck.set("duckAmountDb", JsonValue::number(t.autoDuck.duckAmountDb));
+        duck.set("attackSeconds", JsonValue::number(t.autoDuck.attackSeconds));
+        duck.set("releaseSeconds", JsonValue::number(t.autoDuck.releaseSeconds));
+        duck.set("holdSeconds", JsonValue::number(t.autoDuck.holdSeconds));
+        o.set("autoDuck", std::move(duck));
+    }
     JsonValue clips = JsonValue::array();
     for (const auto& c : t.clips) {
         clips.push(writeClip(c));
@@ -465,6 +478,20 @@ bool readTrack(const JsonValue& v, Track& out, std::string& err) {
     out.locked = v.get("locked").asBool(false);
     out.muted = v.get("muted").asBool(false);
     out.hidden = v.get("hidden").asBool(false);
+    out.autoDuck = AutoDuckSettings{};
+    if (v.has("autoDuck")) {
+        const JsonValue& duck = v.get("autoDuck");
+        out.autoDuck.enabled = duck.get("enabled").asBool(false);
+        if (duck.has("sensitivity")) out.autoDuck.sensitivity = duck.get("sensitivity").asNumber(0.5);
+        if (duck.has("duckAmountDb")) out.autoDuck.duckAmountDb = duck.get("duckAmountDb").asNumber(12.0);
+        if (duck.has("attackSeconds")) out.autoDuck.attackSeconds = duck.get("attackSeconds").asNumber(0.08);
+        if (duck.has("releaseSeconds")) out.autoDuck.releaseSeconds = duck.get("releaseSeconds").asNumber(0.35);
+        if (duck.has("holdSeconds")) out.autoDuck.holdSeconds = duck.get("holdSeconds").asNumber(0.25);
+        // 载入时非法参数降级为默认（保证工程可打开）
+        if (!out.autoDuck.valid()) {
+            out.autoDuck = AutoDuckSettings{};
+        }
+    }
     const JsonValue& clips = v.get("clips");
     if (!clips.isArray()) { err = "轨道缺少 clips 数组"; return false; }
     out.clips.clear();

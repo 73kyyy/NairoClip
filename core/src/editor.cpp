@@ -73,6 +73,22 @@ Result TimelineEditor::setTrackHidden(SequenceId sequenceId, TrackId trackId, bo
                                                     std::string(), hidden, "隐藏轨道"));
 }
 
+Result TimelineEditor::setTrackAutoDuck(SequenceId sequenceId, TrackId trackId,
+                                        const AutoDuckSettings& settings) {
+    if (!settings.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "自动闪避参数非法（灵敏度 0..1、幅度 0..24dB、时间 0..3s）");
+    }
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->type != TrackType::Audio) {
+        return Result::fail(ErrorCode::InvalidArgument, "自动闪避仅支持音频轨");
+    }
+    return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, settings, "自动闪避"));
+}
+
 Result TimelineEditor::removeTrack(SequenceId sequenceId, TrackId trackId) {
     return commit(std::make_unique<RemoveTrackCommand>(sequenceId, trackId));
 }

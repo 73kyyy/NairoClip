@@ -5,6 +5,7 @@
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/transition.h"
+#include "nairoclip/core/track.h"
 #include "nairoclip/core/serialization.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -554,6 +555,44 @@ int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba) {
         return NC_ERROR_NOT_FOUND;
     }
     main->backgroundRgba = rgba;
+    return NC_OK;
+}
+
+int32_t nc_set_track_auto_duck(NcEditor* editor, int32_t track_index, int32_t enabled,
+                               double sensitivity, double duck_amount_db, int64_t attack_us,
+                               int64_t release_us, int64_t hold_us) {
+    if (editor == nullptr || track_index < 0 || attack_us < 0 || release_us < 0 ||
+        hold_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    AutoDuckSettings settings;
+    settings.enabled = enabled != 0;
+    settings.sensitivity = sensitivity;
+    settings.duckAmountDb = duck_amount_db;
+    settings.attackSeconds = static_cast<double>(attack_us) / 1000000.0;
+    settings.releaseSeconds = static_cast<double>(release_us) / 1000000.0;
+    settings.holdSeconds = static_cast<double>(hold_us) / 1000000.0;
+    return toNcError(editor->editor->setTrackAutoDuck(main->id, trackId, settings).code);
+}
+
+int32_t nc_get_track_auto_duck(const NcEditor* editor, int32_t track_index, int32_t* out_enabled,
+                               double* out_sensitivity, double* out_duck_amount_db) {
+    if (editor == nullptr || track_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (out_enabled != nullptr) *out_enabled = track.autoDuck.enabled ? 1 : 0;
+    if (out_sensitivity != nullptr) *out_sensitivity = track.autoDuck.sensitivity;
+    if (out_duck_amount_db != nullptr) *out_duck_amount_db = track.autoDuck.duckAmountDb;
     return NC_OK;
 }
 

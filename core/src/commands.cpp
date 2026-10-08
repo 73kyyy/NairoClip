@@ -951,6 +951,14 @@ SetTrackCommand::SetTrackCommand(SequenceId sequenceId, TrackId trackId, Field f
       boolValue_(boolValue),
       actionName_(std::move(actionName)) {}
 
+SetTrackCommand::SetTrackCommand(SequenceId sequenceId, TrackId trackId,
+                                 const AutoDuckSettings& duckSettings, std::string actionName)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      field_(Field::AutoDuck),
+      actionName_(std::move(actionName)),
+      duckSettings_(duckSettings) {}
+
 Result SetTrackCommand::apply(Project& project) {
     Track* track = findTrack(project, sequenceId_, trackId_);
     if (track == nullptr) {
@@ -973,6 +981,10 @@ Result SetTrackCommand::apply(Project& project) {
         case Field::Hidden:
             if (!beforeBool_.has_value()) beforeBool_ = track->hidden;
             track->hidden = boolValue_;
+            break;
+        case Field::AutoDuck:
+            if (!beforeDuck_.has_value()) beforeDuck_ = track->autoDuck;
+            track->autoDuck = duckSettings_;
             break;
     }
     return Result::ok();
@@ -999,6 +1011,12 @@ Result SetTrackCommand::revert(Project& project) {
             if (field_ == Field::Locked) track->locked = *beforeBool_;
             if (field_ == Field::Muted) track->muted = *beforeBool_;
             if (field_ == Field::Hidden) track->hidden = *beforeBool_;
+            break;
+        case Field::AutoDuck:
+            if (!beforeDuck_.has_value()) {
+                return Result::fail(ErrorCode::InvalidArgument, "缺少自动闪避快照");
+            }
+            track->autoDuck = *beforeDuck_;
             break;
     }
     return Result::ok();

@@ -48,6 +48,10 @@ public:
     /// 总时长。
     Time duration() const { return duration_; }
 
+    /// 查询某条轨道的自动闪避压低区间（供时间轴绘制「自动压低区间」、
+    /// 混音台高亮联动、导出前预览）。未启用或无区间时返回空。
+    std::vector<DuckRegion> duckRegions(TrackId trackId) const;
+
     /// dB → 线性增益转换（-60dB 及以下 → 0）。
     static double dbToLinear(double db);
 
@@ -63,10 +67,18 @@ private:
         double linearGain = 1.0;
         Time fadeIn;
         Time fadeOut;
+        /// 所属轨道（自动闪避联动查询用）。
+        TrackId trackId;
+        /// 该片段所属轨道是否启用自动闪避（启用时应用压低包络）。
+        bool ducked = false;
     };
 
     /// 混音一块到缓冲区（样本级）。
     void mixInto(std::vector<float>& buffer, const Time& blockStart);
+
+    /// 构建自动闪避计划：分析触发轨（其他非静音音频轨）的语音活动，
+    /// 为启用自动闪避的被压低轨生成压低区间。
+    void buildDuckPlans(const ExportPlan& plan, const Project& project);
 
     MixFormat format_;
     MediaReaderFactory& readerFactory_;
@@ -75,6 +87,12 @@ private:
     Time duration_;
     Time cursor_;          // 当前输出时间
     std::int64_t blockFrames_ = 1024;
+    /// 自动闪避区间（按被压低轨分组；仅启用自动闪避的轨道有条目）。
+    struct DuckPlan {
+        TrackId trackId;
+        std::vector<DuckRegion> regions;
+    };
+    std::vector<DuckPlan> duckPlans_;
 };
 
 }  // namespace core

@@ -72,6 +72,7 @@
 | M2.8 | nclip_tool 字幕导入导出命令 | ✅ 已完成 |
 | M2.9 | 导出画幅适配模式（fit/fill/crop，含序列化/预览/CLI/C ABI） | ✅ 已完成 |
 | M2.10 | 节拍检测与音乐卡点（BPM 估计 + 梳状对齐 + 时间轴落盘 + CLI beats） | ✅ 已完成 |
+| M2.11 | 音频自动闪避（本地 VAD + 压低区间 + 混音集成 + C ABI/CLI） | ✅ 已完成 |
 | M3.0 | Android 平台层（JNI + MediaCodec 封装，需 NDK 环境） | ⬜ 计划中 |
 | M2.x | Android 平台壳（Kotlin + JNI），真机跑通时间轴编辑 | ⬜ 计划中 |
 

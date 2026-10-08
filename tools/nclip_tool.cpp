@@ -88,7 +88,7 @@ int commandInfo(const std::string& path) {
         std::printf("    轨道=%zu  标记=%zu  字幕=%zu  画幅适配=%s\n", s.tracks.size(),
                     s.markers.size(), s.subtitles.size(), frameFitName(s.frameFit));
         for (const auto& t : s.tracks) {
-            std::printf("    - %s（%s）片段=%zu 转场=%zu%s%s%s\n", t.name.c_str(),
+            std::printf("    - %s（%s）片段=%zu 转场=%zu%s%s%s", t.name.c_str(),
                         t.type == TrackType::Video    ? "视频"
                         : t.type == TrackType::Audio  ? "音频"
                         : t.type == TrackType::Subtitle ? "字幕"
@@ -96,6 +96,11 @@ int commandInfo(const std::string& path) {
                         t.clips.size(), t.transitions.size(),
                         t.locked ? " [锁定]" : "", t.muted ? " [静音]" : "",
                         t.hidden ? " [隐藏]" : "");
+            if (t.type == TrackType::Audio && t.autoDuck.enabled) {
+                std::printf(" [闪避 %.0fdB 灵敏度%.1f]", t.autoDuck.duckAmountDb,
+                            t.autoDuck.sensitivity);
+            }
+            std::printf("\n");
         }
     }
     return 0;

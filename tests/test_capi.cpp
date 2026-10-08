@@ -345,3 +345,46 @@ NC_TEST(Capi, FrameFitPersistsThroughSaveLoad) {
     nc_editor_destroy(editor);
     nc_editor_destroy(editor2);
 }
+
+// ---- 音频自动闪避 C ABI（文档「🎵音频 → 自动闪避」）----
+NC_TEST(Capi, AutoDuckSetGet) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    // 加一条音频轨（下标 0）
+    NC_CHECK(nc_add_track(editor, "音乐", 1) != 0);
+    // 默认关闭
+    int32_t enabled = -1;
+    double sensitivity = -1.0;
+    double duckDb = -1.0;
+    NC_CHECK_EQ(nc_get_track_auto_duck(editor, 0, &enabled, &sensitivity, &duckDb), NC_OK);
+    NC_CHECK_EQ(enabled, 0);
+    // 启用并设置参数
+    NC_CHECK_EQ(nc_set_track_auto_duck(editor, 0, 1, 0.7, 9.0, 80000, 350000, 250000), NC_OK);
+    NC_CHECK_EQ(nc_get_track_auto_duck(editor, 0, &enabled, &sensitivity, &duckDb), NC_OK);
+    NC_CHECK_EQ(enabled, 1);
+    NC_CHECK(std::abs(sensitivity - 0.7) < 1e-9);
+    NC_CHECK(std::abs(duckDb - 9.0) < 1e-9);
+    // 非法参数（灵敏度越界）
+    NC_CHECK_EQ(nc_set_track_auto_duck(editor, 0, 1, 1.5, 9.0, 0, 0, 0),
+                NC_ERROR_INVALID_ARGUMENT);
+    // 越界下标
+    NC_CHECK_EQ(nc_get_track_auto_duck(editor, 5, nullptr, nullptr, nullptr),
+                NC_ERROR_OUT_OF_RANGE);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, AutoDuckRejectsVideoTrack) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(nc_add_track(editor, "视频", 0) != 0);
+    // 视频轨不允许自动闪避
+    NC_CHECK_EQ(nc_set_track_auto_duck(editor, 0, 1, 0.5, 12.0, 0, 0, 0),
+                NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, AutoDuckNullSafety) {
+    NC_CHECK_EQ(nc_set_track_auto_duck(nullptr, 0, 1, 0.5, 12.0, 0, 0, 0),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_track_auto_duck(nullptr, 0, nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+}

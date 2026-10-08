@@ -3,6 +3,7 @@
 #include "nairoclip/core/command.h"
 #include "nairoclip/core/animation.h"
 #include "nairoclip/core/transition_types.h"
+#include "nairoclip/core/track.h"
 
 #include <cstddef>
 #include <optional>
@@ -300,10 +301,13 @@ private:
 class SetTrackCommand : public Command {
 public:
     /// 属性字段选择（单字段修改，可组合扩展）。
-    enum class Field { Name, Locked, Muted, Hidden };
+    enum class Field { Name, Locked, Muted, Hidden, AutoDuck };
 
     SetTrackCommand(SequenceId sequenceId, TrackId trackId, Field field, std::string nameValue,
                     bool boolValue, std::string actionName);
+    /// 自动闪避专用构造（Field::AutoDuck）。
+    SetTrackCommand(SequenceId sequenceId, TrackId trackId, const AutoDuckSettings& duckSettings,
+                    std::string actionName);
 
     Result apply(Project& project) override;
     Result revert(Project& project) override;
@@ -316,9 +320,12 @@ private:
     std::string nameValue_;
     bool boolValue_ = false;
     std::string actionName_;
+    /// 自动闪避设置（Field::AutoDuck 时有效）。
+    AutoDuckSettings duckSettings_;
     // 快照
     std::optional<std::string> beforeName_;
     std::optional<bool> beforeBool_;
+    std::optional<AutoDuckSettings> beforeDuck_;
 };
 
 

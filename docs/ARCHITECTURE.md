@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.10，测试 366 用例全绿）
+## 7. 里程碑（截至 M2.11，测试 386 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -86,6 +86,7 @@
 - M2.8 ✅ nclip_tool 字幕命令（SRT 导出/导入工程）
 - M2.9 ✅ 导出画幅适配模式（fit 信箱 / fill 铺满裁切 / crop 居中1:1；含序列化、预览、CLI `--fit`、C ABI）
 - M2.10 ✅ 节拍检测与音乐卡点（多频带 onset + 精细周期扫描 + 梳状对齐抗倍频歧义；节拍网格/吸附/卡片段规划；applyBeatSync 事务化落盘；CLI `beats`）
+- M2.11 ✅ 音频自动闪避（本地 RMS VAD + hold 合并 + attack/release 包络；轨道级设置命令与序列化；混音器真实应用压低增益；duckRegions 供时间轴绘制；C ABI + CLI 展示）
 
 ### 待办
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）

@@ -41,6 +41,9 @@ public:
     Result setTrackMuted(SequenceId sequenceId, TrackId trackId, bool muted);
     /// 设置轨道隐藏。
     Result setTrackHidden(SequenceId sequenceId, TrackId trackId, bool hidden);
+    /// 设置音频自动闪避（开关/灵敏度/压低幅度；文档「🎵音频 → 自动闪避」）。
+    Result setTrackAutoDuck(SequenceId sequenceId, TrackId trackId,
+                            const AutoDuckSettings& settings);
     // ---- 片段 ----
     Result insertClip(SequenceId sequenceId, TrackId trackId, Clip clip, ClipId* outId = nullptr);
     Result removeClip(SequenceId sequenceId, TrackId trackId, ClipId clipId);
