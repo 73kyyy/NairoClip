@@ -147,6 +147,23 @@
     窗口长度按素材实际采样率换算（原先硬编码 48kHz）
   · C ABI：nc_ai_check（JSON 报告）/ nc_ai_check_fix_all
 
+- M2.17 ✅ 代理剪辑（文档第 3 部分「三、代理剪辑（Proxy Editing）」）：
+  · proxy 模块（零文件系统依赖，逻辑全可测）：ProxyRegistry 登记表（随工程序列化）、
+    ProxySettings（自动/手动/从不 + 1/2·1/4 质量 + 高分辨率阈值）、ProxyRecord 状态机
+  · checkProxyOnImport：识别 4K 级素材并给出建议尺寸/估算耗时/估算体积/说明文案；
+    已有可用代理或非高分辨率素材不重复建议；「从不」策略直接跳过
+  · generateProxyFrames：真实逐帧转码驱动（读源 → 双线性缩放 → 写编码器），
+    支持进度回调与取消；解码器/编码器由平台层注入（桌面=FFmpeg，移动=MediaCodec）
+  · selectPreviewSource：预览用代理、原片兜底；导出路径不经此函数——ExportPlan 始终
+    引用 asset->path（原片），对应「导出时自动使用原始画质」（有对应用例守护）
+  · 序列化：登记表持久化（空表不写入；载入时「生成中」重置为未完成、
+    悬空素材引用自动丢弃，保证工程可打开）
+  · 「生成中」为运行时状态不持久化；占用统计（readyCount/totalSizeBytes）供设置页展示与清理
+  · 修正估算模型缺陷：原按单一吞吐估算严重低估（实测 0.10s 估算 vs 3.58s 实测）；
+    改为解码/缩放/编码三段成本模型（取偏保守吞吐），2.10s 估算对 3.58s 实测
+  · C ABI：nc_proxy_check_import / nc_proxy_set_record / nc_proxy_get_record /
+    nc_proxy_usage / nc_proxy_clear_records
+
 ### 待办
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
 - 后续 ⬜ 本地 AI 推理（模型分发走国内云）+ 平台壳（Kotlin/Qt）

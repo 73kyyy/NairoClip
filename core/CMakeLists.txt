@@ -39,6 +39,7 @@ add_library(nairoclip_core STATIC
     src/watermark.cpp
     src/entitlement.cpp
     src/ai_check.cpp
+    src/proxy.cpp
     src/reframe.cpp
 )
 target_include_directories(nairoclip_core PUBLIC

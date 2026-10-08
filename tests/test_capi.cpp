@@ -596,3 +596,72 @@ NC_TEST(Capi, AiCheckNullSafety) {
     nc_free_string(json);
     nc_editor_destroy(editor);
 }
+
+// ---- 代理剪辑 C ABI（文档第 3 部分）----
+NC_TEST(Capi, ProxyRecordsAndUsage) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId =
+        nc_import_asset(editor, "4k.mp4", "/videos/4k.mp4", 0, 60000000);
+    NC_CHECK(assetId != 0);
+    // 无记录
+    int32_t status = -1;
+    NC_CHECK_EQ(nc_proxy_get_record(editor, assetId, &status, nullptr, nullptr, nullptr, nullptr,
+                                    nullptr),
+                0);
+    // 写入就绪记录
+    NC_CHECK_EQ(nc_proxy_set_record(editor, assetId, "/proxies/4k.proxy.mp4", 2, 1920, 1080,
+                                    12345678, nullptr),
+                NC_OK);
+    NC_CHECK_EQ(nc_proxy_get_record(editor, assetId, &status, nullptr, nullptr, nullptr, nullptr,
+                                    nullptr),
+                1);
+    NC_CHECK_EQ(status, 2);  // ready
+    // 占用统计
+    int32_t ready = 0;
+    int32_t generating = 0;
+    int64_t total = 0;
+    NC_CHECK_EQ(nc_proxy_usage(editor, &ready, &generating, &total), NC_OK);
+    NC_CHECK_EQ(ready, 1);
+    NC_CHECK_EQ(generating, 0);
+    NC_CHECK_EQ(total, std::int64_t(12345678));
+    // 清除（供「清理代理」）
+    NC_CHECK_EQ(nc_proxy_clear_records(editor), 1);
+    NC_CHECK_EQ(nc_proxy_usage(editor, &ready, nullptr, &total), NC_OK);
+    NC_CHECK_EQ(ready, 0);
+    NC_CHECK_EQ(total, std::int64_t(0));
+    // 错误路径
+    NC_CHECK_EQ(nc_proxy_set_record(editor, 9999, "/x.mp4", 2, 0, 0, 0, nullptr),
+                NC_ERROR_NOT_FOUND);
+    NC_CHECK_EQ(nc_proxy_set_record(editor, assetId, "/x.mp4", 9, 0, 0, 0, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_proxy_usage(nullptr, nullptr, nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, ProxyImportCheckAndNullSafety) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId =
+        nc_import_asset(editor, "4k.mp4", "/videos/4k.mp4", 0, 60000000);
+    NC_CHECK(assetId != 0);
+    // 默认设置（自动 + 1/2）：素材未探测尺寸 → 无法判定高分辨率（返回 0）
+    int32_t w = 0;
+    int32_t h = 0;
+    double secs = 0.0;
+    int64_t bytes = 0;
+    char* reason = nullptr;
+    char* err = nullptr;
+    const int32_t suggest =
+        nc_proxy_check_import(editor, assetId, &w, &h, &secs, &bytes, &reason, &err);
+    NC_CHECK(suggest == 0 || suggest == 1);  // 不崩溃即可
+    if (reason != nullptr) nc_free_string(reason);
+    if (err != nullptr) nc_free_string(err);
+    // 空安全
+    NC_CHECK_EQ(nc_proxy_check_import(nullptr, 1, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                      nullptr),
+                -1);
+    NC_CHECK_EQ(nc_proxy_get_record(nullptr, 1, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                    nullptr),
+                -1);
+    NC_CHECK_EQ(nc_proxy_clear_records(nullptr), -1);
+    nc_editor_destroy(editor);
+}

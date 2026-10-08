@@ -845,6 +845,26 @@ std::string saveProjectToNclip(const Project& project) {
         assets.push(writeAsset(a));
     }
     root.set("assets", std::move(assets));
+    // 代理登记表（文档第 3 部分「代理剪辑」；仅写入有记录项）
+    if (!project.proxies.records.empty()) {
+        JsonValue proxies = JsonValue::array();
+        for (const auto& record : project.proxies.records) {
+            JsonValue item = JsonValue::object();
+            item.set("asset",
+                     JsonValue::integer(static_cast<std::int64_t>(record.asset.value)));
+            item.set("path", JsonValue::string(record.path));
+            item.set("width", JsonValue::integer(record.width));
+            item.set("height", JsonValue::integer(record.height));
+            item.set("quality", JsonValue::string(proxyQualityName(record.quality)));
+            item.set("status", JsonValue::string(proxyStatusName(record.status)));
+            item.set("sizeBytes", JsonValue::integer(record.sizeBytes));
+            if (!record.note.empty()) {
+                item.set("note", JsonValue::string(record.note));
+            }
+            proxies.push(std::move(item));
+        }
+        root.set("proxies", std::move(proxies));
+    }
     JsonValue sequences = JsonValue::array();
     for (const auto& s : project.sequences) {
         sequences.push(writeSequence(s));
@@ -905,6 +925,43 @@ NclipLoadResult loadProjectFromNclip(const std::string& text, Project& out) {
                 return result;
             }
             loaded.sequences.push_back(std::move(s));
+        }
+    }
+    // 代理登记表（缺省 = 空；非法记录跳过，保证工程可打开）
+    const JsonValue& proxies = root.get("proxies");
+    if (proxies.isArray()) {
+        for (std::size_t i = 0; i < proxies.size(); ++i) {
+            const JsonValue& item = proxies.at(i);
+            if (!item.isObject()) {
+                continue;
+            }
+            ProxyRecord record;
+            record.asset = AssetId{static_cast<std::uint64_t>(item.get("asset").asInteger())};
+            if (!record.asset.isValid()) {
+                continue;
+            }
+            record.path = item.get("path").asString();
+            record.width = static_cast<int>(item.get("width").asInteger());
+            record.height = static_cast<int>(item.get("height").asInteger());
+            record.sizeBytes = item.get("sizeBytes").asInteger();
+            ProxyQuality quality;
+            if (proxyQualityFromString(item.get("quality").asString().c_str(), quality)) {
+                record.quality = quality;
+            }
+            ProxyStatus status;
+            if (proxyStatusFromString(item.get("status").asString().c_str(), status)) {
+                record.status = status;
+            }
+            // 「生成中」为运行时状态：载入时视为未完成（避免下次启动卡在中间态）
+            if (record.status == ProxyStatus::Generating) {
+                record.status = ProxyStatus::None;
+            }
+            record.note = item.get("note").asString();
+            // 防御：引用不存在的素材 → 丢弃该记录
+            if (loaded.findAsset(record.asset) == nullptr) {
+                continue;
+            }
+            loaded.proxies.upsert(std::move(record));
         }
     }
     if (!validateReferences(loaded, err)) {

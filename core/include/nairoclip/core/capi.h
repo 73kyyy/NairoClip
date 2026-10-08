@@ -289,6 +289,43 @@ int32_t nc_ai_check(NcEditor* editor, char** out_report_json, char** out_error);
 /// 返回修复成功数量（>= 0）；失败返回 -1 并写入 out_error（需 nc_free_string）。
 int32_t nc_ai_check_fix_all(NcEditor* editor, char** out_error);
 
+// ---- 代理剪辑（文档第 3 部分「三、代理剪辑（Proxy Editing）」）----
+
+/// 导入检查：判断素材是否需要生成代理（供导入弹窗与自动生成决策）。
+/// - asset_id：素材 ID；
+/// - out_proxy_width / out_proxy_height：出参（可空）建议代理尺寸；
+/// - out_estimated_seconds / out_estimated_bytes：出参（可空）估算耗时/体积；
+/// - out_reason：出参（可空）说明文案（需 nc_free_string）；
+/// 返回：1 = 建议生成（自动模式下直接生成），0 = 无需生成，-1 = 错误（见 out_error）。
+int32_t nc_proxy_check_import(NcEditor* editor, uint64_t asset_id, int32_t* out_proxy_width,
+                              int32_t* out_proxy_height, double* out_estimated_seconds,
+                              int64_t* out_estimated_bytes, char** out_reason,
+                              char** out_error);
+
+/// 写入/更新代理记录（平台层生成完成或失败后调用；线程约束同其他写接口）。
+/// - path：代理文件路径（空 = 清除路径）；status：0=none 1=generating 2=ready 3=failed；
+/// - width/height/size_bytes：代理实际参数（0 = 未知）；
+/// - note：备注（可空）。
+int32_t nc_proxy_set_record(NcEditor* editor, uint64_t asset_id, const char* path,
+                            int32_t status, int32_t width, int32_t height,
+                            int64_t size_bytes, const char* note);
+
+/// 读取代理记录（多个出参可空）。
+/// 返回：1 = 有记录（*out_status 有效），0 = 无记录，-1 = 错误。
+int32_t nc_proxy_get_record(const NcEditor* editor, uint64_t asset_id, int32_t* out_status,
+                            int32_t* out_width, int32_t* out_height, int64_t* out_size_bytes,
+                            char** out_path, char** out_note);
+
+/// 代理占用统计（设置页「代理文件占用: 1.2GB [清理已导出项目的代理]」）。
+/// - out_ready_count / out_generating_count：出参（可空）就绪/生成中数量；
+/// - out_total_bytes：出参（可空）就绪代理占用总量。
+int32_t nc_proxy_usage(const NcEditor* editor, int32_t* out_ready_count,
+                       int32_t* out_generating_count, int64_t* out_total_bytes);
+
+/// 清除代理记录（供「清理代理」；返回被清除的记录数，-1 = 错误）。
+/// 说明：core 不触碰文件系统，平台层据记录列表删除文件。
+int32_t nc_proxy_clear_records(NcEditor* editor);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

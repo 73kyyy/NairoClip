@@ -9,6 +9,7 @@
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/track.h"
 #include "nairoclip/core/json.h"
+#include "nairoclip/core/proxy.h"
 #include "nairoclip/core/serialization.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -32,6 +33,8 @@ struct NcEditor {
     /// 会员权益快照（账号级状态；由平台层在服务端校验后经
     /// nc_set_entitlement 更新；默认 Free = fail-closed）。
     Entitlement entitlement;
+    /// 代理设置（平台层持久化；默认自动 + 1/2 分辨率）。
+    ProxySettings proxySettings;
 };
 
 namespace {
@@ -852,6 +855,110 @@ int32_t nc_ai_check_fix_all(NcEditor* editor, char** out_error) {
         fixAllIssues(*editor->editor, editor->project, seq->id, report.issues);
     if (out_error != nullptr) *out_error = nullptr;
     return static_cast<int32_t>(fixResult.fixed);
+}
+
+// ---- 代理剪辑（文档第 3 部分）----
+
+int32_t nc_proxy_check_import(NcEditor* editor, uint64_t asset_id, int32_t* out_proxy_width,
+                              int32_t* out_proxy_height, double* out_estimated_seconds,
+                              int64_t* out_estimated_bytes, char** out_reason,
+                              char** out_error) {
+    if (editor == nullptr || asset_id == 0) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("素材不存在");
+        return -1;
+    }
+    const ProxyImportCheck check =
+        checkProxyOnImport(*asset, editor->proxySettings, &editor->project.proxies);
+    if (out_proxy_width != nullptr) *out_proxy_width = check.proxyWidth;
+    if (out_proxy_height != nullptr) *out_proxy_height = check.proxyHeight;
+    if (out_estimated_seconds != nullptr) *out_estimated_seconds = check.estimatedSeconds;
+    if (out_estimated_bytes != nullptr) *out_estimated_bytes = check.estimatedBytes;
+    if (out_reason != nullptr) *out_reason = dupString(check.reason);
+    if (out_error != nullptr) *out_error = nullptr;
+    return check.suggestProxy ? 1 : 0;
+}
+
+int32_t nc_proxy_set_record(NcEditor* editor, uint64_t asset_id, const char* path,
+                            int32_t status, int32_t width, int32_t height,
+                            int64_t size_bytes, const char* note) {
+    if (editor == nullptr || asset_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    ProxyStatus proxyStatus;
+    if (status < 0 || status > 3) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    proxyStatus = static_cast<ProxyStatus>(status);
+    if (editor->project.findAsset(AssetId{asset_id}) == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    ProxyRecord record;
+    record.asset = AssetId{asset_id};
+    if (path != nullptr) {
+        record.path = path;
+    }
+    record.status = proxyStatus;
+    record.width = width < 0 ? 0 : width;
+    record.height = height < 0 ? 0 : height;
+    record.sizeBytes = size_bytes < 0 ? 0 : size_bytes;
+    if (note != nullptr) {
+        record.note = note;
+    }
+    record.quality = editor->proxySettings.quality;
+    editor->project.proxies.upsert(std::move(record));
+    return NC_OK;
+}
+
+int32_t nc_proxy_get_record(const NcEditor* editor, uint64_t asset_id, int32_t* out_status,
+                            int32_t* out_width, int32_t* out_height, int64_t* out_size_bytes,
+                            char** out_path, char** out_note) {
+    if (editor == nullptr || asset_id == 0) {
+        return -1;
+    }
+    const ProxyRecord* record = editor->project.proxies.find(AssetId{asset_id});
+    if (record == nullptr) {
+        return 0;
+    }
+    if (out_status != nullptr) *out_status = static_cast<int32_t>(record->status);
+    if (out_width != nullptr) *out_width = record->width;
+    if (out_height != nullptr) *out_height = record->height;
+    if (out_size_bytes != nullptr) *out_size_bytes = record->sizeBytes;
+    if (out_path != nullptr) *out_path = dupString(record->path);
+    if (out_note != nullptr) *out_note = dupString(record->note);
+    return 1;
+}
+
+int32_t nc_proxy_usage(const NcEditor* editor, int32_t* out_ready_count,
+                       int32_t* out_generating_count, int64_t* out_total_bytes) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (out_ready_count != nullptr) {
+        *out_ready_count =
+            static_cast<int32_t>(editor->project.proxies.readyCount());
+    }
+    if (out_generating_count != nullptr) {
+        *out_generating_count =
+            static_cast<int32_t>(editor->project.proxies.generatingCount());
+    }
+    if (out_total_bytes != nullptr) {
+        *out_total_bytes = editor->project.proxies.totalSizeBytes();
+    }
+    return NC_OK;
+}
+
+int32_t nc_proxy_clear_records(NcEditor* editor) {
+    if (editor == nullptr) {
+        return -1;
+    }
+    const int32_t count = static_cast<int32_t>(editor->project.proxies.records.size());
+    editor->project.proxies.clear();
+    return count;
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

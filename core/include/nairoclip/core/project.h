@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/media.h"
+#include "nairoclip/core/proxy.h"
 #include "nairoclip/core/sequence.h"
 
 #include <string>
@@ -15,6 +16,8 @@ struct Project {
     std::string name = "未命名项目";
     std::vector<MediaAsset> assets;
     std::vector<Sequence> sequences;
+    /// 代理登记表（文档第 3 部分「代理剪辑」；随工程序列化）。
+    ProxyRegistry proxies;
     IdAllocator ids;
 
     MediaAsset* findAsset(AssetId assetId);
