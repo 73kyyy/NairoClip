@@ -326,6 +326,42 @@ int32_t nc_proxy_usage(const NcEditor* editor, int32_t* out_ready_count,
 /// 说明：core 不触碰文件系统，平台层据记录列表删除文件。
 int32_t nc_proxy_clear_records(NcEditor* editor);
 
+// ---- 导出预设 / 资源预估 / 性能模式（文档 6.1「导出页 & 快速导出预设库」）----
+
+/// 列举内置预设（供 UI 快速预设列表）。
+/// - out_ids：出参（可空）预设 ID 数组；capacity：数组容量；
+/// - out_count：出参（可空）实际数量（可大于 capacity，用于查询总数）。
+/// 返回 NC_OK。
+int32_t nc_export_presets(int32_t* out_ids, int32_t capacity, int32_t* out_count);
+
+/// 读取预设参数（供 UI 展示标签/尺寸）。
+/// - preset_id：预设 ID（0..5；非法返回 NC_ERROR_INVALID_ARGUMENT）；
+/// - 出参均可空：out_width/out_height/out_fps/out_requires_pro/out_label（需 nc_free_string）。
+int32_t nc_export_preset_info(int32_t preset_id, int32_t* out_width, int32_t* out_height,
+                              int32_t* out_fps, int32_t* out_requires_pro, char** out_label);
+
+/// 资源预估（文档「📊 资源预估：生成文件大小 / 本地渲染耗时」）。
+/// - width/height/fps/duration_us：输出规格与时长；
+/// - video_bitrate_mbps：视频码率（<= 0 = 按分辨率推导）；
+/// - include_audio：是否含音频（0/1）；
+/// - 出参均可空：out_file_size_bytes / out_render_seconds / out_size_text / out_time_text
+///   （两个文本出参需 nc_free_string）。
+int32_t nc_export_estimate(int32_t width, int32_t height, int32_t fps, int64_t duration_us,
+                           double video_bitrate_mbps, int32_t include_audio,
+                           int64_t* out_file_size_bytes, double* out_render_seconds,
+                           char** out_size_text, char** out_time_text);
+
+/// 组装预设导出配置（含 4K 权益门控与性能模式）。
+/// - preset_id：预设 ID；mode：性能模式（0=极速 1=平衡 2=省电）；
+/// - cpu_cores：设备核心数（0 = 未知）；
+/// - 出参均可空：out_width/out_height/out_fps/out_downgraded/out_crf/out_threads/
+///   out_preset_name（编码预置名，需 nc_free_string）；
+/// - out_warning：出参（可空）降级提示（需 nc_free_string；无降级时为空串）。
+int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id, int32_t mode,
+                               int32_t cpu_cores, int32_t crf, int32_t* out_width,
+                               int32_t* out_height, int32_t* out_fps, int32_t* out_downgraded,
+                               char** out_preset_name, char** out_warning);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

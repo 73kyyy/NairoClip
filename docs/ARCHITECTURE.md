@@ -164,6 +164,21 @@
   · C ABI：nc_proxy_check_import / nc_proxy_set_record / nc_proxy_get_record /
     nc_proxy_usage / nc_proxy_clear_records
 
+- M2.18 ✅ 导出预设 / 资源预估 / 性能模式（文档 6.1 导出页 & 快速导出预设库、第 4 部分后台导出）：
+  · 预设库单一事实来源（6 个）：⚙️自定义、📱抖音 9:16、📷Reels 9:16、🎵Shorts 9:16、
+    💬视频号 9:16、▶️YouTube 16:9 4K（Pro 权益）；各含目标尺寸/帧率/推荐码率/
+    推荐画幅适配（竖屏 Fill 铺满无黑边、YouTube Fit 保留完整画面）
+  · 性能模式 → 编码参数真实生效：极速 ultrafast+全核+暂停编辑；平衡 veryfast+保留 1 核
+    （可继续编辑）；省电 veryfast+单线程（降速静默）；WriterConfig.threads 接入 FFmpeg
+    编码器 thread_count
+  · 资源预估：文件大小（视频码率 + 192kbps 音频）+ 渲染耗时（输出像素/吞吐），
+    支持设备基准二次校正；输出「约 245 MB / 约 1分15秒」友好文案
+  · setupPresetExport：预设 + 权益组装完整写入配置；4K 对非 Pro 降级并给出警告
+  · 修正门控缺陷：原用 entitlement.maxExportShortSide()（基于 tier 名义层级），
+    在「已到期但服务器未下发更新」窗口内会放行 4K；改用 proActiveAt（含到期判定）
+  · C ABI：nc_export_presets / nc_export_preset_info / nc_export_estimate /
+    nc_export_setup_preset
+
 ### 待办
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
 - 后续 ⬜ 本地 AI 推理（模型分发走国内云）+ 平台壳（Kotlin/Qt）

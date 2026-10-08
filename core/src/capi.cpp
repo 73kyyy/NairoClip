@@ -9,6 +9,7 @@
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/track.h"
 #include "nairoclip/core/json.h"
+#include "nairoclip/core/export_preset.h"
 #include "nairoclip/core/proxy.h"
 #include "nairoclip/core/serialization.h"
 
@@ -959,6 +960,79 @@ int32_t nc_proxy_clear_records(NcEditor* editor) {
     const int32_t count = static_cast<int32_t>(editor->project.proxies.records.size());
     editor->project.proxies.clear();
     return count;
+}
+
+// ---- 导出预设 / 资源预估 / 性能模式 ----
+
+int32_t nc_export_presets(int32_t* out_ids, int32_t capacity, int32_t* out_count) {
+    const auto& presets = builtinExportPresets();
+    if (out_count != nullptr) {
+        *out_count = static_cast<int32_t>(presets.size());
+    }
+    if (out_ids != nullptr) {
+        const int32_t limit = capacity < static_cast<int32_t>(presets.size())
+                                  ? capacity
+                                  : static_cast<int32_t>(presets.size());
+        for (int32_t i = 0; i < limit; ++i) {
+            out_ids[i] = static_cast<int32_t>(presets[static_cast<std::size_t>(i)].id);
+        }
+    }
+    return NC_OK;
+}
+
+int32_t nc_export_preset_info(int32_t preset_id, int32_t* out_width, int32_t* out_height,
+                              int32_t* out_fps, int32_t* out_requires_pro, char** out_label) {
+    if (preset_id < 0 || preset_id > 5) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ExportPreset& preset = exportPreset(static_cast<ExportPresetId>(preset_id));
+    if (out_width != nullptr) *out_width = preset.width;
+    if (out_height != nullptr) *out_height = preset.height;
+    if (out_fps != nullptr) *out_fps = preset.fps;
+    if (out_requires_pro != nullptr) *out_requires_pro = preset.requiresPro ? 1 : 0;
+    if (out_label != nullptr) *out_label = dupString(preset.label);
+    return NC_OK;
+}
+
+int32_t nc_export_estimate(int32_t width, int32_t height, int32_t fps, int64_t duration_us,
+                           double video_bitrate_mbps, int32_t include_audio,
+                           int64_t* out_file_size_bytes, double* out_render_seconds,
+                           char** out_size_text, char** out_time_text) {
+    const double durationSeconds = static_cast<double>(duration_us) / 1000000.0;
+    const ExportEstimate estimate = estimateExport(width, height, fps, durationSeconds,
+                                                   video_bitrate_mbps, include_audio != 0);
+    if (out_file_size_bytes != nullptr) *out_file_size_bytes = estimate.fileSizeBytes;
+    if (out_render_seconds != nullptr) *out_render_seconds = estimate.renderSeconds;
+    if (out_size_text != nullptr) *out_size_text = dupString(estimate.fileSizeText());
+    if (out_time_text != nullptr) *out_time_text = dupString(estimate.renderTimeText());
+    return NC_OK;
+}
+
+int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id, int32_t mode,
+                               int32_t cpu_cores, int32_t crf, int32_t* out_width,
+                               int32_t* out_height, int32_t* out_fps, int32_t* out_downgraded,
+                               char** out_preset_name, char** out_warning) {
+    if (editor == nullptr || preset_id < 0 || preset_id > 5 || mode < 0 || mode > 2) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    PerformanceMode performanceMode;
+    if (!performanceModeFromInt(mode, performanceMode)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const PresetExportSetup setup = setupPresetExport(
+        static_cast<ExportPresetId>(preset_id), editor->entitlement,
+        static_cast<std::int64_t>(std::time(nullptr)), performanceMode, cpu_cores,
+        crf > 0 ? crf : 23);
+    if (out_width != nullptr) *out_width = setup.width;
+    if (out_height != nullptr) *out_height = setup.height;
+    if (out_fps != nullptr) *out_fps = setup.fps;
+    if (out_downgraded != nullptr) *out_downgraded = setup.downgradedForFree ? 1 : 0;
+    if (out_preset_name != nullptr) *out_preset_name = dupString(setup.writer.preset);
+    if (out_warning != nullptr) {
+        *out_warning =
+            dupString(setup.warnings.empty() ? std::string() : setup.warnings.front());
+    }
+    return NC_OK;
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

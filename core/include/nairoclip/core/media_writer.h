@@ -18,6 +18,9 @@ struct WriterConfig {
     FrameRate frameRate = fps30();
     int crf = 23;              // H.264 质量（0-51，越低越好；23 默认）
     std::string preset = "veryfast";  // x264 preset
+    /// 编码线程数（0 = 编码器自动；>0 为显式上限）。
+    /// 由性能模式设置：极速=全核 / 平衡=保留 1 核 / 省电=单线程。
+    int threads = 0;
     int audioSampleRate = 48000;
     int audioChannels = 2;
     int audioBitrate = 192000;  // bps

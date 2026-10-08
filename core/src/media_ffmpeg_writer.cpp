@@ -109,6 +109,10 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     impl.videoCodec->max_b_frames = 2;
     av_opt_set_int(impl.videoCodec->priv_data, "crf", config.crf, 0);
     av_opt_set(impl.videoCodec->priv_data, "preset", config.preset.c_str(), 0);
+    // 性能模式：编码线程上限（0 = 编码器自动）
+    if (config.threads > 0) {
+        impl.videoCodec->thread_count = config.threads;
+    }
 
     impl.videoStream = avformat_new_stream(impl.format, nullptr);
     err = avcodec_open2(impl.videoCodec, videoEncoder, nullptr);

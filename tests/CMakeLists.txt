@@ -49,6 +49,7 @@ add_executable(nairoclip_tests
     test_entitlement.cpp
     test_ai_check.cpp
     test_proxy.cpp
+    test_export_preset.cpp
     test_reframe.cpp
 )
 

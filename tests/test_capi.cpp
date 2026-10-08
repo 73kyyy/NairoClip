@@ -665,3 +665,89 @@ NC_TEST(Capi, ProxyImportCheckAndNullSafety) {
     NC_CHECK_EQ(nc_proxy_clear_records(nullptr), -1);
     nc_editor_destroy(editor);
 }
+
+// ---- 导出预设 / 资源预估 / 性能模式 C ABI（文档 6.1）----
+NC_TEST(Capi, ExportPresetsAndEstimate) {
+    // 列举预设（6 个）
+    int32_t ids[8] = {0};
+    int32_t count = 0;
+    NC_CHECK_EQ(nc_export_presets(ids, 8, &count), NC_OK);
+    NC_CHECK_EQ(count, 6);
+    NC_CHECK_EQ(ids[0], 0);  // custom
+    NC_CHECK_EQ(ids[1], 1);  // douyin
+    // 预设信息
+    int32_t w = 0, h = 0, fps = 0, pro = -1;
+    char* label = nullptr;
+    NC_CHECK_EQ(nc_export_preset_info(1, &w, &h, &fps, &pro, &label), NC_OK);
+    NC_CHECK_EQ(w, 1080);
+    NC_CHECK_EQ(h, 1920);
+    NC_CHECK_EQ(pro, 0);
+    NC_CHECK(label != nullptr);
+    if (label != nullptr) nc_free_string(label);
+    // 4K 预设需 Pro
+    NC_CHECK_EQ(nc_export_preset_info(5, &w, &h, nullptr, &pro, nullptr), NC_OK);
+    NC_CHECK_EQ(w, 3840);
+    NC_CHECK_EQ(pro, 1);
+    NC_CHECK_EQ(nc_export_preset_info(9, nullptr, nullptr, nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    // 资源预估
+    int64_t sizeBytes = 0;
+    double seconds = 0.0;
+    char* sizeText = nullptr;
+    char* timeText = nullptr;
+    NC_CHECK_EQ(nc_export_estimate(1920, 1080, 30, 60000000, 8.0, 1, &sizeBytes, &seconds,
+                                   &sizeText, &timeText),
+                NC_OK);
+    NC_CHECK(sizeBytes > 0);
+    NC_CHECK(seconds > 0.0);
+    NC_CHECK(sizeText != nullptr && sizeText[0] != '\0');
+    NC_CHECK(timeText != nullptr && timeText[0] != '\0');
+    nc_free_string(sizeText);
+    nc_free_string(timeText);
+}
+
+NC_TEST(Capi, ExportSetupPresetGating) {
+    NcEditor* editor = nc_editor_create();  // 默认 Free
+    int32_t w = 0, h = 0, fps = 0, downgraded = -1;
+    char* presetName = nullptr;
+    char* warning = nullptr;
+    // Free + 4K 预设 → 降级 1080p + 警告
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 5, 1, 4, 23, &w, &h, &fps, &downgraded,
+                                       &presetName, &warning),
+                NC_OK);
+    NC_CHECK_EQ(w, 1920);
+    NC_CHECK_EQ(h, 1080);
+    NC_CHECK_EQ(downgraded, 1);
+    NC_CHECK(warning != nullptr && warning[0] != '\0');
+    NC_CHECK(presetName != nullptr && presetName[0] != '\0');
+    nc_free_string(presetName);
+    nc_free_string(warning);
+    // 升级 Pro → 不降级
+    NC_CHECK_EQ(nc_set_entitlement(editor, 1, 0, 0), NC_OK);
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 5, 1, 4, 23, &w, &h, &fps, &downgraded,
+                                       nullptr, nullptr),
+                NC_OK);
+    NC_CHECK_EQ(w, 3840);
+    NC_CHECK_EQ(downgraded, 0);
+    // 竖屏预设 + 省电模式
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 1, 2, 8, 25, &w, &h, &fps, &downgraded,
+                                       &presetName, nullptr),
+                NC_OK);
+    NC_CHECK_EQ(w, 1080);
+    NC_CHECK_EQ(h, 1920);
+    NC_CHECK_EQ(fps, 30);
+    NC_CHECK_EQ(downgraded, 0);
+    NC_CHECK_EQ(std::string(presetName), std::string("veryfast"));  // Eco 预置
+    nc_free_string(presetName);
+    // 错误路径
+    NC_CHECK_EQ(nc_export_setup_preset(nullptr, 1, 1, 4, 23, nullptr, nullptr, nullptr,
+                                       nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 9, 1, 4, 23, nullptr, nullptr, nullptr,
+                                       nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 1, 9, 4, 23, nullptr, nullptr, nullptr,
+                                       nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
