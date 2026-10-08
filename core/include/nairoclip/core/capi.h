@@ -362,6 +362,24 @@ int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id, int32_t mode
                                int32_t* out_height, int32_t* out_fps, int32_t* out_downgraded,
                                char** out_preset_name, char** out_warning);
 
+// ---- 口播精剪（文档 7.2「AI成片 → 口播精剪」）----
+
+/// 分析素材语音活动（真实解码 + VAD；供精剪预览与统计展示）。
+/// - asset_id：音频/视频素材 ID；
+/// - out_speech_us / out_silence_us：出参（可空）有效语音/静音总时长；
+/// - out_keep_ratio：出参（可空）保留比（0..1）；
+/// - out_segment_count：出参（可空）保留区间数量；
+/// - out_note：出参（可空）诊断说明（需 nc_free_string；失败原因为空时给出提示）。
+/// 返回：>=0 = 保留区间数量；-1 = 错误（见 out_error）。
+int32_t nc_speech_analyze(NcEditor* editor, uint64_t asset_id, int64_t* out_speech_us,
+                          int64_t* out_silence_us, double* out_keep_ratio,
+                          int32_t* out_segment_count, char** out_note, char** out_error);
+
+/// 落盘口播精剪（真实删静音；一次调用整体可撤销）。
+/// - track_index：目标轨道（主序列内）；track_index < 0 时使用首个音频轨；
+/// - 返回：>=0 = 插入的片段数；-1 = 错误（见 out_error）。
+int32_t nc_speech_cut_apply(NcEditor* editor, int32_t track_index, char** out_error);
+
 // ---- 内存 ----
 
 /// 释放库返回的字符串。

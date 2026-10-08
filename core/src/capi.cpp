@@ -10,6 +10,7 @@
 #include "nairoclip/core/track.h"
 #include "nairoclip/core/json.h"
 #include "nairoclip/core/export_preset.h"
+#include "nairoclip/core/speech_cut.h"
 #include "nairoclip/core/proxy.h"
 #include "nairoclip/core/serialization.h"
 
@@ -1033,6 +1034,114 @@ int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id, int32_t mode
             dupString(setup.warnings.empty() ? std::string() : setup.warnings.front());
     }
     return NC_OK;
+}
+
+// ---- 口播精剪 ----
+
+int32_t nc_speech_analyze(NcEditor* editor, uint64_t asset_id, int64_t* out_speech_us,
+                          int64_t* out_silence_us, double* out_keep_ratio,
+                          int32_t* out_segment_count, char** out_note, char** out_error) {
+    if (editor == nullptr || asset_id == 0) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("素材不存在");
+        return -1;
+    }
+    SpeechActivityResult result;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    FFmpegReaderFactory readerFactory;
+    result = analyzeAssetSpeech(*asset, &readerFactory);
+#else
+    result = analyzeAssetSpeech(*asset, nullptr);
+#endif
+    if (out_speech_us != nullptr) *out_speech_us = toMicroseconds(result.speechDuration);
+    if (out_silence_us != nullptr) *out_silence_us = toMicroseconds(result.silenceDuration);
+    if (out_keep_ratio != nullptr) *out_keep_ratio = result.keepRatio;
+    if (out_segment_count != nullptr) {
+        *out_segment_count = static_cast<int32_t>(result.keepSegments.size());
+    }
+    if (out_note != nullptr) *out_note = dupString(result.note);
+    if (out_error != nullptr) *out_error = nullptr;
+    if (!result.valid()) {
+        return 0;  // 无有效语音：返回 0（由 note 说明）
+    }
+    return static_cast<int32_t>(result.keepSegments.size());
+}
+
+int32_t nc_speech_cut_apply(NcEditor* editor, int32_t track_index, char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return -1;
+    }
+    // 选择目标轨道（默认首个音频轨）
+    int32_t index = track_index;
+    if (index < 0) {
+        index = -1;
+        for (std::size_t i = 0; i < seq->tracks.size(); ++i) {
+            if (seq->tracks[i].type == TrackType::Audio) {
+                index = static_cast<int32_t>(i);
+                break;
+            }
+        }
+        if (index < 0) {
+            if (out_error != nullptr) *out_error = dupString("工程没有音频轨");
+            return -1;
+        }
+    }
+    if (static_cast<std::size_t>(index) >= seq->tracks.size()) {
+        if (out_error != nullptr) *out_error = dupString("轨道下标越界");
+        return -1;
+    }
+    const Track& track = seq->tracks[static_cast<std::size_t>(index)];
+    if (track.type != TrackType::Audio) {
+        if (out_error != nullptr) *out_error = dupString("口播精剪仅支持音频轨");
+        return -1;
+    }
+    if (track.clips.empty()) {
+        if (out_error != nullptr) *out_error = dupString("轨道无片段");
+        return -1;
+    }
+    // 以首个片段的素材做语音分析（多素材场景由平台层分段调用）
+    const MediaAsset* asset = editor->project.findAsset(track.clips.front().asset);
+    if (asset == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("片段引用的素材不存在");
+        return -1;
+    }
+    SpeechActivityResult activity;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    FFmpegReaderFactory readerFactory;
+    activity = analyzeAssetSpeech(*asset, &readerFactory);
+#else
+    activity = analyzeAssetSpeech(*asset, nullptr);
+#endif
+    if (!activity.valid()) {
+        if (out_error != nullptr) {
+            *out_error = dupString(activity.note.empty() ? "语音分析无效" : activity.note);
+        }
+        return -1;
+    }
+    // 收集该轨道全部片段 ID
+    std::vector<ClipId> clipIds;
+    clipIds.reserve(track.clips.size());
+    for (const auto& clip : track.clips) {
+        clipIds.push_back(clip.id);
+    }
+    const SpeechCutApplyResult applyResult = applySpeechCut(
+        *editor->editor, editor->project, seq->id, track.id, clipIds, activity);
+    if (!applyResult.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(applyResult.result.message);
+        return -1;
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return static_cast<int32_t>(applyResult.clipsInserted);
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

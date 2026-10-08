@@ -751,3 +751,66 @@ NC_TEST(Capi, ExportSetupPresetGating) {
                 NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
 }
+
+// ---- 口播精剪 C ABI（文档 7.2）----
+NC_TEST(Capi, SpeechCutNullSafetyAndErrors) {
+    NC_CHECK_EQ(nc_speech_analyze(nullptr, 1, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                  nullptr),
+                -1);
+    NC_CHECK_EQ(nc_speech_cut_apply(nullptr, 0, nullptr), -1);
+    NcEditor* editor = nc_editor_create();
+    // 素材不存在
+    char* err = nullptr;
+    NC_CHECK_EQ(nc_speech_analyze(editor, 9999, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                  &err),
+                -1);
+    NC_CHECK(err != nullptr);
+    if (err != nullptr) nc_free_string(err);
+    // 无音频轨
+    err = nullptr;
+    NC_CHECK_EQ(nc_speech_cut_apply(editor, -1, &err), -1);
+    NC_CHECK(err != nullptr);
+    if (err != nullptr) nc_free_string(err);
+    nc_editor_destroy(editor);
+}
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+NC_TEST(Capi, SpeechCutRealAudioEndToEnd) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId =
+        nc_import_asset(editor, "speech.wav", "/tmp/media_gen/speech.wav", 1, 8000000);
+    NC_CHECK(assetId != 0);
+    NC_CHECK(nc_add_track(editor, "A1", 1) != 0);  // 音频轨
+    // 8 秒片段
+    NC_CHECK(nc_insert_clip(editor, 0, assetId, 0, 8000000) != 0);
+    // 分析（真实解码 + VAD）
+    int64_t speechUs = 0;
+    int64_t silenceUs = 0;
+    double keepRatio = 0.0;
+    int32_t segmentCount = 0;
+    char* note = nullptr;
+    char* err = nullptr;
+    const int32_t segments = nc_speech_analyze(editor, assetId, &speechUs, &silenceUs,
+                                               &keepRatio, &segmentCount, &note, &err);
+    NC_CHECK(segments >= 1);
+    NC_CHECK(segmentCount >= 1);
+    NC_CHECK(speechUs > 0);
+    NC_CHECK(silenceUs > 0);
+    NC_CHECK(keepRatio > 0.0 && keepRatio < 1.0);
+    if (note != nullptr) nc_free_string(note);
+    if (err != nullptr) nc_free_string(err);
+    // 落盘精剪
+    char* cutErr = nullptr;
+    const int32_t inserted = nc_speech_cut_apply(editor, -1, &cutErr);
+    NC_CHECK(inserted >= 1);
+    if (cutErr != nullptr) nc_free_string(cutErr);
+    // 时间轴时长应显著缩短
+    const int64_t durationUs = nc_project_duration_us(editor);
+    NC_CHECK(durationUs > 0);
+    NC_CHECK(durationUs < 7000000);  // < 7 秒（原 8 秒）
+    // 撤销可回退
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_project_duration_us(editor), std::int64_t(8000000));
+    nc_editor_destroy(editor);
+}
+#endif

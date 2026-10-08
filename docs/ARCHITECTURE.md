@@ -179,6 +179,19 @@
   · C ABI：nc_export_presets / nc_export_preset_info / nc_export_estimate /
     nc_export_setup_preset
 
+- M2.19 ✅ 口播精剪（文档 7.2「AI成片 → 口播精剪」）：
+  · speech_cut 模块（全本地，零网络）：
+    · analyzeSpeechActivity：真实解码音频 → 逐帧 RMS 语音活动检测（VAD）→
+      区间合并（minSilence 保留句内换气）→ padding 边界外扩（避免语音首尾被切）→
+      minKeep 相邻合并 / maxKeep 超长切分；输出保留区间 + 有效语音/静音时长/保留比
+    · planSpeechCut / planSpeechCutForTrack：保留区间按片段 sourceIn/speed 映射为
+      时间轴新片段序列（含「剪掉 X 秒（缩短 Y%）」汇总文案）
+    · applySpeechCut：一条撤销事务落盘（删旧片段 + 插入保留段）；事务外先算计划，
+      失败零副作用；锁定轨道/缺失片段拒绝
+    · analyzeAssetSpeech：便捷入口（解码器由平台层注入；空工厂给出说明性 note）
+  · 与自动闪避（只降音量）/音乐卡点（按节拍切分）的区别已在头文件注明
+  · C ABI：nc_speech_analyze（真实解码统计）/ nc_speech_cut_apply（默认首个音频轨）
+
 ### 待办
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
 - 后续 ⬜ 本地 AI 推理（模型分发走国内云）+ 平台壳（Kotlin/Qt）
