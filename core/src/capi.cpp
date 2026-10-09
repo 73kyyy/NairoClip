@@ -13,6 +13,7 @@
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/speech_cut.h"
 #include "nairoclip/core/proxy.h"
+#include "nairoclip/core/model_manager.h"
 #include "nairoclip/core/serialization.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -61,6 +62,7 @@ int32_t toNcError(ErrorCode code) {
         case ErrorCode::Locked: return NC_ERROR_LOCKED;
         case ErrorCode::Unsupported: return NC_ERROR_UNSUPPORTED;
         case ErrorCode::Internal: return NC_ERROR_INTERNAL;
+        case ErrorCode::Cancelled: return NC_ERROR_CANCELLED;
     }
     return NC_ERROR_INTERNAL;
 }
@@ -1323,6 +1325,314 @@ int64_t nc_export_run(NcEditor*, const char*, int32_t, int32_t, int32_t, const c
 }
 
 #endif
+
+// ---- AI 模型管理（文档第 5 部分 + 第 8 部分）----
+
+namespace {
+
+/// 模型记录表 + 下载状态机的进程级存储（设备级资产；一个进程一份）。
+ModelStore& modelStore() {
+    static ModelStore store;
+    return store;
+}
+
+ModelDownloadManager& modelDownloads() {
+    static ModelDownloadManager manager;
+    return manager;
+}
+
+}  // namespace
+
+int32_t nc_model_catalog(char*** out_ids, int32_t capacity, int32_t* out_count) {
+    const auto& catalog = builtinModelCatalog();
+    if (out_count != nullptr) {
+        *out_count = static_cast<int32_t>(catalog.size());
+    }
+    if (out_ids == nullptr) {
+        return NC_OK;
+    }
+    if (capacity <= 0) {
+        *out_ids = nullptr;
+        return NC_OK;
+    }
+    const int32_t count = static_cast<int32_t>(
+        std::min<std::size_t>(static_cast<std::size_t>(capacity), catalog.size()));
+    char** items = new (std::nothrow) char*[static_cast<std::size_t>(count)];
+    if (items == nullptr) {
+        *out_ids = nullptr;
+        return NC_ERROR_INTERNAL;
+    }
+    for (int32_t i = 0; i < count; ++i) {
+        items[i] = dupString(catalog[static_cast<std::size_t>(i)].id);
+    }
+    *out_ids = items;
+    return NC_OK;
+}
+
+int32_t nc_model_info(const char* model_id, char** out_name, char** out_description,
+                      int32_t* out_size_bytes, char** out_version, int32_t* out_requires_pro,
+                      int32_t* out_capability) {
+    if (model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ModelInfo* info = findBuiltinModel(model_id);
+    if (info == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (out_name != nullptr) *out_name = dupString(info->name);
+    if (out_description != nullptr) *out_description = dupString(info->description);
+    if (out_size_bytes != nullptr) {
+        *out_size_bytes = static_cast<int32_t>(info->sizeBytes);
+    }
+    if (out_version != nullptr) *out_version = dupString(info->version);
+    if (out_requires_pro != nullptr) *out_requires_pro = info->requiresPro ? 1 : 0;
+    if (out_capability != nullptr) {
+        *out_capability = static_cast<int32_t>(info->capability);
+    }
+    return NC_OK;
+}
+
+int32_t nc_model_status(const NcEditor* editor, const char* model_id) {
+    if (editor == nullptr || model_id == nullptr) {
+        return -1;
+    }
+    // 运行态优先（下载中/校验中）。
+    const DownloadState* state = modelDownloads().find(model_id);
+    if (state != nullptr) {
+        if (state->phase == DownloadPhase::Downloading) return static_cast<int32_t>(ModelStatus::Downloading);
+        if (state->phase == DownloadPhase::Verifying) return static_cast<int32_t>(ModelStatus::Verifying);
+    }
+    return static_cast<int32_t>(modelStore().statusOf(model_id));
+}
+
+int32_t nc_model_access_allowed(const NcEditor* editor, const char* model_id) {
+    if (editor == nullptr || model_id == nullptr) {
+        return -1;
+    }
+    const ModelInfo* info = findBuiltinModel(model_id);
+    if (info == nullptr) {
+        return -1;
+    }
+    return modelAccessAllowed(*info, editor->entitlement,
+                              static_cast<std::int64_t>(std::time(nullptr)))
+               ? 1
+               : 0;
+}
+
+int32_t nc_model_download_begin(NcEditor* editor, const char* model_id, int64_t total_bytes,
+                                int64_t now_unix) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (findBuiltinModel(model_id) == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    return toNcError(modelDownloads().begin(model_id, total_bytes, now_unix).code);
+}
+
+int32_t nc_model_download_progress(NcEditor* editor, const char* model_id,
+                                   int64_t downloaded_bytes, int64_t now_unix) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(modelDownloads().markProgress(model_id, downloaded_bytes, now_unix).code);
+}
+
+int32_t nc_model_download_pause(NcEditor* editor, const char* model_id, int64_t now_unix) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(modelDownloads().pause(model_id, now_unix).code);
+}
+
+int32_t nc_model_download_resume(NcEditor* editor, const char* model_id, int64_t now_unix) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(modelDownloads().resume(model_id, now_unix).code);
+}
+
+int32_t nc_model_download_cancel(NcEditor* editor, const char* model_id, int64_t now_unix) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(modelDownloads().cancel(model_id, now_unix).code);
+}
+
+int32_t nc_model_download_finish(NcEditor* editor, const char* model_id, int64_t now_unix) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(modelDownloads().finishDownload(model_id, now_unix).code);
+}
+
+int32_t nc_model_download_fail(NcEditor* editor, const char* model_id, const char* reason,
+                               int64_t now_unix) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const std::string text = reason != nullptr ? reason : "下载失败";
+    return toNcError(modelDownloads().fail(model_id, text, now_unix).code);
+}
+
+int32_t nc_model_download_state(const NcEditor* editor, const char* model_id, int32_t* out_phase,
+                                int64_t* out_total_bytes, int64_t* out_downloaded_bytes,
+                                char** out_message) {
+    if (editor == nullptr || model_id == nullptr) {
+        return -1;
+    }
+    const DownloadState* state = modelDownloads().find(model_id);
+    if (state == nullptr) {
+        return 0;
+    }
+    if (out_phase != nullptr) *out_phase = static_cast<int32_t>(state->phase);
+    if (out_total_bytes != nullptr) *out_total_bytes = state->totalBytes;
+    if (out_downloaded_bytes != nullptr) *out_downloaded_bytes = state->downloadedBytes;
+    if (out_message != nullptr) *out_message = dupString(state->message);
+    return 1;
+}
+
+int32_t nc_model_resume_plan(const NcEditor* editor, const char* model_id,
+                             int64_t downloaded_bytes, int64_t* out_offset_bytes,
+                             uint8_t* out_counter, int32_t* out_intra_block_skip) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ModelInfo* info = findBuiltinModel(model_id);
+    if (info == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const DownloadResumePlan plan =
+        planDownloadResume(info->id, info->version, downloaded_bytes);
+    if (!plan.valid) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (out_offset_bytes != nullptr) *out_offset_bytes = plan.offsetBytes;
+    if (out_counter != nullptr) {
+        std::memcpy(out_counter, plan.counter, kAesCtrCounterSize);
+    }
+    if (out_intra_block_skip != nullptr) {
+        *out_intra_block_skip = static_cast<int32_t>(plan.intraBlockSkip);
+    }
+    return NC_OK;
+}
+
+int32_t nc_model_install(NcEditor* editor, const char* model_id, const uint8_t* ciphertext,
+                         int64_t size, const char* path, const char* expected_sha256_hex,
+                         int64_t now_unix, int32_t* out_installed, char** out_message) {
+    if (editor == nullptr || model_id == nullptr || size < 0 ||
+        (size > 0 && ciphertext == nullptr)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ModelInfo* info = findBuiltinModel(model_id);
+    if (info == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    std::vector<std::uint8_t> payload;
+    if (size > 0) {
+        payload.assign(ciphertext, ciphertext + size);
+    }
+    const std::string digest = expected_sha256_hex != nullptr ? expected_sha256_hex : "";
+    const ModelVerifyResult verified = verifyModelPayload(*info, payload, digest);
+
+    if (out_installed != nullptr) *out_installed = verified.ok ? 1 : 0;
+    if (out_message != nullptr) *out_message = dupString(verified.message);
+
+    ModelRecord record;
+    record.modelId = info->id;
+    record.version = info->version;
+    record.path = path != nullptr ? path : "";
+    record.sizeBytes = verified.sizeBytes;
+    record.sha256 = digest;
+    record.installedAtUnix = now_unix;
+    if (verified.ok) {
+        record.status = ModelStatus::Installed;
+        // 安装成功：结束下载状态机（若存在）。
+        DownloadState* state = modelDownloads().find(info->id);
+        if (state != nullptr && state->phase == DownloadPhase::Verifying) {
+            modelDownloads().complete(info->id, now_unix);
+        }
+    } else {
+        record.status = ModelStatus::Corrupt;
+        record.note = verified.message;
+        DownloadState* state = modelDownloads().find(info->id);
+        if (state != nullptr) {
+            modelDownloads().fail(info->id, verified.message, now_unix);
+        }
+    }
+    modelStore().upsert(std::move(record));
+    return NC_OK;
+}
+
+int32_t nc_model_remove(NcEditor* editor, const char* model_id) {
+    if (editor == nullptr || model_id == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    modelStore().remove(model_id);
+    modelDownloads().remove(model_id);
+    return NC_OK;
+}
+
+int32_t nc_model_storage_stats(const NcEditor* editor, int64_t device_total_bytes,
+                               int64_t device_free_bytes, int64_t* out_model_bytes,
+                               int32_t* out_installed_count, int32_t* out_corrupt_count,
+                               char** out_usage_text, char** out_model_text) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ModelStorageStats stats =
+        computeModelStorage(modelStore(), device_total_bytes, device_free_bytes);
+    if (out_model_bytes != nullptr) *out_model_bytes = stats.modelBytes;
+    if (out_installed_count != nullptr) *out_installed_count = stats.installedCount;
+    if (out_corrupt_count != nullptr) *out_corrupt_count = stats.corruptCount;
+    if (out_usage_text != nullptr) *out_usage_text = dupString(stats.usageText());
+    if (out_model_text != nullptr) *out_model_text = dupString(stats.modelText());
+    return NC_OK;
+}
+
+int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_t* key,
+                         const uint8_t* ciphertext, int64_t size, int64_t offset,
+                         uint8_t** out_plaintext, int64_t* out_size) {
+    if (model_id == nullptr || version == nullptr || key == nullptr || size < 0 || offset < 0 ||
+        (size > 0 && ciphertext == nullptr)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::vector<std::uint8_t> payload;
+    if (size > 0) {
+        payload.assign(ciphertext, ciphertext + size);
+    }
+    std::vector<std::uint8_t> plain = decryptModelPayloadAt(
+        key, model_id, version, static_cast<std::uint64_t>(offset), payload);
+    if (plain.size() != payload.size()) {
+        return NC_ERROR_INTERNAL;
+    }
+    if (out_size != nullptr) *out_size = static_cast<int64_t>(plain.size());
+    if (out_plaintext != nullptr) {
+        if (plain.empty()) {
+            *out_plaintext = nullptr;
+        } else {
+            std::uint8_t* buffer = new (std::nothrow) std::uint8_t[plain.size()];
+            if (buffer == nullptr) {
+                return NC_ERROR_INTERNAL;
+            }
+            std::memcpy(buffer, plain.data(), plain.size());
+            *out_plaintext = buffer;
+        }
+    }
+    return NC_OK;
+}
+
+void nc_free_buffer(uint8_t* buffer) { delete[] buffer; }
+
+void nc_free_string_array(char** items, int32_t count) {
+    if (items == nullptr) {
+        return;
+    }
+    for (int32_t i = 0; i < count; ++i) {
+        delete[] items[i];
+    }
+    delete[] items;
+}
 
 void nc_free_string(char* text) { delete[] text; }
 

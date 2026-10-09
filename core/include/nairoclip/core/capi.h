@@ -36,6 +36,7 @@ enum NcErrorCode {
     NC_ERROR_LOCKED = 5,
     NC_ERROR_UNSUPPORTED = 6,
     NC_ERROR_INTERNAL = 7,
+    NC_ERROR_CANCELLED = 8,
 };
 
 /// 不透明编辑器句柄。
@@ -398,6 +399,109 @@ int32_t nc_get_clip_mask(const NcEditor* editor, int32_t track_index, uint64_t c
                          int32_t* out_shape, double* out_center_x, double* out_center_y,
                          double* out_rotation_degrees, double* out_width, double* out_height,
                          double* out_feather, double* out_corner_radius, int32_t* out_invert);
+
+// ---- AI 模型管理（文档第 5 部分「二、AI模型管理」+ 第 8 部分「模型分发架构」）----
+
+/// 列举内置模型（供 UI「AI 模型管理」页列表）。
+/// - out_ids：出参（可空）模型 ID 字符串数组（需逐个 nc_free_string 并释放数组本身）；
+///   capacity：数组容量；out_count：出参（可空）实际数量（可大于 capacity 用于查询总数）。
+/// - out_ids 为 char** 数组，由库分配；调用方用 nc_free_string_array 释放。
+/// 返回 NC_OK。
+int32_t nc_model_catalog(char*** out_ids, int32_t capacity, int32_t* out_count);
+
+/// 读取模型目录信息（名称/体积/版本/能力/是否 Pro）。
+/// - model_id：模型标识（如 "matting_hq"）；
+/// - 出参均可空：out_name/out_description/out_version（需 nc_free_string）、
+///   out_size_bytes/out_requires_pro/out_capability（枚举值）。
+/// 返回 NC_OK 或 NC_ERROR_NOT_FOUND。
+int32_t nc_model_info(const char* model_id, char** out_name, char** out_description,
+                      int32_t* out_size_bytes, char** out_version, int32_t* out_requires_pro,
+                      int32_t* out_capability);
+
+/// 查询模型状态（0=未下载 1=下载中 2=已安装 3=损坏 4=可更新 5=校验中；-1=参数错误）。
+int32_t nc_model_status(const NcEditor* editor, const char* model_id);
+
+/// 查询模型在当前权益下是否可用（1/0；-1 = 参数错误）。
+/// 高精度抠像/光流补帧为 Pro 专属；其余能力本地放行（配额由服务端裁决）。
+int32_t nc_model_access_allowed(const NcEditor* editor, const char* model_id);
+
+/// 开始下载模型（平台层获取签名 URL 后调用；total_bytes 来自 Content-Length）。
+/// 返回 NC_OK 或错误码（状态非法 / 参数非法时不产生副作用）。
+int32_t nc_model_download_begin(NcEditor* editor, const char* model_id, int64_t total_bytes,
+                                int64_t now_unix);
+
+/// 更新下载进度（单调不减；超出总量钳制）。
+int32_t nc_model_download_progress(NcEditor* editor, const char* model_id,
+                                   int64_t downloaded_bytes, int64_t now_unix);
+
+/// 暂停下载（断点保留）。
+int32_t nc_model_download_pause(NcEditor* editor, const char* model_id, int64_t now_unix);
+
+/// 继续下载（断点保留；平台层用 nc_model_resume_plan 取续传坐标）。
+int32_t nc_model_download_resume(NcEditor* editor, const char* model_id, int64_t now_unix);
+
+/// 取消下载（断点保留，支持「[继续下载]」）。
+int32_t nc_model_download_cancel(NcEditor* editor, const char* model_id, int64_t now_unix);
+
+/// 下载完成 → 进入校验阶段。
+int32_t nc_model_download_finish(NcEditor* editor, const char* model_id, int64_t now_unix);
+
+/// 下载失败（记录原因；断点保留可重试）。
+int32_t nc_model_download_fail(NcEditor* editor, const char* model_id, const char* reason,
+                               int64_t now_unix);
+
+/// 读取下载状态（供 UI 进度条）。
+/// - 出参均可空：out_phase（0..6 枚举）、out_total_bytes、out_downloaded_bytes、
+///   out_message（需 nc_free_string）。
+/// 返回：1 = 有任务记录，0 = 无记录，-1 = 参数错误。
+int32_t nc_model_download_state(const NcEditor* editor, const char* model_id, int32_t* out_phase,
+                                int64_t* out_total_bytes, int64_t* out_downloaded_bytes,
+                                char** out_message);
+
+/// 获取断点续传坐标（HTTP Range 起点 + AES-CTR 计数器 + 块内丢弃字节数）。
+/// - 出参均可空：out_offset_bytes、out_counter（16 字节缓冲）、out_intra_block_skip。
+/// 返回 NC_OK；参数非法返回错误码。
+int32_t nc_model_resume_plan(const NcEditor* editor, const char* model_id, int64_t downloaded_bytes,
+                             int64_t* out_offset_bytes, uint8_t* out_counter,
+                             int32_t* out_intra_block_skip);
+
+/// 校验并安装模型（平台层下载完成后调用；真实 SHA-256 校验，失败记入损坏状态）。
+/// - ciphertext/size：下载到的密文载荷副本（平台层从文件读入）；
+/// - expected_sha256_hex：服务器清单摘要；
+/// - out_installed：出参（可空）1 = 校验通过并记录安装，0 = 校验失败；
+/// - out_message：出参（可空）结论文案（需 nc_free_string）。
+/// 返回：NC_OK = 校验流程正常完成（无论通过与否，见 out_installed）；
+///       错误码 = 参数/状态非法。
+int32_t nc_model_install(NcEditor* editor, const char* model_id, const uint8_t* ciphertext,
+                         int64_t size, const char* path, const char* expected_sha256_hex,
+                         int64_t now_unix, int32_t* out_installed, char** out_message);
+
+/// 删除模型记录（供「🗑️」；返回 NC_OK；core 不触碰文件系统，
+/// 平台层据 nc_model_info 的路径删除文件）。
+int32_t nc_model_remove(NcEditor* editor, const char* model_id);
+
+/// 模型存储统计（文档 5.2「存储：可用45GB/总计128GB」）。
+/// - device_total_bytes / device_free_bytes：平台层探测的设备容量；
+/// - 出参均可空：out_model_bytes/out_installed_count/out_corrupt_count、
+///   out_usage_text/out_model_text（需 nc_free_string）。
+int32_t nc_model_storage_stats(const NcEditor* editor, int64_t device_total_bytes,
+                               int64_t device_free_bytes, int64_t* out_model_bytes,
+                               int32_t* out_installed_count, int32_t* out_corrupt_count,
+                               char** out_usage_text, char** out_model_text);
+
+/// 从偏移解密模型载荷（推理前内存解密；支持续传后的部分数据）。
+/// - key：32 字节密钥（服务器下发；由平台层内存持有，禁止落盘）；
+/// - out_plaintext/out_size：出参（可空）明文缓冲（需 nc_free_buffer 释放）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_t* key,
+                         const uint8_t* ciphertext, int64_t size, int64_t offset,
+                         uint8_t** out_plaintext, int64_t* out_size);
+
+/// 释放库分配的内存缓冲（模型解密输出等）。
+void nc_free_buffer(uint8_t* buffer);
+
+/// 释放字符串数组（nc_model_catalog 的输出）。
+void nc_free_string_array(char** items, int32_t count);
 
 // ---- 内存 ----
 

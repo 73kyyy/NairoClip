@@ -54,6 +54,8 @@ add_executable(nairoclip_tests
     test_batch_ops.cpp
     test_mask.cpp
     test_reframe.cpp
+    test_crypto.cpp
+    test_model_manager.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

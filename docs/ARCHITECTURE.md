@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.21，测试 622 用例全绿）
+## 7. 里程碑（截至 M2.22，测试 686 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -219,10 +219,45 @@
     2) 单命令事务丢失事务名（历史面板显示底层命令名如「添加转场」而非
        「批量应用转场」）；Command 增加 setDisplayName 覆盖机制
 
+- M2.22 ✅ AI 模型管理与密码学基础（文档第 5 部分「二、AI模型管理」+ 第 8 部分「2.2 模型分发架构」）：
+  · crypto 模块（零第三方依赖，标准算法可逐位对标）：
+    · SHA-256（FIPS 180-4）：增量摘要器（流式处理大文件）+ 一次性接口 +
+      hex 互转 + 恒定时间比较（防时序侧信道）
+    · AES-256（FIPS 197）：真实 S-box / 密钥扩展 / 轮函数；ECB 单分组原语
+    · AES-256-CTR（NIST SP 800-38A）：16 字节大端计数器、支持任意分片、
+      密钥流偏移定位（aesCtrCounterAtOffset / aesCtrIntraBlockOffset）——
+      断点续传时从「已下载字节数」处精确续解密，不重算前缀
+    · CSPRNG 注入点（setSecureRandomProvider）：core 不直连系统随机源，
+      未注入时 fail-closed（不降级到弱随机）
+  · model_manager 模块（文档「智能抠像 120MB / Whisper 240MB / 光流补帧 85MB」）：
+    · 内置模型目录（id/展示名/描述/体积/版本/能力分类/Pro 门控），
+      与 Entitlement 单一事实来源联动（过期 Pro 走 proActiveAt）
+    · 下载状态机：7 阶段（idle/downloading/paused/verifying/completed/failed/
+      cancelled）+ 合法迁移约束 + 进度单调钳制 + 断点保留（暂停/取消后可续传）
+    · 断点续传坐标 DownloadResumePlan：续传起点（HTTP Range）+ 起始计数器 +
+      块内丢弃字节数；计数器由「模型 ID + 版本」确定性派生（重复安装坐标一致）
+    · 完整性校验：大小 + SHA-256（expectedDigest 为空 → fail-closed）
+    · 加密存储：明文 ↔ 密文（AES-256-CTR，密钥由服务器下发不落盘）
+    · 存储统计：可用/总计容量 + 模型占用 + 安全系数容纳判定 + 友好文案
+    · 记录表持久化：JSON 序列化（严格校验/非法记录跳过/运行时状态降级）
+  · C ABI：nc_model_catalog / nc_model_info / nc_model_status /
+    nc_model_access_allowed / nc_model_download_begin/progress/pause/resume/
+    cancel/finish/fail / nc_model_download_state / nc_model_resume_plan /
+    nc_model_install / nc_model_remove / nc_model_storage_stats / nc_model_decrypt
+    （+ nc_free_buffer / nc_free_string_array 释放辅助）
+  · 测试：crypto 19 例（FIPS 180-4 / FIPS 197 C.3 / NIST SP 800-38A F.5.1 官方向量）
+    + model_manager 40 例 + C ABI 5 例（共新增 64 例，总计 686 例）
+  · 端到端交叉验证（独立于单元测试期望值）：
+    · SHA-256 vs OpenSSL sha256sum：100000 字节 / 1000003 字节（非块对齐）逐位一致
+    · AES-256-CTR vs OpenSSL enc：100000 字节密文逐字节一致
+    · 全链路：8MB 载荷 加密 → 校验 → 两次暂停续传 → 断点分片解密 → 整体解密一致
+
 ### 待办
 - ⬜ 超分辨率（2x/4x，需模型推理接口）
 - ⬜ 光流补帧（60/120fps，需模型推理接口）
-- ⬜ 批量多选操作（文档第 3 部分第八节：框选/批量删除/批量变速/打组）
+- ⬜ 章节自动生成（可复用场景检测 + 静音检测）
+- ⬜ 模型分发服务器对接（core 仅实现客户端逻辑：签名 URL 有效期校验/加密存储/
+  断点续传；服务器地址与密钥由用户提供，不硬编码）
 - M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
 - 后续 ⬜ 本地 AI 推理（模型分发走国内云）+ 平台壳（Kotlin/Qt）
 

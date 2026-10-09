@@ -45,6 +45,8 @@ add_library(nairoclip_core STATIC
     src/mask.cpp
     src/batch_ops.cpp
     src/reframe.cpp
+    src/crypto.cpp
+    src/model_manager.cpp
 )
 target_include_directories(nairoclip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
