@@ -13,12 +13,26 @@ using namespace nairoclip::core;
 
 namespace {
 
+/// open() 时捕获的配置快照（由工厂持有）。
+/// 写入器对象由 runExport 持有并在其返回时销毁，运行结果只能在
+/// open() 时按值带走——不能保留指向写入器的裸指针（会悬垂）。
+struct CapturedOpen {
+    bool has = false;
+    WriterConfig config;
+};
+
 /// 记录配置的 Mock 写入器（用于检查门控后的输出尺寸）。
 class CapturingWriter : public MediaWriter {
 public:
+    explicit CapturingWriter(CapturedOpen* captured) : captured_(captured) {}
+
     Result open(const std::string& path, const WriterConfig& config) override {
         path_ = path;
         config_ = config;
+        if (captured_ != nullptr) {
+            captured_->has = true;
+            captured_->config = config;
+        }
         open_ = true;
         framesWritten_ = 0;
         return Result::ok();
@@ -47,16 +61,19 @@ private:
     bool open_ = false;
     bool finished_ = false;
     int framesWritten_ = 0;
+    CapturedOpen* captured_ = nullptr;
 };
 
 class CapturingWriterFactory : public MediaWriterFactory {
 public:
     std::unique_ptr<MediaWriter> create() override {
-        auto writer = std::make_unique<CapturingWriter>();
-        last_ = writer.get();
-        return writer;
+        return std::make_unique<CapturingWriter>(&captured_);
     }
-    CapturingWriter* last_ = nullptr;
+    /// open() 时捕获的配置快照（写入器被销毁后依然有效）。
+    const CapturedOpen& captured() const { return captured_; }
+
+private:
+    CapturedOpen captured_;
 };
 
 class FixedReader : public MediaReader {
@@ -251,9 +268,9 @@ NC_TEST(Entitlement, FreePolicyClampsAndWatermarks) {
         [&](double) { return true; }, nullptr);
     NC_CHECK(result.result.isOk());
     // 写入器被门控降级到 1920×1080
-    NC_CHECK(writerFactory.last_ != nullptr);
-    NC_CHECK_EQ(writerFactory.last_->config().width, 1920);
-    NC_CHECK_EQ(writerFactory.last_->config().height, 1080);
+    NC_CHECK(writerFactory.captured().has);
+    NC_CHECK_EQ(writerFactory.captured().config.width, 1920);
+    NC_CHECK_EQ(writerFactory.captured().config.height, 1080);
     // 警告中有门控说明（两个：降级 + 水印）
     bool sawClamp = false;
     bool sawWatermark = false;
@@ -280,8 +297,8 @@ NC_TEST(Entitlement, ProPolicyKeepsResolutionAndNoWatermark) {
     const ExportRunResult result =
         runExport(plan, readerFactory, writerFactory, config, nullptr, nullptr);
     NC_CHECK(result.result.isOk());
-    NC_CHECK_EQ(writerFactory.last_->config().width, 3840);
-    NC_CHECK_EQ(writerFactory.last_->config().height, 2160);
+    NC_CHECK_EQ(writerFactory.captured().config.width, 3840);
+    NC_CHECK_EQ(writerFactory.captured().config.height, 2160);
     for (const auto& w : result.stats.warnings) {
         NC_CHECK(w.find("水印") == std::string::npos);
     }
@@ -299,8 +316,8 @@ NC_TEST(Entitlement, DefaultPolicyNoGating) {
     const ExportRunResult result =
         runExport(plan, readerFactory, writerFactory, config, nullptr, nullptr);
     NC_CHECK(result.result.isOk());
-    NC_CHECK_EQ(writerFactory.last_->config().width, 1280);
-    NC_CHECK_EQ(writerFactory.last_->config().height, 720);
+    NC_CHECK_EQ(writerFactory.captured().config.width, 1280);
+    NC_CHECK_EQ(writerFactory.captured().config.height, 720);
     for (const auto& w : result.stats.warnings) {
         NC_CHECK(w.find("会员门控") == std::string::npos);
     }
