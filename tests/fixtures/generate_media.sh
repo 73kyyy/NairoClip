@@ -8,8 +8,11 @@
 # 用法：bash tests/fixtures/generate_media.sh
 #
 # 产物（/tmp/media_gen/）：
-#   test_av.mp4  160x120@30fps 3s H.264 + 440Hz AAC 单声道（主测试素材）
+#   test_av.mp4   160x120@30fps 3s H.264 + 440Hz AAC 单声道（主测试素材）
 #   two_shots.mp4 两段不同画面拼接 4s（场景检测 / 参考仿剪测试）
+#   speech.wav    8s 口播模拟音频（2 段 430Hz 语音 + 4s 静音，
+#                 供口播精剪 VAD 端到端测试：插入时长 2s/0s/2s/0s，
+#                 语音段频率与说话基频接近）
 set -euo pipefail
 
 OUT_DIR="${1:-/tmp/media_gen}"
@@ -43,5 +46,15 @@ printf "file '%s'\nfile '%s'\n" "$TMP_DIR/shot_a.mp4" "$TMP_DIR/shot_b.mp4" > "$
 ffmpeg -hide_banner -loglevel error -y \
     -f concat -safe 0 -i "$TMP_DIR/concat.txt" -c copy "$OUT_DIR/two_shots.mp4"
 
+# 口播素材：2s 语音 + 2s 静音 + 2s 语音 + 2s 静音 = 8s
+# （口播精剪：VAD 应识别两段语音、剪掉 4s 静音；保持 16-bit PCM 免编解码干扰）
+ffmpeg -hide_banner -loglevel error -y \
+    -f lavfi -i "sine=frequency=430:sample_rate=48000:duration=2" \
+    -f lavfi -i "anullsrc=r=48000:cl=mono:duration=2" \
+    -f lavfi -i "sine=frequency=430:sample_rate=48000:duration=2" \
+    -f lavfi -i "anullsrc=r=48000:cl=mono:duration=2" \
+    -filter_complex "[0:a][1:a][2:a][3:a]concat=n=4:v=0:a=1[out]" \
+    -map "[out]" -c:a pcm_s16le "$OUT_DIR/speech.wav"
+
 echo "完成："
-ls -la "$OUT_DIR"/test_av.mp4 "$OUT_DIR"/two_shots.mp4
+ls -la "$OUT_DIR"/test_av.mp4 "$OUT_DIR"/two_shots.mp4 "$OUT_DIR"/speech.wav

@@ -776,6 +776,10 @@ NC_TEST(Capi, SpeechCutNullSafetyAndErrors) {
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 NC_TEST(Capi, SpeechCutRealAudioEndToEnd) {
+    {
+        std::ifstream check("/tmp/media_gen/speech.wav");
+        if (!check.good()) return;  // 素材未生成：跳过（与 test_media_ffmpeg 同一约定）
+    }
     NcEditor* editor = nc_editor_create();
     const std::uint64_t assetId =
         nc_import_asset(editor, "speech.wav", "/tmp/media_gen/speech.wav", 1, 8000000);
