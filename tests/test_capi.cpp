@@ -1094,3 +1094,136 @@ NC_TEST(Capi, ModelStorageStats) {
                 NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
 }
+
+// ---- 章节自动生成（文档第 7 部分「🧪AI工具 → 章节自动生成」）----
+
+NC_TEST(Capi, ChapterDetectNullSafety) {
+    char* err = nullptr;
+    NC_CHECK_EQ(nc_chapter_detect(nullptr, 0, 0, 0, -1, -1, 0, nullptr, nullptr, &err), -1);
+    NC_CHECK(err != nullptr);
+    nc_free_string(err);
+    err = nullptr;
+    // 无主序列的 editor：默认工程有主序列，用 apply 无缓存验证错误路径
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK_EQ(nc_chapter_apply(editor, &err), -1);  // 无缓存结果
+    NC_CHECK(err != nullptr);
+    nc_free_string(err);
+    err = nullptr;
+    NC_CHECK_EQ(nc_chapter_apply(nullptr, &err), -1);
+    nc_free_string(err);
+    NC_CHECK_EQ(nc_chapter_count(nullptr), 0);
+    NC_CHECK_EQ(nc_chapter_get(nullptr, 0, nullptr, nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_chapter_rename(nullptr, 0, "x", nullptr), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_chapter_clear(nullptr, nullptr), -1);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, ChapterDetectAndApplyOnEmptyTimeline) {
+    // 空工程（无轨道/片段）→ 检测结果说明原因，0 章节
+    NcEditor* editor = nc_editor_create();
+    char* summary = nullptr;
+    char* note = nullptr;
+    char* err = nullptr;
+    const int32_t count =
+        nc_chapter_detect(editor, 0, 0, 0, -1, -1, 0, &summary, &note, &err);
+    NC_CHECK_EQ(count, 0);
+    NC_CHECK(err == nullptr);
+    NC_CHECK(note != nullptr);
+    NC_CHECK(!std::string(note).empty());
+    nc_free_string(summary);
+    nc_free_string(note);
+    // 无检测结果时 apply 拒绝
+    NC_CHECK_EQ(nc_chapter_apply(editor, &err), -1);
+    nc_free_string(err);
+    NC_CHECK_EQ(nc_chapter_count(editor), 0);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, ChapterLifecycleWithClips) {
+    // 建 60s 视频片段 → 检测（无 FFmpeg 时为时长兜底；有 FFmpeg 时真实采样）
+    NcEditor* editor = nc_editor_create();
+    const uint64_t assetId =
+        nc_import_asset(editor, "clip.mp4", "/videos/clip.mp4", 0, 60000000);
+    NC_CHECK(assetId != 0);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    NC_CHECK(nc_insert_clip(editor, 0, assetId, 0, 60000000) != 0);
+    char* summary = nullptr;
+    char* note = nullptr;
+    char* err = nullptr;
+    // 最短 20s / 最长 300s → 兜底：1 章
+    const int32_t count =
+        nc_chapter_detect(editor, 20.0, 300.0, 1.5, -1, -1, 0, &summary, &note, &err);
+    NC_CHECK_EQ(err, nullptr);
+    NC_CHECK(count >= 1);
+    NC_CHECK(summary != nullptr);
+    nc_free_string(summary);
+    nc_free_string(note);
+    // 落盘
+    const int32_t written = nc_chapter_apply(editor, &err);
+    NC_CHECK(written >= 1);
+    NC_CHECK_EQ(err, nullptr);
+    NC_CHECK_EQ(nc_chapter_count(editor), written);
+    // 读取首章
+    int64_t startUs = -1;
+    int64_t endUs = -1;
+    char* title = nullptr;
+    NC_CHECK_EQ(nc_chapter_get(editor, 0, &startUs, &endUs, &title), NC_OK);
+    NC_CHECK_EQ(startUs, std::int64_t(0));
+    NC_CHECK_EQ(endUs, std::int64_t(60000000));
+    NC_CHECK(title != nullptr);
+    NC_CHECK(nc_chapter_get(editor, written, nullptr, nullptr, nullptr) == NC_ERROR_OUT_OF_RANGE);
+    // 手动重命名（真实更新标记）
+    NC_CHECK_EQ(nc_chapter_rename(editor, 0, "开场介绍", &err), NC_OK);
+    NC_CHECK_EQ(err, nullptr);
+    nc_free_string(title);
+    title = nullptr;
+    NC_CHECK_EQ(nc_chapter_get(editor, 0, nullptr, nullptr, &title), NC_OK);
+    NC_CHECK_EQ(std::string(title), std::string("开场介绍"));
+    nc_free_string(title);
+    // 清除（全部章节）
+    NC_CHECK_EQ(nc_chapter_clear(editor, &err), written);
+    NC_CHECK_EQ(nc_chapter_count(editor), 0);
+    // 清除后重新检测（undo 不可见但可再生成）
+    NC_CHECK_EQ(nc_chapter_clear(editor, &err), 0);  // 二次清除幂等
+    nc_free_string(err);
+    nc_editor_destroy(editor);
+}
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+NC_TEST(Capi, ChapterRealMediaEndToEnd) {
+    {
+        std::ifstream check("/tmp/media_gen/two_shots.mp4");
+        if (!check.good()) return;  // 素材未生成：跳过
+    }
+    NcEditor* editor = nc_editor_create();
+    const uint64_t assetId =
+        nc_import_asset(editor, "two_shots.mp4", "/tmp/media_gen/two_shots.mp4", 0, 4000000);
+    NC_CHECK(assetId != 0);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    NC_CHECK(nc_insert_clip(editor, 0, assetId, 0, 4000000) != 0);
+    char* summary = nullptr;
+    char* note = nullptr;
+    char* err = nullptr;
+    // 真实采样检测（4s 素材：放宽最短章节）
+    const int32_t count =
+        nc_chapter_detect(editor, 0.5, 0, 1.5, -1, -1, 0, &summary, &note, &err);
+    NC_CHECK_EQ(err, nullptr);
+    NC_CHECK(count >= 2);
+    NC_CHECK(summary != nullptr);
+    NC_CHECK(std::string(summary).find("章节") != std::string::npos);
+    nc_free_string(summary);
+    nc_free_string(note);
+    const int32_t written = nc_chapter_apply(editor, &err);
+    NC_CHECK(written >= 2);
+    NC_CHECK_EQ(nc_chapter_count(editor), written);
+    // 首章从 0 起；第二章起点在 2s 附近（两镜头拼接点）
+    int64_t startUs = -1;
+    int64_t endUs = -1;
+    NC_CHECK_EQ(nc_chapter_get(editor, 0, &startUs, &endUs, nullptr), NC_OK);
+    NC_CHECK_EQ(startUs, std::int64_t(0));
+    NC_CHECK_EQ(nc_chapter_get(editor, 1, &startUs, &endUs, nullptr), NC_OK);
+    NC_CHECK(startUs > 1500000 && startUs < 2600000);
+    nc_free_string(err);
+    nc_editor_destroy(editor);
+}
+#endif

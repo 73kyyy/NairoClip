@@ -8,6 +8,8 @@
 // 退出码：0 = 成功，1 = 文件错误，2 = 参数错误
 
 #include "nairoclip/core/beat_detect.h"
+#include "nairoclip/core/chapter.h"
+#include "nairoclip/core/editor.h"
 #include "nairoclip/core/export_plan.h"
 #include "nairoclip/core/export_runner.h"
 #include "nairoclip/core/project_doctor.h"
@@ -348,6 +350,91 @@ int commandSubtitles(const std::string& path, const std::string& outPath) {
     return 0;
 }
 
+/// 章节自动生成（文档第 7 部分「🧪AI工具 → 章节自动生成」）。
+/// 用法：nclip_tool chapters <file.nclip> [--apply <out.nclip>] [--min-s N] [--max-s N]
+///   --apply 时把章节标记写入工程并另存为 <out.nclip>；否则仅打印检测结果。
+int commandChapters(const std::string& path, const std::string& applyOutPath, bool doApply,
+                    double minSeconds, double maxSeconds) {
+    std::string text;
+    if (!readFile(path, text)) {
+        return 1;
+    }
+    Project project;
+    const NclipLoadResult loadResult = loadProjectFromNclip(text, project);
+    if (!loadResult.result.isOk()) {
+        std::fprintf(stderr, "加载失败：%s\n", loadResult.result.message.c_str());
+        return 1;
+    }
+    Sequence* seq = project.mainSequence();
+    if (seq == nullptr) {
+        std::fprintf(stderr, "工程没有主序列\n");
+        return 1;
+    }
+    // 真实采样（FFmpeg 可用时；无 FFmpeg 时退化为时长约束并说明）
+    SequenceChapterSamples samples;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    {
+        FFmpegReaderFactory factory;
+        samples = sampleSequenceForChapters(project, seq->id, &factory);
+    }
+#else
+    samples = sampleSequenceForChapters(project, seq->id, nullptr);
+#endif
+    for (const auto& w : samples.warnings) {
+        std::fprintf(stderr, "采样警告：%s\n", w.c_str());
+    }
+    ChapterDetectConfig config;
+    if (minSeconds > 0.0) config.minChapterSeconds = minSeconds;
+    if (maxSeconds >= 0.0) config.maxChapterSeconds = maxSeconds;
+    ChapterDetectResult result;
+    if (samples.usable()) {
+        result = detectChaptersFromFeatures(samples.features, samples.audio,
+                                            samples.timelineDuration, config);
+    } else {
+        result = detectChapters({}, {}, seq->duration(), config);
+        if (!samples.note.empty()) {
+            result.note = samples.note;
+        }
+    }
+    std::printf("=== 章节检测：%s ===\n", path.c_str());
+    std::printf("内容时长：%.2f s，视频特征 %zu 点 / 音频块 %zu 个\n",
+                result.totalDuration.toDouble(), samples.features.size(), samples.audio.size());
+    if (!result.summary.empty()) {
+        std::printf("%s\n", result.summary.c_str());
+    }
+    if (!result.note.empty()) {
+        std::printf("诊断：%s\n", result.note.c_str());
+    }
+    for (const auto& c : result.chapters) {
+        std::printf("  [%d] %s - %s  「%s」\n", c.index, formatTime(c.start).c_str(),
+                    formatTime(c.end).c_str(), c.title.c_str());
+    }
+    if (!result.valid()) {
+        std::fprintf(stderr, "未检测到章节\n");
+        return 1;
+    }
+    if (!doApply) {
+        return 0;
+    }
+    // 落盘（写入序列标记）并另存
+    TimelineEditor editor(project);
+    const ChapterApplyResult applied = applyChapters(editor, project, seq->id, result);
+    if (!applied.result.isOk()) {
+        std::fprintf(stderr, "章节落盘失败：%s\n", applied.result.message.c_str());
+        return 1;
+    }
+    std::ofstream out(applyOutPath, std::ios::binary);
+    if (!out) {
+        std::fprintf(stderr, "无法写入 %s\n", applyOutPath.c_str());
+        return 1;
+    }
+    out << saveProjectToNclip(project);
+    std::printf("已写入 %zu 个章节标记（新增 %zu / 更新 %zu）→ %s\n",
+                result.chapters.size(), applied.markersAdded, applied.markersUpdated,
+                applyOutPath.c_str());
+    return 0;
+}
+
 /// 导入 SRT 字幕到工程。
 /// 用法：nclip_tool subs-import <file.nclip> <in.srt> <out.nclip>
 int commandSubtitlesImport(const std::string& path, const std::string& srtPath,
@@ -406,6 +493,7 @@ void printUsage() {
     std::printf("  nclip_tool subs <file.nclip> <out.srt> 导出字幕\n");
     std::printf("  nclip_tool subs-import <file.nclip> <in.srt> <out.nclip> 导入字幕\n");
     std::printf("  nclip_tool beats <audio> [--json] 分析音频节拍（音乐卡点）\n");
+    std::printf("  nclip_tool chapters <file.nclip> [--apply <out.nclip>] [--min-s N] [--max-s N] 章节自动生成\n");
     std::printf("  nclip_tool version                版本信息\n");
 }
 
@@ -485,6 +573,24 @@ int main(int argc, char** argv) {
             return 2;
         }
         return commandSubtitlesImport(path, argv[3], argv[4]);
+    }
+    if (command == "chapters") {
+        std::string applyOutPath;
+        bool doApply = false;
+        double minSeconds = 0.0;
+        double maxSeconds = -1.0;
+        for (int i = 3; i + 1 < argc; i += 2) {
+            const std::string flag = argv[i];
+            if (flag == "--apply") {
+                applyOutPath = argv[i + 1];
+                doApply = true;
+            } else if (flag == "--min-s") {
+                minSeconds = std::atof(argv[i + 1]);
+            } else if (flag == "--max-s") {
+                maxSeconds = std::atof(argv[i + 1]);
+            }
+        }
+        return commandChapters(path, applyOutPath, doApply, minSeconds, maxSeconds);
     }
     std::fprintf(stderr, "错误：未知命令 %s\n", command.c_str());
     printUsage();

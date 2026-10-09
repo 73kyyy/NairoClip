@@ -46,6 +46,7 @@ add_library(nairoclip_core STATIC
     src/batch_ops.cpp
     src/reframe.cpp
     src/crypto.cpp
+    src/chapter.cpp
     src/model_manager.cpp
 )
 target_include_directories(nairoclip_core PUBLIC

@@ -500,6 +500,41 @@ int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_
 /// 释放库分配的内存缓冲（模型解密输出等）。
 void nc_free_buffer(uint8_t* buffer);
 
+// ---- 章节自动生成（文档第 7 部分「🧪AI工具 → 章节自动生成：自动检测/手动编辑标题」）----
+
+/// 自动检测章节（真实解码采样 → 场景/静音边界 → 时长约束）。
+/// - 参数为 0 表示使用默认值（最短 20s / 最长 300s / 静音 1.5s）；
+///   use_scene_detect / use_silence_detect 传 -1 表示默认（都启用）；
+///   max_chapters 传 0 表示不限制；
+/// - 检测结果缓存在 editor 内，供 nc_chapter_apply 落盘（可先预览再决定）；
+/// - out_summary：出参（可空）结论（如「检测到 5 个章节（场景 3 / 静音 1 / 硬切 1…）」）；
+/// - out_note：出参（可空）无结果时的原因说明；
+/// - out_error：出参（可空）错误说明。
+/// 返回：检测到的章节数（>= 0；0 = 未检测到）；-1 = 参数错误。
+int32_t nc_chapter_detect(NcEditor* editor, double min_chapter_seconds,
+                          double max_chapter_seconds, double silence_boundary_seconds,
+                          int32_t use_scene_detect, int32_t use_silence_detect,
+                          int32_t max_chapters, char** out_summary, char** out_note,
+                          char** out_error);
+
+/// 落盘缓存的检测结果（一条撤销事务；重复调用按幂等语义更新既有标记）。
+/// 返回：写入的标记数（新增 + 更新）；-1 = 无缓存结果/失败。
+int32_t nc_chapter_apply(NcEditor* editor, char** out_error);
+
+/// 已落盘章节数（由序列章节标记重建）。
+int32_t nc_chapter_count(const NcEditor* editor);
+
+/// 读取已落盘章节（out_title 需 nc_free_string）。
+int32_t nc_chapter_get(const NcEditor* editor, int32_t index, int64_t* out_start_us,
+                       int64_t* out_end_us, char** out_title);
+
+/// 手动编辑章节标题（更新既有章节标记；可撤销）。
+int32_t nc_chapter_rename(NcEditor* editor, int32_t index, const char* new_title,
+                          char** out_error);
+
+/// 清除全部章节标记（一条撤销事务）。
+int32_t nc_chapter_clear(NcEditor* editor, char** out_error);
+
 /// 释放字符串数组（nc_model_catalog 的输出）。
 void nc_free_string_array(char** items, int32_t count);
 

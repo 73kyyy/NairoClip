@@ -1,5 +1,6 @@
 #include "nairoclip/core/capi.h"
 
+#include "nairoclip/core/chapter.h"
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/entitlement.h"
@@ -39,6 +40,11 @@ struct NcEditor {
     Entitlement entitlement;
     /// 代理设置（平台层持久化；默认自动 + 1/2 分辨率）。
     ProxySettings proxySettings;
+    /// 章节检测缓存（nc_chapter_detect 结果；nc_chapter_apply 落盘消费）。
+    /// 保持「检测 → 预览 → 落盘」两段式，UI 可先展示再决定是否应用。
+    ChapterDetectResult chapterCache;
+    /// 检测配置（与 chapterCache 配套；标题前缀等）。
+    ChapterDetectConfig chapterConfig;
 };
 
 namespace {
@@ -1623,6 +1629,202 @@ int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_
 }
 
 void nc_free_buffer(uint8_t* buffer) { delete[] buffer; }
+
+// ---- 章节自动生成（文档第 7 部分「🧪AI工具 → 章节自动生成」）----
+
+int32_t nc_chapter_detect(NcEditor* editor, double min_chapter_seconds,
+                          double max_chapter_seconds, double silence_boundary_seconds,
+                          int32_t use_scene_detect, int32_t use_silence_detect,
+                          int32_t max_chapters, char** out_summary, char** out_note,
+                          char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return -1;
+    }
+    ChapterDetectConfig config;
+    if (min_chapter_seconds > 0.0) {
+        config.minChapterSeconds = min_chapter_seconds;
+    }
+    if (max_chapter_seconds >= 0.0) {
+        config.maxChapterSeconds = max_chapter_seconds;
+    }
+    if (silence_boundary_seconds > 0.0) {
+        config.silenceBoundarySeconds = silence_boundary_seconds;
+    }
+    // -1 = 默认（启用）；0 = 禁用；其余视为启用
+    config.useSceneDetect = use_scene_detect != 0;
+    config.useSilenceDetect = use_silence_detect != 0;
+    if (max_chapters > 0) {
+        config.maxChapters = static_cast<std::size_t>(max_chapters);
+    }
+    if (!config.valid()) {
+        if (out_error != nullptr) *out_error = dupString("章节检测参数非法");
+        return -1;
+    }
+    // 真实采样（FFmpeg 可用时；否则给出说明性 note）
+    SequenceChapterSamples samples;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    {
+        FFmpegReaderFactory factory;
+        samples = sampleSequenceForChapters(editor->project, seq->id, &factory);
+    }
+#else
+    samples = sampleSequenceForChapters(editor->project, seq->id, nullptr);
+#endif
+    ChapterDetectResult result;
+    if (samples.usable()) {
+        result = detectChaptersFromFeatures(samples.features, samples.audio,
+                                            samples.timelineDuration, config);
+        for (const auto& w : samples.warnings) {
+            result.warnings.push_back(w);
+        }
+    } else {
+        // 无采样数据：退化为时长约束（场景/静音均无输入）
+        result = detectChapters({}, {}, seq->duration(), config);
+        if (!samples.note.empty()) {
+            result.note = samples.note;
+        }
+    }
+    editor->chapterCache = result;
+    editor->chapterConfig = config;
+    if (out_summary != nullptr) *out_summary = dupString(result.summary);
+    if (out_note != nullptr) *out_note = dupString(result.note);
+    if (out_error != nullptr) *out_error = nullptr;
+    if (!result.valid()) {
+        return 0;  // 未检测到章节（note 说明原因）
+    }
+    return static_cast<int32_t>(result.chapters.size());
+}
+
+int32_t nc_chapter_apply(NcEditor* editor, char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    if (editor->chapterCache.chapters.empty()) {
+        if (out_error != nullptr) {
+            *out_error = dupString("没有可落盘的检测结果，请先调用 nc_chapter_detect");
+        }
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return -1;
+    }
+    const ChapterApplyResult applied =
+        applyChapters(*editor->editor, editor->project, seq->id, editor->chapterCache);
+    if (!applied.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(applied.result.message);
+        return -1;
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return static_cast<int32_t>(applied.markersAdded + applied.markersUpdated);
+}
+
+int32_t nc_chapter_count(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(readChaptersFromSequence(*seq).size());
+}
+
+int32_t nc_chapter_get(const NcEditor* editor, int32_t index, int64_t* out_start_us,
+                       int64_t* out_end_us, char** out_title) {
+    if (editor == nullptr || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const std::vector<Chapter> chapters = readChaptersFromSequence(*seq);
+    if (static_cast<std::size_t>(index) >= chapters.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Chapter& chapter = chapters[static_cast<std::size_t>(index)];
+    if (out_start_us != nullptr) *out_start_us = toMicroseconds(chapter.start);
+    if (out_end_us != nullptr) *out_end_us = toMicroseconds(chapter.end);
+    if (out_title != nullptr) *out_title = dupString(chapter.title);
+    return NC_OK;
+}
+
+int32_t nc_chapter_rename(NcEditor* editor, int32_t index, const char* new_title,
+                          char** out_error) {
+    if (editor == nullptr || new_title == nullptr || index < 0) {
+        if (out_error != nullptr) *out_error = dupString("参数非法");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return NC_ERROR_NOT_FOUND;
+    }
+    const std::vector<Chapter> chapters = readChaptersFromSequence(*seq);
+    if (static_cast<std::size_t>(index) >= chapters.size()) {
+        if (out_error != nullptr) *out_error = dupString("章节下标越界");
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    std::string title = new_title;
+    const std::size_t begin = title.find_first_not_of(" \t\r\n");
+    const std::size_t end = title.find_last_not_of(" \t\r\n");
+    if (begin == std::string::npos) {
+        if (out_error != nullptr) *out_error = dupString("标题不能为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    title = title.substr(begin, end - begin + 1);
+    const Chapter& chapter = chapters[static_cast<std::size_t>(index)];
+    Marker marker;
+    marker.id = chapter.markerId;
+    marker.time = chapter.start;
+    marker.name = title;
+    marker.color = chapterMarkerColor();
+    const Result r = editor->editor->upsertMarker(seq->id, std::move(marker));
+    if (!r.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(r.message);
+        return toNcError(r.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_chapter_clear(NcEditor* editor, char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return -1;
+    }
+    const std::vector<Chapter> chapters = readChaptersFromSequence(*seq);
+    if (chapters.empty()) {
+        if (out_error != nullptr) *out_error = nullptr;
+        return 0;  // 无章节视为已清空
+    }
+    editor->editor->beginTransaction("清除章节");
+    int32_t removed = 0;
+    for (const auto& chapter : chapters) {
+        if (chapter.markerId.isValid() &&
+            editor->editor->removeMarker(seq->id, chapter.markerId).isOk()) {
+            ++removed;
+        }
+    }
+    editor->editor->endTransaction();
+    editor->chapterCache = ChapterDetectResult{};  // 缓存失效（避免落盘已删除的结果）
+    if (out_error != nullptr) *out_error = nullptr;
+    return removed;
+}
 
 void nc_free_string_array(char** items, int32_t count) {
     if (items == nullptr) {
