@@ -7,6 +7,9 @@
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/ai_check.h"
 #include "nairoclip/core/auto_edit.h"
+#include "nairoclip/core/export_queue.h"
+#include "nairoclip/core/media_offline.h"
+#include "nairoclip/core/crypto.h"
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/track.h"
 #include "nairoclip/core/json.h"
@@ -25,8 +28,16 @@
 #endif
 
 #include <cstring>
+#include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <new>
+#include <vector>
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+// POSIX 目录列举（自动扫描查找重链候选；仅 FFmpeg 构建下使用）
+#include <dirent.h>
+#endif
 #include <string>
 
 using namespace nairoclip::core;
@@ -45,6 +56,10 @@ struct NcEditor {
     ChapterDetectResult chapterCache;
     /// 检测配置（与 chapterCache 配套；标题前缀等）。
     ChapterDetectConfig chapterConfig;
+    /// 导出队列（文档第 6 部分「二、导出队列管理」；运行时状态）。
+    ExportQueue exportQueue;
+    /// 最近一次离线扫描报告（nc_media_apply_offline_flags 消费）。
+    OfflineScanReport offlineReport;
 };
 
 namespace {
@@ -1824,6 +1839,493 @@ int32_t nc_chapter_clear(NcEditor* editor, char** out_error) {
     editor->chapterCache = ChapterDetectResult{};  // 缓存失效（避免落盘已删除的结果）
     if (out_error != nullptr) *out_error = nullptr;
     return removed;
+}
+
+// ---- 导出队列（文档第 6 部分「二、导出队列管理」+ 第 4 部分「后台导出」）----
+
+int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_path,
+                          int32_t preset_id, int32_t mode, int32_t include_audio,
+                          int32_t attach_ai_label, const char* ai_label_text,
+                          uint64_t* out_job_id, char** out_error) {
+    if (editor == nullptr || name == nullptr || out_path == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    ExportPresetId preset = ExportPresetId::Custom;
+    if (preset_id > 0) {
+        preset = static_cast<ExportPresetId>(preset_id);
+        // 越界防御：非内置预设回退 Custom
+        const auto& presets = builtinExportPresets();
+        bool found = false;
+        for (const auto& p : presets) {
+            if (p.id == preset) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            preset = ExportPresetId::Custom;
+        }
+    }
+    PerformanceMode performanceMode = PerformanceMode::Balanced;
+    if (!performanceModeFromInt(mode, performanceMode)) {
+        if (out_error != nullptr) *out_error = dupString("性能模式非法（0/1/2）");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    const ExportQueueResult r = editor->exportQueue.enqueue(
+        name, out_path, preset, performanceMode, editor->entitlement, now,
+        include_audio != 0, attach_ai_label != 0,
+        ai_label_text != nullptr ? ai_label_text : "AI 生成");
+    if (out_job_id != nullptr) {
+        *out_job_id = r.result.isOk() ? r.jobId : 0;
+    }
+    if (!r.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(r.result.message);
+        return toNcError(r.result.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_export_poll_next(NcEditor* editor, uint64_t* out_job_id, char** out_out_path,
+                            int32_t* out_preset, int32_t* out_mode,
+                            int32_t* out_include_audio, int32_t* out_attach_ai_label,
+                            char** out_ai_label_text) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    // 调度策略按「队列中最早等待任务」的性能模式推导（平台层切换模式时重新拉取）
+    ExportQueuePolicy policy = exportQueuePolicy(PerformanceMode::Balanced, 4);
+    bool havePolicy = false;
+    for (const auto& job : editor->exportQueue.jobs()) {
+        if (job.state == ExportJobState::Queued) {
+            policy = exportQueuePolicy(job.mode, 4);
+            havePolicy = true;
+            break;
+        }
+    }
+    (void)havePolicy;
+    const std::uint64_t jobId = editor->exportQueue.pollNext(policy);
+    if (jobId == 0) {
+        return 0;
+    }
+    const ExportJob* job = editor->exportQueue.find(jobId);
+    if (job == nullptr) {
+        return 0;
+    }
+    if (out_job_id != nullptr) *out_job_id = job->id;
+    if (out_out_path != nullptr) *out_out_path = dupString(job->outputPath);
+    if (out_preset != nullptr) *out_preset = static_cast<int32_t>(job->preset);
+    if (out_mode != nullptr) *out_mode = static_cast<int32_t>(job->mode);
+    if (out_include_audio != nullptr) *out_include_audio = job->includeAudio ? 1 : 0;
+    if (out_attach_ai_label != nullptr) *out_attach_ai_label = job->attachAiLabel ? 1 : 0;
+    if (out_ai_label_text != nullptr) *out_ai_label_text = dupString(job->aiLabelText);
+    return 1;
+}
+
+int32_t nc_export_job_state(const NcEditor* editor, uint64_t job_id, int32_t* out_state,
+                            double* out_progress, int64_t* out_frames_written, char** out_note) {
+    if (editor == nullptr || job_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ExportJob* job = editor->exportQueue.find(job_id);
+    if (job == nullptr) {
+        return 0;
+    }
+    if (out_state != nullptr) *out_state = static_cast<int32_t>(job->state);
+    if (out_progress != nullptr) *out_progress = job->progress;
+    if (out_frames_written != nullptr) *out_frames_written = job->framesWritten;
+    if (out_note != nullptr) *out_note = dupString(job->note);
+    return 1;
+}
+
+int32_t nc_export_job_progress(NcEditor* editor, uint64_t job_id, double progress) {
+    if (editor == nullptr || job_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ExportQueueResult r = editor->exportQueue.updateProgress(job_id, progress);
+    return toNcError(r.result.code);
+}
+
+int32_t nc_export_job_update(NcEditor* editor, uint64_t job_id, int32_t action,
+                             int64_t frames_written, const char* reason, int64_t now_unix,
+                             char** out_error) {
+    if (editor == nullptr || job_id == 0) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    ExportQueueResult r;
+    switch (action) {
+        case 0:  // 开始
+            r = editor->exportQueue.markStarted(job_id, now_unix);
+            break;
+        case 1:  // 完成
+            r = editor->exportQueue.markCompleted(job_id, frames_written, now_unix,
+                                                  reason != nullptr ? reason : "");
+            break;
+        case 2:  // 失败
+            r = editor->exportQueue.markFailed(job_id, reason != nullptr ? reason : "", now_unix);
+            break;
+        case 3:  // 暂停
+            r = editor->exportQueue.pause(job_id, now_unix);
+            break;
+        case 4:  // 继续
+            r = editor->exportQueue.resume(job_id, now_unix);
+            break;
+        case 5:  // 移除
+            r = editor->exportQueue.remove(job_id, now_unix);
+            break;
+        default:
+            if (out_error != nullptr) *out_error = dupString("未知动作（0-5）");
+            return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (!r.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(r.result.message);
+        return toNcError(r.result.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_export_queue_summary(const NcEditor* editor, int32_t* out_queued,
+                                int32_t* out_running, int32_t* out_active) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (out_queued != nullptr) {
+        *out_queued = static_cast<int32_t>(editor->exportQueue.queuedCount());
+    }
+    if (out_running != nullptr) {
+        *out_running = static_cast<int32_t>(editor->exportQueue.runningCount());
+    }
+    if (out_active != nullptr) {
+        *out_active = static_cast<int32_t>(editor->exportQueue.activeCount());
+    }
+    return NC_OK;
+}
+
+void nc_export_queue_cancel_all(NcEditor* editor, int64_t now_unix) {
+    if (editor == nullptr) {
+        return;
+    }
+    editor->exportQueue.cancelAll(now_unix);
+}
+
+// ---- 媒体离线检测与重新链接（文档第 3 部分「四、媒体离线检测与重新链接」）----
+
+namespace {
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+/// FFmpeg 探测器：文件存在性用 avformat_open_input 探测；
+/// 摘要用流式读文件 + SHA-256（crypto 模块）。
+class FFmpegOfflineProbe : public OfflineProbe {
+public:
+    bool fileExists(const std::string& path) override {
+        std::ifstream f(path, std::ios::binary);
+        return f.good();
+    }
+    std::string fileDigest(const std::string& path) override {
+        std::ifstream f(path, std::ios::binary);
+        if (!f.good()) {
+            return std::string();
+        }
+        Sha256 hasher;
+        std::vector<char> buffer(64 * 1024);
+        while (f.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) ||
+               f.gcount() > 0) {
+            hasher.update(buffer.data(), static_cast<std::size_t>(f.gcount()));
+            if (f.eof()) {
+                break;
+            }
+        }
+        std::uint8_t digest[kSha256DigestSize];
+        hasher.finalize(digest);
+        return sha256Hex(digest);
+    }
+    std::vector<std::string> listDirectory(const std::string& dir) override {
+        std::vector<std::string> names;
+        DIR* handle = opendir(dir.c_str());
+        if (handle == nullptr) {
+            return names;
+        }
+        while (struct dirent* entry = readdir(handle)) {
+            const std::string name = entry->d_name;
+            if (name == "." || name == "..") {
+                continue;
+            }
+            names.push_back(name);
+        }
+        closedir(handle);
+        return names;
+    }
+};
+#endif
+
+/// JSON 转义（与项目 JSON 约定一致的最小子集：引号/反斜杠/控制字符）。
+std::string jsonEscape(const std::string& text) {
+    std::string out;
+    out.reserve(text.size() + 8);
+    for (const char c : text) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out += c; break;
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+int32_t nc_media_scan_offline(NcEditor* editor, int32_t probe_kind, char** out_report_json,
+                              char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    OfflineProbe* probe = nullptr;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    static FFmpegOfflineProbe ffmpegProbe;
+    if (probe_kind == 1) {
+        probe = &ffmpegProbe;
+    }
+#else
+    if (probe_kind == 1) {
+        if (out_error != nullptr) *out_error = dupString("此构建未包含 FFmpeg，无法使用探测器");
+        return NC_ERROR_UNSUPPORTED;
+    }
+#endif
+    (void)probe_kind;
+    editor->offlineReport = scanOfflineAssets(editor->project, probe);
+    if (out_report_json != nullptr) {
+        std::string json = "{\"offline\":" + std::to_string(editor->offlineReport.offlineCount()) +
+                           ",\"online\":" + std::to_string(editor->offlineReport.onlineCount()) +
+                           ",\"items\":[";
+        for (std::size_t i = 0; i < editor->offlineReport.checks.size(); ++i) {
+            const AssetOfflineCheck& check = editor->offlineReport.checks[i];
+            if (i > 0) json += ",";
+            json += "{\"id\":" + std::to_string(check.asset.value) +
+                    ",\"name\":\"" + jsonEscape(check.name) +
+                    "\",\"path\":\"" + jsonEscape(check.path) +
+                    "\",\"status\":\"" + offlineStatusName(check.status) +
+                    "\",\"message\":\"" + jsonEscape(check.message) + "\"}";
+        }
+        json += "],\"notes\":[";
+        for (std::size_t i = 0; i < editor->offlineReport.notes.size(); ++i) {
+            if (i > 0) json += ",";
+            json += "\"" + jsonEscape(editor->offlineReport.notes[i]) + "\"";
+        }
+        json += "]}";
+        *out_report_json = dupString(json);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_media_apply_offline_flags(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return static_cast<int32_t>(applyOfflineFlags(editor->project, editor->offlineReport));
+}
+
+int32_t nc_media_relink(NcEditor* editor, uint64_t asset_id, const char* new_path,
+                        int32_t verify_digest, char** out_warning, char** out_error) {
+    if (editor == nullptr || new_path == nullptr || asset_id == 0) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    OfflineProbe* probe = nullptr;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    static FFmpegOfflineProbe relinkProbe;
+    probe = &relinkProbe;
+#endif
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("素材不存在");
+        return NC_ERROR_NOT_FOUND;
+    }
+    const std::string expectedDigest = verify_digest != 0 ? asset->contentSha256 : std::string();
+    const RelinkResult r = relinkAsset(*editor->editor, editor->project, AssetId{asset_id},
+                                       new_path, probe, expectedDigest);
+    if (out_warning != nullptr) {
+        *out_warning = r.digestWarnings.empty() ? nullptr
+                                                : dupString(r.digestWarnings.front());
+    }
+    if (!r.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(r.result.message);
+        return toNcError(r.result.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_media_find_relink_candidates(NcEditor* editor, const char* search_dirs_json,
+                                        char** out_candidates_json, char** out_error) {
+    if (editor == nullptr || search_dirs_json == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    // 极简 JSON 数组解析（["a","b"]；容忍空白）
+    std::vector<std::string> dirs;
+    {
+        const char* p = search_dirs_json;
+        std::string current;
+        bool inString = false;
+        bool escape = false;
+        for (; *p != '\0'; ++p) {
+            const char c = *p;
+            if (inString) {
+                if (escape) {
+                    current += c;
+                    escape = false;
+                } else if (c == '\\') {
+                    escape = true;
+                } else if (c == '"') {
+                    dirs.push_back(current);
+                    current.clear();
+                    inString = false;
+                } else {
+                    current += c;
+                }
+            } else if (c == '"') {
+                inString = true;
+            }
+        }
+    }
+    if (dirs.empty()) {
+        if (out_error != nullptr) *out_error = dupString("目录列表为空或格式非法");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    OfflineProbe* probe = nullptr;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    static FFmpegOfflineProbe candidateProbe;
+    probe = &candidateProbe;
+#endif
+    // 仅对离线素材查找（在线素材无需重链）
+    std::vector<MediaAsset> offlineAssets;
+    for (const auto& asset : editor->project.assets) {
+        if (asset.offline || !asset.path.empty()) {
+            offlineAssets.push_back(asset);
+        }
+    }
+    const std::vector<RelinkCandidate> candidates =
+        findRelinkCandidates(offlineAssets, dirs, probe);
+    if (out_candidates_json != nullptr) {
+        std::string json = "[";
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+            const RelinkCandidate& c = candidates[i];
+            if (i > 0) json += ",";
+            json += "{\"asset\":" + std::to_string(c.asset.value) +
+                    ",\"fileName\":\"" + jsonEscape(c.fileName) +
+                    "\",\"path\":\"" + jsonEscape(c.candidatePath) +
+                    "\",\"digestMatches\":" + (c.digestMatches ? "true" : "false") + "}";
+        }
+        json += "]";
+        *out_candidates_json = dupString(json);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_media_relink_batch(NcEditor* editor, const char* mappings_json,
+                              int32_t* out_relinked, char** out_report_json, char** out_error) {
+    if (editor == nullptr || mappings_json == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    // 极简解析：[{"asset":1,"path":"..."},...]（容忍键序与空白）
+    std::vector<std::pair<AssetId, std::string>> mappings;
+    {
+        const char* p = mappings_json;
+        while (*p != '\0') {
+            const char* assetPos = std::strstr(p, "\"asset\"");
+            if (assetPos == nullptr) {
+                break;
+            }
+            const char* colon = std::strchr(assetPos, ':');
+            if (colon == nullptr) {
+                break;
+            }
+            const std::uint64_t id = std::strtoull(colon + 1, nullptr, 10);
+            const char* pathPos = std::strstr(colon, "\"path\"");
+            if (pathPos == nullptr) {
+                break;
+            }
+            const char* pathColon = std::strchr(pathPos, ':');
+            if (pathColon == nullptr) {
+                break;
+            }
+            const char* open = std::strchr(pathColon, '"');
+            if (open == nullptr) {
+                break;
+            }
+            std::string path;
+            bool escape = false;
+            for (const char* q = open + 1; *q != '\0'; ++q) {
+                if (escape) {
+                    path += *q;
+                    escape = false;
+                } else if (*q == '\\') {
+                    escape = true;
+                } else if (*q == '"') {
+                    break;
+                } else {
+                    path += *q;
+                }
+            }
+            if (id != 0 && !path.empty()) {
+                mappings.emplace_back(AssetId{id}, path);
+            }
+            p = pathColon + 1;
+        }
+    }
+    if (mappings.empty()) {
+        if (out_error != nullptr) *out_error = dupString("重链列表为空或格式非法");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    OfflineProbe* probe = nullptr;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    static FFmpegOfflineProbe batchProbe;
+    probe = &batchProbe;
+#endif
+    const RelinkResult r = relinkAssets(*editor->editor, editor->project, mappings, probe);
+    if (out_relinked != nullptr) *out_relinked = static_cast<int32_t>(r.relinked);
+    if (out_report_json != nullptr) {
+        std::string json = "{\"relinked\":" + std::to_string(r.relinked) + ",\"messages\":[";
+        for (std::size_t i = 0; i < r.digestWarnings.size(); ++i) {
+            if (i > 0) json += ",";
+            json += "\"" + jsonEscape(r.digestWarnings[i]) + "\"";
+        }
+        json += "]}";
+        *out_report_json = dupString(json);
+    }
+    if (!r.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(r.result.message);
+        return toNcError(r.result.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_media_set_digest(NcEditor* editor, uint64_t asset_id, const char* sha256_hex,
+                            char** out_error) {
+    if (editor == nullptr || asset_id == 0) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Result r = setAssetDigest(editor->project, AssetId{asset_id},
+                                    sha256_hex != nullptr ? sha256_hex : "");
+    if (!r.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(r.message);
+        return toNcError(r.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
 }
 
 void nc_free_string_array(char** items, int32_t count) {

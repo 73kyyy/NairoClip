@@ -5,6 +5,8 @@
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/transition_types.h"
 
+#include <cctype>
+
 namespace nairoclip {
 namespace core {
 
@@ -90,6 +92,10 @@ JsonValue writeAsset(const MediaAsset& a) {
     o.set("sampleRate", JsonValue::integer(a.sampleRate));
     o.set("channels", JsonValue::integer(a.channels));
     o.set("offline", JsonValue::boolean(a.offline));
+    // 内容摘要（文档第 3 部分「媒体离线检测」；空 = 未记录，不写入保持 diff 稳定）
+    if (!a.contentSha256.empty()) {
+        o.set("sha256", JsonValue::string(a.contentSha256));
+    }
     return o;
 }
 
@@ -112,6 +118,20 @@ bool readAsset(const JsonValue& v, MediaAsset& out, std::string& err) {
     out.sampleRate = static_cast<int>(v.get("sampleRate").asInteger());
     out.channels = static_cast<int>(v.get("channels").asInteger());
     out.offline = v.get("offline").asBool(false);
+    // 载入侧容错：非法摘要降级为「未记录」（不阻止工程打开）
+    const std::string digest = v.get("sha256").asString();
+    if (digest.size() == 64) {
+        bool valid = true;
+        for (const char c : digest) {
+            if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid) {
+            out.contentSha256 = digest;
+        }
+    }
     return true;
 }
 

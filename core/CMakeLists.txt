@@ -47,6 +47,8 @@ add_library(nairoclip_core STATIC
     src/reframe.cpp
     src/crypto.cpp
     src/chapter.cpp
+    src/export_queue.cpp
+    src/media_offline.cpp
     src/model_manager.cpp
 )
 target_include_directories(nairoclip_core PUBLIC

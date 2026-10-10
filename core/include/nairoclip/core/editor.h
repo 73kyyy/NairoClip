@@ -26,6 +26,11 @@ public:
     Result removeAsset(AssetId assetId);
     /// 检查素材是否被任何序列引用（删除前校验用）。
     bool isAssetReferenced(AssetId assetId) const;
+    /// 重新链接素材（写入新路径 + 清除离线标记；进入撤销栈）。
+    /// 文档第 3 部分「四、媒体离线检测与重新链接」——[重新链接] 的落盘动作。
+    /// - newDigest：空 = 保留原摘要（不做摘要覆盖）。
+    Result relinkAsset(AssetId assetId, const std::string& newPath,
+                       const std::string& newDigest = "");
 
     // ---- 轨道 ----
     Result addTrack(SequenceId sequenceId, TrackType type, const std::string& name,

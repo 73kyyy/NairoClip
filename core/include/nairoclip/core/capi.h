@@ -535,6 +535,96 @@ int32_t nc_chapter_rename(NcEditor* editor, int32_t index, const char* new_title
 /// 清除全部章节标记（一条撤销事务）。
 int32_t nc_chapter_clear(NcEditor* editor, char** out_error);
 
+// ---- 导出队列（文档第 6 部分「二、导出队列管理」+ 第 4 部分「后台导出」）----
+
+/// 入队一个导出任务。参数同 nc_export_run，另加名称/预设/性能模式。
+/// - name：任务展示名（如「春游Vlog」）；
+/// - preset_id：导出预设（0 = 自定义，其余见 nc_export_presets）；
+/// - mode：性能模式（0 极速 / 1 平衡 / 2 省电）；
+/// - include_audio / attach_ai_label / ai_label_text：同 nc_export_run；
+/// - out_job_id：出参（可空）任务 ID；
+/// - out_error：出参（可空）失败原因（如队列已满，需 nc_free_string）。
+/// 返回：NC_OK 或错误码（Unsupported = 队列已满，弹付费墙）。
+int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_path,
+                          int32_t preset_id, int32_t mode, int32_t include_audio,
+                          int32_t attach_ai_label, const char* ai_label_text,
+                          uint64_t* out_job_id, char** out_error);
+
+/// 查询下一个应执行的任务（调度决策；无 = 返回 0）。
+/// - out_job_id：出参（可空）任务 ID；
+/// - out_out_path：出参（可空）输出路径（需 nc_free_string）；
+/// - out_preset/out_mode：出参（可空）预设与性能模式；
+/// - out_include_audio/out_attach_ai_label：出参（可空）；
+/// - out_ai_label_text：出参（可空）标识文案（需 nc_free_string）。
+/// 返回：1 = 有任务；0 = 无；负数 = 参数错误。
+int32_t nc_export_poll_next(NcEditor* editor, uint64_t* out_job_id, char** out_out_path,
+                            int32_t* out_preset, int32_t* out_mode,
+                            int32_t* out_include_audio, int32_t* out_attach_ai_label,
+                            char** out_ai_label_text);
+
+/// 查询任务状态（out_state 见 ExportJobState 枚举；out_note 需 nc_free_string）。
+/// 返回：1 = 找到；0 = 未找到；负数 = 参数错误。
+int32_t nc_export_job_state(const NcEditor* editor, uint64_t job_id, int32_t* out_state,
+                            double* out_progress, int64_t* out_frames_written, char** out_note);
+
+/// 回填任务进度（仅运行中任务；单调不减）。
+int32_t nc_export_job_progress(NcEditor* editor, uint64_t job_id, double progress);
+
+/// 任务状态操作：action 0=开始 / 1=完成 / 2=失败 / 3=暂停 / 4=继续 / 5=移除。
+/// - frames_written：action=1 时的输出帧数；
+/// - reason：action=2 时的失败原因（可空）；
+/// - now_unix：当前时间（Unix 秒）；
+/// - out_error：出参（可空）失败原因（需 nc_free_string）。
+int32_t nc_export_job_update(NcEditor* editor, uint64_t job_id, int32_t action,
+                             int64_t frames_written, const char* reason, int64_t now_unix,
+                             char** out_error);
+
+/// 队列摘要（out_queued = 等待中，out_running = 运行中，out_active = 活动总数）。
+int32_t nc_export_queue_summary(const NcEditor* editor, int32_t* out_queued,
+                                int32_t* out_running, int32_t* out_active);
+
+/// 停止所有活动任务（应用退出时调用）。
+void nc_export_queue_cancel_all(NcEditor* editor, int64_t now_unix);
+
+// ---- 媒体离线检测与重新链接（文档第 3 部分「四、媒体离线检测与重新链接」）----
+
+/// 扫描工程素材在线状态（路径存在性 + 摘要校验）。
+/// - probe_kind：探测器类型（0 = 无探测器，全部未验证；1 = 用 FFmpeg 探测器，
+///   需构建包含 FFmpeg；未来可扩展系统 API 实现）；
+/// - out_report_json：出参（可空）报告 JSON（需 nc_free_string）。
+///   格式：{"offline":N,"online":M,"items":[{"id":..,"name":..,"path":..,
+///          "status":"missing|digest_mismatch|online|unverified","message":..}]}
+/// 返回：NC_OK 或错误码。
+int32_t nc_media_scan_offline(NcEditor* editor, int32_t probe_kind, char** out_report_json,
+                              char** out_error);
+
+/// 把最近一次扫描结果写回工程（设置素材离线标记；不阻塞项目打开）。
+/// 返回：被更新的素材数；负数 = 错误。
+int32_t nc_media_apply_offline_flags(NcEditor* editor);
+
+/// 重新链接单个素材（手动选择路径）。
+/// - new_path：新文件路径；verify_digest：1 = 校验内容摘要（要求素材已记录摘要）；
+/// - out_warning：出参（可空）提示（需 nc_free_string）。
+int32_t nc_media_relink(NcEditor* editor, uint64_t asset_id, const char* new_path,
+                        int32_t verify_digest, char** out_warning, char** out_error);
+
+/// 自动扫描查找离线素材的新位置（按文件名匹配候选目录）。
+/// - search_dirs_json：候选目录 JSON 数组（如 ["/a","/b"]）；
+/// - out_candidates_json：出参（可空）候选列表 JSON（需 nc_free_string）。
+///   格式：[{"asset":..,"fileName":..,"path":..,"digestMatches":true/false}]
+int32_t nc_media_find_relink_candidates(NcEditor* editor, const char* search_dirs_json,
+                                        char** out_candidates_json, char** out_error);
+
+/// 批量重新链接（mappings_json：[{"asset":..,"path":".."},...]）。
+/// - out_relinked：出参（可空）成功数；
+/// - out_report_json：出参（可空）明细（需 nc_free_string）。
+int32_t nc_media_relink_batch(NcEditor* editor, const char* mappings_json,
+                              int32_t* out_relinked, char** out_report_json, char** out_error);
+
+/// 记录素材内容摘要（平台层在导入后计算写入；hex 为 64 位十六进制或空）。
+int32_t nc_media_set_digest(NcEditor* editor, uint64_t asset_id, const char* sha256_hex,
+                            char** out_error);
+
 /// 释放字符串数组（nc_model_catalog 的输出）。
 void nc_free_string_array(char** items, int32_t count);
 

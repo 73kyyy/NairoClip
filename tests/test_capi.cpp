@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 NC_TEST(Capi, AbiVersion) {
@@ -266,7 +267,6 @@ NC_TEST(Capi, AutoEditRejectsBadArgs) {
 }
 
 #ifdef NAIROCLIP_HAS_FFMPEG
-#include <fstream>
 NC_TEST(Capi, ExportRunEndToEnd) {
     // 建工程：1 个视频片段（Mock 素材无法用于 FFmpeg 读取——直接用真实文件）
     // 简化：用空序列测试错误路径 + 直接用真实素材测试成功路径
@@ -1227,3 +1227,263 @@ NC_TEST(Capi, ChapterRealMediaEndToEnd) {
     nc_editor_destroy(editor);
 }
 #endif
+
+// ---- 导出队列（文档第 6 部分「二、导出队列管理」）----
+
+NC_TEST(Capi, ExportQueueEnqueueAndLimits) {
+    NcEditor* editor = nc_editor_create();
+    uint64_t jobA = 0;
+    char* err = nullptr;
+    // 免费版：第一个成功
+    NC_CHECK_EQ(nc_export_enqueue(editor, "春游Vlog", "/tmp/out_a.mp4", 0, 1, 1, 0, nullptr,
+                                  &jobA, &err),
+                NC_OK);
+    NC_CHECK(jobA != 0);
+    NC_CHECK_EQ(err, nullptr);
+    int32_t queued = -1, running = -1, active = -1;
+    NC_CHECK_EQ(nc_export_queue_summary(editor, &queued, &running, &active), NC_OK);
+    NC_CHECK_EQ(queued, 1);
+    NC_CHECK_EQ(running, 0);
+    NC_CHECK_EQ(active, 1);
+    // 免费版上限 1 → 第二个被拒
+    uint64_t jobB = 0;
+    NC_CHECK(nc_export_enqueue(editor, "产品宣传片", "/tmp/out_b.mp4", 0, 1, 1, 0, nullptr, &jobB,
+                               &err) != NC_OK);
+    NC_CHECK(err != nullptr);
+    NC_CHECK(std::string(err).find("上限") != std::string::npos);
+    nc_free_string(err);
+    err = nullptr;
+    // 参数校验
+    NC_CHECK(nc_export_enqueue(nullptr, "x", "/tmp/x.mp4", 0, 1, 1, 0, nullptr, nullptr, nullptr) ==
+             NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(nc_export_enqueue(editor, nullptr, "/tmp/x.mp4", 0, 1, 1, 0, nullptr, nullptr,
+                               nullptr) == NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(nc_export_enqueue(editor, "x", "/tmp/x.mp4", 0, 99, 1, 1, nullptr, nullptr,
+                               &err) == NC_ERROR_INVALID_ARGUMENT);  // 非法模式
+    nc_free_string(err);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, ExportQueueSchedulingAndLifecycle) {
+    NcEditor* editor = nc_editor_create();
+    uint64_t jobId = 0;
+    NC_CHECK_EQ(nc_export_enqueue(editor, "任务1", "/tmp/job1.mp4", 1, 1, 1, 1, "AI 生成", &jobId,
+                                  nullptr),
+                NC_OK);
+    // 调度：取到任务（返回 1）
+    uint64_t polled = 0;
+    char* outPath = nullptr;
+    int32_t preset = -1, mode = -1, includeAudio = -1, attachLabel = -1;
+    char* labelText = nullptr;
+    NC_CHECK_EQ(nc_export_poll_next(editor, &polled, &outPath, &preset, &mode, &includeAudio,
+                                    &attachLabel, &labelText),
+                1);
+    NC_CHECK_EQ(polled, jobId);
+    NC_CHECK_EQ(std::string(outPath), std::string("/tmp/job1.mp4"));
+    NC_CHECK_EQ(preset, 1);
+    NC_CHECK_EQ(attachLabel, 1);
+    NC_CHECK_EQ(std::string(labelText), std::string("AI 生成"));
+    nc_free_string(outPath);
+    nc_free_string(labelText);
+    // 开始 → 进度 → 完成
+    NC_CHECK_EQ(nc_export_job_update(editor, jobId, 0, 0, nullptr, 1000, nullptr), NC_OK);
+    NC_CHECK_EQ(nc_export_job_progress(editor, jobId, 0.6), NC_OK);
+    int32_t state = -1;
+    double progress = -1.0;
+    int64_t frames = -1;
+    char* note = nullptr;
+    NC_CHECK_EQ(nc_export_job_state(editor, jobId, &state, &progress, &frames, &note), 1);
+    NC_CHECK_EQ(state, 1);  // Running
+    NC_CHECK(progress > 0.59 && progress < 0.61);
+    nc_free_string(note);
+    note = nullptr;
+    NC_CHECK_EQ(nc_export_job_update(editor, jobId, 1, 300, nullptr, 1001, nullptr), NC_OK);
+    NC_CHECK_EQ(nc_export_job_state(editor, jobId, &state, &progress, &frames, nullptr), 1);
+    NC_CHECK_EQ(state, 3);  // Completed
+    NC_CHECK_EQ(frames, std::int64_t(300));
+    NC_CHECK(progress == 1.0);
+    // 移除
+    NC_CHECK_EQ(nc_export_job_update(editor, jobId, 5, 0, nullptr, 1002, nullptr), NC_OK);
+    NC_CHECK_EQ(nc_export_job_state(editor, jobId, nullptr, nullptr, nullptr, nullptr), 0);
+    // 更新不存在的任务 → 错误
+    char* err = nullptr;
+    NC_CHECK(nc_export_job_update(editor, 9999, 0, 0, nullptr, 1000, &err) != NC_OK);
+    nc_free_string(err);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, ExportQueueProTierAndCancelAll) {
+    NcEditor* editor = nc_editor_create();
+    // 升级 Pro → 可入队 5 个
+    NC_CHECK_EQ(nc_set_entitlement(editor, 1, 0, 0), NC_OK);
+    for (int i = 0; i < 5; ++i) {
+        uint64_t id = 0;
+        NC_CHECK_EQ(nc_export_enqueue(editor, ("任务" + std::to_string(i)).c_str(), "/tmp/x.mp4",
+                                      0, 1, 1, 0, nullptr, &id, nullptr),
+                    NC_OK);
+    }
+    int32_t active = -1;
+    NC_CHECK_EQ(nc_export_queue_summary(editor, nullptr, nullptr, &active), NC_OK);
+    NC_CHECK_EQ(active, 5);
+    // 第 6 个被拒
+    uint64_t extra = 0;
+    NC_CHECK(nc_export_enqueue(editor, "第6个", "/tmp/x6.mp4", 0, 1, 1, 0, nullptr, &extra,
+                               nullptr) != NC_OK);
+    // 取消全部
+    nc_export_queue_cancel_all(editor, 2000);
+    NC_CHECK_EQ(nc_export_queue_summary(editor, nullptr, nullptr, &active), NC_OK);
+    NC_CHECK_EQ(active, 0);
+    // 取消后可重新入队
+    NC_CHECK_EQ(nc_export_enqueue(editor, "新任务", "/tmp/new.mp4", 0, 1, 1, 0, nullptr, nullptr,
+                                  nullptr),
+                NC_OK);
+    nc_editor_destroy(editor);
+}
+
+// ---- 媒体离线检测与重新链接（文档第 3 部分「四」）----
+
+// 无 FFmpeg 构建：探测器不可用，接口应 fail-closed（返回 Unsupported，不崩溃）
+NC_TEST(Capi, MediaOfflineNoProbeFailsClosed) {
+    NcEditor* editor = nc_editor_create();
+    char* report = nullptr;
+    char* err = nullptr;
+#ifndef NAIROCLIP_HAS_FFMPEG
+    NC_CHECK_EQ(nc_media_scan_offline(editor, 1, &report, &err), NC_ERROR_UNSUPPORTED);
+    NC_CHECK(report == nullptr);
+    NC_CHECK(err != nullptr);
+    nc_free_string(err);
+#else
+    (void)report;
+    (void)err;
+#endif
+    nc_editor_destroy(editor);
+}
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+NC_TEST(Capi, MediaOfflineScanAndRelink) {
+    NcEditor* editor = nc_editor_create();
+    // 导入一个真实存在的文件素材（用测试素材）
+    {
+        std::ifstream check("/tmp/media_gen/test_av.mp4");
+        if (!check.good()) return;  // 素材未生成：跳过
+    }
+    const uint64_t assetId =
+        nc_import_asset(editor, "test_av.mp4", "/tmp/media_gen/test_av.mp4", 0, 3000000);
+    NC_CHECK(assetId != 0);
+    // 记录摘要（真实计算）
+    // 先用 FFmpeg 探测器扫描（1）——此时素材无摘要 → 只做存在性检查
+    char* report = nullptr;
+    char* err = nullptr;
+    NC_CHECK_EQ(nc_media_scan_offline(editor, 1, &report, &err), NC_OK);
+    NC_CHECK(report != nullptr);
+    const std::string reportText(report);
+    NC_CHECK(reportText.find("\"online\":1") != std::string::npos);
+    NC_CHECK(reportText.find("\"offline\":0") != std::string::npos);
+    nc_free_string(report);
+    report = nullptr;
+    // 写回标记（在线 → 不设置）
+    NC_CHECK_EQ(nc_media_apply_offline_flags(editor), 0);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, MediaOfflineMissingAndRelinkFlow) {
+    NcEditor* editor = nc_editor_create();
+    // 不存在的路径 → Missing
+    const uint64_t assetId =
+        nc_import_asset(editor, "ghost.mp4", "/tmp/nonexistent_ghost_12345.mp4", 0, 1000000);
+    NC_CHECK(assetId != 0);
+    char* report = nullptr;
+    NC_CHECK_EQ(nc_media_scan_offline(editor, 1, &report, nullptr), NC_OK);
+    NC_CHECK(report != nullptr);
+    const std::string reportText(report);
+    NC_CHECK(reportText.find("\"status\":\"missing\"") != std::string::npos);
+    nc_free_string(report);
+    // 写回 → offline = true
+    NC_CHECK_EQ(nc_media_apply_offline_flags(editor), 1);
+    // 重链到真实文件（用测试素材；无摘要要求时只校验存在性）
+    {
+        std::ifstream check("/tmp/media_gen/test_av.mp4");
+        if (!check.good()) {
+            nc_editor_destroy(editor);
+            return;
+        }
+    }
+    char* warning = nullptr;
+    char* err = nullptr;
+    NC_CHECK_EQ(nc_media_relink(editor, assetId, "/tmp/media_gen/test_av.mp4", 0, &warning, &err),
+                NC_OK);
+    NC_CHECK_EQ(err, nullptr);
+    // 重链后再次扫描 → online
+    report = nullptr;
+    NC_CHECK_EQ(nc_media_scan_offline(editor, 1, &report, nullptr), NC_OK);
+    NC_CHECK(std::string(report).find("\"offline\":0") != std::string::npos);
+    nc_free_string(report);
+    // 不存在的素材 → 错误
+    NC_CHECK(nc_media_relink(editor, 99999, "/tmp/x.mp4", 0, nullptr, &err) != NC_OK);
+    nc_free_string(err);
+    err = nullptr;
+    // 摘要写入校验
+    NC_CHECK(nc_media_set_digest(editor, assetId, "zzz", &err) == NC_ERROR_INVALID_ARGUMENT);
+    nc_free_string(err);
+    err = nullptr;
+    NC_CHECK_EQ(nc_media_set_digest(editor, assetId,
+                                    "e3b0c44298fc1c149afbf4c8996fb924"
+                                    "27ae41e4649b934ca495991b7852b855",
+                                    &err),
+                NC_OK);
+    nc_free_string(err);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, MediaFindCandidates) {
+    NcEditor* editor = nc_editor_create();
+    {
+        std::ifstream check("/tmp/media_gen/test_av.mp4");
+        if (!check.good()) return;
+    }
+    const uint64_t assetId =
+        nc_import_asset(editor, "test_av.mp4", "/tmp/elsewhere/test_av.mp4", 0, 3000000);
+    NC_CHECK(assetId != 0);
+    // 在 /tmp/media_gen 中查找同名文件 → 命中
+    char* candidates = nullptr;
+    NC_CHECK_EQ(nc_media_find_relink_candidates(editor, "[\"/tmp/media_gen\"]", &candidates,
+                                                nullptr),
+                NC_OK);
+    NC_CHECK(candidates != nullptr);
+    const std::string text(candidates);
+    NC_CHECK(text.find("test_av.mp4") != std::string::npos);
+    NC_CHECK(text.find("/tmp/media_gen/test_av.mp4") != std::string::npos);
+    nc_free_string(candidates);
+    // 空目录列表 → 参数错误
+    NC_CHECK(nc_media_find_relink_candidates(editor, "[]", nullptr, nullptr) ==
+             NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(Capi, MediaRelinkBatchFlow) {
+    NcEditor* editor = nc_editor_create();
+    {
+        std::ifstream check("/tmp/media_gen/test_av.mp4");
+        if (!check.good()) return;
+    }
+    const uint64_t a = nc_import_asset(editor, "a.mp4", "/tmp/gone/a.mp4", 0, 1000000);
+    const uint64_t b = nc_import_asset(editor, "b.mp4", "/tmp/gone/b.mp4", 0, 1000000);
+    (void)b;
+    // 批量映射（a 有效；b 目标不存在 → 部分失败）
+    const std::string mappings = "[{\"asset\":" + std::to_string(a) +
+                                 ",\"path\":\"/tmp/media_gen/test_av.mp4\"},"
+                                 "{\"asset\":" + std::to_string(b) +
+                                 ",\"path\":\"/tmp/nonexistent_b.mp4\"}]";
+    int32_t relinked = -1;
+    char* report = nullptr;
+    char* err = nullptr;
+    NC_CHECK_EQ(nc_media_relink_batch(editor, mappings.c_str(), &relinked, &report, &err), NC_OK);
+    NC_CHECK_EQ(relinked, 1);
+    NC_CHECK(report != nullptr);
+    nc_free_string(report);
+    // 空列表 → 参数错误
+    NC_CHECK(nc_media_relink_batch(editor, "[]", nullptr, nullptr, nullptr) ==
+             NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+#endif  // NAIROCLIP_HAS_FFMPEG（媒体离线检测的端到端用例）

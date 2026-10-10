@@ -1392,6 +1392,46 @@ Result RemoveAssetCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// =============================================================================
+// 重新链接素材（文档第 3 部分「四、媒体离线检测与重新链接」）
+// =============================================================================
+
+RelinkAssetCommand::RelinkAssetCommand(AssetId assetId, std::string newPath,
+                                       std::string newDigest)
+    : assetId_(assetId), newPath_(std::move(newPath)), newDigest_(std::move(newDigest)) {}
+
+Result RelinkAssetCommand::apply(Project& project) {
+    if (newPath_.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, "新路径不能为空");
+    }
+    MediaAsset* asset = project.findAsset(assetId_);
+    if (asset == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "素材不存在");
+    }
+    // 快照（供 revert 完整还原）
+    if (!previous_.has_value()) {
+        previous_ = *asset;
+    }
+    asset->path = newPath_;
+    asset->offline = false;  // 重链后清除离线标记
+    if (!newDigest_.empty()) {
+        asset->contentSha256 = newDigest_;
+    }
+    return Result::ok();
+}
+
+Result RelinkAssetCommand::revert(Project& project) {
+    if (!previous_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少素材快照");
+    }
+    MediaAsset* asset = project.findAsset(assetId_);
+    if (asset == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "素材不存在");
+    }
+    *asset = *previous_;
+    return Result::ok();
+}
+
 
 // =============================================================================
 // 复合片段 / 嵌套序列（文档第 3 部分「嵌套序列/复合片段」）

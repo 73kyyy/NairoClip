@@ -28,6 +28,11 @@ Result TimelineEditor::removeAsset(AssetId assetId) {
     return commit(std::make_unique<RemoveAssetCommand>(assetId));
 }
 
+Result TimelineEditor::relinkAsset(AssetId assetId, const std::string& newPath,
+                                   const std::string& newDigest) {
+    return commit(std::make_unique<RelinkAssetCommand>(assetId, newPath, newDigest));
+}
+
 bool TimelineEditor::isAssetReferenced(AssetId assetId) const {
     for (const auto& seq : project_.sequences) {
         for (const auto& track : seq.tracks) {

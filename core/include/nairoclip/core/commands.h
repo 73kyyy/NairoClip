@@ -484,6 +484,27 @@ private:
 };
 
 /// ---------------------------------------------------------------------------
+/// 重新链接素材（文档第 3 部分「四、媒体离线检测与重新链接」）
+/// ---------------------------------------------------------------------------
+/// 语义：写入新路径 + 清除离线标记（可选写入新摘要）；
+/// 快照保存原素材字段，revert 完整还原（含离线标记与摘要）。
+class RelinkAssetCommand : public Command {
+public:
+    /// - newDigest：空 = 保留原摘要不变（不做摘要覆盖）。
+    RelinkAssetCommand(AssetId assetId, std::string newPath, std::string newDigest);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "重新链接素材"; }
+
+private:
+    AssetId assetId_;
+    std::string newPath_;
+    std::string newDigest_;
+    std::optional<MediaAsset> previous_;
+};
+
+/// ---------------------------------------------------------------------------
 /// 设置片段蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）
 /// ---------------------------------------------------------------------------
 class SetClipMaskCommand : public Command {

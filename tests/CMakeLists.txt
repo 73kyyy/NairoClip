@@ -56,6 +56,8 @@ add_executable(nairoclip_tests
     test_reframe.cpp
     test_crypto.cpp
     test_chapter.cpp
+    test_export_queue.cpp
+    test_media_offline.cpp
     test_model_manager.cpp
 )
 

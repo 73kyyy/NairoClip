@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.23，测试 721 用例全绿）
+## 7. 里程碑（截至 M2.24，测试 785 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -279,6 +279,47 @@
     · two_shots.mp4（4s 两镜头）：场景边界检出 2.00s（与拼接点一致）
     · chapter_av.mp4（12s，0-4/7-12s 有声）：静音边界检出 5.49s（静音段 4-7s 中点）
     · CLI --apply 落盘 + 二次 --apply 幂等（新增 0 / 更新 2）+ info 显示标记=2
+
+- M2.24 ✅ 导出队列管理 + 媒体离线检测与重新链接：
+  【导出队列（文档第 6 部分「二、导出队列管理」+ 第 4 部分「后台导出」）】
+  · export_queue 模块（纯状态机 + 调度决策，零线程/文件系统依赖）：
+    · 任务结构（名称/输出路径/预设/性能模式/合规标识/状态/进度/帧数/备注）
+    · 状态机：等待 → 运行 → 完成/失败/已暂停/已取消（合法迁移约束 + 终态不可迁移）
+    · 调度：pollNext 按入队顺序取首个等待任务；并发上限由性能模式派生
+      （Turbo 1 独占 + 暂停编辑 / Balanced min(2,并行度) / Eco 1 降速静默）
+    · 权益限额：Free 1 / Pro 5（entitlement.maxExportQueue 单一事实来源；
+      活动任务计入额度，终态释放——可继续入队）
+    · 操作：暂停（等待中/运行中，诚实说明「继续将从头重新导出」——H.264
+      流不支持断点续写）/ 继续 / 取消 / 移除（活动态先转 Cancelled 供平台层停线程）
+      / cancelAll（应用退出）/ 进度单调钳制
+  · C ABI：nc_export_enqueue / nc_export_poll_next / nc_export_job_state /
+    nc_export_job_progress / nc_export_job_update（6 种动作）/ nc_export_queue_summary /
+    nc_export_queue_cancel_all
+  【媒体离线检测与重新链接（文档第 3 部分「四」）】
+  · media_offline 模块（零文件系统依赖；探测经 OfflineProbe 抽象注入）：
+    · 扫描：路径存在性 + SHA-256 摘要校验（统一用 crypto 模块；摘要不符 →
+      DigestMismatch fail-closed；无期望摘要 → 只做存在性检查）；未接入探测器时
+      全部 Unverified 并给出说明（不阻塞项目打开）
+    · 标记写回：applyOfflineFlags 同步 asset.offline（状态同步语义，不进撤销栈）
+    · 自动扫描：findRelinkCandidates 按文件名（大小写不敏感）在候选目录查找，
+      摘要一致者优先排序；容忍目录不存在
+    · 重新链接：单素材（摘要校验、路径占用拒绝、fail-closed）/ 批量（全量预校验 +
+      一条事务 + 部分失败不阻断）→ 经 RelinkAssetCommand 进撤销栈（完整还原
+      路径/摘要/离线标记）
+    · asset 摘要持久化：.nclip 新增 "sha256" 字段（空不写入保持 diff 稳定；
+      载入非法值降级为未记录，不阻止打开；旧工程无该字段完全兼容）
+  · C ABI：nc_media_scan_offline / nc_media_apply_offline_flags / nc_media_relink /
+    nc_media_find_relink_candidates / nc_media_relink_batch / nc_media_set_digest
+    （探测用 FFmpeg 真实文件系统实现；非 FFmpeg 构建 fail-closed）
+  · CLI：nclip_tool offline <file.nclip> [--scan-dir D]... [--apply <out.nclip>]
+  · 测试：export_queue 25 例 + media_offline 22 例 + C ABI 10 例；
+    共 785 用例全绿（新增 64 例；无 FFmpeg 配置 760 例全绿）
+  · 独立端到端验证（真实文件 + 真实 FFmpeg 编码）：
+    · 队列驱动 2 个真实导出（90 帧/任务）→ 两个 MP4 均被 FFmpeg 回读解码成功
+    · 离线链路：记录真实 SHA-256 → 删除文件检出 Missing → 篡改内容重链被拒
+      → 恢复内容重链成功 → 撤销还原离线状态 → 批量重链 1 成功/1 失败不阻断
+    · 自动扫描：同名垃圾文件与真实文件共存时，摘要匹配者正确排首位
+    · CLI 四场景：在线（exit 0）/ 丢失（exit 1）/ 扫描命中 / --apply 写回 offline=true
 
 ### 待办
 - ⬜ 超分辨率（2x/4x，需模型推理接口）

@@ -9,9 +9,11 @@
 
 #include "nairoclip/core/beat_detect.h"
 #include "nairoclip/core/chapter.h"
+#include "nairoclip/core/crypto.h"
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/export_plan.h"
 #include "nairoclip/core/export_runner.h"
+#include "nairoclip/core/media_offline.h"
 #include "nairoclip/core/project_doctor.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -24,10 +26,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifdef NAIROCLIP_HAS_FFMPEG
+// POSIX 目录列举（offline 命令的自动扫描；Windows 上由平台层注入替代实现）
+#include <dirent.h>
+#endif
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace nairoclip::core;
 
@@ -186,6 +193,116 @@ int commandDoctor(const std::string& path, bool writeBack) {
     }
     return repair.after.healthy() ? 0 : 1;
 }
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+/// 真实文件系统探测器（CLI 专用；与 C ABI 内实现同构）。
+class CliOfflineProbe : public OfflineProbe {
+public:
+    bool fileExists(const std::string& path) override {
+        std::ifstream f(path, std::ios::binary);
+        return f.good();
+    }
+    std::string fileDigest(const std::string& path) override {
+        std::ifstream f(path, std::ios::binary);
+        if (!f.good()) {
+            return std::string();
+        }
+        Sha256 hasher;
+        std::vector<char> buffer(64 * 1024);
+        while (f.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) ||
+               f.gcount() > 0) {
+            hasher.update(buffer.data(), static_cast<std::size_t>(f.gcount()));
+            if (f.eof()) {
+                break;
+            }
+        }
+        std::uint8_t digest[kSha256DigestSize];
+        hasher.finalize(digest);
+        return sha256Hex(digest);
+    }
+    std::vector<std::string> listDirectory(const std::string& dir) override {
+        std::vector<std::string> names;
+        DIR* handle = opendir(dir.c_str());
+        if (handle == nullptr) {
+            return names;
+        }
+        while (struct dirent* entry = readdir(handle)) {
+            const std::string name = entry->d_name;
+            if (name == "." || name == "..") {
+                continue;
+            }
+            names.push_back(name);
+        }
+        closedir(handle);
+        return names;
+    }
+};
+#endif
+
+/// 媒体离线检测 + 可选重新链接（文档第 3 部分「四、媒体离线检测与重新链接」）。
+/// 用法：nclip_tool offline <file.nclip> [--scan-dir D]... [--apply <out.nclip>]
+///   --scan-dir：自动查找候选目录（可多次）；--apply：把离线标记写回工程另存。
+int commandOffline(const std::string& path, const std::vector<std::string>& scanDirs,
+                   const std::string& applyOutPath, bool doApply) {
+    std::string text;
+    if (!readFile(path, text)) {
+        return 1;
+    }
+    Project project;
+    const NclipLoadResult loadResult = loadProjectFromNclip(text, project);
+    if (!loadResult.result.isOk()) {
+        std::fprintf(stderr, "加载失败：%s\n", loadResult.result.message.c_str());
+        return 1;
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    CliOfflineProbe probe;
+    const OfflineScanReport report = scanOfflineAssets(project, &probe);
+#else
+    const OfflineScanReport report = scanOfflineAssets(project, nullptr);
+#endif
+    std::printf("=== 媒体离线检测：%s ===\n", path.c_str());
+    for (const auto& check : report.checks) {
+        std::printf("  [%s] %s（%s）%s\n", offlineStatusName(check.status), check.name.c_str(),
+                    check.message.c_str(), check.path.c_str());
+    }
+    for (const auto& note : report.notes) {
+        std::printf("  说明：%s\n", note.c_str());
+    }
+    if (!report.summary().empty()) {
+        std::printf("%s\n", report.summary().c_str());
+    } else {
+        std::printf("全部素材在线\n");
+    }
+    // 自动扫描查找（可选）
+    if (!scanDirs.empty()) {
+#ifdef NAIROCLIP_HAS_FFMPEG
+        const auto candidates = findRelinkCandidates(project.assets, scanDirs, &probe);
+#else
+        const auto candidates = findRelinkCandidates(project.assets, scanDirs, nullptr);
+#endif
+        if (candidates.empty()) {
+            std::printf("自动扫描：未找到同名候选文件\n");
+        } else {
+            std::printf("自动扫描：找到 %zu 个候选\n", candidates.size());
+            for (const auto& c : candidates) {
+                std::printf("  %s（摘要匹配 %s）\n", c.candidatePath.c_str(),
+                            c.digestMatches ? "是" : "否");
+            }
+        }
+    }
+    if (doApply) {
+        const std::size_t updated = applyOfflineFlags(project, report);
+        std::ofstream out(applyOutPath, std::ios::binary);
+        if (!out) {
+            std::fprintf(stderr, "错误：无法写入 %s\n", applyOutPath.c_str());
+            return 1;
+        }
+        out << saveProjectToNclip(project);
+        std::printf("已更新 %zu 个素材的离线标记 → %s\n", updated, applyOutPath.c_str());
+    }
+    return report.offlineCount() > 0 ? 1 : 0;
+}
+
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 /// 导出工程到 MP4（需要 FFmpeg 构建）。
@@ -437,6 +554,8 @@ int commandChapters(const std::string& path, const std::string& applyOutPath, bo
 
 /// 导入 SRT 字幕到工程。
 /// 用法：nclip_tool subs-import <file.nclip> <in.srt> <out.nclip>
+/// 导入 SRT 字幕到工程。
+/// 用法：nclip_tool subs-import <file.nclip> <in.srt> <out.nclip>
 int commandSubtitlesImport(const std::string& path, const std::string& srtPath,
                            const std::string& outPath) {
     std::string text;
@@ -494,6 +613,7 @@ void printUsage() {
     std::printf("  nclip_tool subs-import <file.nclip> <in.srt> <out.nclip> 导入字幕\n");
     std::printf("  nclip_tool beats <audio> [--json] 分析音频节拍（音乐卡点）\n");
     std::printf("  nclip_tool chapters <file.nclip> [--apply <out.nclip>] [--min-s N] [--max-s N] 章节自动生成\n");
+    std::printf("  nclip_tool offline <file.nclip> [--scan-dir D]... [--apply <out.nclip>] 媒体离线检测\n");
     std::printf("  nclip_tool version                版本信息\n");
 }
 
@@ -591,6 +711,21 @@ int main(int argc, char** argv) {
             }
         }
         return commandChapters(path, applyOutPath, doApply, minSeconds, maxSeconds);
+    }
+    if (command == "offline") {
+        std::vector<std::string> scanDirs;
+        std::string applyOutPath;
+        bool doApply = false;
+        for (int i = 3; i + 1 < argc; i += 2) {
+            const std::string flag = argv[i];
+            if (flag == "--scan-dir") {
+                scanDirs.emplace_back(argv[i + 1]);
+            } else if (flag == "--apply") {
+                applyOutPath = argv[i + 1];
+                doApply = true;
+            }
+        }
+        return commandOffline(path, scanDirs, applyOutPath, doApply);
     }
     std::fprintf(stderr, "错误：未知命令 %s\n", command.c_str());
     printUsage();
