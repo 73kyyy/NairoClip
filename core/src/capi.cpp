@@ -9,6 +9,7 @@
 #include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/export_queue.h"
 #include "nairoclip/core/media_offline.h"
+#include "nairoclip/core/smart_movie.h"
 #include "nairoclip/core/crypto.h"
 #include "nairoclip/core/transition.h"
 #include "nairoclip/core/track.h"
@@ -2323,6 +2324,260 @@ int32_t nc_media_set_digest(NcEditor* editor, uint64_t asset_id, const char* sha
     if (!r.isOk()) {
         if (out_error != nullptr) *out_error = dupString(r.message);
         return toNcError(r.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+// ---- 智能成片（多版本）+ 重新生成影响分析（文档第 7 部分 4.1 / 4.4 / 六 / 七）----
+
+namespace {
+
+/// 从扁平 JSON 恢复 StyleProfile（字段见 capi.h 注释；缺省字段使用中性值）。
+StyleProfile styleProfileFromJson(const char* style_json, bool* outOk) {
+    StyleProfile profile;
+    if (outOk != nullptr) *outOk = false;
+    if (style_json == nullptr) {
+        return profile;
+    }
+    JsonValue root;
+    JsonParseError error;
+    if (!parseJson(style_json, root, error) || !root.isObject()) {
+        return profile;
+    }
+    auto num = [&](const char* key, double fallback) {
+        return root.has(key) ? root.get(key).asNumber(fallback) : fallback;
+    };
+    auto timeOf = [&](const char* key) {
+        return Rational::make(static_cast<std::int64_t>(num(key, 0.0) * 1000.0), 1000);
+    };
+    profile.rhythm.shotCount =
+        static_cast<std::size_t>(std::max<double>(0.0, num("shotCount", 0.0)));
+    profile.rhythm.totalDuration = timeOf("totalSeconds");
+    profile.rhythm.averageShotDuration = timeOf("average");
+    profile.rhythm.median = timeOf("median");
+    profile.rhythm.p25 = timeOf("p25");
+    profile.rhythm.p75 = timeOf("p75");
+    profile.rhythm.shortestShot = timeOf("shortest");
+    profile.rhythm.longestShot = timeOf("longest");
+    profile.color.avgR = num("avgR", 0.5);
+    profile.color.avgG = num("avgG", 0.5);
+    profile.color.avgB = num("avgB", 0.5);
+    profile.color.avgSaturation = num("saturation", 0.5);
+    profile.color.avgContrast = num("contrast", 0.5);
+    if (outOk != nullptr) *outOk = profile.valid();
+    return profile;
+}
+
+/// 缓存的成片计划（两段式：nc_smart_movie_plan → nc_smart_movie_apply）。
+SmartMoviePlan& smartMovieCache() {
+    static SmartMoviePlan plan;
+    return plan;
+}
+
+SmartMovieConfig& smartMovieConfigCache() {
+    static SmartMovieConfig config;
+    return config;
+}
+
+/// 缓存的重新生成报告（nc_regeneration_clear 消费）。
+RegenerationImpactReport& regenerationCache() {
+    static RegenerationImpactReport report;
+    return report;
+}
+
+}  // namespace
+
+int32_t nc_reference_style_access(const NcEditor* editor, char** out_reason) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const ReferenceStyleAccess access = referenceStyleAccess(
+        editor->entitlement, static_cast<std::int64_t>(std::time(nullptr)));
+    if (out_reason != nullptr) *out_reason = dupString(access.reason);
+    return access.allowed ? 1 : 0;
+}
+
+int32_t nc_movie_version_access(const NcEditor* editor, int32_t requested,
+                                int32_t* out_allowed_count, char** out_reason) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const VersionCountAccess access = versionCountAccess(
+        editor->entitlement, static_cast<std::int64_t>(std::time(nullptr)), requested);
+    if (out_allowed_count != nullptr) *out_allowed_count = access.allowedCount;
+    if (out_reason != nullptr) *out_reason = dupString(access.reason);
+    return access.allowed ? 1 : 0;
+}
+
+int32_t nc_smart_movie_plan(NcEditor* editor, int32_t version_count, double pace_factor,
+                            double target_seconds, const char* style_json,
+                            const uint64_t* material_ids, const double* material_seconds,
+                            int32_t material_count, char** out_summary) {
+    if (editor == nullptr || material_count <= 0 || material_ids == nullptr ||
+        material_seconds == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    bool styleOk = false;
+    const StyleProfile profile = styleProfileFromJson(style_json, &styleOk);
+    if (!styleOk) {
+        return NC_ERROR_INVALID_ARGUMENT;  // 风格画像无效（无有效镜头）
+    }
+    // 版本数门控（fail-closed：超限自动降级到允许值）
+    const VersionCountAccess access = versionCountAccess(
+        editor->entitlement, static_cast<std::int64_t>(std::time(nullptr)), version_count);
+    SmartMovieConfig config;
+    config.versionCount = access.allowedCount > 0 ? access.allowedCount : 1;
+    config.paceFactor = pace_factor < 0.0 ? 0.0 : (pace_factor > 1.0 ? 1.0 : pace_factor);
+    config.targetSeconds = target_seconds < 0.0 ? 0.0 : target_seconds;
+    config.applyColor = true;
+    config.applyTransitions = true;
+    config.color = profile.color;
+    for (int32_t i = 0; i < material_count; ++i) {
+        MaterialSegment segment;
+        segment.asset = AssetId{material_ids[i]};
+        segment.usableDuration =
+            Rational::make(static_cast<std::int64_t>(material_seconds[i] * 1000.0), 1000);
+        config.material.push_back(segment);
+    }
+    smartMovieCache() = planSmartMovie(profile, config);
+    smartMovieConfigCache() = config;
+    if (out_summary != nullptr) {
+        std::string summary = smartMovieCache().summary;
+        if (!access.allowed) {
+            summary += "（注意：" + access.reason + "）";
+        }
+        *out_summary = dupString(summary);
+    }
+    return static_cast<int32_t>(smartMovieCache().okCount());
+}
+
+int32_t nc_smart_movie_apply(NcEditor* editor, const int32_t* track_indexes, int32_t track_count,
+                             int32_t* out_applied, char** out_failed_json, char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const SmartMoviePlan& plan = smartMovieCache();
+    if (plan.versions.empty()) {
+        if (out_error != nullptr) {
+            *out_error = dupString("没有已计划的版本，请先调用 nc_smart_movie_plan");
+        }
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return NC_ERROR_NOT_FOUND;
+    }
+    std::vector<TrackId> trackIds;
+    std::vector<std::string> preFailures;
+    for (int32_t i = 0; i < track_count; ++i) {
+        const int32_t index = track_indexes != nullptr ? track_indexes[i] : -1;
+        if (index < 0 || static_cast<std::size_t>(index) >= seq->tracks.size()) {
+            preFailures.push_back("轨道下标越界：" + std::to_string(index));
+            trackIds.push_back(TrackId{});  // 占位（batch 落盘会因轨道不存在而记失败）
+            continue;
+        }
+        trackIds.push_back(seq->tracks[static_cast<std::size_t>(index)].id);
+    }
+    const SmartMovieBatchResult batch = applySmartMovieVersions(
+        *editor->editor, editor->project, seq->id, trackIds, plan, smartMovieConfigCache());
+    if (out_applied != nullptr) *out_applied = static_cast<int32_t>(batch.versionsApplied);
+    if (out_failed_json != nullptr) {
+        std::string json = "{\"failed\":[";
+        for (std::size_t i = 0; i < batch.failedVersionIndexes.size(); ++i) {
+            if (i > 0) json += ",";
+            json += std::to_string(batch.failedVersionIndexes[i]);
+        }
+        json += "],\"messages\":[";
+        bool first = true;
+        for (const auto& message : batch.failures) {
+            if (!first) json += ",";
+            first = false;
+            json += "\"" + jsonEscape(message) + "\"";
+        }
+        for (const auto& message : preFailures) {
+            if (!first) json += ",";
+            first = false;
+            json += "\"" + jsonEscape(message) + "\"";
+        }
+        json += "]}";
+        *out_failed_json = dupString(json);
+    }
+    if (!batch.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(batch.result.message);
+        return toNcError(batch.result.code);
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_regeneration_impact(const NcEditor* editor, int32_t scope, char** out_report_json) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const RegenerationScope regenScope =
+        scope == 1 ? RegenerationScope::Sequence : RegenerationScope::WholeProject;
+    regenerationCache() = analyzeRegenerationImpact(editor->project, seq->id, regenScope);
+    if (out_report_json != nullptr) {
+        const RegenerationImpactReport& report = regenerationCache();
+        std::string json = "{\"scope\":" + std::to_string(scope) +
+                           ",\"affectedTracks\":" + std::to_string(report.affectedTracks) +
+                           ",\"protectedTracks\":" + std::to_string(report.protectedTracks) +
+                           ",\"willLose\":[";
+        for (std::size_t i = 0; i < report.willLose.size(); ++i) {
+            if (i > 0) json += ",";
+            json += "{\"code\":\"" + jsonEscape(report.willLose[i].code) + "\",\"label\":\"" +
+                    jsonEscape(report.willLose[i].label) +
+                    "\",\"count\":" + std::to_string(report.willLose[i].count) + "}";
+        }
+        json += "],\"willKeep\":[";
+        for (std::size_t i = 0; i < report.willKeep.size(); ++i) {
+            if (i > 0) json += ",";
+            json += "{\"code\":\"" + jsonEscape(report.willKeep[i].code) + "\",\"label\":\"" +
+                    jsonEscape(report.willKeep[i].label) +
+                    "\",\"count\":" + std::to_string(report.willKeep[i].count) + "}";
+        }
+        json += "],\"summary\":\"" + jsonEscape(report.summary) + "\"}";
+        *out_report_json = dupString(json);
+    }
+    return static_cast<int32_t>(regenerationCache().lossCount());
+}
+
+int32_t nc_regeneration_clear(NcEditor* editor, int32_t scope, char** out_cleared_json,
+                              char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("参数为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("工程没有主序列");
+        return NC_ERROR_NOT_FOUND;
+    }
+    const RegenerationScope regenScope =
+        scope == 1 ? RegenerationScope::Sequence : RegenerationScope::WholeProject;
+    if (regenerationCache().scope != regenScope) {
+        regenerationCache() = analyzeRegenerationImpact(editor->project, seq->id, regenScope);
+    }
+    const RegenerationResult cleared =
+        clearForRegeneration(*editor->editor, editor->project, seq->id, regenerationCache());
+    if (!cleared.result.isOk()) {
+        if (out_error != nullptr) *out_error = dupString(cleared.result.message);
+        return toNcError(cleared.result.code);
+    }
+    if (out_cleared_json != nullptr) {
+        std::string json = "{\"tracksCleared\":" + std::to_string(cleared.tracksCleared) +
+                           ",\"tracksProtected\":" + std::to_string(cleared.tracksProtected) +
+                           ",\"markersCleared\":" + std::to_string(cleared.markersCleared) +
+                           ",\"subtitlesCleared\":" + std::to_string(cleared.subtitlesCleared) +
+                           ",\"summary\":\"" + jsonEscape(cleared.summary) + "\"}";
+        *out_cleared_json = dupString(json);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;

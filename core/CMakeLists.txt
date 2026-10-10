@@ -48,6 +48,7 @@ add_library(nairoclip_core STATIC
     src/crypto.cpp
     src/chapter.cpp
     src/export_queue.cpp
+    src/smart_movie.cpp
     src/media_offline.cpp
     src/model_manager.cpp
 )

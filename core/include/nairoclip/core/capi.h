@@ -532,6 +532,56 @@ int32_t nc_chapter_get(const NcEditor* editor, int32_t index, int64_t* out_start
 int32_t nc_chapter_rename(NcEditor* editor, int32_t index, const char* new_title,
                           char** out_error);
 
+// ---- 智能成片（多版本）+ 重新生成影响分析（文档第 7 部分 4.1 / 4.4 / 六 / 七）----
+
+/// 参考风格权益门控（Free 不可用 → 弹付费墙；fail-closed）。
+/// - out_reason：出参（可空）提示文案（需 nc_free_string）。
+/// 返回：1 = 可用；0 = 不可用（付费墙）；-1 = 参数错误。
+int32_t nc_reference_style_access(const NcEditor* editor, char** out_reason);
+
+/// 生成版本数门控（Free 固定 1；Pro 1-5）。
+/// - requested：用户请求数（<= 0 按 1）；
+/// - out_allowed_count：出参（可空）允许的版本数；
+/// - out_reason：出参（可空）提示文案（需 nc_free_string）。
+/// 返回：1 = 请求可用；0 = 被降级/拒绝（见 out_allowed_count 与 note）；-1 = 参数错误。
+int32_t nc_movie_version_access(const NcEditor* editor, int32_t requested,
+                                int32_t* out_allowed_count, char** out_reason);
+
+/// 生成多版本成片计划（真实素材剪辑建议；缓存供 apply 消费）。
+/// - version_count：生成版本数（1-5；由 nc_movie_version_access 门控）；
+/// - pace_factor：剪辑节奏滑块（0..1；0.5 = 忠实参考）；
+/// - target_seconds：目标成片时长（秒；<= 0 = 按参考节奏自然长度）；
+/// - style_json：参考风格 JSON（{"rhythm":{...},"color":{...}}；见下）；
+/// - material_ids/material_seconds：素材 ID 数组与对应可用秒数（真实素材）；
+/// - material_count：素材数量；
+/// - out_summary：出参（可空）计划摘要（需 nc_free_string）。
+/// 返回：可落盘版本数（>= 0）；-1 = 参数错误。
+/// 说明：style_json 为简单扁平 JSON（避免引入复杂嵌套解析），字段：
+///   {"shotCount":3,"totalSeconds":6,"median":2,"p25":1.5,"p75":3,
+///    "average":2,"avgR":0.5,"avgG":0.5,"avgB":0.5,"saturation":0.5,"contrast":0.5}
+int32_t nc_smart_movie_plan(NcEditor* editor, int32_t version_count, double pace_factor,
+                            double target_seconds, const char* style_json,
+                            const uint64_t* material_ids, const double* material_seconds,
+                            int32_t material_count, char** out_summary);
+
+/// 落盘已计划的版本（逐版本；某版本失败不影响其它；文档 4.1 失败态）。
+/// - track_indexes：目标轨道下标数组（每版本一条空轨道）；
+/// - track_count：轨道数量；
+/// - out_applied：出参（可空）成功落盘的版本数；
+/// - out_failed_json：出参（可空）失败明细 JSON（需 nc_free_string）。
+int32_t nc_smart_movie_apply(NcEditor* editor, const int32_t* track_indexes, int32_t track_count,
+                             int32_t* out_applied, char** out_failed_json, char** out_error);
+
+/// 重新生成影响分析（文档 4.4「将会丢失 / 将会保留」）。
+/// - scope：0 = 整个项目；1 = 当前序列；
+/// - out_report_json：出参（可空）报告 JSON（需 nc_free_string）。
+int32_t nc_regeneration_impact(const NcEditor* editor, int32_t scope, char** out_report_json);
+
+/// 执行重新生成的清理阶段（保留锁定轨道；一条事务可回退）。
+/// - out_cleared_json：出参（可空）结果 JSON（需 nc_free_string）。
+int32_t nc_regeneration_clear(NcEditor* editor, int32_t scope, char** out_cleared_json,
+                              char** out_error);
+
 /// 清除全部章节标记（一条撤销事务）。
 int32_t nc_chapter_clear(NcEditor* editor, char** out_error);
 
