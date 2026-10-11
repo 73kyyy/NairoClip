@@ -675,6 +675,63 @@ int32_t nc_media_relink_batch(NcEditor* editor, const char* mappings_json,
 int32_t nc_media_set_digest(NcEditor* editor, uint64_t asset_id, const char* sha256_hex,
                             char** out_error);
 
+// ---- 隐形水印（文档第 8 部分 3.1「隐形水印（事后追溯）」）----
+
+/// 从账号 ID 计算含水印载荷的账号哈希（SHA-256 前 32 位）。
+/// 返回哈希值（0 = 空账号）。
+uint32_t nc_watermark_account_hash(const char* account_id);
+
+/// 在导出管线启用隐形水印（Pro 内容溯源；对后续 nc_export_run / 队列任务生效）。
+/// - enabled：0 = 关闭；1 = 启用；
+/// - account_id：账号标识（可为空 = 匿名）；核心只存哈希，不存原文；
+/// - export_sequence：导出序号（每次导出唯一，用于定位批次）；
+/// - 说明：容量不足时导出会记警告并跳过（不中断）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_watermark_set_export(NcEditor* editor, int32_t enabled, const char* account_id,
+                                int32_t export_sequence);
+
+/// 检测画面中的隐形水印（平台层把解码帧传入；用于溯源验证）。
+/// - rgba/width/height：交错 RGBA8 帧；
+/// - out_account_hash/out_export_sequence：出参（可空）恢复的载荷；
+/// - out_agreement：出参（可空）比特一致率（0..1）；
+/// - out_note：出参（可空）结论（需 nc_free_string）。
+/// 返回：1 = 检出有效水印；0 = 未检出；-1 = 参数错误。
+int32_t nc_watermark_detect(const uint8_t* rgba, int32_t width, int32_t height,
+                            uint32_t* out_account_hash, int32_t* out_export_sequence,
+                            double* out_agreement, char** out_note);
+
+// ---- 会员心跳校验（文档第 8 部分「五、会员心跳校验具体流程」）----
+
+/// 心跳处理：把服务端校验结果映射为本地权益状态与分级提示。
+/// - server_time_unix / tier / lifetime / expires_at_unix：服务端权威值；
+/// - active_devices / device_limit：设备数校验（limit <= 0 = 不判定）；
+/// - signature_valid：签名校验（加固 SDK / App Attest 判定结果）；
+/// - server_locked：服务端是否下发功能锁定；
+/// - message：服务端说明（可空）；
+/// - out_verdict：出参（可空）判定（0 正常 / 1 警告 / 2 锁定 / 3 网络错误）；
+/// - out_message：出参（可空）展示文案（需 nc_free_string）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_heartbeat_handle(NcEditor* editor, int64_t server_time_unix, int32_t tier,
+                            int32_t lifetime, int64_t expires_at_unix, int32_t active_devices,
+                            int32_t device_limit, int32_t signature_valid, int32_t server_locked,
+                            const char* message, int32_t* out_verdict, char** out_message);
+
+/// 网络失败时的心跳处理（保持权益不变、不累计异常）。
+int32_t nc_heartbeat_network_error(NcEditor* editor, char** out_message);
+
+/// 查询心跳状态：锁定标志 / 连续异常计数 / 上次校验时间。
+int32_t nc_heartbeat_status(const NcEditor* editor, int32_t* out_locked,
+                            int32_t* out_warning_count, int64_t* out_last_checked_unix);
+
+/// 周期触发是否到期（文档「每 30 分钟」）。
+/// - now_unix：当前时间；interval_seconds：间隔（<= 0 用默认 1800）。
+/// 返回：1 = 到期；0 = 未到期；-1 = 参数错误。
+int32_t nc_heartbeat_periodic_due(const NcEditor* editor, int64_t now_unix,
+                                  int64_t interval_seconds);
+
+/// 解除功能锁定（用户完成账号验证后由平台层调用）。
+int32_t nc_heartbeat_clear_lock(NcEditor* editor);
+
 /// 释放字符串数组（nc_model_catalog 的输出）。
 void nc_free_string_array(char** items, int32_t count);
 

@@ -1,11 +1,19 @@
 #include "test_framework.h"
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/heartbeat.h"
+#include "nairoclip/core/invisible_watermark.h"
+#ifdef NAIROCLIP_HAS_FFMPEG
+#include "nairoclip/core/media_ffmpeg.h"
+#endif
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <string>
 #include <vector>
+
+using namespace nairoclip::core;
 NC_TEST(Capi, AbiVersion) {
     NC_CHECK_EQ(nc_abi_version(), NC_ABI_VERSION);
 }
@@ -1622,5 +1630,193 @@ NC_TEST(Capi, RegenerationImpactAndClear) {
     // 参数校验
     NC_CHECK(nc_regeneration_impact(nullptr, 0, nullptr) == NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK(nc_regeneration_clear(nullptr, 0, nullptr, nullptr) == NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+// ---- 隐形水印（文档第 8 部分 3.1「隐形水印（事后追溯）」）----
+
+NC_TEST(Capi, WatermarkAccountHashAndDetect) {
+    // 账号哈希：确定性 + 与 C++ API 一致
+    const uint32_t hash = nc_watermark_account_hash("user_88291@nairoclip");
+    NC_CHECK(hash != 0);
+    NC_CHECK_EQ(hash, nc_watermark_account_hash("user_88291@nairoclip"));
+    NC_CHECK(nc_watermark_account_hash("other@x") != hash);
+    NC_CHECK_EQ(nc_watermark_account_hash(""), std::uint32_t(0));
+    NC_CHECK_EQ(nc_watermark_account_hash(nullptr), std::uint32_t(0));
+
+    // 构造含水印帧（320x240；容量充足）→ 检测还原
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK_EQ(nc_watermark_set_export(editor, 1, "user_88291@nairoclip", 17), NC_OK);
+    // 造一帧简单渐变 + 纹理
+    const int w = 320, h = 240;
+    std::vector<uint8_t> rgba(static_cast<std::size_t>(w) * h * 4, 255);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const std::size_t idx = (static_cast<std::size_t>(y) * w + x) * 4;
+            const int noise = (x * 7 + y * 13) % 40;
+            rgba[idx + 0] = static_cast<uint8_t>((x * 255 / w + noise) % 256);
+            rgba[idx + 1] = static_cast<uint8_t>((y * 255 / h + noise) % 256);
+            rgba[idx + 2] = static_cast<uint8_t>((x + y + noise) % 256);
+        }
+    }
+    // 通过 C++ 接口嵌入（与 nc_watermark_set_export 相同的载荷）
+    WatermarkPayload payload;
+    payload.accountHash = hash;
+    payload.exportSequence = 17;
+    payload.finalize();
+    NC_CHECK(embedInvisibleWatermark(rgba.data(), w, h, payload));
+    // C ABI 检测
+    uint32_t outHash = 0;
+    int32_t outSeq = -1;
+    double agreement = 0.0;
+    char* note = nullptr;
+    NC_CHECK_EQ(nc_watermark_detect(rgba.data(), w, h, &outHash, &outSeq, &agreement, &note), 1);
+    NC_CHECK_EQ(outHash, hash);
+    NC_CHECK_EQ(outSeq, 17);
+    NC_CHECK(agreement > 0.9);
+    NC_CHECK(note != nullptr);
+    nc_free_string(note);
+    // 无水印帧 → 0（无误报）
+    std::vector<uint8_t> clean(rgba.size(), 128);
+    for (std::size_t i = 0; i < clean.size(); i += 4) {
+        clean[i] = static_cast<uint8_t>((i / 4) % 200);
+    }
+    NC_CHECK_EQ(nc_watermark_detect(clean.data(), w, h, nullptr, nullptr, nullptr, nullptr), 0);
+    // 参数校验
+    NC_CHECK_EQ(nc_watermark_detect(nullptr, w, h, nullptr, nullptr, nullptr, nullptr),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_watermark_set_export(nullptr, 1, "x", 1), NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+#ifdef NAIROCLIP_HAS_FFMPEG
+// 端到端：C ABI 配置水印 → 真实导出（含信箱黑边）→ 解码输出 → 检测溯源。
+// 背景（真实缺陷，本次修复）：此前该链路完全缺失验证；一旦补上即暴露
+// 「黑边饱和块 QIM 不可达」缺陷（导出 30 帧全部检测失败）。本用例为回归护栏。
+NC_TEST(Capi, WatermarkRealExportEndToEnd) {
+    {
+        std::ifstream check("/tmp/media_gen/test_av.mp4");
+        if (!check.good()) return;  // 素材未生成：跳过（与既有约定一致）
+    }
+    NcEditor* editor = nc_editor_create();
+    const uint64_t assetId =
+        nc_import_asset(editor, "test_av.mp4", "/tmp/media_gen/test_av.mp4", 0, 3000000);
+    NC_CHECK(assetId != 0);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    NC_CHECK(nc_insert_clip(editor, 0, assetId, 0, 1000000) != 0);
+    // 账号哈希 + 配置导出水印（Pro 溯源）
+    const uint32_t expectedHash = nc_watermark_account_hash("user_e2e@nairoclip");
+    NC_CHECK(expectedHash != 0);
+    NC_CHECK_EQ(nc_watermark_set_export(editor, 1, "user_e2e@nairoclip", 99), NC_OK);
+    // 真实导出（横屏素材进竖屏画布 → 信箱黑边；黑边曾令水印全灭）
+    char* err = nullptr;
+    const int64_t frames =
+        nc_export_run(editor, "/tmp/media_gen/capi_wm_export.mp4", 18, 0, 0, nullptr, nullptr,
+                      &err);
+    NC_CHECK(frames > 0);
+    if (err != nullptr) nc_free_string(err);
+    // 解码输出帧 → 水印检测（逐帧独立可检出）
+    FFmpegMediaReader reader;
+    NC_CHECK(reader.open("/tmp/media_gen/capi_wm_export.mp4").isOk());
+    VideoFrame frame;
+    int checked = 0;
+    int matched = 0;
+    while (reader.readVideoFrame(frame) && checked < 5) {
+        uint32_t outHash = 0;
+        int32_t outSeq = -1;
+        double agreement = 0.0;
+        const int32_t rc =
+            nc_watermark_detect(frame.pixels.data(), frame.width, frame.height, &outHash, &outSeq,
+                                &agreement, nullptr);
+        if (rc == 1) {
+            NC_CHECK_EQ(outHash, expectedHash);
+            NC_CHECK_EQ(outSeq, 99);
+            NC_CHECK(agreement > 0.9);
+            ++matched;
+        }
+        ++checked;
+    }
+    reader.close();
+    std::printf("[实测] C ABI 导出水印：%d/%d 帧检出（agreement 阈值 0.9）\n", matched, checked);
+    NC_CHECK(checked > 0);
+    NC_CHECK_EQ(matched, checked);  // 修复前该断言失败（0/10）
+    nc_editor_destroy(editor);
+}
+#endif
+
+// ---- 会员心跳校验（文档第 8 部分「五」）----
+
+NC_TEST(Capi, HeartbeatLifecycle) {
+    NcEditor* editor = nc_editor_create();
+    // 初始状态：Free、未锁定、从未校验
+    int32_t locked = -1, warnings = -1;
+    int64_t lastChecked = -1;
+    NC_CHECK_EQ(nc_heartbeat_status(editor, &locked, &warnings, &lastChecked), NC_OK);
+    NC_CHECK_EQ(locked, 0);
+    NC_CHECK_EQ(warnings, 0);
+    NC_CHECK_EQ(lastChecked, std::int64_t(0));
+    // 从未校验 → 周期到期
+    NC_CHECK_EQ(nc_heartbeat_periodic_due(editor, 1000000, 0), 1);
+
+    // 正常响应：Pro 生效 + 清零
+    int32_t verdict = -1;
+    char* message = nullptr;
+    const int64_t now = static_cast<int64_t>(std::time(nullptr));
+    NC_CHECK_EQ(nc_heartbeat_handle(editor, now, 1, 0, now + 86400 * 30, 1, 3, 1, 0, "同步成功",
+                                   &verdict, &message),
+                NC_OK);
+    NC_CHECK_EQ(verdict, 0);  // Ok
+    NC_CHECK(message != nullptr);
+    nc_free_string(message);
+    message = nullptr;
+    // 权益已更新为 Pro
+    NC_CHECK_EQ(nc_get_entitlement(editor), 1);
+    // 未到期（30 分钟周期）
+    NC_CHECK_EQ(nc_heartbeat_periodic_due(editor, now + 60, 1800), 0);
+    NC_CHECK_EQ(nc_heartbeat_periodic_due(editor, now + 1801, 1800), 1);
+
+    // 异常（多设备）→ 警告（第 1 次）
+    NC_CHECK_EQ(nc_heartbeat_handle(editor, now, 1, 0, now + 86400, 5, 3, 1, 0, nullptr, &verdict,
+                                    &message),
+                NC_OK);
+    NC_CHECK_EQ(verdict, 1);  // Warning
+    NC_CHECK(message != nullptr);
+    nc_free_string(message);
+    message = nullptr;
+    NC_CHECK_EQ(nc_heartbeat_status(editor, &locked, &warnings, nullptr), NC_OK);
+    NC_CHECK_EQ(warnings, 1);
+    NC_CHECK_EQ(locked, 0);
+
+    // 累计 3 次 → 锁定
+    nc_heartbeat_handle(editor, now, 1, 0, now + 86400, 5, 3, 1, 0, nullptr, &verdict, nullptr);
+    nc_heartbeat_handle(editor, now, 1, 0, now + 86400, 5, 3, 1, 0, nullptr, &verdict, nullptr);
+    NC_CHECK_EQ(verdict, 2);  // Locked
+    NC_CHECK_EQ(nc_heartbeat_status(editor, &locked, &warnings, nullptr), NC_OK);
+    NC_CHECK_EQ(locked, 1);
+
+    // 解除锁定
+    NC_CHECK_EQ(nc_heartbeat_clear_lock(editor), NC_OK);
+    NC_CHECK_EQ(nc_heartbeat_status(editor, &locked, &warnings, nullptr), NC_OK);
+    NC_CHECK_EQ(locked, 0);
+    NC_CHECK_EQ(warnings, 0);
+
+    // 网络失败 → 保持权益不变
+    const int32_t tierBefore = nc_get_entitlement(editor);
+    NC_CHECK_EQ(nc_heartbeat_network_error(editor, &message)
+                == static_cast<int32_t>(HeartbeatVerdict::NetworkError), 1);
+    NC_CHECK(message != nullptr);
+    nc_free_string(message);
+    NC_CHECK_EQ(nc_get_entitlement(editor), tierBefore);
+
+    // 服务端明确锁定
+    nc_heartbeat_handle(editor, now, 1, 0, now + 86400, 1, 3, 1, 1, "破解特征", &verdict, nullptr);
+    NC_CHECK_EQ(verdict, 2);
+    NC_CHECK_EQ(nc_heartbeat_status(editor, &locked, nullptr, nullptr), NC_OK);
+    NC_CHECK_EQ(locked, 1);
+
+    // 参数校验
+    NC_CHECK_EQ(nc_heartbeat_status(nullptr, nullptr, nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_heartbeat_periodic_due(nullptr, 0, 0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_heartbeat_clear_lock(nullptr), NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
 }

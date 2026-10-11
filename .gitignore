@@ -1,6 +1,7 @@
 # 构建产物
 /build/
 /build-*/
+/build_*/
 /out/
 cmake-build-*/
 *.o

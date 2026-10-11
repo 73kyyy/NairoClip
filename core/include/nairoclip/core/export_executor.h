@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/export_plan.h"
+#include "nairoclip/core/invisible_watermark.h"
 #include "nairoclip/core/media_io.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/watermark.h"
@@ -41,6 +42,9 @@ struct ExportExecutorOptions {
     /// 水印（会员门控；enabled 时逐帧应用，几何按输出帧尺寸计算）。
     /// 对应文档 6.3.9 水印渲染规格与 3.1 权益矩阵「免费版导出水印」。
     WatermarkSpec watermark = {};
+    /// 隐形水印（Pro 内容泄露溯源；文档第 8 部分 3.1）。
+    /// enabled 时逐帧嵌入（QIM 量化；不可见），供事后追溯账号来源。
+    InvisibleWatermarkSpec invisibleWatermark = {};
 };
 
 /// 执行统计。

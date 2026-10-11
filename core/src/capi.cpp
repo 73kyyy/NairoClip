@@ -8,6 +8,8 @@
 #include "nairoclip/core/ai_check.h"
 #include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/export_queue.h"
+#include "nairoclip/core/heartbeat.h"
+#include "nairoclip/core/invisible_watermark.h"
 #include "nairoclip/core/media_offline.h"
 #include "nairoclip/core/smart_movie.h"
 #include "nairoclip/core/crypto.h"
@@ -61,6 +63,10 @@ struct NcEditor {
     ExportQueue exportQueue;
     /// 最近一次离线扫描报告（nc_media_apply_offline_flags 消费）。
     OfflineScanReport offlineReport;
+    /// 隐形水印导出配置（nc_watermark_set_export 设置；nc_export_run 消费）。
+    InvisibleWatermarkSpec invisibleWatermark;
+    /// 会员心跳状态机（文档第 8 部分五；平台层驱动）。
+    HeartbeatState heartbeat;
 };
 
 namespace {
@@ -1319,6 +1325,8 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
     if (ai_label_text != nullptr && ai_label_text[0] != '\0') {
         config.executor.aiLabelText = ai_label_text;
     }
+    // 隐形水印（Pro 内容溯源；由 nc_watermark_set_export 配置）
+    config.executor.invisibleWatermark = editor->invisibleWatermark;
     // 会员门控：免费/过期会员 → 输出降级 1080p + 附加水印（文档 3.10）。
     // 使用系统时钟做到期判定；tier 由平台层经服务端心跳维护（文档第 8 部分）。
     config.policy = makeExportPolicy(editor->entitlement,
@@ -2330,7 +2338,6 @@ int32_t nc_media_set_digest(NcEditor* editor, uint64_t asset_id, const char* sha
 }
 
 // ---- 智能成片（多版本）+ 重新生成影响分析（文档第 7 部分 4.1 / 4.4 / 六 / 七）----
-
 namespace {
 
 /// 从扁平 JSON 恢复 StyleProfile（字段见 capi.h 注释；缺省字段使用中性值）。
@@ -2580,6 +2587,120 @@ int32_t nc_regeneration_clear(NcEditor* editor, int32_t scope, char** out_cleare
         *out_cleared_json = dupString(json);
     }
     if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+// ---- 隐形水印（文档第 8 部分 3.1「隐形水印（事后追溯）」）----
+
+uint32_t nc_watermark_account_hash(const char* account_id) {
+    return accountHashOf(account_id != nullptr ? account_id : "");
+}
+
+int32_t nc_watermark_set_export(NcEditor* editor, int32_t enabled, const char* account_id,
+                                int32_t export_sequence) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    InvisibleWatermarkSpec spec;
+    spec.enabled = enabled != 0;
+    if (spec.enabled) {
+        spec.payload.accountHash = accountHashOf(account_id != nullptr ? account_id : "");
+        spec.payload.exportSequence =
+            static_cast<std::uint16_t>(export_sequence < 0 ? 0 : export_sequence);
+        spec.payload.finalize();
+    }
+    editor->invisibleWatermark = spec;
+    return NC_OK;
+}
+
+int32_t nc_watermark_detect(const uint8_t* rgba, int32_t width, int32_t height,
+                            uint32_t* out_account_hash, int32_t* out_export_sequence,
+                            double* out_agreement, char** out_note) {
+    if (rgba == nullptr || width <= 0 || height <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const InvisibleDetectResult detected = detectInvisibleWatermark(rgba, width, height);
+    if (out_account_hash != nullptr) *out_account_hash = detected.payload.accountHash;
+    if (out_export_sequence != nullptr) {
+        *out_export_sequence = static_cast<int32_t>(detected.payload.exportSequence);
+    }
+    if (out_agreement != nullptr) *out_agreement = detected.bitAgreement;
+    if (out_note != nullptr) *out_note = dupString(detected.note);
+    return detected.detected ? 1 : 0;
+}
+
+// ---- 会员心跳校验（文档第 8 部分「五、会员心跳校验具体流程」）----
+
+int32_t nc_heartbeat_handle(NcEditor* editor, int64_t server_time_unix, int32_t tier,
+                            int32_t lifetime, int64_t expires_at_unix, int32_t active_devices,
+                            int32_t device_limit, int32_t signature_valid, int32_t server_locked,
+                            const char* message, int32_t* out_verdict, char** out_message) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    HeartbeatResponse response;
+    response.transportOk = true;
+    response.serverTimeUnix = server_time_unix;
+    response.tier = tier == 1 ? MembershipTier::Pro : MembershipTier::Free;
+    response.lifetime = lifetime != 0;
+    response.expiresAtUnix = expires_at_unix;
+    response.activeDevices = active_devices < 0 ? 0 : active_devices;
+    response.deviceLimit = device_limit < 0 ? 0 : device_limit;
+    response.signatureValid = signature_valid != 0;
+    response.serverLocked = server_locked != 0;
+    if (message != nullptr) {
+        response.message = message;
+    }
+    std::string outText;
+    const HeartbeatVerdict verdict = editor->heartbeat.handleResponse(
+        response, HeartbeatConfig{}, editor->entitlement,
+        static_cast<std::int64_t>(std::time(nullptr)), &outText);
+    if (out_verdict != nullptr) *out_verdict = static_cast<int32_t>(verdict);
+    if (out_message != nullptr) *out_message = dupString(outText);
+    return NC_OK;
+}
+
+int32_t nc_heartbeat_network_error(NcEditor* editor, char** out_message) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    HeartbeatResponse response;
+    response.transportOk = false;
+    std::string outText;
+    const HeartbeatVerdict verdict = editor->heartbeat.handleResponse(
+        response, HeartbeatConfig{}, editor->entitlement,
+        static_cast<std::int64_t>(std::time(nullptr)), &outText);
+    if (out_message != nullptr) *out_message = dupString(outText);
+    return static_cast<int32_t>(verdict);
+}
+
+int32_t nc_heartbeat_status(const NcEditor* editor, int32_t* out_locked,
+                            int32_t* out_warning_count, int64_t* out_last_checked_unix) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (out_locked != nullptr) *out_locked = editor->heartbeat.locked() ? 1 : 0;
+    if (out_warning_count != nullptr) *out_warning_count = editor->heartbeat.warningCount();
+    if (out_last_checked_unix != nullptr) {
+        *out_last_checked_unix = editor->heartbeat.lastCheckedUnix();
+    }
+    return NC_OK;
+}
+
+int32_t nc_heartbeat_periodic_due(const NcEditor* editor, int64_t now_unix,
+                                  int64_t interval_seconds) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const std::int64_t interval = interval_seconds > 0 ? interval_seconds : 1800;
+    return editor->heartbeat.periodicDue(now_unix, interval) ? 1 : 0;
+}
+
+int32_t nc_heartbeat_clear_lock(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    editor->heartbeat.clearLock();
     return NC_OK;
 }
 

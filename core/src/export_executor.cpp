@@ -170,6 +170,7 @@ ExportStats executeExport(
     // 说明：动画不透明度产生的 alpha 有意保留（供平台层/上层合成语义使用）；
     // 蒙版外的透明像素在「蒙版应用点」就地与序列背景合成（见下方蒙版分支），
     // 从而不影响动画透明度的既有行为。
+    bool invisibleCapacityWarned = false;
     auto finalizeFrame = [&](OutputVideoFrame& frame) {
         if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) {
             return;
@@ -177,6 +178,20 @@ ExportStats executeExport(
         if (options.watermark.enabled) {
             applyWatermark(frame.rgba.data(), frame.width, frame.height, options.watermark,
                            &frame.subtitles);
+        }
+        // 隐形水印（Pro 内容泄露溯源；文档 8.3.1）：容量不足时记一次警告并跳过
+        if (options.invisibleWatermark.usable()) {
+            if (invisibleWatermarkFits(frame.width, frame.height,
+                                       options.invisibleWatermark.config)) {
+                embedInvisibleWatermark(frame.rgba.data(), frame.width, frame.height,
+                                        options.invisibleWatermark.payload,
+                                        options.invisibleWatermark.config);
+            } else if (!invisibleCapacityWarned) {
+                invisibleCapacityWarned = true;
+                stats.warnings.push_back(
+                    "隐形水印容量不足（输出 " + std::to_string(frame.width) + "x" +
+                    std::to_string(frame.height) + "），本工程未嵌入溯源水印");
+            }
         }
     };
 

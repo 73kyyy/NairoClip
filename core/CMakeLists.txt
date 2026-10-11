@@ -49,6 +49,8 @@ add_library(nairoclip_core STATIC
     src/chapter.cpp
     src/export_queue.cpp
     src/smart_movie.cpp
+    src/invisible_watermark.cpp
+    src/heartbeat.cpp
     src/media_offline.cpp
     src/model_manager.cpp
 )
