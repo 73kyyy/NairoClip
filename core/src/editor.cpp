@@ -142,6 +142,31 @@ Result TimelineEditor::setClipMask(SequenceId sequenceId, TrackId trackId, ClipI
     return commit(std::make_unique<SetClipMaskCommand>(sequenceId, trackId, clipId, mask));
 }
 
+Result TimelineEditor::setClipChromaKey(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                        ChromaKey key, bool enabled) {
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (track->findClip(clipId) == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!key.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "抠像参数非法（阈值需在 0..1 且 outer > inner）");
+    }
+    if (!enabled) {
+        // 清除抠像：包装为「设置但立即以禁用快照提交」的等价命令——
+        // 复用设置命令的 apply/revert 语义（hasChromaKey 由命令置 true），
+        // 因此这里用一个专用清除命令避免语义歧义。
+        return commit(std::make_unique<ClearClipChromaKeyCommand>(sequenceId, trackId, clipId));
+    }
+    return commit(std::make_unique<SetClipChromaKeyCommand>(sequenceId, trackId, clipId, key));
+}
+
 Result TimelineEditor::setTrackSolo(SequenceId sequenceId, TrackId trackId, bool solo) {
     const Track* track = findTrack(project_, sequenceId, trackId);
     if (track == nullptr) {

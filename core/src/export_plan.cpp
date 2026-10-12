@@ -24,6 +24,8 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.effects = clip.effects;
     rc.hasMask = clip.hasMask;
     rc.mask = clip.mask;
+    rc.hasChromaKey = clip.hasChromaKey;
+    rc.chromaKey = clip.chromaKey;
     rc.animation = clip.animation;
     rc.speedCurve = clip.speedCurve;
     (void)project;

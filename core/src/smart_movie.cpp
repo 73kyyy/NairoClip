@@ -515,6 +515,7 @@ RegenerationImpactReport analyzeRegenerationImpact(const Project& project, Seque
     std::size_t effects = 0;
     std::size_t keyframes = 0;
     std::size_t masks = 0;
+    std::size_t chromaKeys = 0;
     std::size_t audioAdjust = 0;
     std::size_t speedCurves = 0;
     std::size_t compounds = 0;
@@ -535,6 +536,9 @@ RegenerationImpactReport analyzeRegenerationImpact(const Project& project, Seque
             }
             if (clip.hasMask) {
                 ++masks;
+            }
+            if (clip.hasChromaKey) {
+                ++chromaKeys;
             }
             if (clip.audioGainDb != 0.0 || clip.audioFadeIn.isPositive() ||
                 clip.audioFadeOut.isPositive()) {
@@ -557,6 +561,7 @@ RegenerationImpactReport analyzeRegenerationImpact(const Project& project, Seque
     pushItem(report.willLose, "effects", "特效", effects);
     pushItem(report.willLose, "keyframes", "关键帧动画", keyframes);
     pushItem(report.willLose, "masks", "蒙版", masks);
+    pushItem(report.willLose, "chroma-key", "智能抠像（色度/绿幕）", chromaKeys);
     pushItem(report.willLose, "audio-adjust", "音频调整（增益/淡入淡出）", audioAdjust);
     pushItem(report.willLose, "speed", "速度曲线", speedCurves);
     pushItem(report.willLose, "compound", "复合片段（将解除为独立片段）", compounds);

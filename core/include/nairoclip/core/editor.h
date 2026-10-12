@@ -101,6 +101,11 @@ public:
     // ---- 蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）----
     /// 设置片段蒙版（shape=None 等价于清除蒙版）；参数非法/片段不存在时失败且不入撤销栈。
     Result setClipMask(SequenceId sequenceId, TrackId trackId, ClipId clipId, Mask mask);
+    // ---- 色度抠像（文档「🤖AI实验室 → 智能抠像 → 色度抠像(绿幕)」）----
+    /// 设置片段色度抠像（enabled=false 等价于清除）；参数非法/片段不存在时失败且不入撤销栈。
+    /// 说明：Pro 权益门控由平台层执行（mattingAccessFor）；core 只保证算法与数据正确。
+    Result setClipChromaKey(SequenceId sequenceId, TrackId trackId, ClipId clipId, ChromaKey key,
+                            bool enabled);
     // ---- 音频属性 ----
     /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
     Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,

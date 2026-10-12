@@ -18,6 +18,7 @@
 #include "nairoclip/core/json.h"
 #include "nairoclip/core/export_preset.h"
 #include "nairoclip/core/mask.h"
+#include "nairoclip/core/chroma_key.h"
 #include "nairoclip/core/speech_cut.h"
 #include "nairoclip/core/proxy.h"
 #include "nairoclip/core/model_manager.h"
@@ -1236,6 +1237,130 @@ int32_t nc_get_clip_mask(const NcEditor* editor, int32_t track_index, uint64_t c
     if (out_corner_radius != nullptr) *out_corner_radius = clip->mask.cornerRadius;
     if (out_invert != nullptr) *out_invert = clip->mask.invert ? 1 : 0;
     return 1;
+}
+
+// ---- 智能抠像 / 色度抠像 ----
+
+int32_t nc_matting_access(const NcEditor* editor, int32_t quality, int32_t* out_quality,
+                          char** out_reason) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    MattingQuality requested;
+    if (!mattingQualityFromInt(quality, requested)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const bool proActive = editor->entitlement.proActiveAt(
+        static_cast<std::int64_t>(std::time(nullptr)));
+    const MattingAccess access = mattingAccessFor(proActive, requested);
+    if (out_quality != nullptr) *out_quality = static_cast<int32_t>(access.quality);
+    if (out_reason != nullptr) *out_reason = dupString(access.reason);
+    return access.allowed ? 1 : 0;
+}
+
+int32_t nc_set_clip_chroma_key(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               const char* key_color, double inner_threshold,
+                               double outer_threshold, double spill_suppression,
+                               int32_t quality, int32_t enabled) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    MattingQuality requested;
+    if (!mattingQualityFromInt(quality, requested)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (enabled == 0) {
+        return toNcError(
+            editor->editor->setClipChromaKey(main->id, trackId, ClipId{clip_id}, ChromaKey{},
+                                             false)
+                .code);
+    }
+    // Pro 门控（fail-closed：非 Pro 不允许色度抠像；文档权益矩阵 Pro 专属）
+    const bool proActive = editor->entitlement.proActiveAt(
+        static_cast<std::int64_t>(std::time(nullptr)));
+    const MattingAccess access = mattingAccessFor(proActive, requested);
+    if (!access.allowed) {
+        return NC_ERROR_UNSUPPORTED;
+    }
+    ChromaKey key;
+    key.keyColorRgb = 0x00FF00;
+    if (key_color != nullptr && key_color[0] != '\0') {
+        const std::uint32_t parsed = chromaKeyColorFromString(key_color);
+        if (parsed == 0xFFFFFFFFu) {
+            return NC_ERROR_INVALID_ARGUMENT;  // 键控色非法
+        }
+        key.keyColorRgb = parsed;
+    }
+    key.innerThreshold = inner_threshold > 0.0 ? inner_threshold : key.innerThreshold;
+    key.outerThreshold = outer_threshold > 0.0 ? outer_threshold : key.outerThreshold;
+    key.spillSuppression =
+        spill_suppression >= 0.0 ? spill_suppression : key.spillSuppression;
+    if (!key.valid()) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    key = chromaKeyForQuality(key, access.quality);
+    return toNcError(
+        editor->editor->setClipChromaKey(main->id, trackId, ClipId{clip_id}, key, true).code);
+}
+
+int32_t nc_get_clip_chroma_key(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               uint32_t* out_key_color_rgb, double* out_inner,
+                               double* out_outer, double* out_spill) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    if (!clip->hasChromaKey) {
+        return 0;
+    }
+    if (out_key_color_rgb != nullptr) *out_key_color_rgb = clip->chromaKey.keyColorRgb;
+    if (out_inner != nullptr) *out_inner = clip->chromaKey.innerThreshold;
+    if (out_outer != nullptr) *out_outer = clip->chromaKey.outerThreshold;
+    if (out_spill != nullptr) *out_spill = clip->chromaKey.spillSuppression;
+    return 1;
+}
+
+double nc_chroma_key_estimate(const uint8_t* rgba, int32_t width, int32_t height,
+                              const char* key_color, double inner_threshold,
+                              double outer_threshold, double spill_suppression,
+                              int32_t quality) {
+    if (rgba == nullptr || width <= 0 || height <= 0) {
+        return -1.0;
+    }
+    MattingQuality requested;
+    if (!mattingQualityFromInt(quality, requested)) {
+        return -1.0;
+    }
+    ChromaKey key;
+    if (key_color != nullptr && key_color[0] != '\0') {
+        const std::uint32_t parsed = chromaKeyColorFromString(key_color);
+        if (parsed == 0xFFFFFFFFu) {
+            return -1.0;
+        }
+        key.keyColorRgb = parsed;
+    }
+    key.innerThreshold = inner_threshold > 0.0 ? inner_threshold : key.innerThreshold;
+    key.outerThreshold = outer_threshold > 0.0 ? outer_threshold : key.outerThreshold;
+    key.spillSuppression =
+        spill_suppression >= 0.0 ? spill_suppression : key.spillSuppression;
+    if (!key.valid()) {
+        return -1.0;
+    }
+    key = chromaKeyForQuality(key, requested);
+    return chromaKeyCoverageRatio(rgba, width, height, key, 2);
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

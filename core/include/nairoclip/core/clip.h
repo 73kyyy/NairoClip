@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/animation.h"
+#include "nairoclip/core/chroma_key.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/speed_curve.h"
@@ -40,6 +41,11 @@ struct Clip {
     /// hasMask 为 true 时导出/预览按蒙版裁剪可见区域；false = 不使用蒙版。
     bool hasMask = false;
     Mask mask;
+    /// 色度抠像（文档「🤖AI实验室 → 智能抠像 → 色度抠像(绿幕)」）。
+    /// hasChromaKey 为 true 时导出/预览逐像素分离键控色背景（Pro 权益；
+    /// 平台层在执行前用 mattingAccessFor 门控）。
+    bool hasChromaKey = false;
+    ChromaKey chromaKey;
     /// 音频增益（dB，0 = 原始电平；合法范围 [-60, +12]）。
     double audioGainDb = 0.0;
     /// 音频淡入时长（从片段起点算起；0 = 无淡入）。

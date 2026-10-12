@@ -462,6 +462,17 @@ ExportStats executeExport(
                                               : MaskBlendMode::Background,
                                 plan.backgroundRgba);
                         }
+                        // 应用色度抠像（文档「🤖AI实验室 → 智能抠像 → 色度抠像(绿幕)」）：
+                        // 与蒙版同构——多层场景 Transparent（alpha 缩放，供下层混合）；
+                        // 单层场景 Background（合成序列背景色，不残留键控色）。
+                        if (active->hasChromaKey) {
+                            const bool hasLowerLayer = layers.size() > 1;
+                            applyChromaKeyToFrame(
+                                frame.rgba.data(), plan.width, plan.height, active->chromaKey,
+                                hasLowerLayer ? ChromaKeyBlendMode::Transparent
+                                              : ChromaKeyBlendMode::Background,
+                                plan.backgroundRgba);
+                        }
                         // 多层合成：当前帧是顶层；若存在下层且顶层透明度 < 1，
                         // 则解码下层并将两层按 alpha 混合。（多层 > 2 递归处理为后续优化）
                         if (layers.size() > 1) {
@@ -473,11 +484,12 @@ ExportStats executeExport(
                                 if (topAlpha < 0.0) topAlpha = 0.0;
                                 if (topAlpha > 1.0) topAlpha = 1.0;
                             }
-                            // 注意：除动画不透明度外，蒙版也会产生逐像素 alpha；
-                            // 因此当存在蒙版时也必须进入混合路径。
+                            // 注意：除动画不透明度外，蒙版与色度抠像也会产生逐像素
+                            // alpha；因此当存在任一者时也必须进入混合路径。
                             const bool topHasMask =
                                 active->hasMask && active->mask.shape != MaskShape::None;
-                            if (topAlpha < 0.999 || topHasMask) {
+                            const bool topHasChromaKey = active->hasChromaKey;
+                            if (topAlpha < 0.999 || topHasMask || topHasChromaKey) {
                                 const RenderClip* lower = layers[1].clip;
                                 // 解码下层
                                 MediaReader* lowerReader = getReader(lower->asset);

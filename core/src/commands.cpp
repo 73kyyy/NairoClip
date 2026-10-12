@@ -1723,5 +1723,73 @@ Result SetClipMaskCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------------------------------------------------------------------
+// 设置片段色度抠像
+// ---------------------------------------------------------------------------
+
+SetClipChromaKeyCommand::SetClipChromaKeyCommand(SequenceId sequenceId, TrackId trackId,
+                                                 ClipId clipId, ChromaKey chromaKey)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), chromaKey_(chromaKey) {}
+
+Result SetClipChromaKeyCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!chromaKey_.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "抠像参数非法（阈值需在 0..1 且 outer > inner）");
+    }
+    if (!beforeHasChromaKey_.has_value()) beforeHasChromaKey_ = clip->hasChromaKey;
+    if (!beforeChromaKey_.has_value()) beforeChromaKey_ = clip->chromaKey;
+    clip->hasChromaKey = true;
+    clip->chromaKey = chromaKey_;
+    return Result::ok();
+}
+
+Result SetClipChromaKeyCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforeHasChromaKey_.has_value() || !beforeChromaKey_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少抠像快照");
+    }
+    clip->hasChromaKey = *beforeHasChromaKey_;
+    clip->chromaKey = *beforeChromaKey_;
+    return Result::ok();
+}
+
+// ---------------------------------------------------------------------------
+// 清除片段色度抠像
+// ---------------------------------------------------------------------------
+
+ClearClipChromaKeyCommand::ClearClipChromaKeyCommand(SequenceId sequenceId, TrackId trackId,
+                                                     ClipId clipId)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId) {}
+
+Result ClearClipChromaKeyCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforeHasChromaKey_.has_value()) beforeHasChromaKey_ = clip->hasChromaKey;
+    clip->hasChromaKey = false;
+    clip->chromaKey = ChromaKey{};
+    return Result::ok();
+}
+
+Result ClearClipChromaKeyCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforeHasChromaKey_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少抠像快照");
+    }
+    clip->hasChromaKey = *beforeHasChromaKey_;
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

@@ -400,6 +400,46 @@ int32_t nc_get_clip_mask(const NcEditor* editor, int32_t track_index, uint64_t c
                          double* out_rotation_degrees, double* out_width, double* out_height,
                          double* out_feather, double* out_corner_radius, int32_t* out_invert);
 
+// ---- 智能抠像 / 色度抠像（文档第 2 部分「🤖AI实验室 → 智能抠像 → 色度抠像(绿幕)」
+//      + 权益矩阵「AI智能抠像：基础版 / 高精度版+物品/色度抠像（Pro）」）----
+
+/// 查询色度抠像功能可用性（Pro 门控；fail-closed）。
+/// - quality：0 = 基础版 / 1 = 高精度版；
+/// - out_quality：出参（可空）生效档位；
+/// - out_reason：出参（可空）展示文案（需 nc_free_string；含 🔒 语义）。
+/// 返回：1 = 可用；0 = 不可用（弹付费墙）；-1 = 参数错误。
+int32_t nc_matting_access(const NcEditor* editor, int32_t quality, int32_t* out_quality,
+                          char** out_reason);
+
+/// 设置片段色度抠像（绿幕）。
+/// - key_color：键控色字符串（"green"/"blue"/"magenta"/"#RRGGBB"，可空 = 纯绿）；
+/// - inner_threshold/outer_threshold：双阈值（0..1；outer > inner；<=0 用默认）；
+/// - spill_suppression：溢色抑制强度 0..1（< 0 用默认）；
+/// - quality：0 = 基础版 / 1 = 高精度版（档位参数会调整处理强度）；
+/// - enabled：0 = 清除抠像，1 = 启用（启用前会做 Pro 门控，不可用返回 NC_ERROR_UNSUPPORTED）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_set_clip_chroma_key(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               const char* key_color, double inner_threshold,
+                               double outer_threshold, double spill_suppression,
+                               int32_t quality, int32_t enabled);
+
+/// 读取片段色度抠像（多个出参可空）。
+/// - out_key_color_rgb：出参（可空）键控色；
+/// - out_inner/out_outer/out_spill：出参（可空）参数；
+/// 返回：1 = 已启用抠像（出参有效），0 = 未启用，-1 = 参数错误。
+int32_t nc_get_clip_chroma_key(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               uint32_t* out_key_color_rgb, double* out_inner,
+                               double* out_outer, double* out_spill);
+
+/// 估计片段某帧的抠像前景覆盖率（采样；供 UI 预览「前景约 X%」）。
+/// - rgba/width/height：帧数据（平台层从预览管线取）；
+/// - key 参数同 nc_set_clip_chroma_key（quality 参与）；
+/// 返回覆盖率 0..1；参数错误返回 -1。
+double nc_chroma_key_estimate(const uint8_t* rgba, int32_t width, int32_t height,
+                              const char* key_color, double inner_threshold,
+                              double outer_threshold, double spill_suppression,
+                              int32_t quality);
+
 // ---- AI 模型管理（文档第 5 部分「二、AI模型管理」+ 第 8 部分「模型分发架构」）----
 
 /// 列举内置模型（供 UI「AI 模型管理」页列表）。

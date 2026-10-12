@@ -240,6 +240,15 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
             applyMaskToFrame(frame.rgba.data(), frame.width, frame.height, clip->mask,
                              MaskBlendMode::Background, background);
         }
+        // 应用色度抠像（文档「🤖AI实验室 → 智能抠像 → 色度抠像(绿幕)」）
+        // 与蒙版一致：预览用 Background 模式，UI 直接看到抠像后的合成画面。
+        if (clip->hasChromaKey &&
+            frame.rgba.size() >=
+                static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height) * 4) {
+            const std::uint32_t background = seq != nullptr ? seq->backgroundRgba : 0x000000FF;
+            applyChromaKeyToFrame(frame.rgba.data(), frame.width, frame.height, clip->chromaKey,
+                                  ChromaKeyBlendMode::Background, background);
+        }
     }
     return frame;
 }

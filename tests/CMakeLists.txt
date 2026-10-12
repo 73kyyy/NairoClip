@@ -53,6 +53,7 @@ add_executable(nairoclip_tests
     test_speech_cut.cpp
     test_batch_ops.cpp
     test_mask.cpp
+    test_chroma_key.cpp
     test_reframe.cpp
     test_crypto.cpp
     test_chapter.cpp

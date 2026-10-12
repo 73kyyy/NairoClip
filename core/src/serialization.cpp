@@ -377,6 +377,18 @@ JsonValue writeClip(const Clip& c) {
         }
         o.set("mask", std::move(mask));
     }
+    // 色度抠像（文档「🤖AI实验室 → 智能抠像」；仅启用时写入，保持文件向后兼容）
+    if (c.hasChromaKey) {
+        JsonValue chroma = JsonValue::object();
+        chroma.set("keyColorRgb",
+                   JsonValue::integer(static_cast<std::int64_t>(c.chromaKey.keyColorRgb)));
+        chroma.set("innerThreshold", JsonValue::number(c.chromaKey.innerThreshold));
+        chroma.set("outerThreshold", JsonValue::number(c.chromaKey.outerThreshold));
+        if (c.chromaKey.spillSuppression != 0.6) {
+            chroma.set("spillSuppression", JsonValue::number(c.chromaKey.spillSuppression));
+        }
+        o.set("chromaKey", std::move(chroma));
+    }
     return o;
 }
 
@@ -451,6 +463,31 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
                 out.hasMask = true;
                 out.mask = parsedMask;
             }
+        }
+    }
+    // 色度抠像（缺省 = 未启用；非法参数降级为未启用，保证工程可打开）
+    out.hasChromaKey = false;
+    out.chromaKey = ChromaKey{};
+    if (v.has("chromaKey")) {
+        const JsonValue& chromaValue = v.get("chromaKey");
+        ChromaKey parsed;
+        if (chromaValue.has("keyColorRgb")) {
+            parsed.keyColorRgb = static_cast<std::uint32_t>(
+                chromaValue.get("keyColorRgb").asInteger(0x00FF00));
+        } else if (chromaValue.has("keyColor")) {
+            // 兼容名称写法（如 "green"）
+            const std::uint32_t fromName =
+                chromaKeyColorFromString(chromaValue.get("keyColor").asString().c_str());
+            if (fromName != 0xFFFFFFFFu) {
+                parsed.keyColorRgb = fromName;
+            }
+        }
+        parsed.innerThreshold = chromaValue.get("innerThreshold").asNumber(0.30);
+        parsed.outerThreshold = chromaValue.get("outerThreshold").asNumber(0.75);
+        parsed.spillSuppression = chromaValue.get("spillSuppression").asNumber(0.6);
+        if (parsed.valid()) {
+            out.hasChromaKey = true;
+            out.chromaKey = parsed;
         }
     }
     return true;

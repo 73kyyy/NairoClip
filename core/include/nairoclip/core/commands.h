@@ -525,6 +525,45 @@ private:
 };
 
 /// ---------------------------------------------------------------------------
+/// 设置片段色度抠像（文档「🤖AI实验室 → 智能抠像 → 色度抠像(绿幕)」）
+/// ---------------------------------------------------------------------------
+class SetClipChromaKeyCommand : public Command {
+public:
+    SetClipChromaKeyCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                            ChromaKey chromaKey);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "应用智能抠像"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    ChromaKey chromaKey_;
+    std::optional<ChromaKey> beforeChromaKey_;
+    std::optional<bool> beforeHasChromaKey_;
+};
+
+/// ---------------------------------------------------------------------------
+/// 清除片段色度抠像（关闭开关；与蒙版 shape=None 的清除语义对称）
+/// ---------------------------------------------------------------------------
+class ClearClipChromaKeyCommand : public Command {
+public:
+    ClearClipChromaKeyCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "清除智能抠像"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    std::optional<bool> beforeHasChromaKey_;
+};
+
+/// ---------------------------------------------------------------------------
 /// 创建复合片段（嵌套序列）—— 文档第 3 部分「嵌套序列/复合片段」
 /// ---------------------------------------------------------------------------
 /// 语义：把选中片段从原轨道摘除，放入新建的嵌套序列（保留相对时间），

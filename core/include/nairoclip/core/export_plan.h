@@ -41,6 +41,9 @@ struct RenderClip {
     /// 蒙版快照（hasMask 时导出逐帧裁剪可见区域）。
     bool hasMask = false;
     Mask mask;
+    /// 色度抠像快照（hasChromaKey 时导出逐像素分离键控色背景）。
+    bool hasChromaKey = false;
+    ChromaKey chromaKey;
     /// 动画快照（透明度等逐帧采样）。
     ClipAnimation animation;
     /// 速度曲线快照（非空时变速映射按曲线积分）。
