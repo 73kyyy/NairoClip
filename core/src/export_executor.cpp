@@ -323,6 +323,14 @@ ExportStats executeExport(
                     // 确保 alpha 不透明
                     for (std::size_t i = 3; i < bufA.size(); i += 4) bufA[i] = 255;
                     for (std::size_t i = 3; i < bufB.size(); i += 4) bufB[i] = 255;
+                    // 对两路源帧分别应用各自片段的特效栈（颜色 + 空间）：
+                    // 修复——此前转场帧完全不吃片段特效（与单层路径不一致）。
+                    if (!fromClip->effects.empty()) {
+                        applyEffectStackToFrame(bufA.data(), w, h, fromClip->effects, frameIndex);
+                    }
+                    if (!toClip->effects.empty()) {
+                        applyEffectStackToFrame(bufB.data(), w, h, toClip->effects, frameIndex);
+                    }
                     frame.rgba.assign(pixelBytes, 0);
                     blendDone = TransitionRenderer::renderFrame(
                         static_cast<TransitionType>(frame.transitionType), bufA.data(),
@@ -441,15 +449,11 @@ ExportStats executeExport(
                                            srcStride, frame.rgba.data(), plan.width, plan.height,
                                            plan.frameFit, plan.backgroundRgba);
                         }
-                        // 应用片段特效（颜色变换）
+                        // 应用片段特效栈（颜色变换 + 空间效果：暗角/模糊/锐化/噪点）
                         if (!active->effects.empty()) {
-                            const ColorTransform transform = evaluateColorTransform(active->effects);
-                            if (!transform.isIdentity()) {
-                                applyColorTransformToRgba(frame.rgba.data(),
-                                                         static_cast<std::size_t>(plan.width) *
-                                                             static_cast<std::size_t>(plan.height),
-                                                         transform);
-                            }
+                            applyEffectStackToFrame(frame.rgba.data(), plan.width,
+                                                    plan.height, active->effects,
+                                                    frameIndex);
                         }
                         // 应用片段蒙版（文档「✂️剪辑 → 蒙版」）：
                         // 多层场景 → Transparent（蒙版外 alpha=0，供下方逐像素混合透出下层）；

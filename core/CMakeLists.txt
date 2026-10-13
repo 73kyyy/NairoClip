@@ -52,6 +52,7 @@ add_library(nairoclip_core STATIC
     src/invisible_watermark.cpp
     src/heartbeat.cpp
     src/chroma_key.cpp
+    src/spatial_effects.cpp
     src/media_offline.cpp
     src/model_manager.cpp
 )

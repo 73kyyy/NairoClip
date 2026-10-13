@@ -184,10 +184,38 @@ ColorTransform evaluateColorTransform(const EffectStack& stack) {
             case EffectType::Sharpen:
             case EffectType::Grain:
             case EffectType::None:
-                break;  // 空间效果由渲染器单独处理
+                break;  // 空间效果由 applyEffectStackToFrame 统一处理
         }
     }
     return t;
+}
+
+bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
+                             const EffectStack& stack, std::int64_t frameIndex) {
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+    const std::size_t pixelCount =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    // 1) 颜色变换（逐像素，无邻域；多特效折叠求值）
+    const ColorTransform transform = evaluateColorTransform(stack);
+    if (!transform.isIdentity()) {
+        applyColorTransformToRgba(pixels, pixelCount, transform);
+    }
+    // 2) 空间效果（按栈序；需要邻域访问或时变种子）
+    for (const auto& e : stack.effects()) {
+        if (!e.enabled) {
+            continue;
+        }
+        const int typeValue = static_cast<int>(e.type);
+        if (typeValue < 8 || typeValue > 11) {
+            continue;  // 颜色类已在上面处理
+        }
+        if (!applySpatialEffectToRgba(pixels, width, height, typeValue, e.value, frameIndex)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 }  // namespace core

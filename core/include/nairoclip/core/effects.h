@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nairoclip/core/spatial_effects.h"
+
 #include "nairoclip/core/types.h"
 
 #include <cmath>
@@ -110,6 +112,15 @@ ColorTransform evaluateColorTransform(const EffectStack& stack);
 /// pixels：交错 RGBA8，长度必须是 4 的倍数（stride 处理由调用方负责跨行裁剪）。
 void applyColorTransformToRgba(std::uint8_t* pixels, std::size_t pixelCount,
                                const ColorTransform& transform);
+
+/// 应用整个特效栈到一帧（颜色变换 + 空间效果；导出与预览共用，消除两处
+/// 各自解释栈语义的风险）。
+/// - 顺序：先颜色变换（evaluate → 逐像素），再按栈序应用空间效果
+///   （暗角/模糊/锐化/噪点，见 spatial_effects.h）；
+/// - frameIndex：噪点的时变种子（导出 = 输出帧序号；预览 = 时间量化值）；
+/// - 参数非法返回 false 且不改动；空栈返回 true。
+bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
+                             const EffectStack& stack, std::int64_t frameIndex = 0);
 
 }  // namespace core
 }  // namespace nairoclip

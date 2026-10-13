@@ -56,5 +56,12 @@ ffmpeg -hide_banner -loglevel error -y \
     -filter_complex "[0:a][1:a][2:a][3:a]concat=n=4:v=0:a=1[out]" \
     -map "[out]" -c:a pcm_s16le "$OUT_DIR/speech.wav"
 
+# 高频细节素材（空间特效端到端验证：模糊/锐化需要高频内容才能测出梯度能量变化；
+# test_av.mp4 是大片均匀色块，模糊对均匀区无效果，不适合该验证）
+ffmpeg -hide_banner -loglevel error -y \
+    -f lavfi -i "testsrc2=size=320x240:rate=30:duration=1,format=rgb24" \
+    -vf "drawgrid=w=8:h=8:t=1:c=white@1.0" \
+    -c:v libx264 -pix_fmt yuv420p -crf 10 "$OUT_DIR/detail_src.mp4"
+
 echo "完成："
-ls -la "$OUT_DIR"/test_av.mp4 "$OUT_DIR"/two_shots.mp4 "$OUT_DIR"/speech.wav
+ls -la "$OUT_DIR"/test_av.mp4 "$OUT_DIR"/two_shots.mp4 "$OUT_DIR"/speech.wav "$OUT_DIR"/detail_src.mp4
