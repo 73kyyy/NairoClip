@@ -315,7 +315,7 @@ bool readEffects(const JsonValue& v, EffectStack& out, std::string& err) {
         const std::int64_t typeValue = ev.get("type").asInteger();
         // 扩展边界：EffectType 最大枚举值（新增特效时同步更新此处即可；
         // 修复——此前硬编码 12，新增特效后旧值能读、新值会被拒）。
-        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::Grain)) {
+        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::RgbSplit)) {
             err = "未知特效类型";
             return false;
         }
@@ -390,6 +390,10 @@ JsonValue writeClip(const Clip& c) {
             chroma.set("spillSuppression", JsonValue::number(c.chromaKey.spillSuppression));
         }
         o.set("chromaKey", std::move(chroma));
+    }
+    // 画中画混合模式（文档 5.9；仅非默认时写入，保持文件向后兼容）
+    if (c.blendMode != BlendMode::Normal) {
+        o.set("blendMode", JsonValue::string(blendModeName(c.blendMode)));
     }
     return o;
 }
@@ -490,6 +494,14 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
         if (parsed.valid()) {
             out.hasChromaKey = true;
             out.chromaKey = parsed;
+        }
+    }
+    // 画中画混合模式（缺省 = Normal；非法值降级 Normal，保证工程可打开）
+    out.blendMode = BlendMode::Normal;
+    if (v.has("blendMode")) {
+        BlendMode parsedMode = BlendMode::Normal;
+        if (blendModeFromString(v.get("blendMode").asString().c_str(), parsedMode)) {
+            out.blendMode = parsedMode;
         }
     }
     return true;

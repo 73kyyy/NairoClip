@@ -222,14 +222,16 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
             frame.width = canvasW;
             frame.height = canvasH;
         }
-        // 应用片段特效栈（颜色变换 + 空间效果：暗角/模糊/锐化/噪点）
-        // 预览用行内帧序号（时间量化到 30fps 网格）作为噪点种子，保证同一时刻
+        // 应用片段特效栈（颜色变换 + 空间效果 + 画面特效）
+        // 预览用行内帧序号（时间量化到 30fps 网格）作为时变种子，保证同一时刻
         // 预览稳定（静止画面不闪噪点）；导出用真实帧序号（噪点随时间流动）。
+        // 质量分级（文档 4.4）：预览路径按 sampleBudget 简化高采样效果
+        // （旋转模糊等），不改变导出质量上限（三端对等）。
         if (!clip->effects.empty()) {
             const std::int64_t frameIndex = static_cast<std::int64_t>(
                 std::floor(timelineTime.toDouble() * 30.0));
             applyEffectStackToFrame(frame.rgba.data(), frame.width, frame.height,
-                                    clip->effects, frameIndex);
+                                    clip->effects, frameIndex, RenderQuality::previewQuality());
         }
         // 应用片段蒙版（文档「✂️剪辑 → 蒙版」）
         // 预览用 Background 模式：蒙版外填充序列背景色，UI 直接显示最终画面效果。

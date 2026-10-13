@@ -20,6 +20,13 @@ EffectSpec effectSpec(EffectType type) {
         case EffectType::Sharpen: return EffectSpec{0.0, 5.0, 0.0, "锐化"};
         case EffectType::Grain: return EffectSpec{0.0, 1.0, 0.0, "噪点"};
         case EffectType::Fade: return EffectSpec{0.0, 1.0, 0.0, "褪色"};
+        // ---- 画面特效（文档第二段 5.1）----
+        case EffectType::Glitch: return EffectSpec{0.0, 1.0, 0.0, "故障"};
+        case EffectType::SplitScreen: return EffectSpec{0.0, 1.0, 0.0, "分屏"};
+        case EffectType::Mirror: return EffectSpec{0.0, 1.0, 0.0, "镜像"};
+        case EffectType::RadialBlur: return EffectSpec{0.0, 1.0, 0.0, "旋转模糊"};
+        case EffectType::Scanlines: return EffectSpec{0.0, 1.0, 0.0, "扫描线"};
+        case EffectType::RgbSplit: return EffectSpec{0.0, 1.0, 0.0, "RGB 分离"};
     }
     return EffectSpec{};
 }
@@ -191,7 +198,8 @@ ColorTransform evaluateColorTransform(const EffectStack& stack) {
 }
 
 bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
-                             const EffectStack& stack, std::int64_t frameIndex) {
+                             const EffectStack& stack, std::int64_t frameIndex,
+                             const RenderQuality& quality) {
     if (pixels == nullptr || width <= 0 || height <= 0) {
         return false;
     }
@@ -202,17 +210,24 @@ bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
     if (!transform.isIdentity()) {
         applyColorTransformToRgba(pixels, pixelCount, transform);
     }
-    // 2) 空间效果（按栈序；需要邻域访问或时变种子）
+    // 2) 空间效果（8..11）与画面特效（13..18）按栈序应用。
+    //    说明：颜色类（1..7、12）已在上面处理；空间/画面效果需要邻域访问或
+    //    时变种子；画面特效的旋转模糊按 quality 分级（文档 4.4）。
     for (const auto& e : stack.effects()) {
         if (!e.enabled) {
             continue;
         }
         const int typeValue = static_cast<int>(e.type);
-        if (typeValue < 8 || typeValue > 11) {
-            continue;  // 颜色类已在上面处理
-        }
-        if (!applySpatialEffectToRgba(pixels, width, height, typeValue, e.value, frameIndex)) {
-            return false;
+        if (typeValue >= 8 && typeValue <= 11) {
+            if (!applySpatialEffectToRgba(pixels, width, height, typeValue, e.value,
+                                          frameIndex)) {
+                return false;
+            }
+        } else if (typeValue >= 13 && typeValue <= 18) {
+            if (!applyScreenEffectToRgba(pixels, width, height, typeValue, e.value,
+                                         frameIndex, quality)) {
+                return false;
+            }
         }
     }
     return true;

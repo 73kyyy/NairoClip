@@ -440,6 +440,19 @@ double nc_chroma_key_estimate(const uint8_t* rgba, int32_t width, int32_t height
                               double outer_threshold, double spill_suppression,
                               int32_t quality);
 
+// ---- 画中画混合模式（文档第二段 5.9）----
+
+/// 设置片段的画中画混合模式（多层合成时与下层的混合公式）。
+/// - mode：0=normal 1=screen 2=overlay 3=darken 4=hard_light；
+/// - 返回 NC_OK 或错误码（非法 mode → NC_ERROR_INVALID_ARGUMENT）。
+/// 说明：混合模式属于工程数据（随 .nclip 持久化；默认 normal 不写文件）。
+int32_t nc_set_clip_blend_mode(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t mode);
+
+/// 读取片段的画中画混合模式（0..4；未设置返回 0 = normal）。
+/// 返回：0..4 = 模式；-1 = 参数错误。
+int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
 // ---- AI 模型管理（文档第 5 部分「二、AI模型管理」+ 第 8 部分「模型分发架构」）----
 
 /// 列举内置模型（供 UI「AI 模型管理」页列表）。

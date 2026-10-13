@@ -489,11 +489,16 @@ ExportStats executeExport(
                                 if (topAlpha > 1.0) topAlpha = 1.0;
                             }
                             // 注意：除动画不透明度外，蒙版与色度抠像也会产生逐像素
-                            // alpha；因此当存在任一者时也必须进入混合路径。
+                            // alpha；画中画混合模式（非 Normal）也必须进入混合路径
+                            // （否则不透明的上层直接遮挡下层、混合公式不生效——
+                            // 真实缺陷，端到端验证发现）。
                             const bool topHasMask =
                                 active->hasMask && active->mask.shape != MaskShape::None;
                             const bool topHasChromaKey = active->hasChromaKey;
-                            if (topAlpha < 0.999 || topHasMask || topHasChromaKey) {
+                            const bool topHasBlendFormula =
+                                active->blendMode != BlendMode::Normal;
+                            if (topAlpha < 0.999 || topHasMask || topHasChromaKey ||
+                                topHasBlendFormula) {
                                 const RenderClip* lower = layers[1].clip;
                                 // 解码下层
                                 MediaReader* lowerReader = getReader(lower->asset);
@@ -538,42 +543,79 @@ ExportStats executeExport(
                                                 const int lowerCanvasStride = plan.width * 4;
                                                 const int w = plan.width;
                                                 const int h = plan.height;
-                                                for (int row = 0; row < h; ++row) {
-                                                    const std::uint8_t* src =
-                                                        lowerPixels +
-                                                        static_cast<std::size_t>(row) *
-                                                            static_cast<std::size_t>(
-                                                                lowerCanvasStride);
-                                                    std::uint8_t* dst =
+                                                // 画中画混合模式（文档 5.9）：
+                                                //  - Normal：逐像素 alpha 混合（既有快路径，
+                                                //    权重 = 动画不透明度 × 蒙版覆盖率）；
+                                                //  - Screen/Overlay/Darken/HardLight：
+                                                //    以「下层为基、上层按模式公式合成」实现。
+                                                //    流程：保存上层副本（含蒙版 alpha）→
+                                                //    帧缓冲填入下层 → blendFrameRgba 把上层
+                                                //    按模式与 alpha 权重混合到下层上。
+                                                if (active->blendMode != BlendMode::Normal) {
+                                                    // 1) 保存上层（帧缓冲当前内容；alpha 已含
+                                                    //    蒙版覆盖率）
+                                                    std::vector<std::uint8_t> topLayer(
+                                                        frame.rgba.data(),
                                                         frame.rgba.data() +
-                                                        static_cast<std::size_t>(row) *
-                                                            static_cast<std::size_t>(plan.width) * 4;
-                                                    for (int col = 0; col < w; ++col) {
-                                                        const std::size_t base =
-                                                            static_cast<std::size_t>(col) * 4;
-                                                        // 混合权重 = 动画不透明度 × 蒙版覆盖率：
-                                                        //  - 蒙版已在此之前把 alpha 缩放为
-                                                        //    255×覆盖率（Transparent 模式）；
-                                                        //  - 动画不透明度（topAlpha）在混合之后
-                                                        //    才应用到整帧（既有语义，保持不变）。
-                                                        const double maskCoverage =
-                                                            static_cast<double>(dst[base + 3]) /
-                                                            255.0;
-                                                        const double mixWeight =
-                                                            topAlpha * maskCoverage;
-                                                        const double bottomWeight =
-                                                            1.0 - mixWeight;
-                                                        for (int ch = 0; ch < 3; ++ch) {
-                                                            const std::size_t idx = base +
-                                                                static_cast<std::size_t>(ch);
-                                                            const double top = dst[idx] * mixWeight;
-                                                            const double bot =
-                                                                src[idx] * bottomWeight;
-                                                            dst[idx] = static_cast<std::uint8_t>(
-                                                                top + bot + 0.5);
+                                                            static_cast<std::size_t>(w) * h * 4);
+                                                    // 2) 帧缓冲填入下层像素
+                                                    for (int row = 0; row < h; ++row) {
+                                                        const std::uint8_t* src =
+                                                            lowerPixels +
+                                                            static_cast<std::size_t>(row) *
+                                                                static_cast<std::size_t>(
+                                                                    lowerCanvasStride);
+                                                        std::uint8_t* dst =
+                                                            frame.rgba.data() +
+                                                            static_cast<std::size_t>(row) *
+                                                                static_cast<std::size_t>(w) * 4;
+                                                        std::memcpy(dst, src,
+                                                                    static_cast<std::size_t>(w) * 4);
+                                                    }
+                                                    // 3) 按模式公式 + alpha 权重合成
+                                                    //    （opacity = 动画不透明度；alpha 通道
+                                                    //     已含蒙版覆盖率）
+                                                    blendFrameRgba(frame.rgba.data(),
+                                                                   topLayer.data(), w, h,
+                                                                   active->blendMode, topAlpha);
+                                                } else {
+                                                    for (int row = 0; row < h; ++row) {
+                                                        const std::uint8_t* src =
+                                                            lowerPixels +
+                                                            static_cast<std::size_t>(row) *
+                                                                static_cast<std::size_t>(
+                                                                    lowerCanvasStride);
+                                                        std::uint8_t* dst =
+                                                            frame.rgba.data() +
+                                                            static_cast<std::size_t>(row) *
+                                                                static_cast<std::size_t>(w) * 4;
+                                                        for (int col = 0; col < w; ++col) {
+                                                            const std::size_t base =
+                                                                static_cast<std::size_t>(col) * 4;
+                                                            // 混合权重 = 动画不透明度 × 蒙版覆盖率：
+                                                            //  - 蒙版已在此之前把 alpha 缩放为
+                                                            //    255×覆盖率（Transparent 模式）；
+                                                            //  - 动画不透明度（topAlpha）在混合之后
+                                                            //    才应用到整帧（既有语义，保持不变）。
+                                                            const double maskCoverage =
+                                                                static_cast<double>(dst[base + 3]) /
+                                                                255.0;
+                                                            const double mixWeight =
+                                                                topAlpha * maskCoverage;
+                                                            const double bottomWeight =
+                                                                1.0 - mixWeight;
+                                                            for (int ch = 0; ch < 3; ++ch) {
+                                                                const std::size_t idx = base +
+                                                                    static_cast<std::size_t>(ch);
+                                                                const double top = dst[idx] * mixWeight;
+                                                                const double bot =
+                                                                    src[idx] * bottomWeight;
+                                                                dst[idx] = static_cast<std::uint8_t>(
+                                                                    top + bot + 0.5);
+                                                            }
+                                                            // 已与下层完成合成 → 结果不透明
+                                                            dst[base + 3] = 255;
                                                         }
-                                                        // 已与下层完成合成 → 结果不透明
-                                                        dst[base + 3] = 255;
                                                     }
                                                 }
                                             }

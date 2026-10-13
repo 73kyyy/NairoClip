@@ -106,6 +106,11 @@ public:
     /// 说明：Pro 权益门控由平台层执行（mattingAccessFor）；core 只保证算法与数据正确。
     Result setClipChromaKey(SequenceId sequenceId, TrackId trackId, ClipId clipId, ChromaKey key,
                             bool enabled);
+    // ---- 画中画混合模式（文档第二段 5.9）----
+    /// 设置片段画中画混合模式（多层合成时与下层的混合公式）。
+    /// 说明：normal 为默认（与既有 alpha 混合行为一致）；其余四种为行业标准公式。
+    Result setClipBlendMode(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                            BlendMode mode);
     // ---- 音频属性 ----
     /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
     Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,

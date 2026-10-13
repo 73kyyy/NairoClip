@@ -44,6 +44,8 @@ struct RenderClip {
     /// 色度抠像快照（hasChromaKey 时导出逐像素分离键控色背景）。
     bool hasChromaKey = false;
     ChromaKey chromaKey;
+    /// 画中画混合模式（文档第二段 5.9；多层合成时与下层的混合公式）。
+    BlendMode blendMode = BlendMode::Normal;
     /// 动画快照（透明度等逐帧采样）。
     ClipAnimation animation;
     /// 速度曲线快照（非空时变速映射按曲线积分）。

@@ -564,6 +564,26 @@ private:
 };
 
 /// ---------------------------------------------------------------------------
+/// 设置片段画中画混合模式（文档第二段 5.9）
+/// ---------------------------------------------------------------------------
+class SetClipBlendModeCommand : public Command {
+public:
+    SetClipBlendModeCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                            BlendMode mode);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "设置画中画混合模式"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    BlendMode mode_;
+    std::optional<BlendMode> beforeMode_;
+};
+
+/// ---------------------------------------------------------------------------
 /// 创建复合片段（嵌套序列）—— 文档第 3 部分「嵌套序列/复合片段」
 /// ---------------------------------------------------------------------------
 /// 语义：把选中片段从原轨道摘除，放入新建的嵌套序列（保留相对时间），

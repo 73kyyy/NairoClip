@@ -53,6 +53,9 @@ add_library(nairoclip_core STATIC
     src/heartbeat.cpp
     src/chroma_key.cpp
     src/spatial_effects.cpp
+    src/screen_effects.cpp
+    src/blend_modes.cpp
+    src/render_engine.cpp
     src/codec_policy.cpp
     src/ai_marking.cpp
     src/media_offline.cpp

@@ -436,8 +436,8 @@ uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, 
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
         return 0;
     }
-    if (type <= 0 || type > 12) {
-        return 0;  // 0 = None 无效；1..12 有效
+    if (type <= 0 || type > 18) {
+        return 0;  // 0 = None 无效；1..18 有效（1..12 基础 + 13..18 画面特效）
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
@@ -1362,6 +1362,42 @@ double nc_chroma_key_estimate(const uint8_t* rgba, int32_t width, int32_t height
     }
     key = chromaKeyForQuality(key, requested);
     return chromaKeyCoverageRatio(rgba, width, height, key, 2);
+}
+
+// ---- 画中画混合模式（文档第二段 5.9）----
+
+int32_t nc_set_clip_blend_mode(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t mode) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    BlendMode blendMode;
+    if (!blendModeFromInt(mode, blendMode)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(
+        editor->editor->setClipBlendMode(main->id, trackId, ClipId{clip_id}, blendMode).code);
+}
+
+int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    return static_cast<int32_t>(clip->blendMode);
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

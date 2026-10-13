@@ -167,6 +167,21 @@ Result TimelineEditor::setClipChromaKey(SequenceId sequenceId, TrackId trackId, 
     return commit(std::make_unique<SetClipChromaKeyCommand>(sequenceId, trackId, clipId, key));
 }
 
+Result TimelineEditor::setClipBlendMode(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                        BlendMode mode) {
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (track->findClip(clipId) == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    return commit(std::make_unique<SetClipBlendModeCommand>(sequenceId, trackId, clipId, mode));
+}
+
 Result TimelineEditor::setTrackSolo(SequenceId sequenceId, TrackId trackId, bool solo) {
     const Track* track = findTrack(project_, sequenceId, trackId);
     if (track == nullptr) {

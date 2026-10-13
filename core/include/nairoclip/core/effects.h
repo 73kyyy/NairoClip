@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nairoclip/core/render_engine.h"
+#include "nairoclip/core/screen_effects.h"
 #include "nairoclip/core/spatial_effects.h"
 
 #include "nairoclip/core/types.h"
@@ -12,6 +14,7 @@ namespace nairoclip {
 namespace core {
 
 /// 特效类型（内置基础集；参数经 effectParams 校验）。
+/// 特效类型（画面特效 13..18 见 screen_effects.h）。
 enum class EffectType {
     None = 0,
     Brightness,      // 亮度  [-1, 1]
@@ -26,6 +29,13 @@ enum class EffectType {
     Sharpen,        // 锐化强度 [0, 5]
     Grain,          // 噪点强度 [0, 1]
     Fade,           // 褪色（胶片感）[0, 1]
+    // ---- 画面特效（文档第二段 5.1；实现见 screen_effects.h）----
+    Glitch = 13,      // 故障（RGB 通道偏移 + 色块替换）[0, 1]
+    SplitScreen = 14, // 分屏（2x2 宫格，每格完整帧缩小版）[0, 1]
+    Mirror = 15,      // 镜像（左右翻转）[0, 1]
+    RadialBlur = 16,  // 旋转模糊（绕中心多角度采样）[0, 1]
+    Scanlines = 17,   // 扫描线（周期暗条纹）[0, 1]
+    RgbSplit = 18,    // RGB 分离（三通道位移）[0, 1]
 };
 
 /// 特效参数范围描述。
@@ -113,14 +123,19 @@ ColorTransform evaluateColorTransform(const EffectStack& stack);
 void applyColorTransformToRgba(std::uint8_t* pixels, std::size_t pixelCount,
                                const ColorTransform& transform);
 
-/// 应用整个特效栈到一帧（颜色变换 + 空间效果；导出与预览共用，消除两处
-/// 各自解释栈语义的风险）。
+/// 应用整个特效栈到一帧（颜色变换 + 空间效果 + 画面特效；导出与预览共用，
+/// 消除两处各自解释栈语义的风险）。
 /// - 顺序：先颜色变换（evaluate → 逐像素），再按栈序应用空间效果
-///   （暗角/模糊/锐化/噪点，见 spatial_effects.h）；
-/// - frameIndex：噪点的时变种子（导出 = 输出帧序号；预览 = 时间量化值）；
+///   （8..11：暗角/模糊/锐化/噪点，见 spatial_effects.h）与画面特效
+///   （13..18：故障/分屏/镜像/旋转模糊/扫描线/RGB 分离，见 screen_effects.h）；
+/// - frameIndex：时变种子（噪点/故障/RGB 分离；导出 = 输出帧序号；
+///   预览 = 时间量化值）；
+/// - quality：渲染质量分级（画面特效的旋转模糊按预览/导出分级采样；
+///   默认导出质量 = 完整精度；文档 4.4）；
 /// - 参数非法返回 false 且不改动；空栈返回 true。
 bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
-                             const EffectStack& stack, std::int64_t frameIndex = 0);
+                             const EffectStack& stack, std::int64_t frameIndex = 0,
+                             const RenderQuality& quality = RenderQuality::exportQuality());
 
 }  // namespace core
 }  // namespace nairoclip

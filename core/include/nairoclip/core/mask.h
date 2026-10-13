@@ -28,6 +28,8 @@ enum class MaskShape {
     Mirror = 2,     ///< 镜面（中心带状窗口，两侧羽化）
     Circle = 3,     ///< 圆形/椭圆
     Rectangle = 4,  ///< 矩形（可旋转/圆角）
+    Star = 5,       ///< 星形（文档 5.8：极坐标角度分段函数；5 角）
+    Heart = 6,      ///< 爱心（文档 5.8：心形线参数方程）
 };
 
 /// 蒙版外的填充策略。
@@ -89,12 +91,19 @@ bool applyMaskToFrame(std::uint8_t* pixels, int width, int height, const Mask& m
                       MaskBlendMode mode = MaskBlendMode::Transparent,
                       std::uint32_t backgroundRgba = 0x000000FF);
 
-/// 形状名称（"none" / "linear" / "mirror" / "circle" / "rectangle"）。
+/// 形状名称（"none" / "linear" / "mirror" / "circle" / "rectangle" /
+/// "star" / "heart"）。
 const char* maskShapeName(MaskShape shape);
-/// 从字符串解析（大小写不敏感；支持 "rect" / "oval" 等别名；非法返回 false）。
+/// 从字符串解析（大小写不敏感；支持 "rect" / "star" / "heart" / 中文别名；
+/// 非法返回 false）。
 bool maskShapeFromString(const char* text, MaskShape& out);
-/// 从整数解析（0..4；非法返回 false）。
+/// 从整数解析（0..6；非法返回 false）。
 bool maskShapeFromInt(int value, MaskShape& out);
+
+// 新增形状使用说明（文档 5.8「蒙版补充：星形/爱心」）：
+//   · Star：width = 外接半径（相对画面宽度）；rotationDegrees 可旋转；
+//   · Heart：width = 半宽（相对画面宽度）；按短边比例等比缩放；
+//   · 两者均支持 feather（羽化）与 invert（反转），与既有形状一致。
 
 }  // namespace core
 }  // namespace nairoclip

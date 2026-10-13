@@ -132,6 +132,42 @@ double maskCoverageAt(const Mask& mask, double x, double y, int width, int heigh
             weight = smoothStep(distance, halfFeather);
             break;
         }
+        case MaskShape::Star: {
+            // 星形（文档 5.8：「星形用极坐标角度分段函数」）：
+            // 5 角星；对每个像素取极坐标 (r, θ)，星形边界半径
+            //   R(θ) = inner + (outer - inner) × tri(5θ)（三角波，角尖/谷交替）
+            // 其中 outer = width × 画面宽（外接半径），inner = outer × 0.45。
+            const double outer =
+                std::max(1e-6, mask.width * static_cast<double>(width));
+            const double inner = outer * 0.45;  // 5 角星典型内/外半径比
+            const double r = std::sqrt(lx * lx + ly * ly);
+            double theta = std::atan2(ly, lx);
+            if (theta < 0.0) theta += 2.0 * kPi;
+            // 5 次对称三角波：0（角尖）→1（谷）→0...
+            const double phase = std::fmod(theta * 5.0 / (2.0 * kPi), 1.0);
+            const double tri = phase < 0.5 ? (phase * 2.0) : (2.0 - phase * 2.0);
+            const double boundary = outer - (outer - inner) * tri;
+            const double distance = boundary - r;
+            weight = smoothStep(distance, halfFeather);
+            break;
+        }
+        case MaskShape::Heart: {
+            // 爱心（文档 5.8：「爱心用现成心形线数学参数方程」）：
+            // 经典心形隐式方程 (x² + y² − 1)³ − x²y³ = 0 的归一化形式；
+            // 取 width 为半宽（相对画面宽），按短边等比缩放。
+            const double scale =
+                std::max(1e-6, mask.width * static_cast<double>(width));
+            // 归一化到心形坐标系（y 轴向上；画面 y 向下 → 取负）
+            const double nx = lx / scale;
+            const double ny = -ly / scale * 1.15;  // 心形高宽比约 0.85
+            // 隐式方程值 f = (x²+y²−1)³ − x²y³；f < 0 在内部
+            const double a = nx * nx + ny * ny - 1.0;
+            const double f = a * a * a - nx * nx * ny * ny * ny;
+            // 近似像素距离：内部为负 → 距离 = -f 的缩放（f 的梯度近似 1/scale）
+            const double distance = -f * scale * 0.9;
+            weight = smoothStep(distance, halfFeather);
+            break;
+        }
         case MaskShape::None:
         default:
             return 1.0;
@@ -232,6 +268,10 @@ const char* maskShapeName(MaskShape shape) {
             return "circle";
         case MaskShape::Rectangle:
             return "rectangle";
+        case MaskShape::Star:
+            return "star";
+        case MaskShape::Heart:
+            return "heart";
         default:
             return "none";
     }
@@ -261,6 +301,14 @@ bool maskShapeFromString(const char* text, MaskShape& out) {
         out = MaskShape::Rectangle;
         return true;
     }
+    if (equalsIgnoreCase(text, "star") || equalsIgnoreCase(text, "星形")) {
+        out = MaskShape::Star;
+        return true;
+    }
+    if (equalsIgnoreCase(text, "heart") || equalsIgnoreCase(text, "爱心")) {
+        out = MaskShape::Heart;
+        return true;
+    }
     return false;
 }
 
@@ -280,6 +328,12 @@ bool maskShapeFromInt(int value, MaskShape& out) {
             return true;
         case 4:
             out = MaskShape::Rectangle;
+            return true;
+        case 5:
+            out = MaskShape::Star;
+            return true;
+        case 6:
+            out = MaskShape::Heart;
             return true;
         default:
             return false;

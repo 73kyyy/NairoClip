@@ -1791,5 +1791,35 @@ Result ClearClipChromaKeyCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------------------------------------------------------------------
+// 设置片段画中画混合模式（文档第二段 5.9）
+// ---------------------------------------------------------------------------
+
+SetClipBlendModeCommand::SetClipBlendModeCommand(SequenceId sequenceId, TrackId trackId,
+                                                 ClipId clipId, BlendMode mode)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), mode_(mode) {}
+
+Result SetClipBlendModeCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforeMode_.has_value()) beforeMode_ = clip->blendMode;
+    clip->blendMode = mode_;
+    return Result::ok();
+}
+
+Result SetClipBlendModeCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforeMode_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少混合模式快照");
+    }
+    clip->blendMode = *beforeMode_;
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

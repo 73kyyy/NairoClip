@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/animation.h"
+#include "nairoclip/core/blend_modes.h"
 #include "nairoclip/core/chroma_key.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/mask.h"
@@ -46,6 +47,10 @@ struct Clip {
     /// 平台层在执行前用 mattingAccessFor 门控）。
     bool hasChromaKey = false;
     ChromaKey chromaKey;
+    /// 画中画混合模式（文档第二段 5.9「画中画混合模式」）。
+    /// 多层合成时本片段（上层）与下层的混合公式；
+    /// Normal = 标准 Alpha 混合（默认，与既有行为一致）。
+    BlendMode blendMode = BlendMode::Normal;
     /// 音频增益（dB，0 = 原始电平；合法范围 [-60, +12]）。
     double audioGainDb = 0.0;
     /// 音频淡入时长（从片段起点算起；0 = 无淡入）。
