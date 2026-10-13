@@ -3,6 +3,7 @@
 #include "nairoclip/core/json.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 
@@ -297,6 +298,131 @@ double DownloadState::progress() const {
 
 std::int64_t DownloadState::remainingBytes() const {
     return std::max<std::int64_t>(0, totalBytes - downloadedBytes);
+}
+
+// =============================================================================
+// 设备性能分级与量化版本（三端部署规格第五章）
+// =============================================================================
+
+const char* quantizationLevelName(QuantizationLevel level) {
+    switch (level) {
+        case QuantizationLevel::Fp32: return "fp32";
+        case QuantizationLevel::Fp16: return "fp16";
+        case QuantizationLevel::Int8: return "int8";
+    }
+    return "fp32";
+}
+
+bool quantizationLevelFromString(const char* text, QuantizationLevel& out) {
+    if (text == nullptr) {
+        return false;
+    }
+    std::string s(text);
+    for (auto& c : s) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (s == "fp32" || s == "f32" || s == "float32") {
+        out = QuantizationLevel::Fp32;
+        return true;
+    }
+    if (s == "fp16" || s == "f16" || s == "float16" || s == "half") {
+        out = QuantizationLevel::Fp16;
+        return true;
+    }
+    if (s == "int8" || s == "i8" || s == "q8") {
+        out = QuantizationLevel::Int8;
+        return true;
+    }
+    return false;
+}
+
+double quantizationSizeRatio(QuantizationLevel level) {
+    switch (level) {
+        case QuantizationLevel::Fp32: return 1.0;
+        case QuantizationLevel::Fp16: return 0.5;
+        case QuantizationLevel::Int8: return 0.25;
+    }
+    return 1.0;
+}
+
+const char* deviceTierName(DeviceTier tier) {
+    switch (tier) {
+        case DeviceTier::High: return "high";
+        case DeviceTier::Mid: return "mid";
+        case DeviceTier::Low: return "low";
+    }
+    return "low";
+}
+
+bool deviceTierFromString(const char* text, DeviceTier& out) {
+    if (text == nullptr) {
+        return false;
+    }
+    std::string s(text);
+    for (auto& c : s) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (s == "high" || s == "h") {
+        out = DeviceTier::High;
+        return true;
+    }
+    if (s == "mid" || s == "medium" || s == "m") {
+        out = DeviceTier::Mid;
+        return true;
+    }
+    if (s == "low" || s == "l") {
+        out = DeviceTier::Low;
+        return true;
+    }
+    return false;
+}
+
+DeviceTier classifyDeviceTier(const DeviceProfile& profile) {
+    // 桌面：恒为 High（文档 5.2：桌面不做自动分级）
+    if (profile.platform == DevicePlatform::Desktop) {
+        return DeviceTier::High;
+    }
+    // 移动：按 RAM + 加速单元 + 基准耗时（文档 5.1 探测项）
+    const bool hasAcceleration = profile.hasVectorExtensions || profile.hasNpuAccelerator;
+    // 基准未测（<= 0）时不否决（避免"未测即降级"误伤）
+    const bool benchmarkOk = profile.benchmarkMs <= 0.0 || profile.benchmarkMs <= 800.0;
+    if (profile.totalRamMb >= 6144 && hasAcceleration && benchmarkOk) {
+        return DeviceTier::High;
+    }
+    if (profile.totalRamMb >= 4096) {
+        return DeviceTier::Mid;
+    }
+    return DeviceTier::Low;  // 数据缺失/低配：保守低档（仅影响体积/速度，不影响功能）
+}
+
+QuantizationLevel recommendedQuantization(const DeviceProfile& profile, DeviceTier tier) {
+    // 桌面：恒 FP32（文档 5.2；用户主动性能模式才切 FP16——由
+    // buildModelDownloadRequest 按 userPerformanceMode 处理）
+    if (profile.platform == DevicePlatform::Desktop) {
+        return QuantizationLevel::Fp32;
+    }
+    // 移动：High/Mid → FP16；Low → INT8（文档 3.1 规格表）
+    return tier == DeviceTier::Low ? QuantizationLevel::Int8 : QuantizationLevel::Fp16;
+}
+
+std::string ModelDownloadRequestParams::summary() const {
+    std::string text = "模型 " + modelId + "：设备分级=" + deviceTierName(tier) +
+                       "，量化版本=" + quantizationLevelName(quantization);
+    if (userPerformanceMode) {
+        text += "（用户性能模式）";
+    }
+    return text;
+}
+
+ModelDownloadRequestParams buildModelDownloadRequest(const std::string& modelId,
+                                                     const DeviceProfile& profile) {
+    ModelDownloadRequestParams params;
+    params.modelId = modelId;
+    params.tier = classifyDeviceTier(profile);
+    params.quantization = recommendedQuantization(profile, params.tier);
+    // 桌面「性能模式」由平台层置位（用户主动选择；文档 5.2）——此处保持默认。
+    params.userPerformanceMode = false;
+    return params;
 }
 
 // =============================================================================

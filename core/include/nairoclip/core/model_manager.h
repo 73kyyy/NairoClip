@@ -213,6 +213,106 @@ private:
 };
 
 // =============================================================================
+// 设备性能分级与量化版本（三端部署规格第五章「模型分发与下载机制」）
+// =============================================================================
+// 产品对应（原文）：
+//   · 「App 启动时探测设备规格：总内存(RAM) / CPU 核心数/架构 / 是否存在
+//      NNAPI(Android)/CoreML(iOS) 硬件加速单元 / 轻量基准测试（用小模型跑一次
+//      推理计时）」；
+//   · 「分级结果（高/中/低三档）作为参数之一，随模型下载请求一起发送给服务端」；
+//   · 「服务端根据功能 ID + 设备分级，返回对应量化精度版本的模型文件下载地址」；
+//   · 「桌面端默认统一下发 FP32 原始精度版本，不做自动分级探测；如需性能优化
+//      提供用户主动选择的『性能模式』开关（允许手动切换到 FP16）」；
+//   · 「三端（Android/iOS/桌面）的功能集合与最终导出效果质量上限必须完全一致，
+//      唯一允许存在差异的变量是模型文件的量化精度」。
+//
+// 职责边界：探测数据由平台层采集（core 不做系统调用），本模块负责：
+//   · 分级判定（阈值化 + 基准耗时校准；确定性、可测）；
+//   · 量化版本推荐（按平台与分级 → FP32/FP16/INT8）；
+//   · 下载请求参数组装（功能 ID + 设备分级 + 量化版本）。
+
+/// 量化精度（文档 3.2：FP32 100% / FP16 约 50% / INT8 约 25% 体积）。
+enum class QuantizationLevel {
+    Fp32 = 0,  ///< 原始精度（桌面端默认）
+    Fp16 = 1,  ///< 半精度（移动端默认首选）
+    Int8 = 2,  ///< 整数量化（低端移动设备兜底）
+};
+
+/// 量化等级名称（"fp32" / "fp16" / "int8"）。
+const char* quantizationLevelName(QuantizationLevel level);
+/// 从字符串解析（大小写不敏感；非法返回 false）。
+bool quantizationLevelFromString(const char* text, QuantizationLevel& out);
+/// 相对 FP32 的参考体积比例（1.0 / 0.5 / 0.25；文档 3.2 表）。
+double quantizationSizeRatio(QuantizationLevel level);
+
+/// 平台类别（影响分级策略：桌面不做自动分级）。
+enum class DevicePlatform {
+    Desktop = 0,  ///< Windows / macOS / Linux
+    Mobile = 1,   ///< Android / iOS
+};
+
+/// 设备探测数据（平台层采集后传入；core 只做判定）。
+struct DeviceProfile {
+    DevicePlatform platform = DevicePlatform::Mobile;
+    /// 总内存（MB；0 = 未知）。
+    int totalRamMb = 0;
+    /// CPU 核心数（0 = 未知）。
+    int cpuCores = 0;
+    /// 是否支持 NEON/AVX 等向量加速指令集。
+    bool hasVectorExtensions = false;
+    /// 是否存在 NNAPI(Android) / CoreML(iOS) 硬件加速单元。
+    bool hasNpuAccelerator = false;
+    /// 轻量基准测试耗时（毫秒；0 = 未测。用小模型跑一次推理计时）。
+    double benchmarkMs = 0.0;
+};
+
+/// 设备性能分级（文档：高/中/低三档）。
+enum class DeviceTier {
+    High = 0,  ///< 高性能（桌面 / 旗舰移动）
+    Mid = 1,   ///< 中性能
+    Low = 2,   ///< 低性能
+};
+
+/// 分级名称（"high" / "mid" / "low"）。
+const char* deviceTierName(DeviceTier tier);
+/// 从字符串解析（大小写不敏感；非法返回 false）。
+bool deviceTierFromString(const char* text, DeviceTier& out);
+
+/// 设备分级判定（确定性规则；文档 5.1 探测项）：
+/// - 桌面：恒为 High（文档：桌面不做自动分级，默认 FP32）；
+/// - 移动：
+///     High = RAM >= 6144MB 且（向量指令集或 NPU）且基准 <= 800ms（未测时不否决）；
+///     Mid  = RAM >= 4096MB；
+///     Low  = 其余（含数据缺失的保守情形）。
+/// 说明：基准未测（0）时仅按 RAM/加速单元判定（避免"未测即降级"误伤）。
+DeviceTier classifyDeviceTier(const DeviceProfile& profile);
+
+/// 量化版本推荐（文档三端对等原则）：
+/// - 桌面：恒 FP32（文档：桌面默认下发 FP32；用户主动「性能模式」才切 FP16）；
+/// - 移动 High：FP16；移动 Mid：FP16；移动 Low：INT8（文档 3.1 规格表）；
+/// - 注意：量化只影响体积与速度，**不影响功能集合与输出质量上限**（强制原则）。
+QuantizationLevel recommendedQuantization(const DeviceProfile& profile, DeviceTier tier);
+
+/// 模型下载请求参数（平台层组装后随请求发送）。
+struct ModelDownloadRequestParams {
+    std::string modelId;                ///< 功能/模型 ID（服务端据此定位文件）
+    DeviceTier tier = DeviceTier::High; ///< 设备分级（高/中/低）
+    QuantizationLevel quantization = QuantizationLevel::Fp32;  ///< 量化版本
+    /// 用户主动选择的性能模式覆盖（桌面端）：非空时覆盖推荐量化（文档 5.2）。
+    bool userPerformanceMode = false;
+
+    /// 请求摘要（供日志/诊断；不含敏感信息）。
+    std::string summary() const;
+};
+
+/// 组装模型下载请求参数（单一入口；平台层调用后随 HTTP 请求发送）。
+/// - profile：设备探测数据；modelId：目标模型。
+/// - 说明：加密/校验机制不因量化精度而有差异（文档 5.3 分发安全性要求）——
+///   本结构只影响 URL 选择，不改变 AES-256-CTR + SHA-256 流程。
+ModelDownloadRequestParams buildModelDownloadRequest(const std::string& modelId,
+                                                     const DeviceProfile& profile);
+
+// =============================================================================
 // 签名 URL（Token 换签名 URL；文档 8.2）
 // =============================================================================
 

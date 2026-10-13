@@ -53,12 +53,23 @@ add_library(nairoclip_core STATIC
     src/heartbeat.cpp
     src/chroma_key.cpp
     src/spatial_effects.cpp
+    src/codec_policy.cpp
+    src/ai_marking.cpp
     src/media_offline.cpp
     src/model_manager.cpp
 )
 target_include_directories(nairoclip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+# 编解码合规：开发例外开关（见根 CMakeLists 注释与 docs/COMPLIANCE.md）。
+if(NAIROCLIP_DEVELOPMENT_GPL_OK)
+    target_compile_definitions(nairoclip_core PUBLIC NAIROCLIP_DEVELOPMENT_GPL_OK=1)
+    message(STATUS "NairoClip: DEVELOPMENT build — GPL encoder exception ENABLED "
+                   "(release builds must set -DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF)")
+else()
+    message(STATUS "NairoClip: RELEASE compliance mode — GPL encoders denied")
+endif()
 
 # ---- FFmpeg 可选集成 ----
 # 通过 pkg-config 检测；未安装 FFmpeg 时功能自动降级（Mock 路径仍可用）。

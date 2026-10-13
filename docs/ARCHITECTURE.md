@@ -49,7 +49,7 @@
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
 
-## 7. 里程碑（截至 M2.28，测试 895 用例全绿）
+## 7. 里程碑（截至 M2.29，测试 918 用例全绿）
 
 ### Core 阶段（M0.x）
 - M0.1 ✅ Core 地基：时间系统 / 数据模型 / 撤销栈 / 编辑器门面 / 测试 / CI
@@ -450,6 +450,46 @@
     · 变异测试：临时跳过空间效果应用 → 4 个测试 6 个断言真实失败
   · 测试素材脚本补齐 detail_src.mp4（test_av.mp4 为大面积均匀色块，
     模糊对均匀区域天然无变化，不适合梯度能量验证——已实测确认）
+
+- M2.29 ✅ 合规整改（《NairoClip 所有模型协议和其它要求》第七章/第九章 +
+  《人工智能生成合成内容标识办法》+ 三端部署规格）：
+  · codec_policy 模块（编解码器合规策略；纯逻辑、零 FFmpeg 依赖）：
+    · 许可分级：硬件（MediaCodec/VideoToolbox/MF/NVENC/QSV/VAAPI/V4L2M2M/AMF）/
+      宽松软件（OpenH264/libaom/libsvtav1/librav1e/libvpx/libopus/内置 AAC）/
+      GPL 传染（libx264/libx265/libxvid/libfdk_aac）/ 未知（保守拒绝）；
+    · 选择序：硬件优先 → 宽松软件兜底 → （仅开发构建）GPL 例外 → fail-closed；
+    · 缺陷修复：FFmpegMediaWriter 此前用 avcodec_find_encoder(AV_CODEC_ID_H264)
+      自动选择 → 沙箱解析到 libx264（GPL-2.0，文档明令禁止）→ 改为按策略选择 +
+      候选序列逐个尝试打开（无 GPU 时 h264_nvenc 失败自动回退）；
+    · HEVC/H.265 全线禁止（任何模式下均拒绝）；
+    · 构建开关 NAIROCLIP_DEVELOPMENT_GPL_OK（发布构建必须 OFF；沙箱/CI 默认 ON
+      并在日志显著标记「开发例外」）；
+  · ai_marking 模块（AI 生成合成内容标识：显式 + 隐式）：
+    · 隐式标识（元数据）：buildAiMetadata → 容器元数据（comment 含压缩机器可读
+      字段「ai_generated=true；ai_generated_feature=…」，兼容 MP4 标准 tag 限制；
+      MKV/WebM 保留独立字段）；parseAiMetadata 供导入检测；真实导出后 ffprobe
+      可读（实测通过）；
+    · 显式标识（音频）：applyAiAudioMarks（首尾 880Hz 提示音，含淡入淡出防爆音）
+      —— 法规「音频起始/末尾/中间适当位置」要求；真实导出后解码验证
+      （起始段 RMS 0.124 vs 无标识 0.000，中段主内容不受影响）；
+    · 与隐形水印职责分离（水印 = 账号溯源；本模块 = AI 属性告知，两者共存）；
+  · 设备性能分级（三端部署规格第五章）：
+    · classifyDeviceTier（桌面恒 High 不自动分级；移动按 RAM/加速单元/基准耗时）；
+    · recommendedQuantization（桌面 FP32 / 移动 High·Mid FP16 / Low INT8）；
+    · buildModelDownloadRequest（功能 ID + 分级 + 量化版本；加密机制不因量化而变）；
+    · 强制原则：量化只影响体积/速度，**不影响功能集合与输出质量上限**（三端对等）；
+  · 合规文档产出：docs/COMPLIANCE.md（19 项强制校验清单，含平台层职责标注）+
+    docs/THIRD_PARTY_NOTICES.md（协议全文 + CI 审计建议 + 禁用清单）；
+  · 测试：test_codec_policy 12 例 + test_ai_marking 7 例 + DeviceTier 4 例；
+    共 918 用例全绿（新增 23 例；无 FFmpeg 配置 887 例全绿）
+  · 端到端验证（真实 FFmpeg）：
+    · 发布构建（GPL denied）实测：沙箱硬件编码器全失败 → 拒绝编码（fail-closed）
+    · 开发构建实测：nvenc 失败 → libx264 开发例外兜底（导出成功）
+    · AI 元数据：真实 MP4 导出后 ffprobe 读到
+      「本内容由人工智能生成合成（NairoClip）；ai_generated=true；
+      ai_generated_feature=TTS 智能配音」
+    · 音频标识：有/无提示音两份真实导出对比（起始段 RMS 差 0.124，样本数
+      差值 57344 ≈ 2 段提示音）
 
 ### 待办
 - ⬜ 超分辨率（2x/4x，需模型推理接口）

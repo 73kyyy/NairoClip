@@ -1,6 +1,8 @@
 #include "test_framework.h"
 #include "nairoclip/core/model_manager.h"
 
+#include <cmath>
+
 #include <cstring>
 #include <string>
 #include <vector>
@@ -685,4 +687,106 @@ NC_TEST(ModelManager, StoreJsonDowngradesRuntimeStates) {
     NC_CHECK(loadModelStoreFromJson(json, store, &error));
     NC_CHECK(store.statusOf("a") == ModelStatus::Corrupt);
     NC_CHECK(store.statusOf("b") == ModelStatus::Corrupt);
+}
+
+// =============================================================================
+// 设备性能分级与量化版本（M2.29，三端部署规格第五章）
+// =============================================================================
+
+NC_TEST(DeviceTier, ClassificationRules) {
+    // 桌面：恒 High（不做自动分级）
+    DeviceProfile desktop;
+    desktop.platform = DevicePlatform::Desktop;
+    desktop.totalRamMb = 2048;  // 低配桌面也是 High（文档 5.2）
+    NC_CHECK(classifyDeviceTier(desktop) == DeviceTier::High);
+    // 移动 High：RAM >= 6144 + 加速 + 基准达标
+    DeviceProfile high;
+    high.totalRamMb = 8192;
+    high.cpuCores = 8;
+    high.hasVectorExtensions = true;
+    high.benchmarkMs = 500.0;
+    NC_CHECK(classifyDeviceTier(high) == DeviceTier::High);
+    // 移动 Mid：RAM >= 4096（无加速单元）
+    DeviceProfile mid;
+    mid.totalRamMb = 6144;
+    mid.cpuCores = 8;
+    mid.hasVectorExtensions = false;
+    mid.hasNpuAccelerator = false;
+    NC_CHECK(classifyDeviceTier(mid) == DeviceTier::Mid);
+    // 移动 Low：RAM < 4096
+    DeviceProfile low;
+    low.totalRamMb = 3072;
+    low.cpuCores = 4;
+    NC_CHECK(classifyDeviceTier(low) == DeviceTier::Low);
+    // 数据缺失 → 保守 Low
+    DeviceProfile unknown;
+    NC_CHECK(classifyDeviceTier(unknown) == DeviceTier::Low);
+    // 基准慢 → 降级（即使 RAM 大）
+    DeviceProfile slow = high;
+    slow.benchmarkMs = 2000.0;
+    NC_CHECK(classifyDeviceTier(slow) == DeviceTier::Mid);
+    // 基准未测（0）时不否决
+    DeviceProfile unmeasured = high;
+    unmeasured.benchmarkMs = 0.0;
+    NC_CHECK(classifyDeviceTier(unmeasured) == DeviceTier::High);
+}
+
+NC_TEST(DeviceTier, QuantizationRecommendation) {
+    // 桌面：恒 FP32
+    DeviceProfile desktop;
+    desktop.platform = DevicePlatform::Desktop;
+    NC_CHECK(recommendedQuantization(desktop, DeviceTier::High) ==
+             QuantizationLevel::Fp32);
+    // 移动 High/Mid：FP16
+    DeviceProfile mobile;
+    NC_CHECK(recommendedQuantization(mobile, DeviceTier::High) ==
+             QuantizationLevel::Fp16);
+    NC_CHECK(recommendedQuantization(mobile, DeviceTier::Mid) ==
+             QuantizationLevel::Fp16);
+    // 移动 Low：INT8
+    NC_CHECK(recommendedQuantization(mobile, DeviceTier::Low) ==
+             QuantizationLevel::Int8);
+    // 体积比例（文档 3.2）
+    NC_CHECK(std::fabs(quantizationSizeRatio(QuantizationLevel::Fp32) - 1.0) < 1e-9);
+    NC_CHECK(std::fabs(quantizationSizeRatio(QuantizationLevel::Fp16) - 0.5) < 1e-9);
+    NC_CHECK(std::fabs(quantizationSizeRatio(QuantizationLevel::Int8) - 0.25) < 1e-9);
+}
+
+NC_TEST(DeviceTier, NamesAndParsing) {
+    NC_CHECK_EQ(std::string(deviceTierName(DeviceTier::High)), std::string("high"));
+    NC_CHECK_EQ(std::string(quantizationLevelName(QuantizationLevel::Int8)),
+                std::string("int8"));
+    DeviceTier tier;
+    NC_CHECK(deviceTierFromString("MID", tier));
+    NC_CHECK(tier == DeviceTier::Mid);
+    NC_CHECK(deviceTierFromString("medium", tier));
+    NC_CHECK(tier == DeviceTier::Mid);
+    NC_CHECK(!deviceTierFromString("bogus", tier));
+    NC_CHECK(!deviceTierFromString(nullptr, tier));
+    QuantizationLevel level;
+    NC_CHECK(quantizationLevelFromString("FP16", level));
+    NC_CHECK(level == QuantizationLevel::Fp16);
+    NC_CHECK(quantizationLevelFromString("half", level));
+    NC_CHECK(level == QuantizationLevel::Fp16);
+    NC_CHECK(!quantizationLevelFromString("q4", level));
+}
+
+NC_TEST(DeviceTier, DownloadRequestAssembly) {
+    // 移动高端：FP16
+    DeviceProfile mobileHigh;
+    mobileHigh.totalRamMb = 8192;
+    mobileHigh.hasVectorExtensions = true;
+    const ModelDownloadRequestParams params =
+        buildModelDownloadRequest("matting_hq", mobileHigh);
+    NC_CHECK_EQ(params.modelId, std::string("matting_hq"));
+    NC_CHECK(params.tier == DeviceTier::High);
+    NC_CHECK(params.quantization == QuantizationLevel::Fp16);
+    NC_CHECK(params.summary().find("matting_hq") != std::string::npos);
+    NC_CHECK(params.summary().find("fp16") != std::string::npos);
+    // 桌面：FP32
+    DeviceProfile desktop;
+    desktop.platform = DevicePlatform::Desktop;
+    const auto desktopParams = buildModelDownloadRequest("esrgan", desktop);
+    NC_CHECK(desktopParams.quantization == QuantizationLevel::Fp32);
+    NC_CHECK_EQ(desktopParams.tier, DeviceTier::High);
 }

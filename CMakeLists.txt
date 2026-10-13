@@ -10,6 +10,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(NAIROCLIP_BUILD_TESTS "Build NairoClip tests" ON)
+# 编解码合规：开发例外开关（默认 ON = 沙箱/CI 仅有 libx264 时测试可跑）。
+# 发布构建必须使用 -DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF（拒绝 GPL 编码器，
+# 强制硬件编码器或 OpenH264 兜底；见 docs/COMPLIANCE.md）。
+option(NAIROCLIP_DEVELOPMENT_GPL_OK
+       "Allow GPL encoders (libx264) for DEVELOPMENT builds only" ON)
 
 add_subdirectory(core)
 add_subdirectory(tools)

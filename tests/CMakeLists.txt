@@ -55,6 +55,8 @@ add_executable(nairoclip_tests
     test_mask.cpp
     test_chroma_key.cpp
     test_spatial_effects.cpp
+    test_codec_policy.cpp
+    test_ai_marking.cpp
     test_reframe.cpp
     test_crypto.cpp
     test_chapter.cpp

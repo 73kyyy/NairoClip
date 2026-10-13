@@ -6,6 +6,7 @@
 #include "nairoclip/core/entitlement.h"
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/ai_check.h"
+#include "nairoclip/core/ai_marking.h"
 #include "nairoclip/core/auto_edit.h"
 #include "nairoclip/core/export_queue.h"
 #include "nairoclip/core/heartbeat.h"
@@ -1449,6 +1450,17 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
     config.executor.attachAiLabel = attach_ai_label != 0;
     if (ai_label_text != nullptr && ai_label_text[0] != '\0') {
         config.executor.aiLabelText = ai_label_text;
+    }
+    // AI 隐式标识元数据（《人工智能生成合成内容标识办法》要求）：
+    // 附加 AI 标识的导出自动写入容器元数据（显式标识 + 隐式标识成对出现）。
+    if (attach_ai_label != 0) {
+        const std::string feature =
+            ai_label_text != nullptr && ai_label_text[0] != '\0' ? ai_label_text
+                                                                 : "AI 生成";
+        const std::vector<AiMetadataEntry> entries = buildAiMetadata("NairoClip", feature);
+        for (const auto& entry : entries) {
+            config.writer.aiMetadata.emplace_back(entry.key, entry.value);
+        }
     }
     // 隐形水印（Pro 内容溯源；由 nc_watermark_set_export 配置）
     config.executor.invisibleWatermark = editor->invisibleWatermark;
