@@ -63,5 +63,15 @@ ffmpeg -hide_banner -loglevel error -y \
     -vf "drawgrid=w=8:h=8:t=1:c=white@1.0" \
     -c:v libx264 -pix_fmt yuv420p -crf 10 "$OUT_DIR/detail_src.mp4"
 
+# 色度抠像测试素材（M2.27 端到端：绿幕底 + 肤色色块；红底对照）
+ffmpeg -hide_banner -loglevel error -y \
+    -f lavfi -i "color=c=0x00C828:s=160x120:r=30:d=2,format=rgb24" \
+    -vf "drawbox=x=50:y=20:w=60:h=80:color=0xDCA98C:t=fill" \
+    -c:v libx264 -pix_fmt yuv420p "$OUT_DIR/chroma_src.mp4"
+ffmpeg -hide_banner -loglevel error -y \
+    -f lavfi -i "color=c=0xB22222:s=320x240:r=30:d=1" \
+    -c:v libx264 -pix_fmt yuv420p "$OUT_DIR/red_bg.mp4"
+
 echo "完成："
-ls -la "$OUT_DIR"/test_av.mp4 "$OUT_DIR"/two_shots.mp4 "$OUT_DIR"/speech.wav "$OUT_DIR"/detail_src.mp4
+ls -la "$OUT_DIR"/test_av.mp4 "$OUT_DIR"/two_shots.mp4 "$OUT_DIR"/speech.wav \
+      "$OUT_DIR"/detail_src.mp4 "$OUT_DIR"/chroma_src.mp4 "$OUT_DIR"/red_bg.mp4
