@@ -27,6 +27,18 @@ EffectSpec effectSpec(EffectType type) {
         case EffectType::RadialBlur: return EffectSpec{0.0, 1.0, 0.0, "旋转模糊"};
         case EffectType::Scanlines: return EffectSpec{0.0, 1.0, 0.0, "扫描线"};
         case EffectType::RgbSplit: return EffectSpec{0.0, 1.0, 0.0, "RGB 分离"};
+        // ---- 氛围特效（文档第二段 5.3）----
+        case EffectType::Snow: return EffectSpec{0.0, 1.0, 0.0, "雪花"};
+        case EffectType::Rain: return EffectSpec{0.0, 1.0, 0.0, "下雨"};
+        case EffectType::LightLeak: return EffectSpec{0.0, 1.0, 0.0, "光斑"};
+        case EffectType::OldFilm: return EffectSpec{0.0, 1.0, 0.0, "老电影"};
+        case EffectType::Starburst: return EffectSpec{0.0, 1.0, 0.0, "星光"};
+        // ---- 动感特效（文档第二段 5.4）----
+        case EffectType::ZoomPunch: return EffectSpec{0.0, 1.0, 0.0, "缩放冲击"};
+        case EffectType::WhipPan: return EffectSpec{0.0, 1.0, 0.0, "甩镜"};
+        case EffectType::BeatFlicker: return EffectSpec{0.0, 1.0, 0.0, "变速闪烁"};
+        case EffectType::BeatRhythm: return EffectSpec{0.0, 1.0, 0.0, "节奏律动"};
+        case EffectType::MotionBlur: return EffectSpec{0.0, 1.0, 0.0, "运动模糊"};
     }
     return EffectSpec{};
 }
@@ -199,20 +211,28 @@ ColorTransform evaluateColorTransform(const EffectStack& stack) {
 
 bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
                              const EffectStack& stack, std::int64_t frameIndex,
-                             const RenderQuality& quality) {
+                             const RenderQuality& quality, double timeSeconds,
+                             const std::vector<Time>& beats) {
     if (pixels == nullptr || width <= 0 || height <= 0) {
         return false;
     }
     const std::size_t pixelCount =
         static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    // 时间：调用方未传（< 0）时按 30fps 由帧序号推算（向后兼容旧调用方）
+    const double time = timeSeconds >= 0.0
+                            ? timeSeconds
+                            : static_cast<double>(frameIndex) / 30.0;
     // 1) 颜色变换（逐像素，无邻域；多特效折叠求值）
     const ColorTransform transform = evaluateColorTransform(stack);
     if (!transform.isIdentity()) {
         applyColorTransformToRgba(pixels, pixelCount, transform);
     }
-    // 2) 空间效果（8..11）与画面特效（13..18）按栈序应用。
-    //    说明：颜色类（1..7、12）已在上面处理；空间/画面效果需要邻域访问或
-    //    时变种子；画面特效的旋转模糊按 quality 分级（文档 4.4）。
+    // 2) 按栈序应用邻域/时变效果：
+    //    - 空间效果（8..11）：暗角/模糊/锐化/噪点；
+    //    - 画面特效（13..18）：故障/分屏/镜像/旋转模糊/扫描线/RGB 分离；
+    //    - 氛围特效（19..23）：雪花/下雨/光斑/老电影/星光；
+    //    - 动感特效（24..27）：缩放冲击/甩镜/变速闪烁/节奏律动。
+    //    颜色类（1..7、12）已在上面处理；运动模糊（28）在帧序列层处理。
     for (const auto& e : stack.effects()) {
         if (!e.enabled) {
             continue;
@@ -226,6 +246,16 @@ bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
         } else if (typeValue >= 13 && typeValue <= 18) {
             if (!applyScreenEffectToRgba(pixels, width, height, typeValue, e.value,
                                          frameIndex, quality)) {
+                return false;
+            }
+        } else if (typeValue >= 19 && typeValue <= 23) {
+            if (!applyAtmosphereEffectToRgba(pixels, width, height, typeValue, e.value,
+                                             time, quality)) {
+                return false;
+            }
+        } else if (typeValue >= 24 && typeValue <= 28) {
+            if (!applyMotionEffectToRgba(pixels, width, height, typeValue, e.value, time,
+                                         beats, quality)) {
                 return false;
             }
         }

@@ -56,6 +56,10 @@ add_library(nairoclip_core STATIC
     src/screen_effects.cpp
     src/blend_modes.cpp
     src/render_engine.cpp
+    src/particle_engine.cpp
+    src/atmosphere_effects.cpp
+    src/motion_effects.cpp
+    src/ai_engine.cpp
     src/codec_policy.cpp
     src/ai_marking.cpp
     src/media_offline.cpp
@@ -91,6 +95,56 @@ if(PkgConfig_FOUND)
 endif()
 if(NOT NAIROCLIP_FFMPEG_FOUND)
     message(STATUS "NairoClip: FFmpeg not found — using Mock media readers")
+endif()
+
+# ---- ONNX Runtime 可选集成（文档第一段「一、技术选型总纲」）----
+# 与 FFmpeg 同一模式：构建时探测，有则启用（AI 推理真实可用），无则降级
+# （aiEngineAvailable() 返回 false；不伪造推理结果）。
+# 探测顺序：显式 -DNAIROCLIP_ORT_ROOT → 环境变量 ONNXRUNTIME_ROOT → 常见路径。
+# 说明：显式传入无效路径（如 -DNAIROCLIP_ORT_ROOT=OFF 或 /nonexistent）时
+# 不再自动回退常见路径（否则用户无法禁用 ORT——修复记录见 M2.31）。
+set(NAIROCLIP_ORT_FOUND FALSE)
+set(NAIROCLIP_ORT_ROOT "" CACHE STRING "ONNX Runtime 根目录（含 include/ 与 lib/）")
+
+if(DEFINED NAIROCLIP_ORT_ROOT AND NOT NAIROCLIP_ORT_ROOT STREQUAL "")
+    # 显式指定（非空）：严格按该路径（无效则报错提示，不静默回退）
+    if(NAIROCLIP_ORT_ROOT STREQUAL "OFF")
+        message(STATUS "NairoClip: ONNX Runtime explicitly disabled (AI inference off)")
+    elseif(EXISTS "${NAIROCLIP_ORT_ROOT}/include/onnxruntime_cxx_api.h")
+        set(NAIROCLIP_ORT_FOUND TRUE)
+    else()
+        message(STATUS "NairoClip: ONNX Runtime root '${NAIROCLIP_ORT_ROOT}' invalid "
+                       "(missing include/onnxruntime_cxx_api.h) — AI inference disabled")
+    endif()
+elseif(DEFINED ENV{ONNXRUNTIME_ROOT} AND
+       EXISTS "$ENV{ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
+    set(NAIROCLIP_ORT_ROOT "$ENV{ONNXRUNTIME_ROOT}")
+    set(NAIROCLIP_ORT_FOUND TRUE)
+else()
+    # 常见路径探测（开发机/CI 手动放置；沙箱为 /workspace/deps）
+    foreach(_candidate
+            "/workspace/deps/onnxruntime-linux-aarch64-1.22.0"
+            "/workspace/deps/onnxruntime-linux-x64-1.22.0"
+            "/usr/local/onnxruntime"
+            "/opt/onnxruntime")
+        if(EXISTS "${_candidate}/include/onnxruntime_cxx_api.h")
+            set(NAIROCLIP_ORT_ROOT "${_candidate}")
+            set(NAIROCLIP_ORT_FOUND TRUE)
+            break()
+        endif()
+    endforeach()
+endif()
+
+if(NAIROCLIP_ORT_FOUND)
+    message(STATUS "NairoClip: ONNX Runtime found at ${NAIROCLIP_ORT_ROOT} — AI inference enabled")
+    file(GLOB _ort_libs "${NAIROCLIP_ORT_ROOT}/lib/libonnxruntime.so*")
+    target_include_directories(nairoclip_core PRIVATE "${NAIROCLIP_ORT_ROOT}/include")
+    # 动态链接（与 FFmpeg 同一策略：宽松协议的动态链接要求）
+    target_link_libraries(nairoclip_core PRIVATE "${NAIROCLIP_ORT_ROOT}/lib/libonnxruntime.so")
+    target_compile_definitions(nairoclip_core PUBLIC NAIROCLIP_HAS_ONNX_RUNTIME=1)
+elseif(NOT NAIROCLIP_ORT_ROOT STREQUAL "OFF")
+    message(STATUS "NairoClip: ONNX Runtime not found — AI inference disabled "
+                   "(set -DNAIROCLIP_ORT_ROOT=<path> to enable; =OFF to silence)")
 endif()
 
 if(MSVC)

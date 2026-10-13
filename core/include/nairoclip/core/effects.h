@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nairoclip/core/atmosphere_effects.h"
+#include "nairoclip/core/motion_effects.h"
 #include "nairoclip/core/render_engine.h"
 #include "nairoclip/core/screen_effects.h"
 #include "nairoclip/core/spatial_effects.h"
@@ -36,6 +38,18 @@ enum class EffectType {
     RadialBlur = 16,  // 旋转模糊（绕中心多角度采样）[0, 1]
     Scanlines = 17,   // 扫描线（周期暗条纹）[0, 1]
     RgbSplit = 18,    // RGB 分离（三通道位移）[0, 1]
+    // ---- 氛围特效（文档第二段 5.3；实现见 atmosphere_effects.h）----
+    Snow = 19,       // 雪花（粒子引擎）[0, 1]
+    Rain = 20,       // 下雨（粒子引擎）[0, 1]
+    LightLeak = 21,  // 光斑（叠加 + 闪烁）[0, 1]
+    OldFilm = 22,    // 老电影划痕（划痕 + 抖动 + 颗粒）[0, 1]
+    Starburst = 23,  // 星光（高光十字星芒）[0, 1]
+    // ---- 动感特效（文档第二段 5.4；实现见 motion_effects.h）----
+    ZoomPunch = 24,    // 缩放冲击（时间函数脉冲）[0, 1]
+    WhipPan = 25,      // 甩镜（方向性模糊）[0, 1]
+    BeatFlicker = 26,  // 变速闪烁（节拍驱动）[0, 1]
+    BeatRhythm = 27,   // 节奏律动（节拍驱动）[0, 1]
+    MotionBlur = 28,   // 运动模糊（多帧叠加；导出管线帧序列层处理）[0, 1]
 };
 
 /// 特效参数范围描述。
@@ -123,19 +137,22 @@ ColorTransform evaluateColorTransform(const EffectStack& stack);
 void applyColorTransformToRgba(std::uint8_t* pixels, std::size_t pixelCount,
                                const ColorTransform& transform);
 
-/// 应用整个特效栈到一帧（颜色变换 + 空间效果 + 画面特效；导出与预览共用，
-/// 消除两处各自解释栈语义的风险）。
-/// - 顺序：先颜色变换（evaluate → 逐像素），再按栈序应用空间效果
-///   （8..11：暗角/模糊/锐化/噪点，见 spatial_effects.h）与画面特效
-///   （13..18：故障/分屏/镜像/旋转模糊/扫描线/RGB 分离，见 screen_effects.h）；
-/// - frameIndex：时变种子（噪点/故障/RGB 分离；导出 = 输出帧序号；
-///   预览 = 时间量化值）；
-/// - quality：渲染质量分级（画面特效的旋转模糊按预览/导出分级采样；
+/// 应用整个特效栈到一帧（颜色变换 + 空间效果 + 画面特效 + 氛围特效 + 动感特效；
+/// 导出与预览共用，消除两处各自解释栈语义的风险）。
+/// - 顺序：先颜色变换（evaluate → 逐像素），再按栈序应用：
+///   空间效果（8..11）、画面特效（13..18）、氛围特效（19..23）、动感特效（24..27）；
+/// - frameIndex：时变种子（噪点/故障/RGB 分离/氛围特效）；
+/// - quality：渲染质量分级（旋转模糊/甩镜采样数、粒子数量按预览/导出分级；
 ///   默认导出质量 = 完整精度；文档 4.4）；
+/// - timeSeconds：当前帧时间（氛围特效的粒子/闪烁、动感特效的时间函数与
+///   节拍窗口使用；默认由 frameIndex 推算 —— 调用方应传入真实时间）；
+/// - beats：节拍时间戳数组（升序；变速闪烁/节奏律动使用；可为空）；
 /// - 参数非法返回 false 且不改动；空栈返回 true。
 bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
                              const EffectStack& stack, std::int64_t frameIndex = 0,
-                             const RenderQuality& quality = RenderQuality::exportQuality());
+                             const RenderQuality& quality = RenderQuality::exportQuality(),
+                             double timeSeconds = -1.0,
+                             const std::vector<Time>& beats = {});
 
 }  // namespace core
 }  // namespace nairoclip

@@ -56,6 +56,8 @@ add_executable(nairoclip_tests
     test_chroma_key.cpp
     test_spatial_effects.cpp
     test_screen_effects.cpp
+    test_atmosphere_motion.cpp
+    test_ai_engine.cpp
     test_codec_policy.cpp
     test_ai_marking.cpp
     test_reframe.cpp

@@ -436,8 +436,8 @@ uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, 
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
         return 0;
     }
-    if (type <= 0 || type > 18) {
-        return 0;  // 0 = None 无效；1..18 有效（1..12 基础 + 13..18 画面特效）
+    if (type <= 0 || type > 28) {
+        return 0;  // 0 = None 无效；1..28 有效（基础 + 画面/氛围/动感特效）
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {

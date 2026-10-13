@@ -315,7 +315,7 @@ bool readEffects(const JsonValue& v, EffectStack& out, std::string& err) {
         const std::int64_t typeValue = ev.get("type").asInteger();
         // 扩展边界：EffectType 最大枚举值（新增特效时同步更新此处即可；
         // 修复——此前硬编码 12，新增特效后旧值能读、新值会被拒）。
-        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::RgbSplit)) {
+        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::MotionBlur)) {
             err = "未知特效类型";
             return false;
         }
