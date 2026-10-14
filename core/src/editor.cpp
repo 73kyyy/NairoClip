@@ -406,6 +406,12 @@ Result TimelineEditor::setClipAudio(SequenceId sequenceId, TrackId trackId, Clip
                                                         fadeIn, fadeOut, "调整音频"));
 }
 
+Result TimelineEditor::setClipDenoise(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                      DenoiseStrength strength) {
+    return commit(
+        std::make_unique<SetClipDenoiseCommand>(sequenceId, trackId, clipId, strength));
+}
+
 Result TimelineEditor::upsertMarker(SequenceId sequenceId, Marker marker) {
     return commit(std::make_unique<UpsertMarkerCommand>(sequenceId, std::move(marker)));
 }

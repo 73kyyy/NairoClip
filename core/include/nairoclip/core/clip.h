@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/animation.h"
+#include "nairoclip/core/audio_denoise.h"
 #include "nairoclip/core/blend_modes.h"
 #include "nairoclip/core/chroma_key.h"
 #include "nairoclip/core/effects.h"
@@ -57,6 +58,12 @@ struct Clip {
     Time audioFadeIn;
     /// 音频淡出时长（至片段终点；0 = 无淡出）。
     Time audioFadeOut;
+    /// 音频降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）。
+    /// Off = 关闭（默认，不参与导出混音处理）；其余三档在导出混音时
+    /// 经谱减法（audio_denoise）真实处理（Pro 门控由平台层执行）。
+    DenoiseStrength denoise = DenoiseStrength::Off;
+    /// 是否启用降噪。
+    bool hasDenoise() const { return denoise != DenoiseStrength::Off; }
     /// 音频属性是否合法：增益在范围内、淡入淡出不超过片段时长且非负、
     /// 淡入 + 淡出不超过片段时长。
     bool audioValid() const {

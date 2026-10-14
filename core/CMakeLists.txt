@@ -58,6 +58,7 @@ add_library(nairoclip_core STATIC
     src/render_engine.cpp
     src/particle_engine.cpp
     src/atmosphere_effects.cpp
+    src/audio_denoise.cpp
     src/motion_effects.cpp
     src/ai_engine.cpp
     src/codec_policy.cpp

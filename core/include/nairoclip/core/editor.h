@@ -115,6 +115,10 @@ public:
     /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
     Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,
                         const Time& fadeIn, const Time& fadeOut);
+    /// 设置片段降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）。
+    /// off = 关闭（清除）；其余三档启用真实谱减降噪。
+    Result setClipDenoise(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          DenoiseStrength strength);
     // ---- 标记 ----
     /// 添加/更新标记（同 ID 替换）。
     Result upsertMarker(SequenceId sequenceId, Marker marker);

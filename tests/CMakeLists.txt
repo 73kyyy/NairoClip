@@ -20,6 +20,7 @@ add_executable(nairoclip_tests
     test_media_io.cpp
     test_effects.cpp
     test_audio_mixer.cpp
+    test_audio_denoise.cpp
     test_preview.cpp
     test_reference_style.cpp
     test_transition_render.cpp

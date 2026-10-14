@@ -77,10 +77,44 @@ private:
         bool ducked = false;
         /// 轨道级增益（dB → 线性；混音台推子/数值输入）。
         double trackGain = 1.0;
+        /// 片段降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）。
+        DenoiseStrength denoise = DenoiseStrength::Off;
+    };
+
+    /// 降噪流状态（每片段一份；保持跨块连续处理）。
+    /// 设计：导出混音逐块驱动且每块可能重新定位，因此以「源帧号」为唯一
+    /// 锚点维护一条**连续**降噪流：
+    ///   · 输入前沿 = baseToken + fedCount（输入连续推进，不跳帧）；
+    ///   · buf 为已产出输出（交错，srcChannels），覆盖
+    ///     [bufFirst, bufFirst + 帧数)；请求区间直接从 buf 切片交付，
+    ///     因此块间的舍入差（±1 帧）不会造成时轴漂移；
+    ///   · 请求位置早于保留历史或前跳过大时整体重置（等价新片段开始，
+    ///     重置处的瞬态由半窗前视与噪声估计快速跟随保护）；
+    ///   · 专用读取器（denoiseReaders_）连续顺序读取，与共享读取器的
+    ///     逐块 seek 互不干扰。
+    struct DenoiseState {
+        bool valid = false;            ///< 是否已初始化
+        DenoiseStrength strength = DenoiseStrength::Off;  ///< 当前强度（变更时重建）
+        AudioDenoiser denoiser{DenoiseStrength::Off, 1};
+        int srcRate = 0;               ///< 源采样率
+        int srcChannels = 0;           ///< 源声道数
+        long long baseToken = 0;       ///< 输出流起点（源帧号；= 首次请求位置）
+        long long fedCount = 0;        ///< 累计喂入帧数（输入前沿 = baseToken + fedCount）
+        long long bufFirst = 0;        ///< buf[0] 的源帧号
+        std::vector<float> buf;        ///< 已产出输出（交错，srcChannels）
+        bool sourceExhausted = false;  ///< 源已耗尽（此后以零填充喂入）
+        bool flushed = false;          ///< 已发送终块（此后仅消费 buf）
     };
 
     /// 混音一块到缓冲区（样本级）。
     void mixInto(std::vector<float>& buffer, const Time& blockStart);
+
+    /// 降噪片段取源样本：填充 out（源采样率/声道；start = 源时间）。
+    /// - 使用专用读取器（每片段一个，连续顺序读取，避免与共享读取器互相 seek 干扰）；
+    /// - 语义与原始路径「seek + readAudioBlock」一致：返回 false 表示本块该
+    ///   片段无可用源（调用方静音跳过）；源不足时返回可用部分（调用方补齐静音）。
+    bool serveDenoisedBlock(const TrackedClip& clip, const Time& sourceTime,
+                            std::int64_t outCount, AudioBlock& out);
 
     /// 构建自动闪避计划：分析触发轨（其他非静音音频轨）的语音活动，
     /// 为启用自动闪避的被压低轨生成压低区间。
@@ -103,6 +137,10 @@ private:
         std::vector<DuckRegion> regions;
     };
     std::vector<DuckPlan> duckPlans_;
+    /// 降噪流状态（每片段；仅在启用降噪的片段上使用）。
+    std::map<ClipId, DenoiseState> denoiseStates_;
+    /// 降噪专用读取器（每片段一个；连续顺序读取，避免与共享读取器互相 seek 干扰）。
+    std::map<ClipId, std::unique_ptr<MediaReader>> denoiseReaders_;
 };
 
 }  // namespace core

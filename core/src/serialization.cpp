@@ -354,11 +354,16 @@ JsonValue writeClip(const Clip& c) {
     if (!c.effects.empty()) {
         o.set("effects", writeEffects(c.effects));
     }
-    if (c.audioGainDb != 0.0 || c.audioFadeIn.isPositive() || c.audioFadeOut.isPositive()) {
+    if (c.audioGainDb != 0.0 || c.audioFadeIn.isPositive() || c.audioFadeOut.isPositive() ||
+        c.denoise != DenoiseStrength::Off) {
         JsonValue audio = JsonValue::object();
         audio.set("gainDb", JsonValue::number(c.audioGainDb));
         audio.set("fadeIn", writeRational(c.audioFadeIn));
         audio.set("fadeOut", writeRational(c.audioFadeOut));
+        // 降噪强度（文档「降噪 → 开关/强度(弱中强)」；off 为默认不写）
+        if (c.denoise != DenoiseStrength::Off) {
+            audio.set("denoise", JsonValue::string(denoiseStrengthName(c.denoise)));
+        }
         o.set("audio", std::move(audio));
     }
     // 蒙版（文档「✂️剪辑 → 蒙版」；仅启用时写入，保持文件向后兼容）
@@ -435,6 +440,7 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     out.audioGainDb = 0.0;
     out.audioFadeIn = Time{};
     out.audioFadeOut = Time{};
+    out.denoise = DenoiseStrength::Off;
     if (v.has("audio")) {
         const JsonValue& audio = v.get("audio");
         if (audio.isObject()) {
@@ -444,6 +450,13 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
             }
             if (audio.has("fadeOut")) {
                 if (!readRational(audio.get("fadeOut"), "fadeOut", out.audioFadeOut, err)) return false;
+            }
+            // 降噪强度（非法值降级为 off，保证工程可打开）
+            if (audio.has("denoise")) {
+                DenoiseStrength strength = DenoiseStrength::Off;
+                if (denoiseStrengthFromString(audio.get("denoise").asString().c_str(), strength)) {
+                    out.denoise = strength;
+                }
             }
         }
     }

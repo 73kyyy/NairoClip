@@ -415,6 +415,24 @@ private:
     std::optional<Snapshot> before_;
 };
 
+/// 设置片段降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）。
+class SetClipDenoiseCommand : public Command {
+public:
+    SetClipDenoiseCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          DenoiseStrength strength);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override;
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    DenoiseStrength strength_ = DenoiseStrength::Off;
+    std::optional<DenoiseStrength> before_;
+};
+
 
 /// 添加/更新片段特效。
 class AddEffectCommand : public Command {

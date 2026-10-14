@@ -12,6 +12,11 @@ namespace core {
 namespace {
 
 constexpr double kMinGainDb = -60.0;
+/// 降噪流历史保留帧数（源采样率；供小块回退时直接恢复，不必重置重建）。
+constexpr long long kDenoiseHistoryRetainSeconds = 1;
+/// 降噪流前跳重置阈值（源采样率秒数）：请求位置超过「已产出前沿」该距离时
+/// 重置重建（直接 seek 到目标，避免长时间空转处理）；正常连续播放不触发。
+constexpr long long kDenoiseForwardResetSeconds = 2;
 
 }  // namespace
 
@@ -38,6 +43,8 @@ bool AudioMixer::prepare(const ExportPlan& plan, const Project& project) {
     clips_.clear();
     readers_.clear();
     duckPlans_.clear();
+    denoiseStates_.clear();
+    denoiseReaders_.clear();
     duration_ = plan.duration;
     cursor_ = Rational::make(0);
     masterGain_ = 1.0;
@@ -91,6 +98,8 @@ bool AudioMixer::prepare(const ExportPlan& plan, const Project& project) {
                 tc.linearGain = dbToLinear(source->audioGainDb);
                 tc.fadeIn = source->audioFadeIn;
                 tc.fadeOut = source->audioFadeOut;
+                // 降噪（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）
+                tc.denoise = source->denoise;
             }
             // 轨道级混音台控制
             if (sourceTrack != nullptr) {
@@ -284,13 +293,21 @@ void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
         // 源时间（含 speed 映射）
         const Time sourceTime =
             clip.sourceIn + Time{(overlapStart - clip.timelineStart) * clip.speed};
-        if (!reader->seek(sourceTime).isOk()) {
-            continue;
-        }
-        // 读取一个源块（块大小与输出对齐：1024 采样）
+        // 读取源块：降噪片段走连续降噪流（专用读取器）；其余片段走共享读取器
+        // 逐块 seek + 读取（原始路径）。
         AudioBlock sourceBlock;
-        if (!reader->readAudioBlock(sourceBlock) || sourceBlock.samples.empty()) {
-            continue;
+        if (clip.denoise != DenoiseStrength::Off) {
+            if (!serveDenoisedBlock(clip, sourceTime, outCount, sourceBlock) ||
+                sourceBlock.samples.empty()) {
+                continue;
+            }
+        } else {
+            if (!reader->seek(sourceTime).isOk()) {
+                continue;
+            }
+            if (!reader->readAudioBlock(sourceBlock) || sourceBlock.samples.empty()) {
+                continue;
+            }
         }
         const std::int64_t srcFrames = static_cast<std::int64_t>(sourceBlock.frameCount());
         if (srcFrames <= 0) continue;
@@ -351,6 +368,170 @@ void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
         if (s < -1.0f) s = -1.0f;
     }
 }
+bool AudioMixer::serveDenoisedBlock(const TrackedClip& clip, const Time& sourceTime,
+                                    std::int64_t outCount, AudioBlock& out) {
+    if (outCount <= 0) {
+        return false;
+    }
+    // 专用读取器（连续顺序读取；与共享读取器互相独立）
+    auto readerIt = denoiseReaders_.find(clip.clipId);
+    if (readerIt == denoiseReaders_.end()) {
+        auto reader = readerFactory_.create();
+        if (!reader->open(clip.assetPath).isOk()) {
+            return false;
+        }
+        readerIt = denoiseReaders_.emplace(clip.clipId, std::move(reader)).first;
+    }
+    MediaReader* reader = readerIt->second.get();
+    const int srcRate = reader->probe().sampleRate > 0 ? reader->probe().sampleRate : 48000;
+    const int srcChannels = reader->probe().channels > 0 ? reader->probe().channels : 1;
+
+    DenoiseState& state = denoiseStates_[clip.clipId];
+    // 强度变化 / 首次使用 / 源参数变化 → 重建流
+    if (!state.valid || state.strength != clip.denoise || state.srcRate != srcRate ||
+        state.srcChannels != srcChannels) {
+        state = DenoiseState{};
+        state.valid = true;
+        state.strength = clip.denoise;
+        state.srcRate = srcRate;
+        state.srcChannels = srcChannels;
+        state.denoiser = AudioDenoiser(clip.denoise, srcChannels);
+    }
+
+    // 请求区间（源帧号，源采样率；四舍五入到帧）
+    const long long reqFrame =
+        static_cast<long long>(sourceTime.toDouble() * srcRate + 0.5);
+
+    // 重置判定：
+    //   · 前跳超过阈值（> 2s 未处理区）：直接重建（并 seek 到目标）；
+    //   · 回退超过保留历史：重建（罕见；小块回退在历史窗内直接恢复）。
+    const long long producedFront = state.bufFirst +
+                                    static_cast<long long>(state.buf.size() /
+                                                           static_cast<std::size_t>(srcChannels));
+    const bool forwardJump = !state.buf.empty() && reqFrame > producedFront +
+                                                                   srcRate * kDenoiseForwardResetSeconds;
+    const bool rewindFar = !state.buf.empty() && reqFrame <
+                                                      state.bufFirst -
+                                                          srcRate * kDenoiseHistoryRetainSeconds;
+    if (!state.buf.empty() && (forwardJump || rewindFar)) {
+        state = DenoiseState{};
+        state.valid = true;
+        state.strength = clip.denoise;
+        state.srcRate = srcRate;
+        state.srcChannels = srcChannels;
+        state.denoiser = AudioDenoiser(clip.denoise, srcChannels);
+    }
+
+    // 首次初始化：锚定输出流起点为请求位置（流从请求处开始产出）
+    if (state.buf.empty() && !state.flushed) {
+        state.baseToken = reqFrame;
+        state.fedCount = 0;
+        state.bufFirst = reqFrame;
+        if (!reader->seek(sourceTime).isOk()) {
+            return false;
+        }
+    }
+
+    const std::size_t channels = static_cast<std::size_t>(srcChannels);
+    const std::size_t needFrames = static_cast<std::size_t>(outCount);
+    const long long needEnd = reqFrame + static_cast<long long>(needFrames);
+
+    // 目标：buf 覆盖 [reqFrame, needEnd)
+    // 循环：喂入输入（按需）→ 取产出 → 检查覆盖
+    int guard = 0;
+    while (guard++ < 100000) {
+        const long long haveFront = state.bufFirst;
+        const long long haveEnd = haveFront + static_cast<long long>(state.buf.size() / channels);
+        if (haveFront <= reqFrame && haveEnd >= needEnd) {
+            break;  // 覆盖满足
+        }
+
+        // 需要更多数据：喂入（输入连续推进；源耗尽后零填充）
+        const long long feedTarget =
+            std::max(needEnd - state.baseToken, 0LL) + 4096;  // 目标喂入前沿（含余量）
+        if (state.fedCount < feedTarget) {
+            const long long wantFeed =
+                std::min(feedTarget - state.fedCount, 16384LL);
+            std::vector<float> chunk(static_cast<std::size_t>(wantFeed) * channels, 0.0f);
+            long long got = 0;
+            if (!state.sourceExhausted) {
+                // 读取源（连续）：读取器位置由自身维护（首次已 seek 到 baseToken）
+                while (got < wantFeed) {
+                    AudioBlock block;
+                    if (!reader->readAudioBlock(block) || block.frameCount() == 0) {
+                        state.sourceExhausted = true;
+                        break;
+                    }
+                    const long long frames = static_cast<long long>(block.frameCount());
+                    const long long take = std::min(frames, wantFeed - got);
+                    for (std::size_t i = 0; i < static_cast<std::size_t>(take) * channels; ++i) {
+                        const int srcCh = static_cast<int>(i % channels);
+                        const std::size_t srcIdx =
+                            static_cast<std::size_t>(i / channels) * static_cast<std::size_t>(block.channels) +
+                            static_cast<std::size_t>(srcCh < block.channels ? srcCh : 0);
+                        // i 已是「帧 × 声道」连续下标：目标 = got*channels + i
+                        chunk[static_cast<std::size_t>(got) * channels + i] =
+                            srcIdx < block.samples.size() ? block.samples[srcIdx] : 0.0f;
+                    }
+                    got += take;
+                    if (take < frames) {
+                        break;  // 防御：块内剩余（当前读取器不会发生）
+                    }
+                }
+            }
+            const bool isFinal = state.sourceExhausted;
+            std::vector<float> produced;
+            if (got > 0 || isFinal) {
+                state.denoiser.pushAndPull(chunk.data(), static_cast<int>(wantFeed), isFinal,
+                                           produced);
+            }
+            state.fedCount += wantFeed;
+            // 追加产出
+            if (!produced.empty()) {
+                const std::size_t base = state.buf.size();
+                state.buf.resize(base + produced.size());
+                std::copy(produced.begin(), produced.end(),
+                          state.buf.begin() + static_cast<std::ptrdiff_t>(base));
+            }
+            if (isFinal) {
+                state.flushed = true;
+            }
+            continue;
+        }
+        break;  // 无法继续（防御）
+    }
+
+    // 从 buf 切片交付 [reqFrame, min(needEnd, bufEnd))
+    const long long bufEnd = state.bufFirst + static_cast<long long>(state.buf.size() / channels);
+    const long long start = std::max(reqFrame, state.bufFirst);
+    const long long end = std::min(needEnd, bufEnd);
+    if (end <= start) {
+        return false;
+    }
+    const std::size_t frames = static_cast<std::size_t>(end - start);
+    out.sampleRate = srcRate;
+    out.channels = srcChannels;
+    out.start = Rational::make(reqFrame, srcRate);
+    out.samples.resize(frames * channels);
+    const std::size_t off = static_cast<std::size_t>(start - state.bufFirst) * channels;
+    std::copy(state.buf.begin() + static_cast<std::ptrdiff_t>(off),
+              state.buf.begin() + static_cast<std::ptrdiff_t>(off + frames * channels),
+              out.samples.begin());
+
+    // 修剪：保留 [reqFrame - 历史保留, ...)，避免 buf 无限增长
+    const long long retainFrom =
+        std::max(reqFrame - srcRate * kDenoiseHistoryRetainSeconds, state.bufFirst);
+    if (retainFrom > state.bufFirst) {
+        const std::size_t dropFrames = static_cast<std::size_t>(retainFrom - state.bufFirst);
+        const std::size_t dropSamples = dropFrames * channels;
+        if (dropSamples < state.buf.size()) {
+            state.buf.erase(state.buf.begin(),
+                            state.buf.begin() + static_cast<std::ptrdiff_t>(dropSamples));
+            state.bufFirst = retainFrom;
+        }
+    }
+    return true;
+}
 bool AudioMixer::readBlock(OutputAudioBlock& out) {
     if (!(cursor_ < duration_)) {
         return false;
@@ -371,6 +552,9 @@ Result AudioMixer::seek(const Time& timelineTime) {
         return Result::fail(ErrorCode::OutOfRange, "seek 目标为负");
     }
     cursor_ = timelineTime;
+    // 跳转后降噪流与专用读取器位置失效：整体重置（下次 mixInto 重新锚定）
+    denoiseStates_.clear();
+    denoiseReaders_.clear();
     return Result::ok();
 }
 

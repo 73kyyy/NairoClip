@@ -3,6 +3,7 @@
 #ifdef NAIROCLIP_HAS_FFMPEG
 
 #include "nairoclip/core/media_ffmpeg.h"
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 using namespace nairoclip::core;
@@ -94,6 +95,46 @@ NC_TEST(MediaFFmpeg, DecodeAudioBlocks) {
 }
 NC_TEST(MediaFFmpeg, AvailableFlag) {
     NC_CHECK(ffmpegAvailable());
+}
+
+NC_TEST(MediaFFmpeg, AudioSeekLandingAccuracy) {
+    // 回归：含视频 MP4 的音频 seek 必须采样精确落在目标时间
+    // （历史缺陷：按 stream_index=-1 定位只移动到视频关键帧，音频内容错位；
+    //  实测 seek(3s) 读到 0s 处内容。修复：按音频流索引定位 + 目标前样本裁剪）
+    if (!testMediaExists()) return;
+    std::ifstream probe("/tmp/media_gen/tone_shift.mp4");
+    if (!probe.good()) return;  // 素材未生成：跳过
+    FFmpegMediaReader reader;
+    NC_CHECK(reader.open("/tmp/media_gen/tone_shift.mp4").isOk());
+    // 素材：0-2s 440Hz / 2-4s 3520Hz（视频轨关键帧不与之对齐）
+    struct Case {
+        double target;
+        double expectLow;   // 期望主频区间下限
+        double expectHigh;  // 上限
+    };
+    const Case cases[] = {{0.5, 400.0, 480.0}, {3.0, 3400.0, 3640.0}, {3.5, 3400.0, 3640.0}};
+    for (const auto& c : cases) {
+        NC_CHECK(reader.seek(Rational::make(static_cast<long long>(c.target * 1000000),
+                                            1000000))
+                     .isOk());
+        AudioBlock block;
+        NC_CHECK(reader.readAudioBlock(block));
+        // 块起点应采样精确（容差 1ms；有理数微秒级定位）
+        NC_CHECK(std::abs(block.start.toDouble() - c.target) < 0.001);
+        // 主频判定（Goertzel 比较 440 vs 3520）
+        auto energyAt = [&block](double f) {
+            const double w = 2.0 * 3.141592653589793 * f / block.sampleRate;
+            double re = 0.0;
+            double im = 0.0;
+            for (std::size_t i = 0; i < block.samples.size(); ++i) {
+                re += block.samples[i] * std::cos(w * static_cast<double>(i));
+                im += block.samples[i] * std::sin(w * static_cast<double>(i));
+            }
+            return re * re + im * im;
+        };
+        const double domFreq = energyAt(440.0) > energyAt(3520.0) ? 440.0 : 3520.0;
+        NC_CHECK(domFreq >= c.expectLow && domFreq <= c.expectHigh);
+    }
 }
 #else
 NC_TEST(MediaFFmpeg, NotCompiled) {

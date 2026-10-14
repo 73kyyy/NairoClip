@@ -162,6 +162,15 @@ int32_t nc_remove_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_
 int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_id, double gain_db,
                           int64_t fade_in_us, int64_t fade_out_us);
 
+/// 设置片段降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）。
+/// - strength：0=off 1=weak 2=medium 3=strong（非法返回 NC_ERROR_INVALID_ARGUMENT）；
+/// - 启用后导出混音对该片段做真实谱减降噪（Pro 门控由平台层执行）。
+int32_t nc_set_clip_denoise(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t strength);
+
+/// 读取片段降噪强度（0..3；未设置返回 0 = off；参数错误返回 -1）。
+int32_t nc_get_clip_denoise(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
 // ---- 自动剪辑（参考风格生成）----
 
 /// 在空轨道上执行自动剪辑。

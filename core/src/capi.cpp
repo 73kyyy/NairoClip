@@ -564,6 +564,40 @@ int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_i
                          .code);
 }
 
+int32_t nc_set_clip_denoise(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t strength) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    DenoiseStrength denoiseStrength;
+    if (!denoiseStrengthFromInt(strength, denoiseStrength)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(
+        editor->editor->setClipDenoise(main->id, trackId, ClipId{clip_id}, denoiseStrength).code);
+}
+
+int32_t nc_get_clip_denoise(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    return static_cast<int32_t>(clip->denoise);
+}
+
 int32_t nc_set_frame_fit(NcEditor* editor, int32_t mode) {
     if (editor == nullptr) {
         return NC_ERROR_INVALID_ARGUMENT;

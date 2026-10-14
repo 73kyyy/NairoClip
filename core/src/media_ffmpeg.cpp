@@ -63,6 +63,9 @@ struct FFmpegMediaReader::Impl {
     // seek 目标
     Time seekTarget;
     bool afterSeek = false;
+    /// 音频 seek 后「待跳过」标志：readAudioBlock 丢弃目标之前的音频帧
+    /// （与 readVideoFrame 的 seek 跳过逻辑对称；见 seek 注释）。
+    bool audioAfterSeek = false;
     // 解码器冲刷标志（输入 EOF 后发送空包取缓冲帧）
     bool videoEof = false;
     bool audioEof = false;
@@ -94,6 +97,12 @@ struct FFmpegMediaReader::Impl {
         audioStream = -1;
         open = false;
         frameReady = false;
+        // 状态标志复位（close 后重新 open 时不得残留）
+        seekTarget = Time{};
+        afterSeek = false;
+        audioAfterSeek = false;
+        videoEof = false;
+        audioEof = false;
     }
 };
 
@@ -204,8 +213,23 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
         return Result::fail(ErrorCode::OutOfRange, "seek 目标为负");
     }
     const std::int64_t targetUs = toMicroseconds(sourceTime);
-    // av_seek_frame 以 AV_TIME_BASE 为单位（微秒）
-    const int err = av_seek_frame(impl.format, -1, targetUs, AVSEEK_FLAG_BACKWARD);
+    // 定位策略（修复「MP4/AAC 音频 seek 内容错位」缺陷）：
+    //   容器同时含音频+视频时，按 stream_index = -1 定位在 MP4 上只会移动到
+    //   「视频关键帧」，音频解复用器位置不会移动到目标附近——实测含视频的
+    //   MP4（AAC）：seek(3s) 后音频块仍从 0s 读出（对照：WAV/PCM 正常）。
+    //   因此存在音频流时按「音频流索引」定位（时间戳经流时间基换算，向后
+    //   对齐到帧边界），视频读取由 readVideoFrame 的 seek 跳过逻辑保证时间
+    //   正确；后续 readAudioBlock 再按 seekTarget 裁掉目标之前的样本，使
+    //   首个音频块**采样精确**地自目标开始。
+    //   无音频流（纯视频）时退回 stream_index = -1（行为不变）。
+    int seekIndex = -1;
+    std::int64_t seekTimestamp = targetUs;
+    if (impl.audioStream >= 0) {
+        const AVStream* audioStream = impl.format->streams[impl.audioStream];
+        seekIndex = impl.audioStream;
+        seekTimestamp = av_rescale_q(targetUs, AV_TIME_BASE_Q, audioStream->time_base);
+    }
+    const int err = av_seek_frame(impl.format, seekIndex, seekTimestamp, AVSEEK_FLAG_BACKWARD);
     if (err < 0) {
         return Result::fail(ErrorCode::OutOfRange, "seek 失败: " + avErrorString(err));
     }
@@ -217,6 +241,7 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
     }
     impl.seekTarget = sourceTime;
     impl.afterSeek = true;
+    impl.audioAfterSeek = impl.audioStream >= 0;
     impl.frameReady = false;
     impl.videoEof = false;
     impl.audioEof = false;
@@ -344,7 +369,43 @@ bool FFmpegMediaReader::readAudioBlock(AudioBlock& out) {
             // 时间戳
             const std::int64_t pts = impl.frame->best_effort_timestamp;
             const std::int64_t tsUs = av_rescale_q(pts, stream->time_base, AV_TIME_BASE_Q);
-            out.start = Rational::make(tsUs, AV_TIME_BASE);
+            if (impl.audioAfterSeek) {
+                // seek 后对齐（采样精确）：
+                // 音频解码帧的起点通常早于 seek 目标（编解码器帧边界，AAC 最长
+                // 约 23ms），且可能从更早处开始（按音频流索引向后定位）。
+                // 规则：1) 完全位于目标之前的帧整体丢弃；
+                //       2) 与目标相交的帧裁掉目标之前的样本，
+                //          使产出块自目标时间采样精确开始（混音器按源块
+                //          第 0 样本与源时间对齐，必须无偏移）。
+                const int frameRate =
+                    impl.frame->sample_rate > 0 ? impl.frame->sample_rate : outSampleRate;
+                const std::int64_t frameDurationUs =
+                    static_cast<std::int64_t>(impl.frame->nb_samples) * 1000000LL / frameRate;
+                const std::int64_t targetUs = toMicroseconds(impl.seekTarget);
+                if (tsUs + frameDurationUs <= targetUs) {
+                    av_frame_unref(impl.frame);
+                    continue;  // 整帧在目标之前：丢弃，继续解下一帧
+                }
+                if (tsUs < targetUs && converted > 0) {
+                    const std::int64_t skip = static_cast<std::int64_t>(
+                        static_cast<double>(targetUs - tsUs) * outSampleRate / 1000000.0 + 0.5);
+                    if (skip >= converted) {
+                        av_frame_unref(impl.frame);
+                        continue;  // 舍入后无剩余样本：整帧丢弃
+                    }
+                    if (skip > 0) {
+                        out.samples.erase(out.samples.begin(),
+                                          out.samples.begin() +
+                                              static_cast<std::ptrdiff_t>(skip) * outChannels);
+                    }
+                    out.start = impl.seekTarget;
+                } else {
+                    out.start = Rational::make(tsUs, AV_TIME_BASE);
+                }
+                impl.audioAfterSeek = false;
+            } else {
+                out.start = Rational::make(tsUs, AV_TIME_BASE);
+            }
             av_frame_unref(impl.frame);
             return true;
         }

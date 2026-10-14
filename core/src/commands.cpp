@@ -1272,6 +1272,48 @@ Result SetClipAudioCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------------------------------------------------------------------
+// 设置片段降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）
+// ---------------------------------------------------------------------------
+
+SetClipDenoiseCommand::SetClipDenoiseCommand(SequenceId sequenceId, TrackId trackId,
+                                             ClipId clipId, DenoiseStrength strength)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), strength_(strength) {}
+
+std::string SetClipDenoiseCommand::nameImpl() const {
+    switch (strength_) {
+        case DenoiseStrength::Off: return "关闭降噪";
+        case DenoiseStrength::Weak: return "降噪（弱）";
+        case DenoiseStrength::Medium: return "降噪（中）";
+        case DenoiseStrength::Strong: return "降噪（强）";
+    }
+    return "降噪";
+}
+
+Result SetClipDenoiseCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) {
+        before_ = clip->denoise;
+    }
+    clip->denoise = strength_;
+    return Result::ok();
+}
+
+Result SetClipDenoiseCommand::revert(Project& project) {
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少降噪快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    clip->denoise = *before_;
+    return Result::ok();
+}
+
 
 // ---------------- 特效命令 ----------------
 
