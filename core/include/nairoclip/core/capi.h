@@ -257,6 +257,18 @@ int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t i
                           int32_t* out_type, int64_t* out_duration_us, uint64_t* out_from_clip,
                           uint64_t* out_to_clip, char** out_name);
 
+// ---- 转场库（文档 Part 4-B 第 6 节「转场」9 分类）----
+
+/// 转场类型总数（34 个：既有 8 + 文档新增 26）。
+int32_t nc_transition_type_count(void);
+/// 转场类型名称（type 0..33；静态字符串；非法返回 "未知转场"）。
+const char* nc_transition_type_name(int32_t type);
+/// 转场分类名（文档 6.1 九分类："基础"/"叠化"/"运镜"/"扭曲"/"故障"/
+/// "光效"/"几何"/"粒子"/"复古"；静态字符串；非法返回空串）。
+const char* nc_transition_category(int32_t type);
+/// 是否支持方向选择器（文档 6.3：仅推拉/擦除/百叶窗类显示；1/0）。
+int32_t nc_transition_supports_direction(int32_t type);
+
 // ---- 片段查询扩展 ----
 
 /// 读取轨道上第 index 个片段的时间信息（微秒）。

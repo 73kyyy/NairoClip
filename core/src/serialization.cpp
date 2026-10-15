@@ -588,6 +588,33 @@ const char* transitionTypeName(TransitionType t) {
         case TransitionType::WipeRight: return "wipeRight";
         case TransitionType::SlideUp: return "slideUp";
         case TransitionType::Zoom: return "zoom";
+        // ---- 文档 Part 4-B 6.1 新增（8..33）----
+        case TransitionType::Cut: return "cut";
+        case TransitionType::ColorDissolve: return "colorDissolve";
+        case TransitionType::BlurDissolve: return "blurDissolve";
+        case TransitionType::ZoomOut: return "zoomOut";
+        case TransitionType::Rotate: return "rotate";
+        case TransitionType::WhipPan: return "whipPan";
+        case TransitionType::ZoomPunch: return "zoomPunch";
+        case TransitionType::Ripple: return "ripple";
+        case TransitionType::Liquify: return "liquify";
+        case TransitionType::Fisheye: return "fisheye";
+        case TransitionType::GlitchWarp: return "glitchWarp";
+        case TransitionType::RgbSplit: return "rgbSplit";
+        case TransitionType::SignalNoise: return "signalNoise";
+        case TransitionType::DigitalNoise: return "digitalNoise";
+        case TransitionType::LightSweep: return "lightSweep";
+        case TransitionType::LensFlare: return "lensFlare";
+        case TransitionType::ExposureFlicker: return "exposureFlicker";
+        case TransitionType::CircleWipe: return "circleWipe";
+        case TransitionType::Blinds: return "blinds";
+        case TransitionType::MosaicSplit: return "mosaicSplit";
+        case TransitionType::Pixelate: return "pixelate";
+        case TransitionType::ParticleDissolve: return "particleDissolve";
+        case TransitionType::SmokeTransition: return "smokeTransition";
+        case TransitionType::SparkleGather: return "sparkleGather";
+        case TransitionType::FilmFlicker: return "filmFlicker";
+        case TransitionType::OldFilmScratch: return "oldFilmScratch";
     }
     return "crossDissolve";
 }
@@ -601,6 +628,33 @@ bool parseTransitionType(const std::string& s, TransitionType& out) {
     if (s == "wipeRight") { out = TransitionType::WipeRight; return true; }
     if (s == "slideUp") { out = TransitionType::SlideUp; return true; }
     if (s == "zoom") { out = TransitionType::Zoom; return true; }
+    // ---- 文档 Part 4-B 6.1 新增（8..33）----
+    if (s == "cut") { out = TransitionType::Cut; return true; }
+    if (s == "colorDissolve") { out = TransitionType::ColorDissolve; return true; }
+    if (s == "blurDissolve") { out = TransitionType::BlurDissolve; return true; }
+    if (s == "zoomOut") { out = TransitionType::ZoomOut; return true; }
+    if (s == "rotate") { out = TransitionType::Rotate; return true; }
+    if (s == "whipPan") { out = TransitionType::WhipPan; return true; }
+    if (s == "zoomPunch") { out = TransitionType::ZoomPunch; return true; }
+    if (s == "ripple") { out = TransitionType::Ripple; return true; }
+    if (s == "liquify") { out = TransitionType::Liquify; return true; }
+    if (s == "fisheye") { out = TransitionType::Fisheye; return true; }
+    if (s == "glitchWarp") { out = TransitionType::GlitchWarp; return true; }
+    if (s == "rgbSplit") { out = TransitionType::RgbSplit; return true; }
+    if (s == "signalNoise") { out = TransitionType::SignalNoise; return true; }
+    if (s == "digitalNoise") { out = TransitionType::DigitalNoise; return true; }
+    if (s == "lightSweep") { out = TransitionType::LightSweep; return true; }
+    if (s == "lensFlare") { out = TransitionType::LensFlare; return true; }
+    if (s == "exposureFlicker") { out = TransitionType::ExposureFlicker; return true; }
+    if (s == "circleWipe") { out = TransitionType::CircleWipe; return true; }
+    if (s == "blinds") { out = TransitionType::Blinds; return true; }
+    if (s == "mosaicSplit") { out = TransitionType::MosaicSplit; return true; }
+    if (s == "pixelate") { out = TransitionType::Pixelate; return true; }
+    if (s == "particleDissolve") { out = TransitionType::ParticleDissolve; return true; }
+    if (s == "smokeTransition") { out = TransitionType::SmokeTransition; return true; }
+    if (s == "sparkleGather") { out = TransitionType::SparkleGather; return true; }
+    if (s == "filmFlicker") { out = TransitionType::FilmFlicker; return true; }
+    if (s == "oldFilmScratch") { out = TransitionType::OldFilmScratch; return true; }
     return false;
 }
 

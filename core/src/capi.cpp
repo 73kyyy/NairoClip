@@ -1139,7 +1139,10 @@ uint64_t nc_add_transition(NcEditor* editor, int32_t track_index, int32_t transi
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
         return 0;
     }
-    if (transition_type < 0 || transition_type > 7) {
+    // 类型边界：按 TransitionType 枚举最大值（新增转场时无需改此处；
+    // 修复——此前硬编码 7，文档新增的 26 种转场无法经 C ABI 添加）。
+    if (transition_type < 0 ||
+        transition_type > static_cast<int32_t>(TransitionType::OldFilmScratch)) {
         return 0;
     }
     Transition tr;
@@ -1200,6 +1203,33 @@ int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t i
     if (out_to_clip != nullptr) *out_to_clip = tr.toClip.value;
     if (out_name != nullptr) *out_name = dupString(tr.name);
     return NC_OK;
+}
+
+// ---- 转场库（文档 Part 4-B 第 6 节「转场」9 分类）----
+
+int32_t nc_transition_type_count(void) {
+    return static_cast<int32_t>(TransitionType::OldFilmScratch) + 1;
+}
+
+const char* nc_transition_type_name(int32_t type) {
+    if (type < 0 || type > static_cast<int32_t>(TransitionType::OldFilmScratch)) {
+        return "未知转场";
+    }
+    return transitionName(static_cast<TransitionType>(type));
+}
+
+const char* nc_transition_category(int32_t type) {
+    if (type < 0 || type > static_cast<int32_t>(TransitionType::OldFilmScratch)) {
+        return "";
+    }
+    return transitionCategory(static_cast<TransitionType>(type));
+}
+
+int32_t nc_transition_supports_direction(int32_t type) {
+    if (type < 0 || type > static_cast<int32_t>(TransitionType::OldFilmScratch)) {
+        return 0;
+    }
+    return transitionSupportsDirection(static_cast<TransitionType>(type)) ? 1 : 0;
 }
 
 int32_t nc_clip_get(const NcEditor* editor, int32_t track_index, int32_t clip_index,

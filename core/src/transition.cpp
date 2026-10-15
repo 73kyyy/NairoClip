@@ -21,8 +21,137 @@ const char* transitionName(TransitionType type) {
             return "上滑";
         case TransitionType::Zoom:
             return "缩放";
+        // ---- 文档 Part 4-B 6.1 新增预设（名称逐字）----
+        case TransitionType::Cut:
+            return "硬切";
+        case TransitionType::ColorDissolve:
+            return "色彩叠化";
+        case TransitionType::BlurDissolve:
+            return "模糊叠化";
+        case TransitionType::ZoomOut:
+            return "拉远";
+        case TransitionType::Rotate:
+            return "旋转";
+        case TransitionType::WhipPan:
+            return "甩镜";
+        case TransitionType::ZoomPunch:
+            return "缩放冲击";
+        case TransitionType::Ripple:
+            return "波纹";
+        case TransitionType::Liquify:
+            return "液化";
+        case TransitionType::Fisheye:
+            return "鱼眼";
+        case TransitionType::GlitchWarp:
+            return "故障扭曲";
+        case TransitionType::RgbSplit:
+            return "RGB分离";
+        case TransitionType::SignalNoise:
+            return "信号干扰";
+        case TransitionType::DigitalNoise:
+            return "数字噪点";
+        case TransitionType::LightSweep:
+            return "光晕扫过";
+        case TransitionType::LensFlare:
+            return "镜头光斑";
+        case TransitionType::ExposureFlicker:
+            return "曝光闪烁";
+        case TransitionType::CircleWipe:
+            return "圆形擦除";
+        case TransitionType::Blinds:
+            return "百叶窗";
+        case TransitionType::MosaicSplit:
+            return "马赛克分割";
+        case TransitionType::Pixelate:
+            return "像素化";
+        case TransitionType::ParticleDissolve:
+            return "粒子消散";
+        case TransitionType::SmokeTransition:
+            return "烟雾过渡";
+        case TransitionType::SparkleGather:
+            return "光点聚散";
+        case TransitionType::FilmFlicker:
+            return "胶片闪烁";
+        case TransitionType::OldFilmScratch:
+            return "老电影划痕转场";
     }
     return "未知转场";
+}
+
+/// 转场分类名（文档 6.1 九个分类 Tab；供 UI 分组展示）。
+/// 返回静态字符串；未知类型返回空串。
+const char* transitionCategory(TransitionType type) {
+    switch (type) {
+        case TransitionType::CrossDissolve:
+        case TransitionType::FlashWhite:
+        case TransitionType::FadeToBlack:
+        case TransitionType::Cut:
+            return "基础";
+        case TransitionType::FadeFromBlack:
+        case TransitionType::ColorDissolve:
+        case TransitionType::BlurDissolve:
+            return "叠化";
+        case TransitionType::Zoom:
+        case TransitionType::ZoomOut:
+        case TransitionType::Rotate:
+        case TransitionType::WhipPan:
+        case TransitionType::ZoomPunch:
+        case TransitionType::SlideUp:
+            return "运镜";
+        case TransitionType::Ripple:
+        case TransitionType::Liquify:
+        case TransitionType::Fisheye:
+        case TransitionType::GlitchWarp:
+            return "扭曲";
+        case TransitionType::RgbSplit:
+        case TransitionType::SignalNoise:
+        case TransitionType::DigitalNoise:
+            return "故障";
+        case TransitionType::LightSweep:
+        case TransitionType::LensFlare:
+        case TransitionType::ExposureFlicker:
+            return "光效";
+        case TransitionType::CircleWipe:
+        case TransitionType::Blinds:
+        case TransitionType::MosaicSplit:
+        case TransitionType::Pixelate:
+        case TransitionType::WipeLeft:
+        case TransitionType::WipeRight:
+            return "几何";
+        case TransitionType::ParticleDissolve:
+        case TransitionType::SmokeTransition:
+        case TransitionType::SparkleGather:
+            return "粒子";
+        case TransitionType::FilmFlicker:
+        case TransitionType::OldFilmScratch:
+            return "复古";
+    }
+    return "";
+}
+
+/// 方向选择器适用性（文档 6.3：仅推拉/擦除/百叶窗类转场显示方向选择器）。
+bool transitionSupportsDirection(TransitionType type) {
+    switch (type) {
+        case TransitionType::Zoom:
+        case TransitionType::ZoomOut:
+        case TransitionType::WipeLeft:
+        case TransitionType::WipeRight:
+        case TransitionType::SlideUp:
+        case TransitionType::CircleWipe:
+        case TransitionType::Blinds:
+        case TransitionType::MosaicSplit:
+        case TransitionType::WhipPan:
+        case TransitionType::LightSweep:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/// 文档 6.2：时长范围 0.1s ~ 2.0s。
+bool transitionDurationValid(const Time& duration) {
+    const double seconds = duration.toDouble();
+    return seconds >= 0.1 - 1e-9 && seconds <= 2.0 + 1e-9;
 }
 
 Result validateTransition(const Track& track, const Transition& transition,
