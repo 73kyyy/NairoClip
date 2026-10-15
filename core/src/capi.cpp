@@ -174,6 +174,186 @@ int64_t nc_project_duration_us(const NcEditor* editor) {
     return toMicroseconds(main->duration());
 }
 
+// ---- 工程信息（文档 Part 5「草稿数据结构」）----
+
+char* nc_project_name(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return nullptr;
+    }
+    return dupString(editor->project.name);
+}
+
+int32_t nc_set_project_name(NcEditor* editor, const char* name) {
+    if (editor == nullptr || name == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    // 名称长度防御（避免超长标题破坏 UI 与文件）
+    const std::string text(name);
+    if (text.size() > 200) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    editor->project.name = text;
+    return NC_OK;
+}
+
+int32_t nc_project_canvas(const NcEditor* editor, int32_t* out_width, int32_t* out_height) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (out_width != nullptr) *out_width = main->width;
+    if (out_height != nullptr) *out_height = main->height;
+    return NC_OK;
+}
+
+int32_t nc_set_project_canvas(NcEditor* editor, int32_t width, int32_t height) {
+    // 文档 Part 3-C「比例」：项目级全局设置；边界校验防极端尺寸。
+    // 下限 16（保证可编码），上限 16384（常规编码上限量级）。
+    if (editor == nullptr || width < 16 || height < 16 || width > 16384 || height > 16384) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    main->width = width;
+    main->height = height;
+    return NC_OK;
+}
+
+int32_t nc_project_frame_rate(const NcEditor* editor, int64_t* out_num, int64_t* out_den) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (out_num != nullptr) *out_num = main->frameRate.value.num;
+    if (out_den != nullptr) *out_den = main->frameRate.value.den;
+    return NC_OK;
+}
+
+int32_t nc_set_project_frame_rate(NcEditor* editor, int64_t num, int64_t den) {
+    if (editor == nullptr || num <= 0 || den <= 0 || num > 1000 || den > 1000) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    main->frameRate = FrameRate::of(num, den);
+    return NC_OK;
+}
+
+// ---- 历史（撤销/重做；文档 Part 5(续) 第32节）----
+
+int32_t nc_can_undo(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    return editor->editor->canUndo() ? 1 : 0;
+}
+
+int32_t nc_can_redo(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    return editor->editor->canRedo() ? 1 : 0;
+}
+
+int32_t nc_undo_count(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(editor->editor->undoCount());
+}
+
+int32_t nc_redo_count(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(editor->editor->redoCount());
+}
+
+char* nc_undo_history_name(const NcEditor* editor, int32_t index) {
+    if (editor == nullptr || index < 0) {
+        return nullptr;
+    }
+    const std::vector<std::string> names = editor->editor->undoHistoryNames();
+    if (static_cast<std::size_t>(index) >= names.size()) {
+        return nullptr;
+    }
+    return dupString(names[static_cast<std::size_t>(index)]);
+}
+
+int32_t nc_clear_undo_history(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    editor->editor->clearUndoHistory();
+    return NC_OK;
+}
+
+int32_t nc_set_undo_depth_limit(NcEditor* editor, int32_t max_steps) {
+    if (editor == nullptr || max_steps < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    editor->editor->setUndoDepthLimit(static_cast<std::size_t>(max_steps));
+    return NC_OK;
+}
+
+// ---- 素材管理（文档 Part 5「轨道数据」/ Part 6 素材丢失）----
+
+int32_t nc_asset_count(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(editor->project.assets.size());
+}
+
+int32_t nc_asset_get(const NcEditor* editor, int32_t index, uint64_t* out_asset_id,
+                     char** out_name, char** out_path, int32_t* out_type,
+                     int64_t* out_duration_us) {
+    if (editor == nullptr || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (static_cast<std::size_t>(index) >= editor->project.assets.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const MediaAsset& asset = editor->project.assets[static_cast<std::size_t>(index)];
+    if (out_asset_id != nullptr) *out_asset_id = asset.id.value;
+    if (out_name != nullptr) *out_name = dupString(asset.name);
+    if (out_path != nullptr) *out_path = dupString(asset.path);
+    if (out_type != nullptr) {
+        switch (asset.type) {
+            case MediaType::Video: *out_type = 0; break;
+            case MediaType::Audio: *out_type = 1; break;
+            case MediaType::Image: *out_type = 2; break;
+            default: *out_type = 3; break;
+        }
+    }
+    if (out_duration_us != nullptr) *out_duration_us = toMicroseconds(asset.duration);
+    return NC_OK;
+}
+
+int32_t nc_remove_asset(NcEditor* editor, uint64_t asset_id) {
+    if (editor == nullptr || asset_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor->removeAsset(AssetId{asset_id}).code);
+}
+
+int32_t nc_asset_is_referenced(const NcEditor* editor, uint64_t asset_id) {
+    if (editor == nullptr || asset_id == 0) {
+        return -1;
+    }
+    return editor->editor->isAssetReferenced(AssetId{asset_id}) ? 1 : 0;
+}
+
 int32_t nc_track_count(const NcEditor* editor) {
     if (editor == nullptr) {
         return 0;
@@ -273,6 +453,450 @@ int32_t nc_redo(NcEditor* editor) {
         return NC_ERROR_INVALID_ARGUMENT;
     }
     return toNcError(editor->editor->redo().code);
+}
+
+// ---- 轨道管理（文档 Part 2-B 第8节「轨道控制列」+ 第28节「新增轨道」）----
+
+int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_track_id,
+                     char** out_name, int32_t* out_type, int32_t* out_locked,
+                     int32_t* out_muted, int32_t* out_hidden, int32_t* out_solo,
+                     double* out_gain_db) {
+    if (editor == nullptr || track_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (out_track_id != nullptr) *out_track_id = track.id.value;
+    if (out_name != nullptr) *out_name = dupString(track.name);
+    if (out_type != nullptr) {
+        switch (track.type) {
+            case TrackType::Video: *out_type = 0; break;
+            case TrackType::Audio: *out_type = 1; break;
+            case TrackType::Subtitle: *out_type = 2; break;
+            case TrackType::Effect: *out_type = 3; break;
+        }
+    }
+    if (out_locked != nullptr) *out_locked = track.locked ? 1 : 0;
+    if (out_muted != nullptr) *out_muted = track.muted ? 1 : 0;
+    if (out_hidden != nullptr) *out_hidden = track.hidden ? 1 : 0;
+    if (out_solo != nullptr) *out_solo = track.solo ? 1 : 0;
+    if (out_gain_db != nullptr) *out_gain_db = track.gainDb;
+    return NC_OK;
+}
+
+int32_t nc_remove_track(NcEditor* editor, int32_t track_index) {
+    if (editor == nullptr || track_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor->removeTrack(main->id, trackId).code);
+}
+
+int32_t nc_rename_track(NcEditor* editor, int32_t track_index, const char* new_name) {
+    if (editor == nullptr || track_index < 0 || new_name == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor->renameTrack(main->id, trackId, new_name).code);
+}
+
+int32_t nc_set_track_locked(NcEditor* editor, int32_t track_index, int32_t locked) {
+    if (editor == nullptr || track_index < 0 || (locked != 0 && locked != 1)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor->setTrackLocked(main->id, trackId, locked != 0).code);
+}
+
+int32_t nc_set_track_muted(NcEditor* editor, int32_t track_index, int32_t muted) {
+    if (editor == nullptr || track_index < 0 || (muted != 0 && muted != 1)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor->setTrackMuted(main->id, trackId, muted != 0).code);
+}
+
+int32_t nc_set_track_hidden(NcEditor* editor, int32_t track_index, int32_t hidden) {
+    if (editor == nullptr || track_index < 0 || (hidden != 0 && hidden != 1)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return toNcError(editor->editor->setTrackHidden(main->id, trackId, hidden != 0).code);
+}
+
+// ---- 片段编辑（文档 Part 3-A 第12节「剪辑」基础操作）----
+
+namespace {
+
+/// 解析主序列与轨道（片段编辑类接口共用；失败返回 false 并置 code）。
+bool resolveTrack(const NcEditor* editor, int32_t track_index, SequenceId* outSequenceId,
+                  TrackId* outTrackId, int32_t* code) {
+    if (editor == nullptr || track_index < 0) {
+        *code = NC_ERROR_INVALID_ARGUMENT;
+        return false;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        *code = NC_ERROR_NOT_FOUND;
+        return false;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        *code = NC_ERROR_OUT_OF_RANGE;
+        return false;
+    }
+    *outSequenceId = main->id;
+    *outTrackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return true;
+}
+
+}  // namespace
+
+int32_t nc_remove_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor->removeClip(seqId, trackId, ClipId{clip_id}).code);
+}
+
+int32_t nc_split_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id, int64_t at_us) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0 || at_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(
+        editor->editor->splitClip(seqId, trackId, ClipId{clip_id}, fromMicroseconds(at_us)).code);
+}
+
+int32_t nc_move_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                     int64_t new_start_us) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0 || new_start_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->moveClip(seqId, trackId, ClipId{clip_id},
+                                    fromMicroseconds(new_start_us))
+                         .code);
+}
+
+int32_t nc_move_clip_to_track(NcEditor* editor, int32_t from_track, int32_t to_track,
+                              uint64_t clip_id, int64_t new_start_us) {
+    if (editor == nullptr || from_track < 0 || to_track < 0 || clip_id == 0 ||
+        new_start_us < 0 || from_track == to_track) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(from_track) >= main->tracks.size() ||
+        static_cast<std::size_t>(to_track) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId fromId = main->tracks[static_cast<std::size_t>(from_track)].id;
+    const TrackId toId = main->tracks[static_cast<std::size_t>(to_track)].id;
+    return toNcError(editor->editor
+                         ->moveClipToTrack(main->id, fromId, toId, ClipId{clip_id},
+                                           fromMicroseconds(new_start_us))
+                         .code);
+}
+
+int32_t nc_trim_clip_start(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int64_t new_start_us) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0 || new_start_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->trimClipStart(seqId, trackId, ClipId{clip_id},
+                                         fromMicroseconds(new_start_us))
+                         .code);
+}
+
+int32_t nc_trim_clip_end(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         int64_t new_end_us) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0 || new_end_us <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->trimClipEnd(seqId, trackId, ClipId{clip_id},
+                                       fromMicroseconds(new_end_us))
+                         .code);
+}
+
+int32_t nc_set_clip_speed(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int64_t speed_num, int64_t speed_den) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0 || speed_num <= 0 || speed_den <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->setClipSpeed(seqId, trackId, ClipId{clip_id},
+                                        Rational::make(speed_num, speed_den))
+                         .code);
+}
+
+int32_t nc_ripple_delete(NcEditor* editor, int32_t track_index, const uint64_t* clip_ids,
+                         int32_t clip_count) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_ids == nullptr || clip_count <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::vector<ClipId> ids;
+    ids.reserve(static_cast<std::size_t>(clip_count));
+    for (int32_t i = 0; i < clip_count; ++i) {
+        ids.push_back(ClipId{clip_ids[i]});
+    }
+    return toNcError(editor->editor->rippleDelete(seqId, trackId, std::move(ids)).code);
+}
+
+uint64_t nc_duplicate_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    // 文档「剪辑 → 复制」：复制当前片段并插入到原片段紧随其后的位置。
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return 0;
+    }
+    const Track* track = findTrack(editor->project, seqId, trackId);
+    if (track == nullptr) {
+        return 0;
+    }
+    const Clip* source = track->findClip(ClipId{clip_id});
+    if (source == nullptr) {
+        return 0;
+    }
+    if (track->locked) {
+        return 0;
+    }
+    Clip copy = *source;
+    copy.id = ClipId{};  // 由 insertClip 分配
+    copy.start = source->end();
+    // 相邻位置若已被占用则由 validateClipPlacement 拒绝（UI 应先腾出空间）
+    ClipId outId;
+    const Result r = editor->editor->insertClip(seqId, trackId, std::move(copy), &outId);
+    if (!r.isOk()) {
+        return 0;
+    }
+    return outId.value;
+}
+
+uint64_t nc_freeze_frame(NcEditor* editor, int32_t track_index, uint64_t clip_id, int64_t at_us,
+                         int64_t duration_us) {
+    // 文档「剪辑 → 定格」：在播放头位置生成一帧静止画面并插入时间轴（默认 2s）。
+    // 实现：以源素材该时刻为入点、时长 = duration 的静态片段（速度为 0 的静止帧
+    // 在渲染层等价于入点后固定帧；导出器读取同一源时刻的帧）。
+    // 说明：本工程用「极慢速映射」不适用，故以 sourceIn 固定 + speed 保持 1、
+    //       并把时长设为定格时长映射同一帧的方式：sourceIn 指向定格帧，
+    //       duration 为定格时长，speed 设为极小值使源时间近似不动。
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return 0;
+    }
+    if (duration_us <= 0) {
+        duration_us = 2000000;  // 默认 2 秒（文档）
+    }
+    const Track* track = findTrack(editor->project, seqId, trackId);
+    if (track == nullptr || track->locked) {
+        return 0;
+    }
+    const Clip* source = track->findClip(ClipId{clip_id});
+    if (source == nullptr) {
+        return 0;
+    }
+    Clip frozen = *source;
+    frozen.id = ClipId{};
+    // 定格帧的源时间：以 at_us（时间轴微秒）折算到源时间
+    const Time at = fromMicroseconds(at_us);
+    const Time local = at - source->start;
+    const Time sourceAt = source->sourceTimeAt(local.isNegative() ? Time{} : local);
+    frozen.sourceIn = sourceAt;
+    frozen.start = at;
+    frozen.duration = fromMicroseconds(duration_us);
+    // 定格：源时间不随播放推进（speed → 极小正数，避免 sourceOut 越过素材范围）
+    frozen.speed = Rational::make(1, 1000000);
+    frozen.reversed = false;
+    frozen.speedCurve.clear();
+    ClipId outId;
+    const Result r = editor->editor->insertClip(seqId, trackId, std::move(frozen), &outId);
+    if (!r.isOk()) {
+        return 0;
+    }
+    return outId.value;
+}
+
+int32_t nc_reverse_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    // 文档「剪辑 → 倒放」：画面播放顺序反转。
+    // 实现：设置 Clip::reversed（源时间映射反转），时间轴时长与源区间不变。
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    return toNcError(
+        editor->editor->setClipReversed(seqId, trackId, ClipId{clip_id}, true).code);
+}
+
+int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_index,
+                     uint64_t* out_clip_id, int64_t* out_start_us, int64_t* out_duration_us,
+                     uint64_t* out_asset_id, int64_t* out_speed_num, int64_t* out_speed_den,
+                     int32_t* out_enabled) {
+    if (editor == nullptr || track_index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (static_cast<std::size_t>(clip_index) >= track.clips.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Clip& clip = track.clips[static_cast<std::size_t>(clip_index)];
+    if (out_clip_id != nullptr) *out_clip_id = clip.id.value;
+    if (out_start_us != nullptr) *out_start_us = toMicroseconds(clip.start);
+    if (out_duration_us != nullptr) *out_duration_us = toMicroseconds(clip.duration);
+    if (out_asset_id != nullptr) *out_asset_id = clip.asset.value;
+    if (out_speed_num != nullptr) *out_speed_num = clip.speed.num;
+    if (out_speed_den != nullptr) *out_speed_den = clip.speed.den;
+    if (out_enabled != nullptr) *out_enabled = clip.enabled ? 1 : 0;
+    return NC_OK;
+}
+
+int32_t nc_set_clip_enabled(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t enabled) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0 || (enabled != 0 && enabled != 1)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->setClipEnabled(seqId, trackId, ClipId{clip_id}, enabled != 0)
+                         .code);
+}
+
+int32_t nc_get_clip_opacity(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            double* out_opacity) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (out_opacity != nullptr) {
+        *out_opacity = clip->animation.sample(ClipProperty::Opacity, Time{});
+    }
+    return NC_OK;
+}
+
+int32_t nc_set_clip_opacity(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            double opacity) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    if (clip_id == 0 || opacity < 0.0 || opacity > 1.0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->setClipOpacity(seqId, trackId, ClipId{clip_id}, opacity)
+                         .code);
 }
 
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,

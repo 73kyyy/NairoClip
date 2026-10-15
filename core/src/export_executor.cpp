@@ -98,10 +98,16 @@ const RenderClip* clipAt(const RenderTrack& track, const Time& t) {
 }
 
 /// 时间轴时刻 → 源素材时间。
+/// - 倒放（reversed）：sourceIn + (duration − local) × speed（速度曲线不参与）；
 /// - 无速度曲线：线性映射 sourceIn + (t - timelineStart) * speed；
 /// - 有速度曲线：数值积分 d(source) = speed(source) * d(t)（固定 64 步，跨平台确定性）。
 Time mapSourceTime(const RenderClip& clip, const Time& t) {
     const Time localTime = t - clip.timelineStart;
+    if (clip.reversed) {
+        const Time total = clip.timelineEnd - clip.timelineStart;
+        const Time remain = total - localTime;
+        return clip.sourceIn + Time{remain * clip.speed};
+    }
     if (clip.speedCurve.empty()) {
         return clip.sourceIn + Time{localTime * clip.speed};
     }
@@ -274,7 +280,11 @@ ExportStats executeExport(
                             openedIt->second.opened = true;
                         }
                         const Time local = clampTime - rc->timelineStart;
-                        const Time srcTime = rc->sourceIn + Time{local * rc->speed};
+                        const Time srcTime =
+                            rc->reversed
+                                ? rc->sourceIn +
+                                      Time{(rc->timelineEnd - rc->timelineStart - local) * rc->speed}
+                                : rc->sourceIn + Time{local * rc->speed};
                         if (!r->seek(srcTime).isOk()) return false;
                         return r->readVideoFrame(out);
                     };

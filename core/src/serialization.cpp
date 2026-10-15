@@ -344,6 +344,10 @@ JsonValue writeClip(const Clip& c) {
     o.set("duration", writeRational(c.duration));
     o.set("sourceIn", writeRational(c.sourceIn));
     o.set("speed", writeRational(c.speed));
+    // 倒放（文档「剪辑 → 倒放」；仅启用时写入，保持文件向后兼容）
+    if (c.reversed) {
+        o.set("reversed", JsonValue::boolean(true));
+    }
     o.set("enabled", JsonValue::boolean(c.enabled));
     if (!c.animation.empty()) {
         o.set("animation", writeClipAnimation(c.animation));
@@ -424,6 +428,7 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     if (v.has("speed")) {
         if (!readRational(v.get("speed"), "speed", out.speed, err)) return false;
     }
+    out.reversed = v.get("reversed").asBool(false);
     out.enabled = v.get("enabled").asBool(true);
     out.animation.clear();
     if (v.has("animation")) {

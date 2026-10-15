@@ -88,6 +88,7 @@ bool AudioMixer::prepare(const ExportPlan& plan, const Project& project) {
             tc.timelineEnd = renderClip.timelineEnd;
             tc.sourceIn = renderClip.sourceIn;
             tc.speed = renderClip.speed;
+            tc.reversed = renderClip.reversed;
             tc.linearGain = 1.0;
             tc.trackId = track.trackId;
             tc.ducked = false;
@@ -290,13 +291,17 @@ void AudioMixer::mixInto(std::vector<float>& buffer, const Time& blockStart) {
             outCount = blockFrames - outOffset;
         }
 
-        // 源时间（含 speed 映射）
+        // 源时间（含 speed 映射与倒放；文档「剪辑 → 倒放」）
+        const Time local = overlapStart - clip.timelineStart;
         const Time sourceTime =
-            clip.sourceIn + Time{(overlapStart - clip.timelineStart) * clip.speed};
-        // 读取源块：降噪片段走连续降噪流（专用读取器）；其余片段走共享读取器
-        // 逐块 seek + 读取（原始路径）。
+            clip.reversed ? clip.sourceIn +
+                                Time{(clip.timelineEnd - clip.timelineStart - local) * clip.speed}
+                          : clip.sourceIn + Time{local * clip.speed};
+        // 读取源块：降噪片段走连续降噪流（专用读取器；仅正放——倒放时源时间
+        // 递减，连续流语义不适用，走逐块 seek 的普通路径）；其余片段走共享
+        // 读取器逐块 seek + 读取。
         AudioBlock sourceBlock;
-        if (clip.denoise != DenoiseStrength::Off) {
+        if (clip.denoise != DenoiseStrength::Off && !clip.reversed) {
             if (!serveDenoisedBlock(clip, sourceTime, outCount, sourceBlock) ||
                 sourceBlock.samples.empty()) {
                 continue;

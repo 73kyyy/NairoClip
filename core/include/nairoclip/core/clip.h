@@ -64,6 +64,11 @@ struct Clip {
     DenoiseStrength denoise = DenoiseStrength::Off;
     /// 是否启用降噪。
     bool hasDenoise() const { return denoise != DenoiseStrength::Off; }
+    /// 倒放（文档「✂️剪辑 → 倒放」）。
+    /// true 时画面播放顺序反转：时间轴时刻 t（片段本地时间 u）对应源时间
+    ///   sourceIn + (duration - u) * speed  （实现见 sourceTimeAt）。
+    /// 约束：倒放与速度曲线/负速度互斥（速度曲线非空时倒放不参与映射）。
+    bool reversed = false;
     /// 音频属性是否合法：增益在范围内、淡入淡出不超过片段时长且非负、
     /// 淡入 + 淡出不超过片段时长。
     bool audioValid() const {
@@ -91,6 +96,23 @@ struct Clip {
     }
     /// 时间轴时刻 → 片段本地时间。
     Time toLocalTime(const Time& timelineTime) const { return timelineTime - start; }
+
+    /// 片段本地时间 → 源素材时间（恒速；含倒放）。
+    /// - 正放：sourceIn + u × speed；
+    /// - 倒放：sourceIn + (duration − u) × speed；
+    /// 说明：速度曲线（speedCurve）非空时映射由渲染器按曲线积分，本函数仅
+    /// 覆盖恒速路径（预览/导出在无曲线时优先调用本函数，保证倒放一致）。
+    Time sourceTimeAt(const Time& localTime) const {
+        if (!reversed) {
+            return sourceIn + Time{localTime * speed};
+        }
+        const Time remain = duration - localTime;
+        return sourceIn + Time{remain * speed};
+    }
+    /// 时间轴时刻 → 源素材时间（恒速；含倒放）。
+    Time sourceTimeAtTimeline(const Time& timelineTime) const {
+        return sourceTimeAt(toLocalTime(timelineTime));
+    }
 
     /// 时间轴终点。
     Time end() const { return start + duration; }

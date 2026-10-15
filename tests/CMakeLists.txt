@@ -14,6 +14,7 @@ add_executable(nairoclip_tests
     test_animation.cpp
     test_export_plan.cpp
     test_capi.cpp
+    test_capi_timeline.cpp
     test_roundtrip.cpp
     test_subtitle.cpp
     test_stress.cpp

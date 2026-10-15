@@ -85,10 +85,21 @@ public:
     /// 丢弃最近一次 push（用于手势取消：先还原再弹出）。
     Result dropLast(Project& project);
 
+    /// 设置最大历史深度（文档 Part 5(续) 第32节「最大可撤销步数 20 步」）。
+    /// - maxSteps <= 0 = 不限制（默认）；
+    /// - 超出深度时最早记录被移除（不再可撤销）；
+    /// - 缩小时立即裁剪至目标深度（保留最近记录）。
+    void setMaxDepth(std::size_t maxSteps);
+    std::size_t maxDepth() const { return maxDepth_; }
+
 private:
     Result pushInternal(Project& project, std::unique_ptr<Command> command);
+    /// 按 maxDepth_ 裁剪历史（在 push 后调用）。
+    void trimToMaxDepth();
     std::vector<std::unique_ptr<Command>> commands_;
     std::size_t cursor_ = 0;  // commands_[0, cursor) 处于「已应用」状态
+    /// 最大历史深度（0 = 不限制）。
+    std::size_t maxDepth_ = 0;
 
     // 事务状态
     std::size_t transactionDepth_ = 0;

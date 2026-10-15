@@ -68,6 +68,8 @@ private:
         Time timelineEnd;
         Time sourceIn;
         Rational speed = Rational::make(1);
+        /// 倒放（文档「剪辑 → 倒放」）：源时间映射反转。
+        bool reversed = false;
         double linearGain = 1.0;
         Time fadeIn;
         Time fadeOut;

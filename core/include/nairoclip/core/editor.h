@@ -119,6 +119,12 @@ public:
     /// off = 关闭（清除）；其余三档启用真实谱减降噪。
     Result setClipDenoise(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                           DenoiseStrength strength);
+    /// 设置片段启用/禁用（文档「剪辑」片段开关）。
+    Result setClipEnabled(SequenceId sequenceId, TrackId trackId, ClipId clipId, bool enabled);
+    /// 设置片段倒放（文档「✂️剪辑 → 倒放」）。
+    Result setClipReversed(SequenceId sequenceId, TrackId trackId, ClipId clipId, bool reversed);
+    /// 设置片段透明度（文档「✂️剪辑 → 不透明度」；0..1）。
+    Result setClipOpacity(SequenceId sequenceId, TrackId trackId, ClipId clipId, double opacity);
     // ---- 标记 ----
     /// 添加/更新标记（同 ID 替换）。
     Result upsertMarker(SequenceId sequenceId, Marker marker);
@@ -146,6 +152,11 @@ public:
     std::size_t undoCount() const { return undoStack_.undoCount(); }
     std::size_t redoCount() const { return undoStack_.redoCount(); }
     std::vector<std::string> undoHistoryNames() const { return undoStack_.undoHistoryNames(); }
+    /// 清空撤销历史（文档 Part 5(续) 第32节「栈清空时机」：
+    /// 用户退出剪辑页重新进入同一项目时清空，不跨会话保留）。
+    void clearUndoHistory() { undoStack_.clear(); }
+    /// 设置撤销栈最大深度（文档第 32 节「最大可撤销步数 20 步」）。
+    void setUndoDepthLimit(std::size_t maxSteps) { undoStack_.setMaxDepth(maxSteps); }
     // ---- 事务（手势合并成单条历史）----
     void beginTransaction(const std::string& name) { undoStack_.beginTransaction(name); }
     bool endTransaction() { return undoStack_.endTransaction(project_); }

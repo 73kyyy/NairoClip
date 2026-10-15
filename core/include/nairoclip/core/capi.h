@@ -65,6 +65,55 @@ int32_t nc_track_count(const NcEditor* editor);
 /// 主序列主轨道上的片段数量。
 int32_t nc_clip_count(const NcEditor* editor, int32_t track_index);
 
+// ---- 工程信息（文档 Part 5「草稿数据结构」）----
+
+/// 读取工程名称（需 nc_free_string；NULL = 失败）。
+char* nc_project_name(const NcEditor* editor);
+/// 设置工程名称（草稿重命名；返回错误码）。
+int32_t nc_set_project_name(NcEditor* editor, const char* name);
+
+/// 工程画布尺寸（像素；主序列）。
+int32_t nc_project_canvas(const NcEditor* editor, int32_t* out_width, int32_t* out_height);
+/// 设置工程画布尺寸（文档 Part 3-C「比例」；宽高必须为正且 <= 16384）。
+int32_t nc_set_project_canvas(NcEditor* editor, int32_t width, int32_t height);
+/// 读取工程帧率（分子/分母；如 30/1）。
+int32_t nc_project_frame_rate(const NcEditor* editor, int64_t* out_num, int64_t* out_den);
+/// 设置工程帧率（分子/分母均须为正且 <= 1000）。
+int32_t nc_set_project_frame_rate(NcEditor* editor, int64_t num, int64_t den);
+
+// ---- 历史（撤销/重做；文档 Part 5(续) 第32节）----
+
+/// 是否可撤销 / 可重做（1/0）。
+int32_t nc_can_undo(const NcEditor* editor);
+int32_t nc_can_redo(const NcEditor* editor);
+/// 可撤销步数 / 可重做步数。
+int32_t nc_undo_count(const NcEditor* editor);
+int32_t nc_redo_count(const NcEditor* editor);
+/// 读取第 index 条历史记录名称（按时间顺序；需 nc_free_string；越界 = NULL）。
+/// 供 UI 历史面板展示（如「分割片段」「删除片段」）。
+char* nc_undo_history_name(const NcEditor* editor, int32_t index);
+/// 清空撤销历史（退出剪辑页重新进入时调用；文档第 32 节「栈清空时机」）。
+int32_t nc_clear_undo_history(NcEditor* editor);
+/// 设置撤销栈最大深度（文档第 32 节要求 20 步；0 = 不限制；默认 0 不限制）。
+/// 说明：超出深度时最早记录被移除（不再可撤销）。
+int32_t nc_set_undo_depth_limit(NcEditor* editor, int32_t max_steps);
+
+// ---- 素材管理（文档 Part 5「轨道数据」/ Part 6 素材丢失）----
+
+/// 素材数量。
+int32_t nc_asset_count(const NcEditor* editor);
+/// 读取第 index 个素材：ID / 名称 / 路径 / 类型 / 时长。
+/// - out_name/out_path 需 nc_free_string（可 NULL）；
+/// - out_type：0=video 1=audio 2=image 3=unknown；
+/// 返回 NC_OK 或错误码。
+int32_t nc_asset_get(const NcEditor* editor, int32_t index, uint64_t* out_asset_id,
+                     char** out_name, char** out_path, int32_t* out_type,
+                     int64_t* out_duration_us);
+/// 删除素材（若被片段引用则失败，错误码 NC_ERROR_LOCKED）。
+int32_t nc_remove_asset(NcEditor* editor, uint64_t asset_id);
+/// 查询素材是否被任意片段引用（1 = 已引用；0 = 未引用；-1 = 参数错误）。
+int32_t nc_asset_is_referenced(const NcEditor* editor, uint64_t asset_id);
+
 // ---- 编辑操作（最小集；逐步扩展） ----
 
 /// 添加素材，返回素材 ID（0 = 失败）。
@@ -83,6 +132,78 @@ uint64_t nc_insert_clip(NcEditor* editor, int32_t track_index, uint64_t asset_id
 /// 撤销 / 重做。
 int32_t nc_undo(NcEditor* editor);
 int32_t nc_redo(NcEditor* editor);
+
+// ---- 轨道管理（文档 Part 2-B 第8节「轨道控制列」+ 第28节「新增轨道」）----
+
+/// 读取轨道信息：ID / 名称 / 类型 / 标志位 / 轨道增益。
+/// - out_type：0=video 1=audio 2=subtitle 3=effect；
+/// - out_locked/out_muted/out_hidden/out_solo：1/0；
+/// - out_name 需 nc_free_string（可 NULL）。
+int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_track_id,
+                     char** out_name, int32_t* out_type, int32_t* out_locked,
+                     int32_t* out_muted, int32_t* out_hidden, int32_t* out_solo,
+                     double* out_gain_db);
+
+/// 删除轨道（含其中片段；可撤销）。
+int32_t nc_remove_track(NcEditor* editor, int32_t track_index);
+/// 重命名轨道。
+int32_t nc_rename_track(NcEditor* editor, int32_t track_index, const char* new_name);
+/// 设置轨道锁定 / 静音 / 隐藏（1/0）。
+int32_t nc_set_track_locked(NcEditor* editor, int32_t track_index, int32_t locked);
+int32_t nc_set_track_muted(NcEditor* editor, int32_t track_index, int32_t muted);
+int32_t nc_set_track_hidden(NcEditor* editor, int32_t track_index, int32_t hidden);
+
+// ---- 片段编辑（文档 Part 3-A 第12节「剪辑」基础操作）----
+
+/// 删除片段（可撤销；文档「剪辑 → 删除」）。
+int32_t nc_remove_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id);
+/// 分割片段（以 at_us 为界切割为前后两段；文档「剪辑 → 分割」）。
+int32_t nc_split_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id, int64_t at_us);
+/// 移动片段到新起点（同轨道；文档「剪辑」拖动）。
+int32_t nc_move_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                     int64_t new_start_us);
+/// 跨轨移动片段（文档「剪辑」跨轨拖动）。
+int32_t nc_move_clip_to_track(NcEditor* editor, int32_t from_track, int32_t to_track,
+                              uint64_t clip_id, int64_t new_start_us);
+/// 裁剪片段起点 / 终点（文档「剪辑」拖动片段边缘）。
+int32_t nc_trim_clip_start(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int64_t new_start_us);
+int32_t nc_trim_clip_end(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         int64_t new_end_us);
+/// 设置片段速度（分子/分母；文档「剪辑 → 变速 → 常规」0.1x~100x）。
+int32_t nc_set_clip_speed(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int64_t speed_num, int64_t speed_den);
+/// 波纹删除（删除片段并把后续片段前移；文档「剪辑」）。
+int32_t nc_ripple_delete(NcEditor* editor, int32_t track_index, const uint64_t* clip_ids,
+                         int32_t clip_count);
+
+/// 复制片段（在原片段紧随其后插入副本；返回新片段 ID，0 = 失败）。
+/// 文档「剪辑 → 复制」。
+uint64_t nc_duplicate_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id);
+/// 在播放头位置插入定格帧片段（默认时长 default_duration_us；文档「剪辑 → 定格」）。
+/// 说明：从源素材 at_us 处取一帧作为静止画面（duration 由调用方指定，默认 2s）。
+uint64_t nc_freeze_frame(NcEditor* editor, int32_t track_index, uint64_t clip_id, int64_t at_us,
+                         int64_t duration_us);
+/// 倒放片段（画面顺序反转；文档「剪辑 → 倒放」）。
+/// 说明：等价于 speed = -1 语义的时长等价实现（保持时间轴时长不变）。
+int32_t nc_reverse_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
+/// 读取片段完整信息（时间/素材/速度/启用状态）。
+/// - out_speed_num/out_speed_den：播放速度（如 2/1）；
+/// 返回 NC_OK 或错误码。
+int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_index,
+                     uint64_t* out_clip_id, int64_t* out_start_us, int64_t* out_duration_us,
+                     uint64_t* out_asset_id, int64_t* out_speed_num, int64_t* out_speed_den,
+                     int32_t* out_enabled);
+/// 设置片段启用/禁用（1/0；文档「剪辑」片段开关）。
+int32_t nc_set_clip_enabled(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t enabled);
+/// 读取片段透明度（0~1；由动画通道 Opacity 的常量值决定；无关键帧 = 静态值）。
+int32_t nc_get_clip_opacity(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            double* out_opacity);
+/// 设置片段透明度（0~1；文档「剪辑 → 不透明度」）。
+int32_t nc_set_clip_opacity(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            double opacity);
 
 // ---- 字幕 ----
 

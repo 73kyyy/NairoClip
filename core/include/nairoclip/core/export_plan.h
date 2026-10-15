@@ -33,6 +33,9 @@ struct RenderClip {
     Time sourceIn;
     Time sourceOut;
     Rational speed = Rational::make(1);
+    /// 倒放（文档「✂️剪辑 → 倒放」）：true 时源时间映射反转
+    /// （sourceIn + (duration − local) × speed）。与速度曲线互斥。
+    bool reversed = false;
     /// 导出用：该片段的动画采样（关键属性，逐帧渲染时重采样）。
     /// 这里仅携带标记；具体采样由渲染器在每帧调用 animation 完成。
     bool hasAnimation = false;

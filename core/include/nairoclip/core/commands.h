@@ -433,6 +433,59 @@ private:
     std::optional<DenoiseStrength> before_;
 };
 
+/// 设置片段启用/禁用（文档「剪辑」片段开关）。
+class SetClipEnabledCommand : public Command {
+public:
+    SetClipEnabledCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId, bool enabled);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return enabled_ ? "启用片段" : "禁用片段"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    bool enabled_ = true;
+    std::optional<bool> before_;
+};
+
+/// 设置片段倒放（文档「✂️剪辑 → 倒放」）。
+class SetClipReversedCommand : public Command {
+public:
+    SetClipReversedCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId, bool reversed);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return reversed_ ? "倒放片段" : "取消倒放"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    bool reversed_ = false;
+    std::optional<bool> before_;
+};
+
+/// 设置片段透明度（文档「✂️剪辑 → 不透明度」）。
+/// 语义：写入动画通道 Opacity 的整段静态值（清除该通道关键帧）。
+class SetClipOpacityCommand : public Command {
+public:
+    SetClipOpacityCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId, double opacity);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "调整不透明度"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    double opacity_ = 1.0;
+    /// 快照：原通道关键帧（nullopt = 原本无曲线）。
+    std::optional<KeyframeTrack> beforeCurve_;
+};
+
 
 /// 添加/更新片段特效。
 class AddEffectCommand : public Command {

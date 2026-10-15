@@ -412,6 +412,21 @@ Result TimelineEditor::setClipDenoise(SequenceId sequenceId, TrackId trackId, Cl
         std::make_unique<SetClipDenoiseCommand>(sequenceId, trackId, clipId, strength));
 }
 
+Result TimelineEditor::setClipEnabled(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                      bool enabled) {
+    return commit(std::make_unique<SetClipEnabledCommand>(sequenceId, trackId, clipId, enabled));
+}
+
+Result TimelineEditor::setClipReversed(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                       bool reversed) {
+    return commit(std::make_unique<SetClipReversedCommand>(sequenceId, trackId, clipId, reversed));
+}
+
+Result TimelineEditor::setClipOpacity(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                      double opacity) {
+    return commit(std::make_unique<SetClipOpacityCommand>(sequenceId, trackId, clipId, opacity));
+}
+
 Result TimelineEditor::upsertMarker(SequenceId sequenceId, Marker marker) {
     return commit(std::make_unique<UpsertMarkerCommand>(sequenceId, std::move(marker)));
 }

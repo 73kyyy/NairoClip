@@ -75,7 +75,7 @@ bool PreviewRenderer::readClipSourceFrame(const Clip& clip, const Time& timeline
         it = readers_.emplace(clip.asset.value, std::move(reader)).first;
     }
     MediaReader* reader = it->second.get();
-    const Time sourceTime = clip.sourceIn + Time{(timelineTime - clip.start) * clip.speed};
+    const Time sourceTime = clip.sourceTimeAtTimeline(timelineTime);
     if (!reader->seek(sourceTime).isOk()) {
         return false;
     }
@@ -197,7 +197,7 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
         it = readers_.emplace(clip->asset.value, std::move(reader)).first;
     }
     MediaReader* reader = it->second.get();
-    const Time sourceTime = clip->sourceIn + Time{(timelineTime - clip->start) * clip->speed};
+    const Time sourceTime = clip->sourceTimeAtTimeline(timelineTime);
     if (!reader->seek(sourceTime).isOk()) {
         return frame;
     }

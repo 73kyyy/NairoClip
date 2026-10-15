@@ -377,7 +377,22 @@ Result UndoStack::pushInternal(Project& project, std::unique_ptr<Command> comman
     }
     commands_.push_back(std::move(command));
     cursor_ = commands_.size();
+    trimToMaxDepth();
     return Result::ok();
+}
+
+void UndoStack::setMaxDepth(std::size_t maxSteps) {
+    maxDepth_ = maxSteps;
+    trimToMaxDepth();
+}
+
+void UndoStack::trimToMaxDepth() {
+    if (maxDepth_ == 0 || commands_.size() <= maxDepth_) {
+        return;
+    }
+    const std::size_t drop = commands_.size() - maxDepth_;
+    commands_.erase(commands_.begin(), commands_.begin() + static_cast<std::ptrdiff_t>(drop));
+    cursor_ = cursor_ > drop ? cursor_ - drop : 0;
 }
 
 void UndoStack::beginTransaction(const std::string& name) {
@@ -1311,6 +1326,128 @@ Result SetClipDenoiseCommand::revert(Project& project) {
         return Result::fail(ErrorCode::NotFound, "片段不存在");
     }
     clip->denoise = *before_;
+    return Result::ok();
+}
+
+// ---------------------------------------------------------------------------
+// 设置片段启用/禁用（文档「剪辑」片段开关）
+// ---------------------------------------------------------------------------
+
+SetClipEnabledCommand::SetClipEnabledCommand(SequenceId sequenceId, TrackId trackId,
+                                             ClipId clipId, bool enabled)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), enabled_(enabled) {}
+
+Result SetClipEnabledCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) {
+        before_ = clip->enabled;
+    }
+    clip->enabled = enabled_;
+    return Result::ok();
+}
+
+Result SetClipEnabledCommand::revert(Project& project) {
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少启用状态快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    clip->enabled = *before_;
+    return Result::ok();
+}
+
+// ---------------------------------------------------------------------------
+// 设置片段倒放（文档「✂️剪辑 → 倒放」）
+// ---------------------------------------------------------------------------
+
+SetClipReversedCommand::SetClipReversedCommand(SequenceId sequenceId, TrackId trackId,
+                                               ClipId clipId, bool reversed)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), reversed_(reversed) {}
+
+Result SetClipReversedCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) {
+        before_ = clip->reversed;
+    }
+    clip->reversed = reversed_;
+    // 倒放与速度曲线互斥（倒放映射不参与曲线积分；清空避免语义歧义）
+    if (reversed_ && !clip->speedCurve.empty()) {
+        clip->speedCurve.clear();
+    }
+    return Result::ok();
+}
+
+Result SetClipReversedCommand::revert(Project& project) {
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少倒放状态快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    clip->reversed = *before_;
+    return Result::ok();
+}
+
+// ---------------------------------------------------------------------------
+// 设置片段透明度（文档「✂️剪辑 → 不透明度」）
+// ---------------------------------------------------------------------------
+
+SetClipOpacityCommand::SetClipOpacityCommand(SequenceId sequenceId, TrackId trackId,
+                                             ClipId clipId, double opacity)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), opacity_(opacity) {}
+
+Result SetClipOpacityCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    const PropertySpec spec = propertySpec(ClipProperty::Opacity);
+    if (opacity_ < spec.minValue || opacity_ > spec.maxValue) {
+        return Result::fail(ErrorCode::InvalidArgument, "透明度需在 0..1 之间");
+    }
+    if (!beforeCurve_.has_value()) {
+        const KeyframeTrack* curve = clip->animation.findCurve(ClipProperty::Opacity);
+        if (curve != nullptr) {
+            beforeCurve_ = *curve;
+        } else {
+            beforeCurve_ = KeyframeTrack{};  // 空轨道（无曲线）
+        }
+    }
+    // 清除关键帧并写入单点静态值（时刻 0，等同整段恒定）；
+    // 透明度 = 默认值 1.0 时移除曲线（回归初始态，序列化不写）。
+    KeyframeTrack& track = clip->animation.curve(ClipProperty::Opacity);
+    track.clear();
+    if (opacity_ != spec.defaultValue) {
+        Keyframe keyframe;
+        keyframe.time = Time{};
+        keyframe.value = opacity_;
+        keyframe.easing = Easing::linear();
+        track.insert(keyframe);
+    }
+    return Result::ok();
+}
+
+Result SetClipOpacityCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforeCurve_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少透明度快照");
+    }
+    clip->animation.removeCurve(ClipProperty::Opacity);
+    if (!beforeCurve_->empty()) {
+        clip->animation.curve(ClipProperty::Opacity) = *beforeCurve_;
+    }
     return Result::ok();
 }
 
