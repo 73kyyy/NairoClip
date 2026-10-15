@@ -77,6 +77,9 @@ public:
     Result trimClipEnd(SequenceId sequenceId, TrackId trackId, ClipId clipId, const Time& newEnd);
     Result setClipSpeed(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                         const Rational& newSpeed);
+    /// 设置片段速度曲线（文档「剪辑 → 变速 → 曲线」；空曲线 = 恒速）。
+    Result setClipSpeedCurve(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                             SpeedCurve curve);
     /// 跨轨移动片段到目标轨道指定起点（源=目标时拒绝，请用 moveClip）。
     Result moveClipToTrack(SequenceId sequenceId, TrackId fromTrack, TrackId toTrack,
                            ClipId clipId, const Time& newStart);

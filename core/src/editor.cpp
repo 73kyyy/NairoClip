@@ -368,6 +368,45 @@ Result TimelineEditor::moveClipToTrack(SequenceId sequenceId, TrackId fromTrack,
                                                            clipId, newStart));
 }
 
+Result TimelineEditor::setClipSpeedCurve(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                         SpeedCurve curve) {
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    const Clip* clip = track->findClip(clipId);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!curve.invariantsHold()) {
+        return Result::fail(ErrorCode::InvalidArgument, "速度曲线不满足不变量");
+    }
+    // 时长语义：非空曲线时时间轴时长 = 曲线积分（源区间 [sourceIn, sourceOut)）
+    Clip after = *clip;
+    after.speedCurve = std::move(curve);
+    if (!after.speedCurve.empty()) {
+        const Time sourceOut = clip->sourceIn + clip->duration * clip->speed;
+        const Time mapped = after.speedCurve.timelineDuration(clip->sourceIn, sourceOut,
+                                                              clip->speed);
+        if (mapped.isPositive()) {
+            after.duration = mapped;
+        }
+    }
+    // 倒放与曲线互斥（倒放映射不参与曲线积分）
+    if (after.reversed && !after.speedCurve.empty()) {
+        after.reversed = false;
+    }
+    const Result check = validateClipPlacement(project_, *track, after, clipId);
+    if (!check.isOk()) {
+        return check;
+    }
+    return commit(
+        std::make_unique<SetClipCommand>(sequenceId, trackId, std::move(after), "变速曲线"));
+}
+
 Result TimelineEditor::upsertSubtitle(SequenceId sequenceId, SubtitleCue cue) {
     return commit(std::make_unique<UpsertSubtitleCommand>(sequenceId, std::move(cue)));
 }

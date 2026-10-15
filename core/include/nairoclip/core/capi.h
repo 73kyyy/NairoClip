@@ -248,6 +248,144 @@ int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t i
 int32_t nc_clip_get(const NcEditor* editor, int32_t track_index, int32_t clip_index,
                     int64_t* out_start_us, int64_t* out_duration_us, uint64_t* out_asset_id);
 
+// ---- 预览渲染（文档 Part 2-A「预览区」；UI 逐帧取画面）----
+// 说明：预览为「按需单帧」路径（与导出顺序全帧不同）；渲染器内部缓存解码器，
+//       反复调用只解码目标帧。缓存随工程结构变化自动失效（载入/编辑后重建）。
+
+/// 渲染指定时间轴时刻的一帧（RGBA8）。
+/// - time_us：时间轴时刻（微秒）；
+/// - out_width/out_height：画布尺寸（可空）；
+/// - out_rgba：出参（库分配；需 nc_free_buffer 释放；容量 = 宽 × 高 × 4）；
+/// - out_clip_id：出参（可空）该时刻活动片段 ID（0 = 无片段）；
+/// - out_opacity/out_scale/out_pos_x/out_pos_y/out_rotation：出参（可空）动画快照；
+/// - out_transition_type/out_transition_progress：出参（可空）转场信息（-1 = 无）；
+/// 返回 NC_OK（画面可能为纯背景色 = 无素材时刻）。
+int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
+                          int32_t* out_height, uint8_t** out_rgba, uint64_t* out_clip_id,
+                          double* out_opacity, double* out_scale, double* out_pos_x,
+                          double* out_pos_y, double* out_rotation,
+                          int32_t* out_transition_type, double* out_transition_progress);
+
+/// 渲染指定时刻的字幕文本列表（扁平序列化：以 '\n' 分隔；需 nc_free_string；
+/// 无字幕返回空字符串；NULL 表示参数错误）。
+char* nc_preview_subtitles(const NcEditor* editor, int64_t time_us);
+
+/// 使预览缓存失效（工程结构被直接修改后调用；编辑操作/载入会自动失效，
+/// 一般不必手动调用）。
+void nc_preview_invalidate(NcEditor* editor);
+
+/// 重建预览渲染器缓存（工程被外部修改后调用；一般不必手动调用，
+/// nc_project_load/编辑操作会自动失效）。
+void nc_preview_invalidate(NcEditor* editor);
+
+// ---- 缩略图（文档 Part 2-B「时间轴胶片条」/ 素材库预览）----
+
+/// 为素材生成缩略图序列（真实解码）。
+/// - asset_id：素材 ID；
+/// - count：目标数量（1..64；<=0 用 8）；
+/// - max_width/max_height：单张最大尺寸（<=0 用 160x90）；
+/// - out_images：出参（库分配）RGBA8 图像数组指针（每个元素需 nc_free_buffer）；
+///   容量 = count；
+/// - out_times_us：出参（可空）每张缩略图对应的源时间（微秒；数组长度 = 返回数）；
+/// - out_count：出参（可空）实际生成数量；
+/// 返回 NC_OK 或错误码（素材不存在/无法解码）。
+int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count,
+                              int32_t max_width, int32_t max_height,
+                              uint8_t** out_images, int64_t* out_times_us,
+                              int32_t* out_count);
+
+/// 查询缩略图尺寸（生成后每张输出尺寸一致；未生成返回 0）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_thumbnail_size(const NcEditor* editor, int32_t* out_width, int32_t* out_height);
+
+// ---- 音频波形（文档 Part 2-B「音频轨波形」）----
+
+/// 为素材生成音频波形（真实解码 + 桶化 min/max/RMS）。
+/// - asset_id：素材 ID；
+/// - bucket_count：目标桶数（1..100000；<=0 用 512）；
+/// - out_peak：出参（可空）全波形峰值（0..1）；
+/// - out_sample_rate/out_channels：出参（可空）源格式；
+/// 返回 NC_OK 或错误码；波形数据经 nc_waveform_bucket_get 逐桶读取。
+int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket_count,
+                             double* out_peak, int32_t* out_sample_rate,
+                             int32_t* out_channels);
+/// 读取上次生成的波形桶数（未生成返回 0）。
+int32_t nc_waveform_bucket_count(const NcEditor* editor);
+/// 读取单个桶数据（min/max/rms；越界返回 NC_ERROR_OUT_OF_RANGE）。
+int32_t nc_waveform_bucket_get(const NcEditor* editor, int32_t index, double* out_min,
+                               double* out_max, double* out_rms);
+
+// ---- 场景检测（文档「剪辑节奏」/ 章节自动生成的前置分析）----
+
+/// 对工程主序列执行镜头边界检测（真实解码采样）。
+/// - step_seconds：采样步长（<=0 = 自适应 0.25~1s）；
+/// - max_samples：采样上限（<=0 = 默认 600）；
+/// - out_boundary_count：出参（可空）检测到的镜头数；
+/// - out_boundaries：出参（可空）边界时间数组（库分配；需 nc_free_buffer；
+///   每 2 个 double 一组：[start_s, end_s]）；
+/// 返回 NC_OK 或错误码。
+int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_samples,
+                        int32_t* out_boundary_count, double** out_boundaries);
+
+// ---- 节拍检测（文档「音乐卡点」/ 动感特效节拍数据）----
+
+/// 对指定音频轨执行节拍检测（真实解码 + 精细周期扫描）。
+/// - track_index：音频轨下标（<0 = 首个音频轨）；
+/// - out_bpm：出参（可空）检测到的 BPM；
+/// - out_confidence：出参（可空）置信度 0..1；
+/// - out_beat_count：出参（可空）节拍数量；
+/// - out_beats：出参（可空）节拍时间数组（秒；库分配；需 nc_free_buffer）；
+/// 返回 NC_OK 或错误码。
+int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
+                       double* out_confidence, int32_t* out_beat_count, double** out_beats);
+
+// ---- 速度曲线（文档「剪辑 → 变速 → 曲线」）----
+
+/// 设置片段速度曲线的控制点（整组替换；sourceTimes 为片段本地时间秒）。
+/// - speeds：对应速度（0.1..10）；
+/// - easings：缓动类型（0 线性 / 1 缓入 / 2 缓出 / 3 缓入缓出 / 4 阶梯）；
+/// - point_count：控制点数量（0 = 清空曲线恢复恒速）；
+/// 返回 NC_OK 或错误码。
+int32_t nc_set_clip_speed_curve(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                const double* source_times, const double* speeds,
+                                const int32_t* easings, int32_t point_count);
+/// 读取片段速度曲线控制点数量（无曲线返回 0；错误返回 -1）。
+int32_t nc_clip_speed_curve_count(const NcEditor* editor, int32_t track_index,
+                                  uint64_t clip_id);
+/// 读取第 index 个控制点（源时间秒/速度/缓动；越界返回错误码）。
+int32_t nc_clip_speed_curve_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                int32_t index, double* out_source_seconds, double* out_speed,
+                                int32_t* out_easing);
+
+// ---- 关键帧查询（文档「自定义关键帧转场」/ 参数动画面板）----
+
+/// 读取片段某通道的关键帧数量（property 0..5）。
+int32_t nc_keyframe_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t property);
+/// 读取第 index 个关键帧（时刻微秒/数值/缓动类型 0..4）。
+int32_t nc_keyframe_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                        int32_t property, int32_t index, int64_t* out_time_us,
+                        double* out_value, int32_t* out_easing);
+
+// ---- 标记（文档 Part 3 时间轴标记/批注）----
+
+/// 添加/更新标记（同 ID 替换；返回 MarkerId，0 = 失败）。
+/// - time_us：标记时间；name：名称（可空 = 默认）；color：颜色字符串（可空 = 默认）。
+uint64_t nc_add_marker(NcEditor* editor, int64_t time_us, const char* name, const char* color);
+/// 删除标记。
+int32_t nc_remove_marker(NcEditor* editor, uint64_t marker_id);
+/// 标记数量。
+int32_t nc_marker_count(const NcEditor* editor);
+/// 读取第 index 个标记（时间/名称/颜色；字符串需 nc_free_string）。
+int32_t nc_marker_get(const NcEditor* editor, int32_t index, uint64_t* out_marker_id,
+                      int64_t* out_time_us, char** out_name, char** out_color);
+
+// ---- 音画分离（文档「剪辑」音画分离）----
+
+/// 将视频片段的音频分离到目标音频轨（同素材同时间；返回新音频片段 ID，0 = 失败）。
+uint64_t nc_detach_audio(NcEditor* editor, int32_t video_track_index, uint64_t video_clip_id,
+                         int32_t audio_track_index);
+
 // ---- 特效 ----
 
 /// 给片段添加特效（type/value 见 core::EffectType / effectSpec 范围）。

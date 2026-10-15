@@ -24,6 +24,13 @@
 #include "nairoclip/core/proxy.h"
 #include "nairoclip/core/model_manager.h"
 #include "nairoclip/core/serialization.h"
+#include "nairoclip/core/preview.h"
+#include "nairoclip/core/thumbnail.h"
+#include "nairoclip/core/waveform.h"
+#include "nairoclip/core/scene_detect.h"
+#include "nairoclip/core/beat_detect.h"
+#include "nairoclip/core/speed_curve.h"
+#include "nairoclip/core/commands.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/export_plan.h"
@@ -69,6 +76,21 @@ struct NcEditor {
     InvisibleWatermarkSpec invisibleWatermark;
     /// 会员心跳状态机（文档第 8 部分五；平台层驱动）。
     HeartbeatState heartbeat;
+    /// 预览渲染器缓存（nc_preview_render；编辑操作后失效重建）。
+    std::unique_ptr<PreviewRenderer> previewRenderer;
+    /// 预览缓存有效性签名（编辑历史数 + 载入代次 + 直接修改代次 + 画布）。
+    /// 说明：所有片段级编辑经编辑栈（undoCount 变化）；画布/轨道标志等
+    /// 直接修改经 directEditCount 记账；nc_project_load 递增 loadCount。
+    std::uint64_t previewSignature = 0;
+    std::uint64_t loadCount = 0;        ///< 工程载入代次
+    std::uint64_t directEditCount = 0;  ///< 绕过编辑栈的直接修改代次
+    /// 缩略图缓存尺寸（nc_thumbnail_generate 后可用）。
+    int thumbnailWidth = 0;
+    int thumbnailHeight = 0;
+    /// 波形缓存（nc_waveform_generate 生成；逐桶读取）。
+    Waveform waveformCache;
+    /// 预览渲染器专用读取器工厂（仅 FFmpeg 构建下可用）。
+    std::unique_ptr<MediaReaderFactory> previewFactory;
 };
 
 namespace {
@@ -123,6 +145,10 @@ NcEditor* nc_editor_create(void) {
     Sequence seq;
     seq.id = SequenceId{handle->project.ids.next()};
     handle->project.sequences.push_back(seq);
+#ifdef NAIROCLIP_HAS_FFMPEG
+    // 预览渲染器读取器工厂（FFmpeg 构建下启用真实解码预览）
+    handle->previewFactory = std::make_unique<FFmpegReaderFactory>();
+#endif
     return handle;
 }
 
@@ -2484,6 +2510,800 @@ int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_
 }
 
 void nc_free_buffer(uint8_t* buffer) { delete[] buffer; }
+
+// ===========================================================================
+// 第 2 批：预览渲染 / 缩略图 / 波形 / 场景检测 / 节拍检测 / 速度曲线 /
+//          关键帧查询 / 标记 / 音画分离
+// ===========================================================================
+
+namespace {
+
+/// 预览缓存签名（编辑栈计数 + 载入 + 直接修改 + 画布尺寸）。
+std::uint64_t previewSignatureOf(const NcEditor* editor) {
+    const std::uint64_t edits = editor->editor->undoCount() + editor->editor->redoCount();
+    const Sequence* seq = editor->project.mainSequence();
+    std::uint64_t canvas = 0;
+    if (seq != nullptr) {
+        canvas = static_cast<std::uint64_t>(seq->width) * 1000003u +
+                 static_cast<std::uint64_t>(seq->height);
+    }
+    return edits * 1000000007ull + editor->loadCount * 7919ull +
+           editor->directEditCount * 104729ull + canvas;
+}
+
+/// 取（必要时重建）预览渲染器。
+PreviewRenderer* ensurePreviewRenderer(NcEditor* editor) {
+    if (editor == nullptr || editor->project.mainSequence() == nullptr) {
+        return nullptr;
+    }
+    const std::uint64_t signature = previewSignatureOf(editor);
+    if (editor->previewRenderer == nullptr || editor->previewSignature != signature) {
+        // 重建（自带解码器缓存；旧缓存自然释放）
+        editor->previewRenderer.reset(new (std::nothrow)
+                                          PreviewRenderer(editor->project,
+                                                          *editor->previewFactory));
+        editor->previewSignature = signature;
+        editor->directEditCount = 0;  // 已并入签名（后续直接修改重新计数）
+        editor->loadCount = 0;
+    }
+    return editor->previewRenderer.get();
+}
+
+}  // namespace
+
+int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
+                          int32_t* out_height, uint8_t** out_rgba, uint64_t* out_clip_id,
+                          double* out_opacity, double* out_scale, double* out_pos_x,
+                          double* out_pos_y, double* out_rotation,
+                          int32_t* out_transition_type, double* out_transition_progress) {
+    if (editor == nullptr || time_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    PreviewRenderer* renderer = ensurePreviewRenderer(editor);
+    if (renderer == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const PreviewFrame frame = renderer->renderAt(fromMicroseconds(time_us));
+    if (out_width != nullptr) *out_width = frame.width;
+    if (out_height != nullptr) *out_height = frame.height;
+    if (out_clip_id != nullptr) *out_clip_id = frame.clipId;
+    if (out_opacity != nullptr) *out_opacity = frame.opacity;
+    if (out_scale != nullptr) *out_scale = frame.scale;
+    if (out_pos_x != nullptr) *out_pos_x = frame.posX;
+    if (out_pos_y != nullptr) *out_pos_y = frame.posY;
+    if (out_rotation != nullptr) *out_rotation = frame.rotation;
+    if (out_transition_type != nullptr) *out_transition_type = frame.transitionType;
+    if (out_transition_progress != nullptr) *out_transition_progress = frame.transitionProgress;
+    if (out_rgba != nullptr) {
+        const std::size_t bytes = frame.rgba.size();
+        if (bytes == 0) {
+            *out_rgba = nullptr;
+        } else {
+            // 无画面时刻：返回画布尺寸的纯黑帧（UI 显示黑场更直观）
+            std::uint8_t* buffer = new (std::nothrow) std::uint8_t[bytes];
+            if (buffer == nullptr) {
+                return NC_ERROR_INTERNAL;
+            }
+            std::memcpy(buffer, frame.rgba.data(), bytes);
+            *out_rgba = buffer;
+        }
+    }
+    return NC_OK;
+#else
+    // 无 FFmpeg：预览无解码能力（明确失败，不伪造）
+    (void)out_width; (void)out_height; (void)out_rgba; (void)out_clip_id;
+    (void)out_opacity; (void)out_scale; (void)out_pos_x; (void)out_pos_y;
+    (void)out_rotation; (void)out_transition_type; (void)out_transition_progress;
+    return NC_ERROR_UNSUPPORTED;
+#endif
+}
+
+char* nc_preview_subtitles(const NcEditor* editor, int64_t time_us) {
+    if (editor == nullptr || time_us < 0) {
+        return nullptr;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return nullptr;
+    }
+    std::vector<std::string> lines;
+    for (const auto& cue : seq->subtitles.cues()) {
+        if (cue.start <= fromMicroseconds(time_us) && fromMicroseconds(time_us) < cue.end()) {
+            lines.push_back(cue.text);
+        }
+    }
+    std::string joined;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (i > 0) joined.push_back('\n');
+        joined += lines[i];
+    }
+    return dupString(joined);
+}
+
+void nc_preview_invalidate(NcEditor* editor) {
+    if (editor == nullptr) {
+        return;
+    }
+    editor->previewRenderer.reset();
+    ++editor->directEditCount;
+}
+
+// ---- 缩略图 ----
+
+int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count,
+                              int32_t max_width, int32_t max_height,
+                              uint8_t** out_images, int64_t* out_times_us,
+                              int32_t* out_count) {
+    if (editor == nullptr || asset_id == 0 || count < 0 || count > 64) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    ThumbnailConfig config;
+    config.count = count > 0 ? count : 8;
+    if (max_width > 0) config.maxWidth = max_width;
+    if (max_height > 0) config.maxHeight = max_height;
+    FFmpegMediaReader reader;
+    const std::vector<Thumbnail> thumbs =
+        generateThumbnails(reader, asset->path, asset->duration, config);
+    if (out_count != nullptr) *out_count = static_cast<int32_t>(thumbs.size());
+    if (!thumbs.empty()) {
+        editor->thumbnailWidth = thumbs.front().width;
+        editor->thumbnailHeight = thumbs.front().height;
+    }
+    if (out_images != nullptr) {
+        if (thumbs.empty()) {
+            *out_images = nullptr;
+        } else {
+            // 输出为「拼接缓冲」：所有缩略图依次排列（每张 width×height×4）。
+            // UI 按 stride = width*height*4 逐张切分。
+            const std::size_t perImage = static_cast<std::size_t>(thumbs.front().width) *
+                                         static_cast<std::size_t>(thumbs.front().height) * 4;
+            std::uint8_t* buffer = new (std::nothrow) std::uint8_t[perImage * thumbs.size()];
+            if (buffer == nullptr) {
+                return NC_ERROR_INTERNAL;
+            }
+            for (std::size_t i = 0; i < thumbs.size(); ++i) {
+                std::memcpy(buffer + perImage * i, thumbs[i].rgba.data(),
+                            std::min(perImage, thumbs[i].rgba.size()));
+            }
+            *out_images = buffer;
+        }
+    }
+    if (out_times_us != nullptr) {
+        for (std::size_t i = 0; i < thumbs.size(); ++i) {
+            out_times_us[i] = toMicroseconds(thumbs[i].sourceTime);
+        }
+    }
+    return NC_OK;
+#else
+    (void)max_width; (void)max_height; (void)out_images; (void)out_times_us; (void)out_count;
+    return NC_ERROR_UNSUPPORTED;
+#endif
+}
+
+int32_t nc_thumbnail_size(const NcEditor* editor, int32_t* out_width, int32_t* out_height) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (out_width != nullptr) *out_width = editor->thumbnailWidth;
+    if (out_height != nullptr) *out_height = editor->thumbnailHeight;
+    return NC_OK;
+}
+
+// ---- 波形 ----
+
+int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket_count,
+                             double* out_peak, int32_t* out_sample_rate,
+                             int32_t* out_channels) {
+    if (editor == nullptr || asset_id == 0 || bucket_count < 0 || bucket_count > 100000) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    FFmpegMediaReader reader;
+    if (!reader.open(asset->path).isOk()) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    // 上限保护：只解码前 120s 音频（波形显示无需全片；避免长素材 OOM/耗时）
+    constexpr double kMaxSeconds = 120.0;
+    const double durationSeconds =
+        std::min(asset->duration.toDouble(), kMaxSeconds);
+    std::vector<AudioBlock> blocks;
+    AudioBlock block;
+    while (reader.readAudioBlock(block)) {
+        if (block.start.toDouble() >= durationSeconds) {
+            break;
+        }
+        blocks.push_back(std::move(block));
+    }
+    reader.close();
+    editor->waveformCache = buildWaveform(blocks, bucket_count > 0 ? bucket_count : 512);
+    if (out_peak != nullptr) *out_peak = editor->waveformCache.peak();
+    if (out_sample_rate != nullptr) *out_sample_rate = editor->waveformCache.sampleRate;
+    if (out_channels != nullptr) *out_channels = editor->waveformCache.channels;
+    return NC_OK;
+#else
+    (void)bucket_count; (void)out_peak; (void)out_sample_rate; (void)out_channels;
+    return NC_ERROR_UNSUPPORTED;
+#endif
+}
+
+int32_t nc_waveform_bucket_count(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(editor->waveformCache.buckets.size());
+}
+
+int32_t nc_waveform_bucket_get(const NcEditor* editor, int32_t index, double* out_min,
+                               double* out_max, double* out_rms) {
+    if (editor == nullptr || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const auto& buckets = editor->waveformCache.buckets;
+    if (static_cast<std::size_t>(index) >= buckets.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const WaveformBucket& bucket = buckets[static_cast<std::size_t>(index)];
+    if (out_min != nullptr) *out_min = bucket.minValue;
+    if (out_max != nullptr) *out_max = bucket.maxValue;
+    if (out_rms != nullptr) *out_rms = bucket.rms;
+    return NC_OK;
+}
+
+// ---- 场景检测 ----
+
+int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_samples,
+                        int32_t* out_boundary_count, double** out_boundaries) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    // 采集帧特征（真实解码；复用章节检测的采样约定）
+    std::vector<FrameFeature> features;
+    int sampleCap = max_samples > 0 ? max_samples : 600;
+    // 上一采样点状态（直方图差异 + 颜色差）
+    std::vector<std::uint8_t> prevLuma;
+    double prevR = 0.0;
+    double prevG = 0.0;
+    double prevB = 0.0;
+    for (const auto& track : seq->tracks) {
+        if (track.type != TrackType::Video || track.hidden) {
+            continue;
+        }
+        for (const auto& clip : track.clips) {
+            const MediaAsset* asset = editor->project.findAsset(clip.asset);
+            if (asset == nullptr || asset->isImage()) {
+                continue;
+            }
+            FFmpegMediaReader reader;
+            if (!reader.open(asset->path).isOk()) {
+                continue;
+            }
+            // 步长自适应：短片段细采样（0.25s），长片段粗采样（至 1s）
+            const double clipSeconds = clip.duration.toDouble();
+            double step = step_seconds > 0.0 ? step_seconds : clipSeconds / 24.0;
+            if (step_seconds <= 0.0) {
+                step = std::max(0.25, std::min(1.0, step));
+            }
+            if (step <= 0.0) step = 0.5;
+            for (double local = 0.0; local < clipSeconds; local += step) {
+                if (static_cast<int>(features.size()) >= sampleCap) {
+                    break;
+                }
+                const Time localTime =
+                    Rational::make(static_cast<std::int64_t>(local * 1000.0), 1000);
+                const Time sourceTime =
+                    clip.sourceTimeAt(localTime.isNegative() ? Time{} : localTime);
+                if (!reader.seek(sourceTime).isOk()) {
+                    break;
+                }
+                VideoFrame frame;
+                if (!reader.readVideoFrame(frame)) {
+                    break;
+                }
+                // 4x4 亮度网格 + 直方图差异（与章节检测采样约定一致：
+                // 均值差对镜头切换敏感度不足，直方图差异是主信号）
+                std::vector<std::uint8_t> lumaGrid;
+                std::vector<int> hist(8, 0);
+                const int stride = frame.stride > 0 ? frame.stride : frame.width * 4;
+                for (int gy = 0; gy < 4; ++gy) {
+                    for (int gx = 0; gx < 4; ++gx) {
+                        const int sx = frame.width > 0 ? gx * frame.width / 4 : 0;
+                        const int sy = frame.height > 0 ? gy * frame.height / 4 : 0;
+                        const std::uint8_t* px =
+                            frame.pixels.data() +
+                            static_cast<std::size_t>(sy) * static_cast<std::size_t>(stride) +
+                            static_cast<std::size_t>(sx) * 4;
+                        const int lumaValue =
+                            (px[0] * 299 + px[1] * 587 + px[2] * 114) / 1000;
+                        lumaGrid.push_back(static_cast<std::uint8_t>(std::min(255, lumaValue)));
+                        hist[std::min(7, lumaValue / 32)]++;
+                    }
+                }
+                // 整帧均值（供颜色差）
+                double sumR2 = 0.0;
+                double sumG2 = 0.0;
+                double sumB2 = 0.0;
+                std::size_t count2 = 0;
+                for (int y = 0; y < frame.height; y += 4) {
+                    const std::uint8_t* row =
+                        frame.pixels.data() +
+                        static_cast<std::size_t>(y) * static_cast<std::size_t>(stride);
+                    for (int x = 0; x < frame.width; x += 4) {
+                        const std::uint8_t* px = row + static_cast<std::size_t>(x) * 4;
+                        sumR2 += px[0];
+                        sumG2 += px[1];
+                        sumB2 += px[2];
+                        ++count2;
+                    }
+                }
+                FrameFeature feature;
+                feature.timestamp = clip.start + localTime;
+                if (count2 > 0) {
+                    feature.avgR = sumR2 / static_cast<double>(count2) / 255.0;
+                    feature.avgG = sumG2 / static_cast<double>(count2) / 255.0;
+                    feature.avgB = sumB2 / static_cast<double>(count2) / 255.0;
+                }
+                double diff = 0.0;
+                if (!prevLuma.empty()) {
+                    std::vector<int> prevHist(8, 0);
+                    for (const auto v : prevLuma) {
+                        prevHist[v / 32]++;
+                    }
+                    int sumAbs = 0;
+                    int total = 0;
+                    for (int i = 0; i < 8; ++i) {
+                        sumAbs += std::abs(hist[static_cast<std::size_t>(i)] -
+                                           prevHist[static_cast<std::size_t>(i)]);
+                        total += std::max(hist[static_cast<std::size_t>(i)],
+                                          prevHist[static_cast<std::size_t>(i)]);
+                    }
+                    diff = total > 0 ? static_cast<double>(sumAbs) / (2.0 * total) : 0.0;
+                    const double colorDelta =
+                        (std::abs(feature.avgR - prevR) + std::abs(feature.avgG - prevG) +
+                         std::abs(feature.avgB - prevB)) /
+                        3.0;
+                    diff = std::max(diff, colorDelta * 3.0);  // 颜色差放大（与章节检测一致）
+                }
+                prevR = feature.avgR;
+                prevG = feature.avgG;
+                prevB = feature.avgB;
+                prevLuma = std::move(lumaGrid);
+                feature.histogramDiff = std::min(1.0, diff);
+                features.push_back(feature);
+            }
+            reader.close();
+        }
+    }
+    if (features.empty()) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const std::vector<ShotBoundary> shots =
+        detectShots(features, seq->duration(), SceneDetectConfig{});
+    if (out_boundary_count != nullptr) *out_boundary_count = static_cast<int32_t>(shots.size());
+    if (out_boundaries != nullptr) {
+        if (shots.empty()) {
+            *out_boundaries = nullptr;
+        } else {
+            double* buffer = new (std::nothrow) double[shots.size() * 2];
+            if (buffer == nullptr) {
+                return NC_ERROR_INTERNAL;
+            }
+            for (std::size_t i = 0; i < shots.size(); ++i) {
+                buffer[i * 2] = shots[i].start.toDouble();
+                buffer[i * 2 + 1] = shots[i].end.toDouble();
+            }
+            *out_boundaries = buffer;
+        }
+    }
+    return NC_OK;
+#else
+    (void)step_seconds; (void)max_samples; (void)out_boundary_count; (void)out_boundaries;
+    return NC_ERROR_UNSUPPORTED;
+#endif
+}
+
+// ---- 节拍检测 ----
+
+int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
+                       double* out_confidence, int32_t* out_beat_count, double** out_beats) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    // 选择音频轨（track_index < 0 = 首个音频轨）
+    const Track* target = nullptr;
+    if (track_index >= 0) {
+        if (static_cast<std::size_t>(track_index) >= seq->tracks.size()) {
+            return NC_ERROR_OUT_OF_RANGE;
+        }
+        target = &seq->tracks[static_cast<std::size_t>(track_index)];
+        if (target->type != TrackType::Audio) {
+            return NC_ERROR_INVALID_ARGUMENT;
+        }
+    } else {
+        for (const auto& track : seq->tracks) {
+            if (track.type == TrackType::Audio) {
+                target = &track;
+                break;
+            }
+        }
+    }
+    if (target == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    // 采集音频块（映射到时间轴坐标）
+    std::vector<AudioBlock> blocks;
+    for (const auto& clip : target->clips) {
+        const MediaAsset* asset = editor->project.findAsset(clip.asset);
+        if (asset == nullptr) {
+            continue;
+        }
+        FFmpegMediaReader reader;
+        if (!reader.open(asset->path).isOk()) {
+            continue;
+        }
+        if (!reader.seek(clip.sourceIn).isOk()) {
+            reader.close();
+            continue;
+        }
+        const Time sourceEnd = clip.sourceIn + clip.duration * clip.speed;
+        AudioBlock block;
+        std::size_t guard = 0;
+        while (guard < 20000 && reader.readAudioBlock(block)) {
+            ++guard;
+            if (block.start >= sourceEnd) {
+                break;
+            }
+            AudioBlock mapped = block;
+            const Rational local =
+                (block.start - clip.sourceIn) /
+                (clip.speed.isPositive() ? clip.speed : Rational::make(1));
+            mapped.start = clip.start + (local.isNegative() ? Time{} : local);
+            blocks.push_back(std::move(mapped));
+        }
+        reader.close();
+    }
+    if (blocks.empty()) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const BeatAnalysis analysis = analyzeBeats(blocks, BeatDetectConfig{});
+    if (out_bpm != nullptr) *out_bpm = analysis.bpm;
+    if (out_confidence != nullptr) *out_confidence = analysis.confidence;
+    if (out_beat_count != nullptr) *out_beat_count = static_cast<int32_t>(analysis.beats.size());
+    if (out_beats != nullptr) {
+        if (analysis.beats.empty()) {
+            *out_beats = nullptr;
+        } else {
+            double* buffer = new (std::nothrow) double[analysis.beats.size()];
+            if (buffer == nullptr) {
+                return NC_ERROR_INTERNAL;
+            }
+            for (std::size_t i = 0; i < analysis.beats.size(); ++i) {
+                buffer[i] = analysis.beats[i].time.toDouble();
+            }
+            *out_beats = buffer;
+        }
+    }
+    return NC_OK;
+#else
+    (void)track_index; (void)out_bpm; (void)out_confidence; (void)out_beat_count; (void)out_beats;
+    return NC_ERROR_UNSUPPORTED;
+#endif
+}
+
+// ---- 速度曲线 ----
+
+namespace {
+
+Easing easingFromInt(int value) {
+    switch (value) {
+        case 1: return Easing::easeIn();
+        case 2: return Easing::easeOut();
+        case 3: return Easing::easeInOut();
+        case 4: return Easing::stepped();
+        default: return Easing::linear();
+    }
+}
+
+int easingToInt(const Easing& easing) {
+    switch (easing.type) {
+        case EasingType::EaseIn: return 1;
+        case EasingType::EaseOut: return 2;
+        case EasingType::EaseInOut: return 3;
+        case EasingType::Stepped: return 4;
+        default: return 0;
+    }
+}
+
+}  // namespace
+
+int32_t nc_set_clip_speed_curve(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                const double* source_times, const double* speeds,
+                                const int32_t* easings, int32_t point_count) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || point_count < 0 ||
+        point_count > 256) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (point_count > 0 && (source_times == nullptr || speeds == nullptr)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    // 构造曲线（点按源时间升序；同时刻后者替换）
+    SpeedCurve curve;
+    for (int32_t i = 0; i < point_count; ++i) {
+        const Time sourceTime = Rational::make(
+            static_cast<std::int64_t>(source_times[i] * 1000000.0 + 0.5), 1000000);
+        const Rational speed = Rational::make(
+            static_cast<std::int64_t>(speeds[i] * 1000.0 + 0.5), 1000);
+        SpeedPoint point;
+        point.sourceTime = sourceTime;
+        point.speed = speed;
+        point.easing = easings != nullptr ? easingFromInt(easings[i]) : Easing::linear();
+        const Result added = curve.addPoint(point);
+        if (!added.isOk()) {
+            return toNcError(added.code);
+        }
+    }
+    return toNcError(
+        editor->editor->setClipSpeedCurve(main->id, trackId, ClipId{clip_id}, std::move(curve))
+            .code);
+}
+
+int32_t nc_clip_speed_curve_count(const NcEditor* editor, int32_t track_index,
+                                  uint64_t clip_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    return static_cast<int32_t>(clip->speedCurve.size());
+}
+
+int32_t nc_clip_speed_curve_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                int32_t index, double* out_source_seconds, double* out_speed,
+                                int32_t* out_easing) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(index) >= clip->speedCurve.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const SpeedPoint& point = clip->speedCurve.points()[static_cast<std::size_t>(index)];
+    if (out_source_seconds != nullptr) *out_source_seconds = point.sourceTime.toDouble();
+    if (out_speed != nullptr) *out_speed = point.speed.toDouble();
+    if (out_easing != nullptr) *out_easing = easingToInt(point.easing);
+    return NC_OK;
+}
+
+// ---- 关键帧查询 ----
+
+namespace {
+
+constexpr int kClipPropertyCount = 6;
+
+ClipProperty clipPropertyFromInt(int value) {
+    switch (value) {
+        case 0: return ClipProperty::Opacity;
+        case 1: return ClipProperty::Scale;
+        case 2: return ClipProperty::PositionX;
+        case 3: return ClipProperty::PositionY;
+        case 4: return ClipProperty::Rotation;
+        case 5: return ClipProperty::Volume;
+        default: return ClipProperty::Opacity;
+    }
+}
+
+int easingIndexOf(const Keyframe& keyframe) {
+    switch (keyframe.easing.type) {
+        case EasingType::EaseIn: return 1;
+        case EasingType::EaseOut: return 2;
+        case EasingType::EaseInOut: return 3;
+        case EasingType::Stepped: return 4;
+        default: return 0;
+    }
+}
+
+}  // namespace
+
+int32_t nc_keyframe_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t property) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || property < 0 ||
+        property >= kClipPropertyCount) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return 0;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return 0;
+    }
+    const KeyframeTrack* curve = clip->animation.findCurve(clipPropertyFromInt(property));
+    return curve != nullptr ? static_cast<int32_t>(curve->size()) : 0;
+}
+
+int32_t nc_keyframe_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                        int32_t property, int32_t index, int64_t* out_time_us,
+                        double* out_value, int32_t* out_easing) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || property < 0 ||
+        property >= kClipPropertyCount || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const KeyframeTrack* curve = clip->animation.findCurve(clipPropertyFromInt(property));
+    if (curve == nullptr || static_cast<std::size_t>(index) >= curve->size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Keyframe& keyframe = curve->keyframes()[static_cast<std::size_t>(index)];
+    if (out_time_us != nullptr) *out_time_us = toMicroseconds(keyframe.time);
+    if (out_value != nullptr) *out_value = keyframe.value;
+    if (out_easing != nullptr) *out_easing = easingIndexOf(keyframe);
+    return NC_OK;
+}
+
+// ---- 标记 ----
+
+uint64_t nc_add_marker(NcEditor* editor, int64_t time_us, const char* name, const char* color) {
+    if (editor == nullptr || time_us < 0) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return 0;
+    }
+    Marker marker;
+    marker.id = MarkerId{editor->project.ids.next()};
+    marker.time = fromMicroseconds(time_us);
+    marker.name = name != nullptr ? name : "标记";
+    marker.color = color != nullptr ? color : "#2D8CFF";
+    if (marker.name.size() > 200) {
+        return 0;
+    }
+    const Result r = editor->editor->upsertMarker(main->id, marker);
+    if (!r.isOk()) {
+        return 0;
+    }
+    return marker.id.value;
+}
+
+int32_t nc_remove_marker(NcEditor* editor, uint64_t marker_id) {
+    if (editor == nullptr || marker_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    return toNcError(editor->editor->removeMarker(main->id, MarkerId{marker_id}).code);
+}
+
+int32_t nc_marker_count(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(main->markers.size());
+}
+
+int32_t nc_marker_get(const NcEditor* editor, int32_t index, uint64_t* out_marker_id,
+                      int64_t* out_time_us, char** out_name, char** out_color) {
+    if (editor == nullptr || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(index) >= main->markers.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Marker& marker = main->markers[static_cast<std::size_t>(index)];
+    if (out_marker_id != nullptr) *out_marker_id = marker.id.value;
+    if (out_time_us != nullptr) *out_time_us = toMicroseconds(marker.time);
+    if (out_name != nullptr) *out_name = dupString(marker.name);
+    if (out_color != nullptr) *out_color = dupString(marker.color);
+    return NC_OK;
+}
+
+// ---- 音画分离 ----
+
+uint64_t nc_detach_audio(NcEditor* editor, int32_t video_track_index, uint64_t video_clip_id,
+                         int32_t audio_track_index) {
+    if (editor == nullptr || video_track_index < 0 || audio_track_index < 0 ||
+        video_clip_id == 0) {
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return 0;
+    }
+    if (static_cast<std::size_t>(video_track_index) >= main->tracks.size() ||
+        static_cast<std::size_t>(audio_track_index) >= main->tracks.size()) {
+        return 0;
+    }
+    const TrackId videoTrackId =
+        main->tracks[static_cast<std::size_t>(video_track_index)].id;
+    const TrackId audioTrackId =
+        main->tracks[static_cast<std::size_t>(audio_track_index)].id;
+    // 记录分离前的音频片段集合，用于定位新片段 ID
+    std::vector<ClipId> before;
+    for (const auto& clip : main->tracks[static_cast<std::size_t>(audio_track_index)].clips) {
+        before.push_back(clip.id);
+    }
+    const Result r = editor->editor->detachAudio(
+        main->id, videoTrackId, ClipId{video_clip_id}, audioTrackId);
+    if (!r.isOk()) {
+        return 0;
+    }
+    const Sequence* after = editor->project.mainSequence();
+    if (after == nullptr) {
+        return 0;
+    }
+    for (const auto& clip : after->tracks[static_cast<std::size_t>(audio_track_index)].clips) {
+        bool existed = false;
+        for (const ClipId id : before) {
+            if (id == clip.id) {
+                existed = true;
+                break;
+            }
+        }
+        if (!existed) {
+            return clip.id.value;
+        }
+    }
+    return 0;
+}
 
 // ---- 章节自动生成（文档第 7 部分「🧪AI工具 → 章节自动生成」）----
 
