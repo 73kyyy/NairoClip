@@ -372,6 +372,20 @@ int32_t nc_clip_speed_curve_get(const NcEditor* editor, int32_t track_index, uin
                                 int32_t index, double* out_source_seconds, double* out_speed,
                                 int32_t* out_easing);
 
+// ---- 变速曲线预设（文档 Part 4-A 1.1「曲线预设」）----
+
+/// 预设名称（preset 0..6；静态字符串；非法返回 "custom"）。
+const char* nc_speed_curve_preset_name(int32_t preset);
+/// 预设中文展示名（文档逐字："蒙太奇"/"英雄时刻"/...；非法返回 "自定义"）。
+const char* nc_speed_curve_preset_display_name(int32_t preset);
+
+/// 应用速度曲线预设到片段（source_duration_us = 片段源区间长度；<=0 用片段实际）。
+/// - preset：0=自定义(清空曲线恢复恒速) 1=蒙太奇 2=英雄时刻 3=子弹时间
+///           4=跳跃 5=闪进 6=闪出；
+/// 返回 NC_OK 或错误码。
+int32_t nc_apply_speed_curve_preset(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                    int32_t preset, int64_t source_duration_us);
+
 // ---- 关键帧查询（文档「自定义关键帧转场」/ 参数动画面板）----
 
 /// 读取片段某通道的关键帧数量（property 0..5）。
@@ -382,8 +396,29 @@ int32_t nc_keyframe_get(const NcEditor* editor, int32_t track_index, uint64_t cl
                         int32_t property, int32_t index, int64_t* out_time_us,
                         double* out_value, int32_t* out_easing);
 
-// ---- 标记（文档 Part 3 时间轴标记/批注）----
+// ---- 背景填充（文档 Part 4-C 第 11 节「背景」）----
 
+/// 背景填充模式（文档 11.1 三 Tab：颜色/模糊/画布样式；三 Tab 互斥）。
+enum NcBackgroundMode {
+    NC_BACKGROUND_NONE = 0,   ///< 无（默认；留白为序列背景色）
+    NC_BACKGROUND_COLOR = 1,  ///< 颜色填充（预设色板 + 自定义取色）
+    NC_BACKGROUND_BLUR = 2,   ///< 模糊（素材放大模糊铺满空白）
+    NC_BACKGROUND_STYLE = 3,  ///< 画布样式（预制纹理）
+};
+
+/// 设置片段背景填充（文档 Part 4-C 11.1：单片段级别；三 Tab 互斥）。
+/// - mode：0=none 1=color 2=blur 3=style；
+/// - rgba：主参数（color 模式 = 填充色 0xRRGGBBAA；其余保留）；
+/// - intensity：mode=blur 时为模糊度 0..100；mode=style 时为样式编号（0..15）；
+/// 返回 NC_OK 或错误码。
+int32_t nc_set_clip_background(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t mode, uint32_t rgba, double intensity);
+/// 读取片段背景填充（出参均可空）。
+/// 返回：1 = 已设置（非 none），0 = 未设置，-1 = 参数错误。
+int32_t nc_get_clip_background(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t* out_mode, uint32_t* out_rgba, double* out_intensity);
+
+// ---- 标记（文档 Part 3 时间轴标记/批注）----
 /// 添加/更新标记（同 ID 替换；返回 MarkerId，0 = 失败）。
 /// - time_us：标记时间；name：名称（可空 = 默认）；color：颜色字符串（可空 = 默认）。
 uint64_t nc_add_marker(NcEditor* editor, int64_t time_us, const char* name, const char* color);
@@ -400,6 +435,64 @@ int32_t nc_marker_get(const NcEditor* editor, int32_t index, uint64_t* out_marke
 /// 将视频片段的音频分离到目标音频轨（同素材同时间；返回新音频片段 ID，0 = 失败）。
 uint64_t nc_detach_audio(NcEditor* editor, int32_t video_track_index, uint64_t video_clip_id,
                          int32_t audio_track_index);
+
+// ---- AI 任务（文档 Part 4 各 AI 功能的统一任务契约 + 第 30.3 节失败提示）----
+// 设计：core 提供**任务簿记状态机**（进度/失败原因/重试标记/结果载荷），
+//       真实推理由平台层执行并回填进度；core 不伪造任何进度。
+// UI 契约：
+//   ① 点击联网 AI 功能图标 → nc_ai_feature_access 检查（登录态由平台层传入）；
+//   ② 展开面板 → nc_ai_task_begin 开始 → 平台层执行推理并周期调用
+//      nc_ai_task_progress 回填进度（UI 显示进度条 + 置灰其他参数）；
+//   ③ 完成 → nc_ai_task_succeed（结果载荷 JSON）；失败 → nc_ai_task_fail
+//      （原因非空；UI 弹「✕ 处理失败」+ 重试/取消）；
+//   ④ 关闭提示 → nc_ai_task_reset。
+
+/// 查询 AI 功能可用性（登录态门控；文档 Part 6 第 41.3 节"点击图标时检测"）。
+/// - feature：功能类型（0..10；见 core::AiFeatureType）；
+/// - logged_in：平台层传入的登录态（0/1）；
+/// - out_requires_network：出参（可空）该功能是否需联网/登录；
+/// - out_requires_pro：出参（可空）该功能是否需 Pro（未登录时仍返回网络要求）；
+/// - out_reason：出参（可空）提示文案（需 nc_free_string）；
+/// 返回：1 = 可用；0 = 不可用（弹登录/付费引导）；-1 = 参数错误。
+int32_t nc_ai_feature_access(const NcEditor* editor, int32_t feature, int32_t logged_in,
+                             int32_t* out_requires_network, int32_t* out_requires_pro,
+                             char** out_reason);
+
+/// 读取当前 AI 任务状态（供 UI 每帧轮询驱动进度条）。
+/// - out_feature/out_state：出参（可空）功能与状态（见 AiFeatureType/AiTaskState）；
+/// - out_progress：出参（可空）进度 0..1；
+/// - out_stage_note/out_failure_reason/out_result_payload：出参（可空；需
+///   nc_free_string；失败原因在 Failed 时非空）；
+/// - out_retryable：出参（可空）是否可重试（1/0）；
+/// 返回 NC_OK（无任务时 state = 0 = idle）。
+int32_t nc_ai_task_status(const NcEditor* editor, int32_t* out_feature, int32_t* out_state,
+                          double* out_progress, char** out_stage_note,
+                          char** out_failure_reason, int32_t* out_retryable,
+                          char** out_result_payload);
+
+/// 开始 AI 任务（要求当前无运行中任务；返回 NC_OK 或错误码）。
+/// - feature：功能类型；target_id：关联对象 ID（片段/素材；可 0）。
+int32_t nc_ai_task_begin(NcEditor* editor, int32_t feature, uint64_t target_id,
+                         char** out_error);
+/// 回填进度（平台层在推理过程中调用；单调不减；stage_note 可空）。
+int32_t nc_ai_task_progress(NcEditor* editor, double progress, const char* stage_note);
+/// 标记成功（result_payload 为 JSON 字符串；可空）。
+int32_t nc_ai_task_succeed(NcEditor* editor, const char* result_payload);
+/// 标记失败（reason **必须**非空——空原因回退为通用文案；retryable：0/1）。
+int32_t nc_ai_task_fail(NcEditor* editor, const char* reason, int32_t retryable);
+/// 用户取消（UI 静默返回）。
+int32_t nc_ai_task_cancel(NcEditor* editor);
+/// 复位到空闲（UI 关闭提示后调用）。
+int32_t nc_ai_task_reset(NcEditor* editor);
+/// 失败文案（统一结构；供 UI 直接展示；需 nc_free_string；无失败返回空串）。
+char* nc_ai_task_failure_text(const NcEditor* editor);
+
+/// 查询 AI 引擎与任务框架信息（供「关于」页/诊断）。
+/// - out_available：出参（可空）推理引擎是否可用（有 ONNX Runtime；1/0）；
+/// - out_version：出参（可空）引擎版本（需 nc_free_string）；
+/// - out_note：出参（可空）说明（需 nc_free_string）。
+int32_t nc_ai_engine_info(const NcEditor* editor, int32_t* out_available, char** out_version,
+                          char** out_note);
 
 // ---- 特效 ----
 

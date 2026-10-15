@@ -509,6 +509,31 @@ private:
     std::optional<Snapshot> before_;
 };
 
+/// 设置片段背景填充（文档 Part 4-C 第 11 节「背景」；三 Tab 互斥）。
+class SetClipBackgroundCommand : public Command {
+public:
+    SetClipBackgroundCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                             BackgroundMode mode, std::uint32_t rgba, double intensity);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override;
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    BackgroundMode mode_ = BackgroundMode::None;
+    std::uint32_t rgba_ = 0x000000FF;
+    double intensity_ = 50.0;
+    struct Snapshot {
+        BackgroundMode mode = BackgroundMode::None;
+        std::uint32_t rgba = 0x000000FF;
+        double intensity = 50.0;
+    };
+    std::optional<Snapshot> before_;
+};
+
 
 /// 添加/更新片段特效。
 class AddEffectCommand : public Command {

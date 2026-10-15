@@ -52,6 +52,10 @@ struct RenderClip {
     /// 滤镜快照（文档 Part 4-B 第 7 节；None = 不应用）。
     FilterStyle filterStyle = FilterStyle::None;
     double filterIntensity = 80.0;
+    /// 背景填充快照（文档 Part 4-C 第 11 节；None = 留白用序列背景色）。
+    BackgroundMode backgroundMode = BackgroundMode::None;
+    std::uint32_t backgroundColorRgba = 0x000000FF;
+    double backgroundIntensity = 50.0;
     /// 动画快照（透明度等逐帧采样）。
     ClipAnimation animation;
     /// 速度曲线快照（非空时变速映射按曲线积分）。

@@ -355,6 +355,15 @@ JsonValue writeClip(const Clip& c) {
         filter.set("intensity", JsonValue::number(c.filterIntensity));
         o.set("filter", std::move(filter));
     }
+    // 背景填充（文档 Part 4-C 第 11 节；仅启用时写入）
+    if (c.backgroundMode != BackgroundMode::None) {
+        JsonValue background = JsonValue::object();
+        background.set("mode", JsonValue::string(backgroundModeName(c.backgroundMode)));
+        background.set("rgba",
+                       JsonValue::integer(static_cast<std::int64_t>(c.backgroundColorRgba)));
+        background.set("intensity", JsonValue::number(c.backgroundIntensity));
+        o.set("background", std::move(background));
+    }
     o.set("enabled", JsonValue::boolean(c.enabled));
     if (!c.animation.empty()) {
         o.set("animation", writeClipAnimation(c.animation));
@@ -449,6 +458,25 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
             const double intensity = filter.get("intensity").asNumber(80.0);
             if (intensity >= 0.0 && intensity <= 100.0) {
                 out.filterIntensity = intensity;
+            }
+        }
+    }
+    // 背景填充（缺省 = 未设置；非法值降级为 None，保证工程可打开）
+    out.backgroundMode = BackgroundMode::None;
+    out.backgroundColorRgba = 0x000000FF;
+    out.backgroundIntensity = 50.0;
+    if (v.has("background")) {
+        const JsonValue& background = v.get("background");
+        if (background.isObject()) {
+            BackgroundMode mode = BackgroundMode::None;
+            if (backgroundModeFromString(background.get("mode").asString().c_str(), mode)) {
+                out.backgroundMode = mode;
+                out.backgroundColorRgba = static_cast<std::uint32_t>(
+                    background.get("rgba").asInteger(0x000000FF));
+                const double intensity = background.get("intensity").asNumber(50.0);
+                if (intensity >= 0.0) {
+                    out.backgroundIntensity = intensity;
+                }
             }
         }
     }

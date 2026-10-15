@@ -32,6 +32,9 @@
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/commands.h"
 #include "nairoclip/core/filters.h"
+#include "nairoclip/core/ai_task.h"
+#include "nairoclip/core/ai_engine.h"
+#include "nairoclip/core/background_fill.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/export_plan.h"
@@ -77,6 +80,8 @@ struct NcEditor {
     InvisibleWatermarkSpec invisibleWatermark;
     /// 会员心跳状态机（文档第 8 部分五；平台层驱动）。
     HeartbeatState heartbeat;
+    /// AI 任务状态机（文档 Part 4 各 AI 功能的统一任务契约）。
+    AiTaskRunner aiTask;
     /// 预览渲染器缓存（nc_preview_render；编辑操作后失效重建）。
     std::unique_ptr<PreviewRenderer> previewRenderer;
     /// 预览缓存有效性签名（编辑历史数 + 载入代次 + 直接修改代次 + 画布）。
@@ -973,6 +978,92 @@ const char* nc_filter_display_name(int32_t style) {
         return "无";
     }
     return filterStyleDisplayName(filterStyle);
+}
+
+// ---- 背景填充（文档 Part 4-C 第 11 节「背景」）----
+
+int32_t nc_set_clip_background(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t mode, uint32_t rgba, double intensity) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    BackgroundMode backgroundMode;
+    if (clip_id == 0 || !backgroundModeFromInt(mode, backgroundMode)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->setClipBackground(seqId, trackId, ClipId{clip_id}, backgroundMode,
+                                             rgba, intensity)
+                         .code);
+}
+
+int32_t nc_get_clip_background(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t* out_mode, uint32_t* out_rgba, double* out_intensity) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    if (out_mode != nullptr) *out_mode = static_cast<int32_t>(clip->backgroundMode);
+    if (out_rgba != nullptr) *out_rgba = clip->backgroundColorRgba;
+    if (out_intensity != nullptr) *out_intensity = clip->backgroundIntensity;
+    return clip->hasBackground() ? 1 : 0;
+}
+
+// ---- 变速曲线预设（文档 Part 4-A 1.1）----
+
+const char* nc_speed_curve_preset_name(int32_t preset) {
+    SpeedCurvePreset value;
+    if (!speedCurvePresetFromInt(preset, value)) {
+        return "custom";
+    }
+    return speedCurvePresetName(value);
+}
+
+const char* nc_speed_curve_preset_display_name(int32_t preset) {
+    SpeedCurvePreset value;
+    if (!speedCurvePresetFromInt(preset, value)) {
+        return "自定义";
+    }
+    return speedCurvePresetDisplayName(value);
+}
+
+int32_t nc_apply_speed_curve_preset(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                    int32_t preset, int64_t source_duration_us) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    SpeedCurvePreset presetValue;
+    if (clip_id == 0 || !speedCurvePresetFromInt(preset, presetValue)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    // 源区间：调用方指定或按片段实际（sourceIn..sourceOut）
+    Time sourceDuration = fromMicroseconds(source_duration_us > 0 ? source_duration_us : 0);
+    if (!sourceDuration.isPositive()) {
+        const Track* track = findTrack(editor->project, seqId, trackId);
+        const Clip* clip = track != nullptr ? track->findClip(ClipId{clip_id}) : nullptr;
+        if (clip == nullptr) {
+            return NC_ERROR_NOT_FOUND;
+        }
+        sourceDuration = clip->sourceOut() - clip->sourceIn;
+    }
+    SpeedCurve curve = buildSpeedCurvePreset(presetValue, sourceDuration);
+    return toNcError(
+        editor->editor->setClipSpeedCurve(seqId, trackId, ClipId{clip_id}, std::move(curve))
+            .code);
 }
 
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
@@ -3353,6 +3444,157 @@ uint64_t nc_detach_audio(NcEditor* editor, int32_t video_track_index, uint64_t v
         }
     }
     return 0;
+}
+
+// ===========================================================================
+// AI 任务（文档 Part 4 统一任务契约 + 第 30.3 节失败提示）
+// ===========================================================================
+
+int32_t nc_ai_feature_access(const NcEditor* editor, int32_t feature, int32_t logged_in,
+                             int32_t* out_requires_network, int32_t* out_requires_pro,
+                             char** out_reason) {
+    if (editor == nullptr) {
+        return -1;
+    }
+    AiFeatureType featureType;
+    if (!aiFeatureFromInt(feature, featureType) || featureType == AiFeatureType::None) {
+        return -1;
+    }
+    const bool requiresNetwork = aiFeatureRequiresNetwork(featureType);
+    // Pro 门控：抠像/补帧/超分/人声分离/深度图属 Pro（文档权益矩阵；
+    // 与既有 mattingAccessFor 等保持一致；此处供 UI 提前判断展示）。
+    bool requiresPro = false;
+    switch (featureType) {
+        case AiFeatureType::Matting:
+        case AiFeatureType::FrameInterpolation:
+        case AiFeatureType::StemSeparation:
+        case AiFeatureType::DepthMap:
+        case AiFeatureType::SuperResolution:
+            requiresPro = true;
+            break;
+        default:
+            requiresPro = false;
+            break;
+    }
+    if (out_requires_network != nullptr) *out_requires_network = requiresNetwork ? 1 : 0;
+    if (out_requires_pro != nullptr) *out_requires_pro = requiresPro ? 1 : 0;
+    // 可用性判定（文档 Part 5 第 26.1 节 + Part 6 第 41 节）
+    if (requiresNetwork && logged_in == 0) {
+        if (out_reason != nullptr) {
+            *out_reason = dupString("该功能需要联网AI算力支持，登录账号后即可使用");
+        }
+        return 0;  // 不可用（弹登录拦截弹窗）
+    }
+    if (out_reason != nullptr) {
+        *out_reason = dupString(std::string(aiFeatureDisplayName(featureType)) + "可用");
+    }
+    return 1;
+}
+
+int32_t nc_ai_task_status(const NcEditor* editor, int32_t* out_feature, int32_t* out_state,
+                          double* out_progress, char** out_stage_note,
+                          char** out_failure_reason, int32_t* out_retryable,
+                          char** out_result_payload) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const AiTask& task = editor->aiTask.task();
+    if (out_feature != nullptr) *out_feature = static_cast<int32_t>(task.feature);
+    if (out_state != nullptr) *out_state = static_cast<int32_t>(task.state);
+    if (out_progress != nullptr) *out_progress = task.progress;
+    if (out_stage_note != nullptr) *out_stage_note = dupString(task.stageNote);
+    if (out_failure_reason != nullptr) *out_failure_reason = dupString(task.failureReason);
+    if (out_retryable != nullptr) *out_retryable = task.retryable ? 1 : 0;
+    if (out_result_payload != nullptr) *out_result_payload = dupString(task.resultPayload);
+    return NC_OK;
+}
+
+int32_t nc_ai_task_begin(NcEditor* editor, int32_t feature, uint64_t target_id,
+                         char** out_error) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    AiFeatureType featureType;
+    if (!aiFeatureFromInt(feature, featureType) || featureType == AiFeatureType::None) {
+        if (out_error != nullptr) *out_error = dupString("未指定 AI 功能类型");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::string failure;
+    if (!editor->aiTask.begin(featureType, target_id, &failure)) {
+        if (out_error != nullptr) *out_error = dupString(failure);
+        return NC_ERROR_UNSUPPORTED;  // 已有任务运行中
+    }
+    return NC_OK;
+}
+
+int32_t nc_ai_task_progress(NcEditor* editor, double progress, const char* stage_note) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const std::string note = stage_note != nullptr ? stage_note : std::string();
+    if (!editor->aiTask.setProgress(progress, note)) {
+        return NC_ERROR_UNSUPPORTED;  // 无运行中任务
+    }
+    return NC_OK;
+}
+
+int32_t nc_ai_task_succeed(NcEditor* editor, const char* result_payload) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const std::string payload = result_payload != nullptr ? result_payload : std::string();
+    if (!editor->aiTask.succeed(payload)) {
+        return NC_ERROR_UNSUPPORTED;
+    }
+    return NC_OK;
+}
+
+int32_t nc_ai_task_fail(NcEditor* editor, const char* reason, int32_t retryable) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const std::string text = reason != nullptr ? reason : std::string();
+    if (!editor->aiTask.fail(text, retryable != 0)) {
+        return NC_ERROR_UNSUPPORTED;
+    }
+    return NC_OK;
+}
+
+int32_t nc_ai_task_cancel(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (!editor->aiTask.cancel()) {
+        return NC_ERROR_UNSUPPORTED;
+    }
+    return NC_OK;
+}
+
+int32_t nc_ai_task_reset(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    editor->aiTask.reset();
+    return NC_OK;
+}
+
+char* nc_ai_task_failure_text(const NcEditor* editor) {
+    if (editor == nullptr) {
+        return nullptr;
+    }
+    return dupString(editor->aiTask.failureText());
+}
+
+int32_t nc_ai_engine_info(const NcEditor* editor, int32_t* out_available, char** out_version,
+                          char** out_note) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const AiEngineInfo info = aiEngineInfo();
+    if (out_available != nullptr) *out_available = info.available ? 1 : 0;
+    if (out_version != nullptr) *out_version = dupString(info.version);
+    if (out_note != nullptr) *out_note = dupString(info.note);
+    return NC_OK;
 }
 
 // ---- 章节自动生成（文档第 7 部分「🧪AI工具 → 章节自动生成」）----

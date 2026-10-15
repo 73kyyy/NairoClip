@@ -1500,6 +1500,70 @@ Result SetClipFilterCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------------------------------------------------------------------
+// 设置片段背景填充（文档 Part 4-C 第 11 节「背景」）
+// ---------------------------------------------------------------------------
+
+SetClipBackgroundCommand::SetClipBackgroundCommand(SequenceId sequenceId, TrackId trackId,
+                                                   ClipId clipId, BackgroundMode mode,
+                                                   std::uint32_t rgba, double intensity)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      mode_(mode),
+      rgba_(rgba),
+      intensity_(intensity) {}
+
+std::string SetClipBackgroundCommand::nameImpl() const {
+    switch (mode_) {
+        case BackgroundMode::None: return "清除背景填充";
+        case BackgroundMode::Color: return "背景：颜色";
+        case BackgroundMode::Blur: return "背景：模糊";
+        case BackgroundMode::Style: return "背景：画布样式";
+    }
+    return "背景填充";
+}
+
+Result SetClipBackgroundCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    // 参数校验（文档 11.1：模糊度 0..100；画布样式 0..15）
+    if (mode_ == BackgroundMode::Blur && (intensity_ < 0.0 || intensity_ > 100.0)) {
+        return Result::fail(ErrorCode::InvalidArgument, "模糊度需在 0..100 之间");
+    }
+    if (mode_ == BackgroundMode::Style) {
+        CanvasStyle style = CanvasStyle::None;
+        if (!canvasStyleFromInt(static_cast<int>(std::lround(intensity_)), style) ||
+            style == CanvasStyle::None) {
+            return Result::fail(ErrorCode::InvalidArgument, "画布样式编号非法（1..15）");
+        }
+    }
+    if (!before_.has_value()) {
+        before_ = Snapshot{clip->backgroundMode, clip->backgroundColorRgba,
+                           clip->backgroundIntensity};
+    }
+    clip->backgroundMode = mode_;
+    clip->backgroundColorRgba = rgba_;
+    clip->backgroundIntensity = intensity_;
+    return Result::ok();
+}
+
+Result SetClipBackgroundCommand::revert(Project& project) {
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少背景快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    clip->backgroundMode = before_->mode;
+    clip->backgroundColorRgba = before_->rgba;
+    clip->backgroundIntensity = before_->intensity;
+    return Result::ok();
+}
+
 
 // ---------------- 特效命令 ----------------
 

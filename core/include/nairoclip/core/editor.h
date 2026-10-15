@@ -131,6 +131,9 @@ public:
     /// 设置片段滤镜（文档 Part 4-B 第 7 节「滤镜」；14 风格 + 强度 0..100）。
     Result setClipFilter(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                          FilterStyle style, double intensity);
+    /// 设置片段背景填充（文档 Part 4-C 第 11 节「背景」；三 Tab 互斥）。
+    Result setClipBackground(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                             BackgroundMode mode, std::uint32_t rgba, double intensity);
     // ---- 标记 ----
     /// 添加/更新标记（同 ID 替换）。
     Result upsertMarker(SequenceId sequenceId, Marker marker);

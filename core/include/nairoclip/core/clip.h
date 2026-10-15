@@ -2,6 +2,7 @@
 
 #include "nairoclip/core/animation.h"
 #include "nairoclip/core/audio_denoise.h"
+#include "nairoclip/core/background_fill.h"
 #include "nairoclip/core/blend_modes.h"
 #include "nairoclip/core/chroma_key.h"
 #include "nairoclip/core/effects.h"
@@ -76,6 +77,15 @@ struct Clip {
     double filterIntensity = 80.0;
     /// 是否启用滤镜。
     bool hasFilter() const { return filterStyle != FilterStyle::None; }
+    /// 背景填充（文档 Part 4-C 第 11 节「背景」：单片段级别；三 Tab 互斥）。
+    /// None = 未设置（默认，留白用序列背景色）；其余见 BackgroundMode。
+    BackgroundMode backgroundMode = BackgroundMode::None;
+    /// 颜色模式：填充色（0xRRGGBBAA）。
+    std::uint32_t backgroundColorRgba = 0x000000FF;
+    /// 模糊模式：模糊度 0..100；样式模式：样式编号 0..15。
+    double backgroundIntensity = 50.0;
+    /// 是否启用背景填充。
+    bool hasBackground() const { return backgroundMode != BackgroundMode::None; }
     /// 音频属性是否合法：增益在范围内、淡入淡出不超过片段时长且非负、
     /// 淡入 + 淡出不超过片段时长。
     bool audioValid() const {

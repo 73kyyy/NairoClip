@@ -57,6 +57,14 @@ bool renderFrameFit(const std::uint8_t* src, int srcW, int srcH, int srcStride,
                     std::uint8_t* dst, int dstW, int dstH, FrameFit mode,
                     std::uint32_t backgroundRgba = 0x000000FF);
 
+/// 同上，并输出「素材区域蒙版」（文档 Part 4-C 第 11 节背景填充所需）：
+/// - sourceMask 出参：长度 = dstW × dstH；非 0 = 素材像素，0 = 留白
+///   （Fit 模式的信箱/邮筒条；Fill/Crop 无留白时为全 1）；
+/// - sourceMask 为 nullptr 时与 renderFrameFit 等价（零开销）。
+bool renderFrameFitMasked(const std::uint8_t* src, int srcW, int srcH, int srcStride,
+                          std::uint8_t* dst, int dstW, int dstH, FrameFit mode,
+                          std::uint32_t backgroundRgba, std::uint8_t* sourceMask);
+
 /// 模式名称（"fit" / "fill" / "crop"；未知值返回 "fit"）。
 const char* frameFitName(FrameFit mode);
 

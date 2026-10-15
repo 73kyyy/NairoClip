@@ -7,6 +7,7 @@
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/filters.h"
+#include "nairoclip/core/background_fill.h"
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/ai_label.h"
 #include "nairoclip/core/audio_mixer.h"
@@ -478,6 +479,34 @@ ExportStats executeExport(
                         if (active->filterStyle != FilterStyle::None) {
                             applyFilterToRgba(frame.rgba.data(), plan.width, plan.height,
                                               active->filterStyle, active->filterIntensity);
+                        }
+                        // 背景填充（文档 Part 4-C 第 11 节）：留白区域填色/模糊/纹理。
+                        // 说明：素材区域由画幅适配的几何决定（Fit 模式有留白）；
+                        //       此处按 plan.frameFit 计算留白蒙版后填充。
+                        if (active->backgroundMode != BackgroundMode::None) {
+                            std::vector<std::uint8_t> fitMask(
+                                static_cast<std::size_t>(plan.width) *
+                                    static_cast<std::size_t>(plan.height),
+                                255);
+                            // 若为 Fit 模式：用 masked 渲染重建同一几何的留白蒙版
+                            if (plan.frameFit == FrameFit::Fit && source.width > 0 &&
+                                source.height > 0) {
+                                std::vector<std::uint8_t> tmp(
+                                    static_cast<std::size_t>(plan.width) *
+                                        static_cast<std::size_t>(plan.height) * 4,
+                                    0);
+                                const int srcStride2 =
+                                    source.stride > 0 ? source.stride : source.width * 4;
+                                renderFrameFitMasked(
+                                    source.pixels.data(), source.width, source.height,
+                                    srcStride2, tmp.data(), plan.width, plan.height,
+                                    plan.frameFit, plan.backgroundRgba, fitMask.data());
+                            }
+                            applyBackgroundFill(
+                                frame.rgba.data(), frame.rgba.data(), fitMask.data(),
+                                plan.width, plan.height, active->backgroundMode,
+                                active->backgroundColorRgba, active->backgroundIntensity,
+                                RenderQuality::exportQuality());
                         }
                         // 应用片段特效栈（颜色变换 + 空间/画面/氛围/动感特效）
                         if (!active->effects.empty()) {

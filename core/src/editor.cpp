@@ -472,6 +472,13 @@ Result TimelineEditor::setClipFilter(SequenceId sequenceId, TrackId trackId, Cli
         std::make_unique<SetClipFilterCommand>(sequenceId, trackId, clipId, style, intensity));
 }
 
+Result TimelineEditor::setClipBackground(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                         BackgroundMode mode, std::uint32_t rgba,
+                                         double intensity) {
+    return commit(std::make_unique<SetClipBackgroundCommand>(sequenceId, trackId, clipId, mode,
+                                                             rgba, intensity));
+}
+
 Result TimelineEditor::upsertMarker(SequenceId sequenceId, Marker marker) {
     return commit(std::make_unique<UpsertMarkerCommand>(sequenceId, std::move(marker)));
 }

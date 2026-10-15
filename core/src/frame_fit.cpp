@@ -101,9 +101,9 @@ bool computeFrameFitRect(FrameFit mode, int srcW, int srcH, int dstW, int dstH,
     return true;
 }
 
-bool renderFrameFit(const std::uint8_t* src, int srcW, int srcH, int srcStride,
-                    std::uint8_t* dst, int dstW, int dstH, FrameFit mode,
-                    std::uint32_t backgroundRgba) {
+bool renderFrameFitMasked(const std::uint8_t* src, int srcW, int srcH, int srcStride,
+                          std::uint8_t* dst, int dstW, int dstH, FrameFit mode,
+                          std::uint32_t backgroundRgba, std::uint8_t* sourceMask) {
     if (src == nullptr || dst == nullptr || srcW <= 0 || srcH <= 0 || dstW <= 0 ||
         dstH <= 0) {
         return false;
@@ -136,6 +136,12 @@ bool renderFrameFit(const std::uint8_t* src, int srcW, int srcH, int srcStride,
             px[3] = bgA;
         }
     }
+    // 素材区域蒙版：先整体置 0（留白），随后绘制区置 255（素材像素）。
+    // 说明：仅当调用方需要背景填充时才写蒙版（sourceMask 非空）。
+    if (sourceMask != nullptr) {
+        std::memset(sourceMask, 0,
+                    static_cast<std::size_t>(dstW) * static_cast<std::size_t>(dstH));
+    }
 
     // 绘制区与画布求交（Fill 的负偏移 / 溢出在此裁掉）。
     const int clipX0 = std::max(0, rect.dstX);
@@ -161,6 +167,10 @@ bool renderFrameFit(const std::uint8_t* src, int srcW, int srcH, int srcStride,
                 if (srcX < 0 || srcX >= srcW) continue;
                 std::memcpy(dstRow + static_cast<std::size_t>(x) * 4,
                             srcRow + static_cast<std::size_t>(srcX) * 4, 4);
+                if (sourceMask != nullptr) {
+                    sourceMask[static_cast<std::size_t>(y) * static_cast<std::size_t>(dstW) +
+                               static_cast<std::size_t>(x)] = 255;
+                }
             }
         }
         return true;
@@ -216,15 +226,27 @@ bool renderFrameFit(const std::uint8_t* src, int srcW, int srcH, int srcStride,
             const float w01 = wx0 * wy1;
             const float w11 = wx1 * wy1;
 
-            std::uint8_t* out = dstRow + (static_cast<std::size_t>(clipX0) + i) * 4;
+            const int outX = clipX0 + static_cast<int>(i);
+            std::uint8_t* out = dstRow + static_cast<std::size_t>(outX) * 4;
             for (int ch = 0; ch < 4; ++ch) {
                 const float value = p00[ch] * w00 + p10[ch] * w10 + p01[ch] * w01 +
                                     p11[ch] * w11;
                 out[ch] = static_cast<std::uint8_t>(value + 0.5f);
             }
+            if (sourceMask != nullptr) {
+                sourceMask[static_cast<std::size_t>(y) * static_cast<std::size_t>(dstW) +
+                           static_cast<std::size_t>(outX)] = 255;
+            }
         }
     }
     return true;
+}
+
+bool renderFrameFit(const std::uint8_t* src, int srcW, int srcH, int srcStride,
+                    std::uint8_t* dst, int dstW, int dstH, FrameFit mode,
+                    std::uint32_t backgroundRgba) {
+    return renderFrameFitMasked(src, srcW, srcH, srcStride, dst, dstW, dstH, mode,
+                                backgroundRgba, nullptr);
 }
 
 const char* frameFitName(FrameFit mode) {

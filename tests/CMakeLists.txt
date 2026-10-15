@@ -18,6 +18,8 @@ add_executable(nairoclip_tests
     test_capi_media.cpp
     test_person_effects.cpp
     test_filters.cpp
+    test_ai_task.cpp
+    test_background_fill.cpp
     test_roundtrip.cpp
     test_subtitle.cpp
     test_stress.cpp

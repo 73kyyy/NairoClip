@@ -30,6 +30,9 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.blendMode = clip.blendMode;
     rc.filterStyle = clip.filterStyle;
     rc.filterIntensity = clip.filterIntensity;
+    rc.backgroundMode = clip.backgroundMode;
+    rc.backgroundColorRgba = clip.backgroundColorRgba;
+    rc.backgroundIntensity = clip.backgroundIntensity;
     rc.animation = clip.animation;
     rc.speedCurve = clip.speedCurve;
     (void)project;
