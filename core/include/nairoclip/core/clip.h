@@ -86,6 +86,15 @@ struct Clip {
     double backgroundIntensity = 50.0;
     /// 是否启用背景填充。
     bool hasBackground() const { return backgroundMode != BackgroundMode::None; }
+    /// 深度图效果（文档 Part 4-C 13.2「深度图」4 种应用效果；互斥）。
+    /// None = 未设置（默认）；深度图生成由平台层执行（AI 任务状态机）。
+    DepthEffectMode depthEffect = DepthEffectMode::None;
+    double depthFocusDistance = 0.5;  ///< 景深对焦距离 0..1
+    double depthAperture = 2.8;       ///< 光圈 1.0..22.0
+    double depthIntensity = 70.0;     ///< 主强度 0..100
+    std::uint32_t depthColorRgba = 0xFFFFFFFF;  ///< 雾色/近景色调
+    /// 是否启用深度图效果。
+    bool hasDepthEffect() const { return depthEffect != DepthEffectMode::None; }
     /// 音频属性是否合法：增益在范围内、淡入淡出不超过片段时长且非负、
     /// 淡入 + 淡出不超过片段时长。
     bool audioValid() const {

@@ -25,6 +25,5 @@ bool transitionSupportsDirection(TransitionType type);
 
 /// 时长范围校验（文档 6.2：0.1s ~ 2.0s）。
 bool transitionDurationValid(const Time& duration);
-
 }  // namespace core
 }  // namespace nairoclip

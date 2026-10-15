@@ -1066,6 +1066,370 @@ int32_t nc_apply_speed_curve_preset(NcEditor* editor, int32_t track_index, uint6
             .code);
 }
 
+// ---- 镜头追踪（文档 Part 4-A 3.3）----
+
+namespace {
+
+/// 查找字幕（按 ID；跨主序列）。
+SubtitleCue* findSubtitleCue(NcEditor* editor, uint64_t subtitle_id) {
+    Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return nullptr;
+    }
+    return main->subtitles.findCue(SubtitleId{subtitle_id});
+}
+
+const SubtitleCue* findSubtitleCueConst(const NcEditor* editor, uint64_t subtitle_id) {
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return nullptr;
+    }
+    return main->subtitles.findCue(SubtitleId{subtitle_id});
+}
+
+}  // namespace
+
+int32_t nc_set_camera_tracking(NcEditor* editor, uint64_t subtitle_id, const double* times_us,
+                               const double* center_x, const double* center_y,
+                               int32_t point_count, int32_t apply_mode) {
+    if (editor == nullptr || subtitle_id == 0 || point_count <= 0 || point_count > 4096 ||
+        times_us == nullptr || center_x == nullptr || center_y == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    SubtitleCue* cue = findSubtitleCue(editor, subtitle_id);
+    if (cue == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    std::vector<SubtitleCue::TrackingPoint> points;
+    points.reserve(static_cast<std::size_t>(point_count));
+    for (int32_t i = 0; i < point_count; ++i) {
+        if (times_us[i] < 0.0) {
+            return NC_ERROR_INVALID_ARGUMENT;
+        }
+        SubtitleCue::TrackingPoint point;
+        point.time = fromMicroseconds(static_cast<std::int64_t>(times_us[i] + 0.5));
+        point.centerX = std::clamp(center_x[i], 0.0, 1.0);
+        point.centerY = std::clamp(center_y[i], 0.0, 1.0);
+        points.push_back(point);
+    }
+    // 时间升序（追踪采样天然有序；防御性排序）
+    std::sort(points.begin(), points.end(),
+              [](const SubtitleCue::TrackingPoint& a, const SubtitleCue::TrackingPoint& b) {
+                  return a.time < b.time;
+              });
+    cue->tracking = std::move(points);
+    cue->trackingMode = (apply_mode == 1) ? 1 : 0;
+    return NC_OK;
+}
+
+int32_t nc_tracking_point_count(const NcEditor* editor, uint64_t subtitle_id) {
+    if (editor == nullptr || subtitle_id == 0) {
+        return -1;
+    }
+    const SubtitleCue* cue = findSubtitleCueConst(editor, subtitle_id);
+    if (cue == nullptr) {
+        return -1;
+    }
+    return static_cast<int32_t>(cue->tracking.size());
+}
+
+int32_t nc_tracking_point_get(const NcEditor* editor, uint64_t subtitle_id, int32_t index,
+                              double* out_time_us, double* out_center_x, double* out_center_y) {
+    if (editor == nullptr || subtitle_id == 0 || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const SubtitleCue* cue = findSubtitleCueConst(editor, subtitle_id);
+    if (cue == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(index) >= cue->tracking.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const auto& point = cue->tracking[static_cast<std::size_t>(index)];
+    if (out_time_us != nullptr) *out_time_us = static_cast<double>(toMicroseconds(point.time));
+    if (out_center_x != nullptr) *out_center_x = point.centerX;
+    if (out_center_y != nullptr) *out_center_y = point.centerY;
+    return NC_OK;
+}
+
+int32_t nc_clear_camera_tracking(NcEditor* editor, uint64_t subtitle_id) {
+    if (editor == nullptr || subtitle_id == 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    SubtitleCue* cue = findSubtitleCue(editor, subtitle_id);
+    if (cue == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    cue->tracking.clear();
+    cue->trackingMode = 0;
+    return NC_OK;
+}
+
+// ---- 深度图效果（文档 Part 4-C 13.2）----
+
+int32_t nc_set_depth_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t mode, double focus_distance, double aperture,
+                            double intensity, uint32_t color_rgba) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    DepthEffectMode depthMode;
+    if (clip_id == 0 || !depthEffectModeFromInt(mode, depthMode)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    // 参数范围校验（文档 13.2）
+    if (focus_distance < 0.0 || focus_distance > 1.0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (aperture < 1.0 || aperture > 22.0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (intensity < 0.0 || intensity > 100.0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Track* track = findTrack(editor->project, seqId, trackId);
+    if (track == nullptr || track->locked) {
+        return NC_ERROR_LOCKED;
+    }
+    Clip* clip = findClip(editor->project, seqId, trackId, ClipId{clip_id});
+    if (clip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    clip->depthEffect = depthMode;
+    clip->depthFocusDistance = focus_distance;
+    clip->depthAperture = aperture;
+    clip->depthIntensity = intensity;
+    clip->depthColorRgba = color_rgba;
+    return NC_OK;
+}
+
+int32_t nc_get_depth_effect(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t* out_mode, double* out_focus_distance,
+                            double* out_aperture, double* out_intensity,
+                            uint32_t* out_color_rgba) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    if (out_mode != nullptr) *out_mode = static_cast<int32_t>(clip->depthEffect);
+    if (out_focus_distance != nullptr) *out_focus_distance = clip->depthFocusDistance;
+    if (out_aperture != nullptr) *out_aperture = clip->depthAperture;
+    if (out_intensity != nullptr) *out_intensity = clip->depthIntensity;
+    if (out_color_rgba != nullptr) *out_color_rgba = clip->depthColorRgba;
+    return clip->hasDepthEffect() ? 1 : 0;
+}
+
+// ---- 自定义关键帧转场（文档附录二）----
+
+namespace {
+
+/// 查找转场（跨主序列轨道）。
+const Transition* findTransitionInTrack(const NcEditor* editor, int32_t track_index,
+                                        uint64_t transition_id) {
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return nullptr;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    for (const auto& tr : track.transitions) {
+        if (tr.id.value == transition_id) {
+            return &tr;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+int64_t nc_transition_duration_us(const NcEditor* editor, int32_t track_index,
+                                  uint64_t transition_id) {
+    if (editor == nullptr || track_index < 0 || transition_id == 0) {
+        return -1;
+    }
+    const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
+    if (tr == nullptr) {
+        return -1;
+    }
+    return toMicroseconds(tr->duration);
+}
+
+int32_t nc_add_transition_keyframe(NcEditor* editor, int32_t track_index,
+                                   uint64_t transition_id, int32_t property, int64_t offset_us,
+                                   double value, int32_t easing) {
+    if (editor == nullptr || track_index < 0 || transition_id == 0 || property < 0 ||
+        property > 5 || offset_us < 0 || easing < 0 || easing > 4) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
+    if (tr == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (offset_us > toMicroseconds(tr->duration)) {
+        return NC_ERROR_OUT_OF_RANGE;  // 超出转场区间（文档附录二：仅区间内）
+    }
+    // 位置 → from 片段的本地时间：转场起点在 from 片段尾部
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* fromClip = track.findClip(tr->fromClip);
+    if (fromClip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    // 转场区间起点 = from 片段终点（与导出计划编译一致：compiled.start = from->end()）
+    const Time transitionStart = fromClip->end();
+    const Time keyframeTime = transitionStart + fromMicroseconds(offset_us);
+    const Time localTime = keyframeTime - fromClip->start;
+    if (localTime.isNegative()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    Keyframe keyframe;
+    keyframe.time = localTime;
+    keyframe.value = value;
+    // 缓动映射（0 线性 / 1 缓入 / 2 缓出 / 3 缓入缓出 / 4 阶梯）
+    switch (easing) {
+        case 1: keyframe.easing = Easing::easeIn(); break;
+        case 2: keyframe.easing = Easing::easeOut(); break;
+        case 3: keyframe.easing = Easing::easeInOut(); break;
+        case 4: keyframe.easing = Easing::stepped(); break;
+        default: keyframe.easing = Easing::linear(); break;
+    }
+    return toNcError(editor->editor
+                         ->insertKeyframe(main->id, track.id, fromClip->id,
+                                          static_cast<ClipProperty>(property), keyframe)
+                         .code);
+}
+
+int32_t nc_transition_keyframe_count(const NcEditor* editor, int32_t track_index,
+                                     uint64_t transition_id, int32_t property) {
+    if (editor == nullptr || track_index < 0 || transition_id == 0 || property < 0 ||
+        property > 5) {
+        return -1;
+    }
+    const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
+    if (tr == nullptr) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* fromClip = track.findClip(tr->fromClip);
+    if (fromClip == nullptr) {
+        return -1;
+    }
+    const KeyframeTrack* curve =
+        fromClip->animation.findCurve(static_cast<ClipProperty>(property));
+    if (curve == nullptr) {
+        return 0;
+    }
+    // 仅统计落在转场区间内的关键帧（相对 from 片段本地时间）
+    const Time rangeStart = fromClip->end() - fromClip->start;  // = from 片段时长
+    const Time rangeEnd = rangeStart + tr->duration;
+    int32_t count = 0;
+    for (const auto& keyframe : curve->keyframes()) {
+        if (!(keyframe.time < rangeStart) && keyframe.time <= rangeEnd) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+int32_t nc_transition_keyframe_get(const NcEditor* editor, int32_t track_index,
+                                   uint64_t transition_id, int32_t property, int32_t index,
+                                   double* out_offset_us, double* out_value,
+                                   int32_t* out_easing) {
+    if (editor == nullptr || track_index < 0 || transition_id == 0 || property < 0 ||
+        property > 5 || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
+    if (tr == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* fromClip = track.findClip(tr->fromClip);
+    if (fromClip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const KeyframeTrack* curve =
+        fromClip->animation.findCurve(static_cast<ClipProperty>(property));
+    if (curve == nullptr) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const Time rangeStart = fromClip->end() - fromClip->start;  // = from 片段时长
+    const Time rangeEnd = rangeStart + tr->duration;
+    int32_t seen = 0;
+    for (const auto& keyframe : curve->keyframes()) {
+        if (!(keyframe.time < rangeStart) && keyframe.time <= rangeEnd) {
+            if (seen == index) {
+                if (out_offset_us != nullptr) {
+                    *out_offset_us = static_cast<double>(
+                        toMicroseconds(keyframe.time - rangeStart));
+                }
+                if (out_value != nullptr) *out_value = keyframe.value;
+                if (out_easing != nullptr) {
+                    switch (keyframe.easing.type) {
+                        case EasingType::EaseIn: *out_easing = 1; break;
+                        case EasingType::EaseOut: *out_easing = 2; break;
+                        case EasingType::EaseInOut: *out_easing = 3; break;
+                        case EasingType::Stepped: *out_easing = 4; break;
+                        default: *out_easing = 0; break;
+                    }
+                }
+                return NC_OK;
+            }
+            ++seen;
+        }
+    }
+    return NC_ERROR_OUT_OF_RANGE;
+}
+
+int32_t nc_remove_transition_keyframe(NcEditor* editor, int32_t track_index,
+                                      uint64_t transition_id, int32_t property,
+                                      int64_t offset_us) {
+    if (editor == nullptr || track_index < 0 || transition_id == 0 || property < 0 ||
+        property > 5 || offset_us < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
+    if (tr == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* fromClip = track.findClip(tr->fromClip);
+    if (fromClip == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    const Time keyframeLocal =
+        (fromClip->end() - fromClip->start) + fromMicroseconds(offset_us);
+    return toNcError(editor->editor
+                         ->removeKeyframe(main->id, track.id, fromClip->id,
+                                          static_cast<ClipProperty>(property), keyframeLocal)
+                         .code);
+}
+
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
                             const char* text) {
     if (editor == nullptr || text == nullptr || start_us < 0 || duration_us <= 0) {

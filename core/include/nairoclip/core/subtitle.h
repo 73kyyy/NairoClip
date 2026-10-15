@@ -6,6 +6,7 @@
 
 #include <string>
 #include <vector>
+#include <vector>
 
 namespace nairoclip {
 namespace core {
@@ -35,6 +36,19 @@ struct SubtitleCue {
     std::string text;
     SubtitleStyle style;
     bool enabled = true;
+    /// 镜头追踪采样点（文档 Part 4-A 3.3「镜头追踪」：文字跟随画面物体）。
+    /// 非空时表示该文字已被追踪绑定：anchorX/anchorY 由追踪点插值覆盖。
+    /// 语义：时间为**时间轴绝对时间**；坐标为归一化 0..1。
+    struct TrackingPoint {
+        Time time;
+        double centerX = 0.5;
+        double centerY = 0.5;
+    };
+    std::vector<TrackingPoint> tracking;
+    /// 追踪应用模式（0 位置 / 1 位置+缩放；文档 3.3「追踪类型」）。
+    int trackingMode = 0;
+    /// 是否已绑定追踪。
+    bool hasTracking() const { return !tracking.empty(); }
 
     Time end() const { return start + duration; }
     bool contains(const Time& t) const { return start <= t && t < end(); }

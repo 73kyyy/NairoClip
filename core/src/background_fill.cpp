@@ -57,6 +57,25 @@ const char* backgroundModeName(BackgroundMode mode) {
     return "none";
 }
 
+const char* depthEffectModeName(DepthEffectMode mode) {
+    switch (mode) {
+        case DepthEffectMode::None: return "none";
+        case DepthEffectMode::Bokeh: return "bokeh";
+        case DepthEffectMode::Fog: return "fog";
+        case DepthEffectMode::ColorBands: return "color_bands";
+        case DepthEffectMode::Parallax: return "parallax";
+    }
+    return "none";
+}
+
+bool depthEffectModeFromInt(int value, DepthEffectMode& out) {
+    if (value < 0 || value > 4) {
+        return false;
+    }
+    out = static_cast<DepthEffectMode>(value);
+    return true;
+}
+
 bool backgroundModeFromString(const char* text, BackgroundMode& out) {
     if (text == nullptr) {
         return false;

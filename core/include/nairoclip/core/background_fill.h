@@ -36,6 +36,20 @@ enum class BackgroundMode {
     Style = 3,  ///< 画布样式（预制纹理）
 };
 
+/// 深度图应用效果模式（文档 Part 4-C 13.2；互斥）。
+enum class DepthEffectMode {
+    None = 0,       ///< 未设置
+    Bokeh = 1,      ///< 景深虚化
+    Fog = 2,        ///< 雾化
+    ColorBands = 3, ///< 色彩分层
+    Parallax = 4,   ///< 视差3D
+};
+
+/// 深度效果名称（"none"/"bokeh"/"fog"/"color_bands"/"parallax"）。
+const char* depthEffectModeName(DepthEffectMode mode);
+/// 从整数解析（0..4）。
+bool depthEffectModeFromInt(int value, DepthEffectMode& out);
+
 /// 模式名称（"none"/"color"/"blur"/"style"）。
 const char* backgroundModeName(BackgroundMode mode);
 /// 从字符串解析（大小写不敏感；支持中文「颜色」/「模糊」/「画布样式」）。

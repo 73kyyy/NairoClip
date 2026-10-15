@@ -398,6 +398,92 @@ const char* nc_speed_curve_preset_display_name(int32_t preset);
 int32_t nc_apply_speed_curve_preset(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                                     int32_t preset, int64_t source_duration_us);
 
+// ---- 镜头追踪（文档 Part 4-A 3.3「镜头追踪」）----
+// 语义（文档 3.3 边界）：追踪结果生成**关键帧**并绑定到「文字对象」；
+// 本工程文字对象 = 字幕条目（SubtitleCue），其位置由锚点 (anchorX, anchorY)
+// 表达。追踪即：把每帧的追踪位置写入目标字幕的位置关键帧序列。
+// 实现分层：追踪源数据（帧显著性/轨迹）由 reframe 模块产出（平台层解码后
+// 传入采样点）；本组接口负责「采样点 → 字幕位置」的落盘与回读。
+
+/// 设置镜头追踪结果（按时间点序列写入字幕位置变更）。
+/// - subtitle_id：目标文字（字幕）ID；
+/// - times_us/center_x/center_y：追踪采样点（时间微秒 + 归一化坐标 0..1）；
+/// - point_count：采样点数（1..4096）；
+/// - apply_mode：0=位置 1=位置+缩放（缩放写为锚点附近的固定值，语义占位）；
+/// 实现：把采样点按线性插值写入字幕的 anchorX/anchorY 序列（等价于关键帧），
+///       数据经工程序列化持久化；UI 可逐帧读取（nc_tracking_point_get）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_set_camera_tracking(NcEditor* editor, uint64_t subtitle_id, const double* times_us,
+                               const double* center_x, const double* center_y,
+                               int32_t point_count, int32_t apply_mode);
+/// 读取追踪采样点数（未设置返回 0；错误返回 -1）。
+int32_t nc_tracking_point_count(const NcEditor* editor, uint64_t subtitle_id);
+/// 读取第 index 个追踪采样点（时间微秒/归一化坐标）。
+int32_t nc_tracking_point_get(const NcEditor* editor, uint64_t subtitle_id, int32_t index,
+                              double* out_time_us, double* out_center_x, double* out_center_y);
+/// 清除追踪结果（恢复为无追踪状态；可撤销）。
+int32_t nc_clear_camera_tracking(NcEditor* editor, uint64_t subtitle_id);
+
+// ---- 深度图效果（文档 Part 4-C 13.2「深度图」4 种应用效果）----
+
+/// 深度图应用效果模式（文档 13.2）。
+enum NcDepthEffect {
+    NC_DEPTH_EFFECT_NONE = 0,        ///< 未设置
+    NC_DEPTH_EFFECT_BOKEH = 1,       ///< 景深虚化
+    NC_DEPTH_EFFECT_FOG = 2,         ///< 雾化
+    NC_DEPTH_EFFECT_COLOR_BANDS = 3, ///< 色彩分层
+    NC_DEPTH_EFFECT_PARALLAX = 4,    ///< 视差3D
+};
+
+/// 设置片段深度图效果（文档 13.2 四 Tab；互斥）。
+/// - mode：0=none 1=bokeh 2=fog 3=color_bands 4=parallax；
+/// - focus_distance：景深对焦距离 0..1（点击画布赋值；仅 bokeh）；
+/// - aperture：光圈 1.0..22.0（仅 bokeh）；
+/// - intensity：主强度 0..100（虚化/雾浓度/过渡柔和/视差强度）；
+/// - color_rgba：雾颜色/分层近景色（0xRRGGBBAA；仅 fog/color_bands）；
+/// 返回 NC_OK 或错误码（深度图生成完成前由平台层拦截——AI 任务状态机）。
+int32_t nc_set_depth_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t mode, double focus_distance, double aperture,
+                            double intensity, uint32_t color_rgba);
+/// 读取片段深度图效果（出参均可空）。
+/// 返回：1 = 已设置，0 = 未设置，-1 = 参数错误。
+int32_t nc_get_depth_effect(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t* out_mode, double* out_focus_distance,
+                            double* out_aperture, double* out_intensity,
+                            uint32_t* out_color_rgba);
+
+// ---- 自定义关键帧转场（文档附录二）----
+// 语义：文档附录二要求用户可在转场区间内对 5 个属性（位置X/位置Y/缩放/旋转/
+// 不透明度）打关键帧。本工程的关键帧系统（ClipProperty 0..5）已完整支持，
+// 本组接口为「转场区间内关键帧」提供便捷读写（把区间相对时间换算为
+// 片段本地时间：转场起点在 from 片段尾部）。
+
+/// 在转场区间内添加关键帧（时间相对转场起点；文档附录二交互）。
+/// - transition_id：转场 ID；property：0..5（文档附录二的 5 属性映射：
+///   位置X=2 位置Y=3 缩放=1 旋转=4 不透明度=0）；
+/// - offset_us：相对转场起点的时间偏移（0..转场时长）；
+/// - value：数值；easing：0 线性 / 1 缓入 / 2 缓出 / 3 缓入缓出 / 4 阶梯；
+/// 实现：换算为 from 片段的本地时间后写入其关键帧通道（可撤销）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_add_transition_keyframe(NcEditor* editor, int32_t track_index,
+                                   uint64_t transition_id, int32_t property, int64_t offset_us,
+                                   double value, int32_t easing);
+/// 读取转场区间内的关键帧数量（某属性）。
+int32_t nc_transition_keyframe_count(const NcEditor* editor, int32_t track_index,
+                                     uint64_t transition_id, int32_t property);
+/// 读取第 index 个转场区间关键帧（偏移微秒/数值/缓动）。
+int32_t nc_transition_keyframe_get(const NcEditor* editor, int32_t track_index,
+                                   uint64_t transition_id, int32_t property, int32_t index,
+                                   double* out_offset_us, double* out_value,
+                                   int32_t* out_easing);
+/// 删除转场区间关键帧（偏移微秒）。
+int32_t nc_remove_transition_keyframe(NcEditor* editor, int32_t track_index,
+                                      uint64_t transition_id, int32_t property,
+                                      int64_t offset_us);
+/// 转场总时长（微秒；供 UI 绘制迷你时间轴；越界返回 -1）。
+int64_t nc_transition_duration_us(const NcEditor* editor, int32_t track_index,
+                                  uint64_t transition_id);
+
 // ---- 关键帧查询（文档「自定义关键帧转场」/ 参数动画面板）----
 
 /// 读取片段某通道的关键帧数量（property 0..5）。

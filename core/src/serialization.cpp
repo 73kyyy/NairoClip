@@ -843,6 +843,21 @@ JsonValue writeSubtitleTrack(const SubtitleTrack& track) {
         o.set("text", JsonValue::string(cue.text));
         o.set("enabled", JsonValue::boolean(cue.enabled));
         o.set("style", writeSubtitleStyle(cue.style));
+        // 镜头追踪（文档 Part 4-A 3.3；仅已绑定时写入）
+        if (cue.hasTracking()) {
+            JsonValue tracking = JsonValue::object();
+            tracking.set("mode", JsonValue::integer(cue.trackingMode));
+            JsonValue points = JsonValue::array();
+            for (const auto& point : cue.tracking) {
+                JsonValue p = JsonValue::object();
+                p.set("t", writeRational(point.time));
+                p.set("x", JsonValue::number(point.centerX));
+                p.set("y", JsonValue::number(point.centerY));
+                points.push(std::move(p));
+            }
+            tracking.set("points", std::move(points));
+            o.set("tracking", std::move(tracking));
+        }
         arr.push(std::move(o));
     }
     return arr;
@@ -862,6 +877,27 @@ bool readSubtitleTrack(const JsonValue& v, SubtitleTrack& out, std::string& err)
         cue.text = cv.get("text").asString();
         cue.enabled = cv.get("enabled").asBool(true);
         cue.style = readSubtitleStyle(cv.get("style"));
+        // 镜头追踪（缺省 = 未绑定；非法数据跳过（保留字幕本身），保证工程可打开）
+        cue.tracking.clear();
+        cue.trackingMode = 0;
+        if (cv.has("tracking")) {
+            const JsonValue& tracking = cv.get("tracking");
+            if (tracking.isObject()) {
+                cue.trackingMode = static_cast<int>(tracking.get("mode").asInteger(0));
+                if (tracking.has("points") && tracking.get("points").isArray()) {
+                    const JsonValue& points = tracking.get("points");
+                    for (std::size_t j = 0; j < points.size(); ++j) {
+                        const JsonValue& p = points.at(j);
+                        if (!p.isObject()) continue;
+                        SubtitleCue::TrackingPoint point;
+                        if (!readRational(p.get("t"), "t", point.time, err)) return false;
+                        point.centerX = p.get("x").asNumber(0.5);
+                        point.centerY = p.get("y").asNumber(0.5);
+                        cue.tracking.push_back(point);
+                    }
+                }
+            }
+        }
         const Result r = out.insert(std::move(cue));
         if (!r.isOk()) { err = r.message; return false; }
     }
