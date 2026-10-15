@@ -128,6 +128,9 @@ public:
     Result setClipReversed(SequenceId sequenceId, TrackId trackId, ClipId clipId, bool reversed);
     /// 设置片段透明度（文档「✂️剪辑 → 不透明度」；0..1）。
     Result setClipOpacity(SequenceId sequenceId, TrackId trackId, ClipId clipId, double opacity);
+    /// 设置片段滤镜（文档 Part 4-B 第 7 节「滤镜」；14 风格 + 强度 0..100）。
+    Result setClipFilter(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                         FilterStyle style, double intensity);
     // ---- 标记 ----
     /// 添加/更新标记（同 ID 替换）。
     Result upsertMarker(SequenceId sequenceId, Marker marker);

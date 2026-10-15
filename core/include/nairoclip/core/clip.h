@@ -5,6 +5,7 @@
 #include "nairoclip/core/blend_modes.h"
 #include "nairoclip/core/chroma_key.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/filters.h"
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/rational.h"
@@ -69,6 +70,12 @@ struct Clip {
     ///   sourceIn + (duration - u) * speed  （实现见 sourceTimeAt）。
     /// 约束：倒放与速度曲线/负速度互斥（速度曲线非空时倒放不参与映射）。
     bool reversed = false;
+    /// 滤镜（文档 Part 4-B 第 7 节「滤镜」；14 种风格 + 强度）。
+    /// None = 不应用（默认）；强度 0..100（默认 80，与文档一致）。
+    FilterStyle filterStyle = FilterStyle::None;
+    double filterIntensity = 80.0;
+    /// 是否启用滤镜。
+    bool hasFilter() const { return filterStyle != FilterStyle::None; }
     /// 音频属性是否合法：增益在范围内、淡入淡出不超过片段时长且非负、
     /// 淡入 + 淡出不超过片段时长。
     bool audioValid() const {

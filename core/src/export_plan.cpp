@@ -28,6 +28,8 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.hasChromaKey = clip.hasChromaKey;
     rc.chromaKey = clip.chromaKey;
     rc.blendMode = clip.blendMode;
+    rc.filterStyle = clip.filterStyle;
+    rc.filterIntensity = clip.filterIntensity;
     rc.animation = clip.animation;
     rc.speedCurve = clip.speedCurve;
     (void)project;

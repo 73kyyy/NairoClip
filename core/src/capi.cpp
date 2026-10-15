@@ -31,6 +31,7 @@
 #include "nairoclip/core/beat_detect.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/commands.h"
+#include "nairoclip/core/filters.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/export_plan.h"
@@ -923,6 +924,55 @@ int32_t nc_set_clip_opacity(NcEditor* editor, int32_t track_index, uint64_t clip
     return toNcError(editor->editor
                          ->setClipOpacity(seqId, trackId, ClipId{clip_id}, opacity)
                          .code);
+}
+
+// ---- 滤镜（文档 Part 4-B 第 7 节「滤镜」）----
+
+int32_t nc_set_clip_filter(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t style, double intensity) {
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    FilterStyle filterStyle;
+    if (clip_id == 0 || !filterStyleFromInt(style, filterStyle)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (intensity < 0.0 || intensity > 100.0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return toNcError(editor->editor
+                         ->setClipFilter(seqId, trackId, ClipId{clip_id}, filterStyle, intensity)
+                         .code);
+}
+
+int32_t nc_get_clip_filter(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t* out_style, double* out_intensity) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return -1;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return -1;
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return -1;
+    }
+    if (out_style != nullptr) *out_style = static_cast<int32_t>(clip->filterStyle);
+    if (out_intensity != nullptr) *out_intensity = clip->filterIntensity;
+    return clip->hasFilter() ? 1 : 0;
+}
+
+const char* nc_filter_display_name(int32_t style) {
+    FilterStyle filterStyle;
+    if (!filterStyleFromInt(style, filterStyle)) {
+        return "无";
+    }
+    return filterStyleDisplayName(filterStyle);
 }
 
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,

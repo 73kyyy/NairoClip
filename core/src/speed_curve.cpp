@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace nairoclip {
 namespace core {
@@ -129,6 +130,146 @@ bool SpeedCurve::invariantsHold() const {
         }
     }
     return true;
+}
+
+// =============================================================================
+// 速度曲线预设（文档 Part 4-A 1.1「曲线预设」）
+// =============================================================================
+
+const char* speedCurvePresetName(SpeedCurvePreset preset) {
+    switch (preset) {
+        case SpeedCurvePreset::Custom: return "custom";
+        case SpeedCurvePreset::Montage: return "montage";
+        case SpeedCurvePreset::HeroMoment: return "hero_moment";
+        case SpeedCurvePreset::BulletTime: return "bullet_time";
+        case SpeedCurvePreset::Jump: return "jump";
+        case SpeedCurvePreset::FlashIn: return "flash_in";
+        case SpeedCurvePreset::FlashOut: return "flash_out";
+    }
+    return "custom";
+}
+
+const char* speedCurvePresetDisplayName(SpeedCurvePreset preset) {
+    switch (preset) {
+        case SpeedCurvePreset::Custom: return "自定义";
+        case SpeedCurvePreset::Montage: return "蒙太奇";
+        case SpeedCurvePreset::HeroMoment: return "英雄时刻";
+        case SpeedCurvePreset::BulletTime: return "子弹时间";
+        case SpeedCurvePreset::Jump: return "跳跃";
+        case SpeedCurvePreset::FlashIn: return "闪进";
+        case SpeedCurvePreset::FlashOut: return "闪出";
+    }
+    return "自定义";
+}
+
+bool speedCurvePresetFromString(const char* text, SpeedCurvePreset& out) {
+    if (text == nullptr) {
+        return false;
+    }
+    std::string s(text);
+    for (auto& c : s) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    for (int i = 0; i <= 6; ++i) {
+        const auto preset = static_cast<SpeedCurvePreset>(i);
+        if (s == speedCurvePresetName(preset)) {
+            out = preset;
+            return true;
+        }
+    }
+    if (s == "heromoment" || s == "hero") { out = SpeedCurvePreset::HeroMoment; return true; }
+    if (s == "bullettime" || s == "bullet") { out = SpeedCurvePreset::BulletTime; return true; }
+    if (s == "flashin" || s == "in") { out = SpeedCurvePreset::FlashIn; return true; }
+    if (s == "flashout" || s == "out") { out = SpeedCurvePreset::FlashOut; return true; }
+    for (int i = 0; i <= 6; ++i) {
+        const auto preset = static_cast<SpeedCurvePreset>(i);
+        if (s == speedCurvePresetDisplayName(preset)) {
+            out = preset;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool speedCurvePresetFromInt(int value, SpeedCurvePreset& out) {
+    if (value < 0 || value > 6) {
+        return false;
+    }
+    out = static_cast<SpeedCurvePreset>(value);
+    return true;
+}
+
+SpeedCurve buildSpeedCurvePreset(SpeedCurvePreset preset, const Time& sourceDuration) {
+    SpeedCurve curve;
+    if (!sourceDuration.isPositive() || preset == SpeedCurvePreset::Custom) {
+        return curve;  // 空曲线 = 恒速（自定义由用户添加控制点）
+    }
+    const auto at = [&sourceDuration](double fraction) {
+        return fromMicroseconds(static_cast<std::int64_t>(
+            std::llround(sourceDuration.toDouble() * fraction * 1000000.0)));
+    };
+    const auto add = [&curve](const Time& time, double speed) {
+        SpeedPoint point;
+        point.sourceTime = time;
+        point.speed = Rational::make(static_cast<std::int64_t>(std::llround(speed * 1000.0)),
+                                     1000);
+        point.easing = Easing::easeInOut();
+        (void)curve.addPoint(point);
+    };
+    switch (preset) {
+        case SpeedCurvePreset::Montage:
+            // 蒙太奇：多次快慢交替（0.5x 慢 → 3x 快 → 0.5x → 3x → 1x）
+            add(at(0.0), 1.0);
+            add(at(0.15), 3.0);
+            add(at(0.30), 0.5);
+            add(at(0.50), 3.0);
+            add(at(0.65), 0.5);
+            add(at(0.85), 3.0);
+            add(at(1.0), 1.0);
+            break;
+        case SpeedCurvePreset::HeroMoment:
+            // 英雄时刻：前后正常 + 中段极慢（突出高光）
+            add(at(0.0), 1.0);
+            add(at(0.35), 1.0);
+            add(at(0.50), 0.25);
+            add(at(0.65), 1.0);
+            add(at(1.0), 1.0);
+            break;
+        case SpeedCurvePreset::BulletTime:
+            // 子弹时间：中段极致慢速（接近定格）
+            add(at(0.0), 1.0);
+            add(at(0.30), 1.0);
+            add(at(0.45), 0.1);
+            add(at(0.60), 1.0);
+            add(at(1.0), 1.0);
+            break;
+        case SpeedCurvePreset::Jump:
+            // 跳跃：周期性快跳（快-慢-快）
+            add(at(0.0), 0.5);
+            add(at(0.20), 4.0);
+            add(at(0.40), 0.5);
+            add(at(0.60), 4.0);
+            add(at(0.80), 0.5);
+            add(at(1.0), 1.0);
+            break;
+        case SpeedCurvePreset::FlashIn:
+            // 闪进：片头极快，迅速进入正片
+            add(at(0.0), 6.0);
+            add(at(0.15), 1.0);
+            add(at(1.0), 1.0);
+            break;
+        case SpeedCurvePreset::FlashOut:
+            // 闪出：片尾极快收束
+            add(at(0.0), 1.0);
+            add(at(0.85), 1.0);
+            add(at(1.0), 6.0);
+            break;
+        case SpeedCurvePreset::Custom:
+            break;
+    }
+    return curve;
 }
 
 }  // namespace core

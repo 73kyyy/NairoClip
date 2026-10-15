@@ -49,6 +49,9 @@ struct RenderClip {
     ChromaKey chromaKey;
     /// 画中画混合模式（文档第二段 5.9；多层合成时与下层的混合公式）。
     BlendMode blendMode = BlendMode::Normal;
+    /// 滤镜快照（文档 Part 4-B 第 7 节；None = 不应用）。
+    FilterStyle filterStyle = FilterStyle::None;
+    double filterIntensity = 80.0;
     /// 动画快照（透明度等逐帧采样）。
     ClipAnimation animation;
     /// 速度曲线快照（非空时变速映射按曲线积分）。

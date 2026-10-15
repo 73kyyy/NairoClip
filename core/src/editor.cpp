@@ -466,6 +466,12 @@ Result TimelineEditor::setClipOpacity(SequenceId sequenceId, TrackId trackId, Cl
     return commit(std::make_unique<SetClipOpacityCommand>(sequenceId, trackId, clipId, opacity));
 }
 
+Result TimelineEditor::setClipFilter(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                     FilterStyle style, double intensity) {
+    return commit(
+        std::make_unique<SetClipFilterCommand>(sequenceId, trackId, clipId, style, intensity));
+}
+
 Result TimelineEditor::upsertMarker(SequenceId sequenceId, Marker marker) {
     return commit(std::make_unique<UpsertMarkerCommand>(sequenceId, std::move(marker)));
 }

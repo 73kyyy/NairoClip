@@ -486,6 +486,29 @@ private:
     std::optional<KeyframeTrack> beforeCurve_;
 };
 
+/// 设置片段滤镜（文档 Part 4-B 第 7 节「滤镜」；14 风格 + 强度 0..100）。
+class SetClipFilterCommand : public Command {
+public:
+    SetClipFilterCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                         FilterStyle style, double intensity);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override;
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    FilterStyle style_ = FilterStyle::None;
+    double intensity_ = 80.0;
+    struct Snapshot {
+        FilterStyle style = FilterStyle::None;
+        double intensity = 80.0;
+    };
+    std::optional<Snapshot> before_;
+};
+
 
 /// 添加/更新片段特效。
 class AddEffectCommand : public Command {

@@ -348,6 +348,13 @@ JsonValue writeClip(const Clip& c) {
     if (c.reversed) {
         o.set("reversed", JsonValue::boolean(true));
     }
+    // 滤镜（文档 Part 4-B 第 7 节；仅启用时写入）
+    if (c.filterStyle != FilterStyle::None) {
+        JsonValue filter = JsonValue::object();
+        filter.set("style", JsonValue::string(filterStyleName(c.filterStyle)));
+        filter.set("intensity", JsonValue::number(c.filterIntensity));
+        o.set("filter", std::move(filter));
+    }
     o.set("enabled", JsonValue::boolean(c.enabled));
     if (!c.animation.empty()) {
         o.set("animation", writeClipAnimation(c.animation));
@@ -429,6 +436,22 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
         if (!readRational(v.get("speed"), "speed", out.speed, err)) return false;
     }
     out.reversed = v.get("reversed").asBool(false);
+    // 滤镜（缺省 = 不应用；非法值降级为 None，保证工程可打开）
+    out.filterStyle = FilterStyle::None;
+    out.filterIntensity = 80.0;
+    if (v.has("filter")) {
+        const JsonValue& filter = v.get("filter");
+        if (filter.isObject()) {
+            FilterStyle style = FilterStyle::None;
+            if (filterStyleFromString(filter.get("style").asString().c_str(), style)) {
+                out.filterStyle = style;
+            }
+            const double intensity = filter.get("intensity").asNumber(80.0);
+            if (intensity >= 0.0 && intensity <= 100.0) {
+                out.filterIntensity = intensity;
+            }
+        }
+    }
     out.enabled = v.get("enabled").asBool(true);
     out.animation.clear();
     if (v.has("animation")) {

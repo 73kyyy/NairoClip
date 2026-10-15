@@ -6,6 +6,7 @@
 #include "nairoclip/core/reframe.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/filters.h"
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/ai_label.h"
 #include "nairoclip/core/audio_mixer.h"
@@ -333,6 +334,16 @@ ExportStats executeExport(
                     // 确保 alpha 不透明
                     for (std::size_t i = 3; i < bufA.size(); i += 4) bufA[i] = 255;
                     for (std::size_t i = 3; i < bufB.size(); i += 4) bufB[i] = 255;
+                    // 先应用滤镜（文档 Part 4-B 第 7 节：整体色彩风格），再应用特效栈。
+                    // 顺序说明：滤镜改变色调基底，特效在其上叠加视觉元素。
+                    if (fromClip->filterStyle != FilterStyle::None) {
+                        applyFilterToRgba(bufA.data(), w, h, fromClip->filterStyle,
+                                          fromClip->filterIntensity);
+                    }
+                    if (toClip->filterStyle != FilterStyle::None) {
+                        applyFilterToRgba(bufB.data(), w, h, toClip->filterStyle,
+                                          toClip->filterIntensity);
+                    }
                     // 对两路源帧分别应用各自片段的特效栈（颜色 + 空间/画面/氛围/动感）：
                     // 修复——此前转场帧完全不吃片段特效（与单层路径不一致）。
                     if (!fromClip->effects.empty()) {
@@ -463,6 +474,11 @@ ExportStats executeExport(
                                            srcStride, frame.rgba.data(), plan.width, plan.height,
                                            plan.frameFit, plan.backgroundRgba);
                         }
+                        // 应用滤镜（文档 Part 4-B 第 7 节：整体色彩风格；先于特效栈）
+                        if (active->filterStyle != FilterStyle::None) {
+                            applyFilterToRgba(frame.rgba.data(), plan.width, plan.height,
+                                              active->filterStyle, active->filterIntensity);
+                        }
                         // 应用片段特效栈（颜色变换 + 空间/画面/氛围/动感特效）
                         if (!active->effects.empty()) {
                             applyEffectStackToFrame(frame.rgba.data(), plan.width,
@@ -555,6 +571,42 @@ ExportStats executeExport(
                                                         plan.width, plan.height, plan.frameFit,
                                                         plan.backgroundRgba);
                                                     lowerPixels = lowerCanvas.data();
+                                                }
+                                                // 下层帧同样吃自己的滤镜与特效栈
+                                                // （缺陷修复：此前只处理上层，下层按原始
+                                                //  像素参与混合——与转场帧同类不一致）。
+                                                // 说明：仅在需要可变缓冲时拷贝（无滤镜/特效
+                                                //       且已在上层画布路径时零拷贝）。
+                                                if ((lower->filterStyle != FilterStyle::None ||
+                                                     !lower->effects.empty())) {
+                                                    if (lowerPixels != lowerCanvas.data()) {
+                                                        lowerCanvas.assign(
+                                                            lowerPixels,
+                                                            lowerPixels +
+                                                                static_cast<std::size_t>(plan.width) *
+                                                                    static_cast<std::size_t>(
+                                                                        plan.height) *
+                                                                    4);
+                                                        lowerPixels = lowerCanvas.data();
+                                                    }
+                                                    {
+                                                        std::uint8_t* writable =
+                                                            const_cast<std::uint8_t*>(lowerPixels);
+                                                        if (lower->filterStyle !=
+                                                            FilterStyle::None) {
+                                                            applyFilterToRgba(
+                                                                writable, plan.width, plan.height,
+                                                                lower->filterStyle,
+                                                                lower->filterIntensity);
+                                                        }
+                                                        if (!lower->effects.empty()) {
+                                                            applyEffectStackToFrame(
+                                                                writable, plan.width, plan.height,
+                                                                lower->effects, frameIndex,
+                                                                RenderQuality::exportQuality(),
+                                                                t.toDouble());
+                                                        }
+                                                    }
                                                 }
                                                 const int lowerCanvasStride = plan.width * 4;
                                                 const int w = plan.width;

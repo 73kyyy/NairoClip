@@ -205,6 +205,21 @@ int32_t nc_get_clip_opacity(const NcEditor* editor, int32_t track_index, uint64_
 int32_t nc_set_clip_opacity(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             double opacity);
 
+// ---- 滤镜（文档 Part 4-B 第 7 节「滤镜」；14 种风格）----
+
+/// 设置片段滤镜（style 见 FilterStyle：0=none 1=movie 2=retro 3=fresh 4=black_white
+/// 5=cyber 6=japanese 7=film 8=warm_sun 9=cool_tone 10=hong_kong 11=high_gray
+/// 12=cream 13=negative；intensity 0..100）。
+/// 返回 NC_OK 或错误码（非法 style/强度）。
+int32_t nc_set_clip_filter(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t style, double intensity);
+/// 读取片段滤镜（out_style/out_intensity 可空）。
+/// 返回：1 = 已启用，0 = 未启用，-1 = 参数错误。
+int32_t nc_get_clip_filter(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t* out_style, double* out_intensity);
+/// 滤镜展示名（style 0..13；返回静态字符串，无需释放；非法返回 "无"）。
+const char* nc_filter_display_name(int32_t style);
+
 // ---- 字幕 ----
 
 /// 添加/更新字幕。返回 >0 成功（返回 SubtitleId），0 失败。

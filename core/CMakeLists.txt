@@ -55,6 +55,7 @@ add_library(nairoclip_core STATIC
     src/spatial_effects.cpp
     src/screen_effects.cpp
     src/person_effects.cpp
+    src/filters.cpp
     src/blend_modes.cpp
     src/render_engine.cpp
     src/particle_engine.cpp

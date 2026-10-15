@@ -1451,6 +1451,55 @@ Result SetClipOpacityCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------------------------------------------------------------------
+// 设置片段滤镜（文档 Part 4-B 第 7 节「滤镜」）
+// ---------------------------------------------------------------------------
+
+SetClipFilterCommand::SetClipFilterCommand(SequenceId sequenceId, TrackId trackId,
+                                           ClipId clipId, FilterStyle style, double intensity)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      style_(style),
+      intensity_(intensity) {}
+
+std::string SetClipFilterCommand::nameImpl() const {
+    if (style_ == FilterStyle::None) {
+        return "清除滤镜";
+    }
+    return std::string("滤镜：") + filterStyleDisplayName(style_);
+}
+
+Result SetClipFilterCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    // 强度范围校验（文档 Part 4-B 7.2：0~100）
+    if (intensity_ < 0.0 || intensity_ > 100.0) {
+        return Result::fail(ErrorCode::InvalidArgument, "滤镜强度需在 0..100 之间");
+    }
+    if (!before_.has_value()) {
+        before_ = Snapshot{clip->filterStyle, clip->filterIntensity};
+    }
+    clip->filterStyle = style_;
+    clip->filterIntensity = intensity_;
+    return Result::ok();
+}
+
+Result SetClipFilterCommand::revert(Project& project) {
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少滤镜快照");
+    }
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    clip->filterStyle = before_->style;
+    clip->filterIntensity = before_->intensity;
+    return Result::ok();
+}
+
 
 // ---------------- 特效命令 ----------------
 
