@@ -1,5 +1,11 @@
 #include "nairoclip/core/effects.h"
 
+#include "nairoclip/core/atmosphere_effects.h"
+#include "nairoclip/core/motion_effects.h"
+#include "nairoclip/core/person_effects.h"
+#include "nairoclip/core/screen_effects.h"
+#include "nairoclip/core/spatial_effects.h"
+
 #include <algorithm>
 
 namespace nairoclip {
@@ -39,6 +45,15 @@ EffectSpec effectSpec(EffectType type) {
         case EffectType::BeatFlicker: return EffectSpec{0.0, 1.0, 0.0, "变速闪烁"};
         case EffectType::BeatRhythm: return EffectSpec{0.0, 1.0, 0.0, "节奏律动"};
         case EffectType::MotionBlur: return EffectSpec{0.0, 1.0, 0.0, "运动模糊"};
+        // ---- 画面特效补充（文档 Part 4-B 5.2）----
+        case EffectType::Flash: return EffectSpec{0.0, 1.0, 0.0, "闪光"};
+        case EffectType::Mosaic: return EffectSpec{0.0, 1.0, 0.0, "马赛克"};
+        // ---- 人物特效（文档 Part 4-B 5.2「人物特效」）----
+        case EffectType::Jitter: return EffectSpec{0.0, 1.0, 0.0, "抖动"};
+        case EffectType::ZoomIn: return EffectSpec{0.0, 1.0, 0.0, "放大"};
+        case EffectType::EdgeDetect: return EffectSpec{0.0, 1.0, 0.0, "边缘检测"};
+        case EffectType::Slim: return EffectSpec{0.0, 1.0, 0.0, "瘦身"};
+        case EffectType::GlowOutline: return EffectSpec{0.0, 1.0, 0.0, "发光轮廓"};
     }
     return EffectSpec{};
 }
@@ -229,9 +244,10 @@ bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
     }
     // 2) 按栈序应用邻域/时变效果：
     //    - 空间效果（8..11）：暗角/模糊/锐化/噪点；
-    //    - 画面特效（13..18）：故障/分屏/镜像/旋转模糊/扫描线/RGB 分离；
+    //    - 画面特效（13..18 + 29..30）：故障/分屏/镜像/旋转模糊/扫描线/RGB 分离/闪光/马赛克；
     //    - 氛围特效（19..23）：雪花/下雨/光斑/老电影/星光；
-    //    - 动感特效（24..27）：缩放冲击/甩镜/变速闪烁/节奏律动。
+    //    - 动感特效（24..27）：缩放冲击/甩镜/变速闪烁/节奏律动；
+    //    - 人物特效（31..35）：抖动/放大/边缘检测/瘦身/发光轮廓。
     //    颜色类（1..7、12）已在上面处理；运动模糊（28）在帧序列层处理。
     for (const auto& e : stack.effects()) {
         if (!e.enabled) {
@@ -256,6 +272,20 @@ bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
         } else if (typeValue >= 24 && typeValue <= 28) {
             if (!applyMotionEffectToRgba(pixels, width, height, typeValue, e.value, time,
                                          beats, quality)) {
+                return false;
+            }
+        } else if (typeValue >= 29 && typeValue <= 30) {
+            // 画面特效补充：闪光/马赛克（文档 Part 4-B 5.2 预设清单）
+            if (!applyScreenEffectToRgba(pixels, width, height, typeValue, e.value,
+                                         frameIndex, quality)) {
+                return false;
+            }
+        } else if (typeValue >= 31 && typeValue <= 35) {
+            // 人物特效：抖动/放大/边缘检测/瘦身/发光轮廓（文档 Part 4-B 5.2）
+            // 说明：Alpha 参数暂由调用方传入——特效栈路径暂无抠像 Alpha 通道，
+            //       传 nullptr（瘦身/发光轮廓零改动）；接入智能抠像后由管线贯通。
+            if (!applyPersonEffectToRgba(pixels, width, height, typeValue, e.value, time,
+                                         nullptr, quality)) {
                 return false;
             }
         }

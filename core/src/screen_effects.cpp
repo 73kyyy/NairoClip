@@ -343,9 +343,100 @@ bool applyScreenEffectToRgba(std::uint8_t* pixels, int width, int height, int ef
             return applyScanlinesRgba(pixels, width, height, value);
         case static_cast<int>(ScreenEffectType::RgbSplit):
             return applyRgbSplitRgba(pixels, width, height, value, frameIndex);
+        case static_cast<int>(ScreenEffectType::Flash):
+            // 闪光为时变脉冲：用 frameIndex 折算时间（1/30s 步进，与调用约定一致）
+            return applyFlashRgba(pixels, width, height, value,
+                                  static_cast<double>(frameIndex) / 30.0);
+        case static_cast<int>(ScreenEffectType::Mosaic):
+            return applyMosaicRgba(pixels, width, height, value);
         default:
             return true;  // 非画面特效：由其他模块处理（非错误）
     }
+}
+
+bool applyFlashRgba(std::uint8_t* pixels, int width, int height, double intensity,
+                    double timeSeconds) {
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+    if (intensity <= 0.0) {
+        return true;
+    }
+    intensity = std::min(1.0, intensity);
+    // 文档「闪光」：亮度瞬间提升再恢复（时间脉冲）。
+    // 脉冲波形：以 0.2s 周期做「快升慢降」（闪一下），峰值增益 = 强度 × 1.0。
+    const double phase = std::fmod(timeSeconds, 0.2) / 0.2;
+    const double pulse = phase < 0.15 ? (1.0 - phase / 0.15) : 0.0;
+    const double boost = intensity * pulse;
+    if (boost <= 0.0) {
+        return true;  // 非脉冲时刻：零改动
+    }
+    const std::size_t count =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    for (std::size_t i = 0; i < count; ++i) {
+        std::uint8_t* px = pixels + i * 4;
+        for (int c = 0; c < 3; ++c) {
+            // 亮度提升（趋向白）：out = v + (255 - v) × boost
+            const double value = px[c] + (255.0 - px[c]) * boost;
+            px[c] = static_cast<std::uint8_t>(std::clamp(value, 0.0, 255.0));
+        }
+    }
+    return true;
+}
+
+bool applyMosaicRgba(std::uint8_t* pixels, int width, int height, double intensity) {
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+    if (intensity <= 0.0) {
+        return true;
+    }
+    intensity = std::min(1.0, intensity);
+    // 文档「马赛克」：像素化块替换（块尺寸随强度增大；最大约 1/16 画布宽）
+    const int blockSize = std::max(2, static_cast<int>(std::lround(width * 0.0625 * intensity)));
+    std::vector<std::uint8_t> source(pixels, pixels + static_cast<std::size_t>(width) *
+                                                        static_cast<std::size_t>(height) * 4);
+    for (int by = 0; by < height; by += blockSize) {
+        for (int bx = 0; bx < width; bx += blockSize) {
+            // 块内均值颜色
+            double sum[3] = {0.0, 0.0, 0.0};
+            int count = 0;
+            for (int y = by; y < std::min(height, by + blockSize); ++y) {
+                for (int x = bx; x < std::min(width, bx + blockSize); ++x) {
+                    const std::uint8_t* px =
+                        source.data() + (static_cast<std::size_t>(y) *
+                                             static_cast<std::size_t>(width) +
+                                         static_cast<std::size_t>(x)) *
+                                            4;
+                    for (int c = 0; c < 3; ++c) {
+                        sum[c] += px[c];
+                    }
+                    ++count;
+                }
+            }
+            if (count == 0) {
+                continue;
+            }
+            std::uint8_t avg[3];
+            for (int c = 0; c < 3; ++c) {
+                avg[c] = static_cast<std::uint8_t>(sum[c] / count);
+            }
+            // 填充块
+            for (int y = by; y < std::min(height, by + blockSize); ++y) {
+                for (int x = bx; x < std::min(width, bx + blockSize); ++x) {
+                    std::uint8_t* px =
+                        pixels + (static_cast<std::size_t>(y) *
+                                      static_cast<std::size_t>(width) +
+                                  static_cast<std::size_t>(x)) *
+                                     4;
+                    px[0] = avg[0];
+                    px[1] = avg[1];
+                    px[2] = avg[2];
+                }
+            }
+        }
+    }
+    return true;
 }
 
 }  // namespace core

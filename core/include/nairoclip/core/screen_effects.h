@@ -31,7 +31,7 @@
 namespace nairoclip {
 namespace core {
 
-/// 画面特效类型（与 EffectType 数值对齐；13..18）。
+/// 画面特效类型（与 EffectType 数值对齐；13..18 + 29..30）。
 enum class ScreenEffectType {
     Glitch = 13,        ///< 故障（RGB 通道偏移 + 色块替换）
     SplitScreen = 14,   ///< 分屏（2x2 宫格）
@@ -39,6 +39,8 @@ enum class ScreenEffectType {
     RadialBlur = 16,    ///< 旋转模糊（绕中心多角度采样平均）
     Scanlines = 17,     ///< 扫描线（周期性暗条纹）
     RgbSplit = 18,      ///< RGB 分离（三通道位移）
+    Flash = 29,         ///< 闪光（整帧亮度瞬间提升；文档 Part 4-B「画面特效」）
+    Mosaic = 30,        ///< 马赛克（像素化块替换；文档 Part 4-B「画面特效」）
 };
 
 /// 应用单个画面特效（原地修改 RGB；alpha 不变）。
@@ -76,6 +78,14 @@ bool applyScanlinesRgba(std::uint8_t* pixels, int width, int height, double inte
 /// RGB 分离：R/G/B 三通道分别做水平像素位移后重新合成。
 bool applyRgbSplitRgba(std::uint8_t* pixels, int width, int height, double intensity,
                        std::int64_t frameIndex);
+
+/// 闪光：整帧亮度瞬间提升（时间脉冲驱动；文档「画面特效 → 闪光」）。
+/// - timeSeconds：时变驱动（脉冲；同一时刻 → 同一结果，可测）。
+bool applyFlashRgba(std::uint8_t* pixels, int width, int height, double intensity,
+                    double timeSeconds);
+
+/// 马赛克：像素化块替换（块尺寸随强度增大；文档「画面特效 → 马赛克」）。
+bool applyMosaicRgba(std::uint8_t* pixels, int width, int height, double intensity);
 
 /// 说明文案（供 UI/日志）。
 const char* screenEffectPurpose();
