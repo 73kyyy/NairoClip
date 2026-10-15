@@ -83,7 +83,7 @@ JNI 层（C++）只做两件事：句柄转换（long ↔ NcEditor*）、字符�
 
 ---
 
-## 9. 完整接口索引（181 个函数；按功能分组）
+## 9. 完整接口索引（209 个函数；按功能分组）
 
 > **给 UI/UX 窗口的对接说明**：下表为 C ABI 全量清单（`capi.h` 为权威定义）。
 > 所有 `char*` 返回值需 `nc_free_string`；所有 `uint8_t*`/`double*` 数组需
@@ -232,3 +232,106 @@ nc_project_save(ed);                 // 取 .nclip 文本自行持久化
 nc_clear_undo_history(ed);           // 文档：不跨会话保留撤销记录
 ```
 
+
+---
+
+## 10. UI 功能点 → C ABI 速查表（按 UI 开发文档 Part 逐项）
+
+> **给 UI/UX 窗口的完整对照**：下表把 UI 文档每个功能点映射到对应 C ABI。
+> 所有函数签名与语义细节见第 9 节与 `capi.h`（权威定义）。
+
+### 10.1 首页 / 设置页（Part 1）
+| UI 功能 | C ABI |
+|---|---|
+| 草稿标题读写（重命名） | `nc_project_name` / `nc_set_project_name` |
+| 草稿保存/载入 | `nc_project_save` / `nc_project_load` |
+| 草稿时长显示 | `nc_project_duration_us` |
+
+### 10.2 剪辑页 · 顶部栏/预览区/时间轴（Part 2-A/2-B）
+| UI 功能 | C ABI |
+|---|---|
+| 预览渲染（逐帧） | `nc_preview_render`（+ `nc_free_buffer`） |
+| 预览字幕文本 | `nc_preview_subtitles` |
+| 撤销/重做按钮态 | `nc_can_undo` / `nc_can_redo` / `nc_undo_count` / `nc_redo_count` |
+| 撤销/重做执行 | `nc_undo` / `nc_redo` |
+| 历史记录名 | `nc_undo_history_name` |
+| 撤销栈清空（退出剪辑页） | `nc_clear_undo_history` |
+| 撤销栈深度（20 步） | `nc_set_undo_depth_limit` |
+| 轨道控制列（👁🔒🔊） | `nc_track_get` / `nc_set_track_locked` / `nc_set_track_muted` / `nc_set_track_hidden` |
+| 轨道新增 | `nc_add_track` |
+| 轨道删除/重命名 | `nc_remove_track` / `nc_rename_track` |
+| 时间轴片段绘制 | `nc_clip_count` / `nc_clip_info` |
+| 片段缩略图序列 | `nc_thumbnail_generate` / `nc_thumbnail_size` |
+| 音频轨波形 | `nc_waveform_generate` / `nc_waveform_bucket_count` / `nc_waveform_bucket_get` |
+
+### 10.3 剪辑分类（Part 3-A/4-A）
+| UI 功能 | C ABI |
+|---|---|
+| 分割 | `nc_split_clip` |
+| 变速（常规） | `nc_set_clip_speed` |
+| 变速（曲线） | `nc_set_clip_speed_curve` / `nc_clip_speed_curve_count` / `nc_clip_speed_curve_get` |
+| 变速（预设 7 种） | `nc_apply_speed_curve_preset` / `nc_speed_curve_preset_display_name` |
+| 音量（增益/淡入淡出） | `nc_set_clip_audio` |
+| 删除 | `nc_remove_clip` |
+| 复制 | `nc_duplicate_clip` |
+| 倒放 | `nc_reverse_clip` |
+| 定格 | `nc_freeze_frame` |
+| 降噪 | `nc_set_clip_denoise` / `nc_get_clip_denoise` |
+| 不透明度 | `nc_set_clip_opacity` / `nc_get_clip_opacity` |
+| 智能抠像（登录门控 + 进度） | `nc_ai_feature_access` / `nc_ai_task_*` / `nc_set_clip_chroma_key`（绿幕） |
+| 光流补帧（进度） | `nc_ai_task_*` |
+
+### 10.4 音频 / 文字分类（Part 3-A）
+| UI 功能 | C ABI |
+|---|---|
+| 音画分离 | `nc_detach_audio` |
+| 淡入/淡出 | `nc_set_clip_audio` |
+| 人声分离（进度） | `nc_ai_task_*`（feature = 4） |
+| 新建文本 / 编辑字幕 | `nc_upsert_subtitle` / `nc_subtitle_get` / `nc_remove_subtitle` |
+| 识别字幕 / 歌词（进度） | `nc_ai_task_*`（feature = 10） |
+| 镜头追踪 | `nc_set_camera_tracking` / `nc_tracking_point_*` |
+| 字幕翻译（进度） | `nc_ai_task_*`（feature = 5） |
+| 文本转语音（进度） | `nc_ai_task_*`（feature = 6） |
+
+### 10.5 特效 / 转场 / 滤镜 / 调节（Part 3-B/4-B）
+| UI 功能 | C ABI |
+|---|---|
+| 特效添加/删除/列表 | `nc_add_effect` / `nc_remove_effect` / `nc_effect_count` / `nc_effect_get` |
+| 特效参数范围 | `effectSpec`（core 头；C 侧见 capi.h 注释的 35 类型） |
+| 转场添加/删除/列表 | `nc_add_transition` / `nc_remove_transition` / `nc_transition_get` |
+| 转场库（34 种 / 9 分类） | `nc_transition_type_count` / `nc_transition_type_name` / `nc_transition_category` / `nc_transition_supports_direction` |
+| 自定义关键帧转场（附录二） | `nc_add_transition_keyframe` / `nc_transition_keyframe_*` / `nc_transition_duration_us` |
+| 滤镜（14 风格） | `nc_set_clip_filter` / `nc_get_clip_filter` / `nc_filter_display_name` |
+| 调节（亮度/对比度等 8 项） | `nc_add_effect`（type = 亮度/对比度/饱和度/锐化/色温/色调/暗角/颗粒） |
+
+### 10.6 比例 / 背景 / 蒙版 / AI（Part 3-C/4-C）
+| UI 功能 | C ABI |
+|---|---|
+| 画布比例切换 | `nc_project_canvas` / `nc_set_project_canvas` |
+| 帧率 | `nc_project_frame_rate` / `nc_set_project_frame_rate` |
+| 背景填充（颜色/模糊/样式） | `nc_set_clip_background` / `nc_get_clip_background` |
+| 蒙版（7 形状） | `nc_set_clip_mask` / `nc_get_clip_mask` |
+| 参考仿剪（进度） | `nc_ai_task_*`（feature = 9）/ `nc_reference_style_access` |
+| 深度图（4 效果） | `nc_set_depth_effect` / `nc_get_depth_effect` / `nc_ai_task_*`（feature = 8） |
+
+### 10.7 导出流程（Part 5）
+| UI 功能 | C ABI |
+|---|---|
+| 导出设置（分辨率/帧率/格式） | `nc_export_presets` / `nc_export_preset_info` / `nc_set_project_canvas` |
+| 预计文件大小 | `nc_export_estimate` |
+| 开始导出（含进度回调） | `nc_export_run` |
+| 导出队列（Free 1 / Pro 5） | `nc_export_enqueue` / `nc_export_poll_next` / `nc_export_job_*` / `nc_export_queue_summary` |
+| 会员门控（4K/去水印） | `nc_get_entitlement` / `nc_would_clamp_export` |
+| 水印 | `nc_watermark_set_export` |
+
+### 10.8 异常/性能/合规（Part 5 续 / Part 6）
+| UI 功能 | C ABI |
+|---|---|
+| AI 失败提示（统一结构） | `nc_ai_task_status`（failure_reason）/ `nc_ai_task_failure_text` |
+| AI 重试标记 | `nc_ai_task_status`（out_retryable） |
+| 素材丢失占位 | `nc_media_scan_offline` / `nc_media_find_relink_candidates` / `nc_media_relink` |
+| 存储统计 | `nc_model_storage_stats` / `nc_proxy_usage` |
+| 崩溃恢复 | `nc_recovery_*`（core recovery 模块；见 capi.h） |
+| 场景检测（章节/节奏） | `nc_scene_detect` |
+| 节拍检测（卡点/律动） | `nc_beat_detect` |
+| 内容安全（导出前检查） | `nc_ai_check` / `nc_ai_check_fix_all` |
