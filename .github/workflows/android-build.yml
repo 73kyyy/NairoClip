@@ -1,0 +1,108 @@
+name: Android Cross-Compile
+
+# =============================================================================
+# Android 交叉编译（在 GitHub Actions x86_64 runner 上执行）
+# =============================================================================
+# 背景：开发沙箱为 aarch64 且无 qemu/x86_64 运行库，无法运行 NDK 工具链
+#       （NDK 官方仅提供 linux-x86_64 主机版）。
+# 本工作流在 GitHub 的 x86_64 runner 上用 NDK 交叉编译 core 为 Android
+# 静态库（arm64-v8a / armeabi-v7a / x86_64），并把产物发布为 Release 资产，
+# 供开发沙箱 / 平台层取用。
+#
+# 触发：手动（workflow_dispatch）；push 到 main 且改动 core/ 时自动。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'core/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/android-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Build core for Android (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [ arm64-v8a, armeabi-v7a, x86_64 ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27d
+          add-to-path: false
+
+      - name: Show NDK info
+        run: |
+          echo "NDK root: ${{ steps.ndk.outputs.ndk-path }}"
+          ls "${{ steps.ndk.outputs.ndk-path }}" | head -5
+
+      - name: Configure (CMake + Android toolchain)
+        run: |
+          set -euo pipefail
+          NDK="${{ steps.ndk.outputs.ndk-path }}"
+          TOOLCHAIN="$NDK/build/cmake/android.toolchain.cmake"
+          case "${{ matrix.abi }}" in
+            arm64-v8a)    API=24 ;;
+            armeabi-v7a)  API=21 ;;
+            x86_64)       API=21 ;;
+          esac
+          cmake -S . -B "build-android-${{ matrix.abi }}" \
+            -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
+            -DANDROID_PLATFORM="android-${API}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNAIROCLIP_ORT_ROOT=OFF \
+            -DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF \
+            -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON
+
+      - name: Build core
+        run: |
+          cmake --build "build-android-${{ matrix.abi }}" --parallel 4 --target nairoclip_core
+
+      - name: Show artifact
+        run: |
+          find "build-android-${{ matrix.abi }}" -name "libnairoclip_core.a" -exec ls -lh {} \;
+
+      - name: Package artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar czf "dist/core-android-${{ matrix.abi }}.tar.gz" \
+            -C "build-android-${{ matrix.abi }}" \
+            $(cd "build-android-${{ matrix.abi }}" && find . -name "libnairoclip_core.a") \
+            $(cd . && echo core/include) 2>/dev/null || \
+          tar czf "dist/core-android-${{ matrix.abi }}.tar.gz" \
+            $(find "build-android-${{ matrix.abi }}" -name "libnairoclip_core.a") core/include
+          ls -lh dist/
+
+      - name: Upload artifact (workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-android-${{ matrix.abi }}
+          path: dist/*.tar.gz
+
+      - name: Publish to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          TAG="android-builds"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Android core builds" \
+              --notes "Cross-compiled core static libraries for Android ABIs."
+          fi
+          gh release upload "$TAG" dist/*.tar.gz --clobber
+          echo "=== Published ==="
+          gh release view "$TAG"
