@@ -24,6 +24,7 @@ add_executable(nairoclip_tests
     test_ai_advanced.cpp
     test_depth_ai.cpp
     test_matting_ai.cpp
+    test_speech_ai.cpp
     test_roundtrip.cpp
     test_subtitle.cpp
     test_stress.cpp

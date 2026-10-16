@@ -60,6 +60,7 @@ add_library(nairoclip_core STATIC
     src/background_fill.cpp
     src/depth_ai.cpp
     src/matting_ai.cpp
+    src/speech_ai.cpp
     src/blend_modes.cpp
     src/render_engine.cpp
     src/particle_engine.cpp
