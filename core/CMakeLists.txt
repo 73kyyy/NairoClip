@@ -58,6 +58,7 @@ add_library(nairoclip_core STATIC
     src/filters.cpp
     src/ai_task.cpp
     src/background_fill.cpp
+    src/depth_ai.cpp
     src/blend_modes.cpp
     src/render_engine.cpp
     src/particle_engine.cpp
