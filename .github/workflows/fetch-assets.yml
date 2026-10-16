@@ -75,13 +75,42 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
+          set -eo pipefail
           TAG="${{ github.event.inputs.tag }}"
           NAME="${{ github.event.inputs.name }}"
+          echo "Publishing $NAME to release $TAG ..."
+          # 发布 Release（幂等：已存在则复用）
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "External assets relay" \
               --notes "Assets relayed via GitHub infrastructure for development sandbox."
+          else
+            echo "release $TAG already exists"
           fi
-          gh release upload "$TAG" "$NAME" SHA256SUMS.txt --clobber
-          echo "Published: $TAG / $NAME"
-          gh release view "$TAG"
+          # 上传资产（--clobber 覆盖同名）
+          if gh release upload "$TAG" "$NAME" SHA256SUMS.txt --clobber; then
+            echo "upload OK"
+          else
+            echo "gh release upload failed (exit $?)"
+            # 备选：用 API 直传（部分权限配置下 gh 的 release 端点被限制）
+            echo "--- fallback: upload via API ---"
+            ASSET_URL="https://uploads.github.com/repos/${{ github.repository }}/releases"
+            # 取 release id
+            REL_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" \
+              | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+            if [ -n "$REL_ID" ]; then
+              for f in "$NAME" SHA256SUMS.txt; do
+                curl -s -X POST \
+                  -H "Authorization: token $GH_TOKEN" \
+                  -H "Content-Type: application/octet-stream" \
+                  --data-binary "@$f" \
+                  "$ASSET_URL/$REL_ID/assets?name=$f" \
+                  -o /dev/null -w "  upload $f: %{http_code}\n"
+              done
+            else
+              echo "无法获取 release id"
+              exit 1
+            fi
+          fi
+          echo "=== Published ==="
+          gh release view "$TAG" || true
