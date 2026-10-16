@@ -110,28 +110,10 @@ void boxBlurGray(std::vector<std::uint8_t>& image, int w, int h, int radius) {
 
 }  // namespace
 
-const char* mattingAiQualityName(MattingQuality quality) {
-    switch (quality) {
-        case MattingQuality::Fast: return "fast";
-        case MattingQuality::Standard: return "standard";
-        case MattingQuality::HighPrecision: return "high_precision";
-    }
-    return "standard";
-}
-
-bool mattingAiQualityFromInt(int value, MattingQuality& out) {
-    if (value < 0 || value > 2) {
-        return false;
-    }
-    out = static_cast<MattingQuality>(value);
-    return true;
-}
-
 int mattingAiQualityInputSize(MattingQuality quality) {
     switch (quality) {
-        case MattingQuality::Fast: return 256;
-        case MattingQuality::Standard: return 512;
-        case MattingQuality::HighPrecision: return 768;
+        case MattingQuality::Basic: return 512;          // 基础版（文档 1.6 快速/标准）
+        case MattingQuality::HighPrecision: return 768;  // 高精度版
     }
     return 512;
 }

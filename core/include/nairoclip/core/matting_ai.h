@@ -27,22 +27,14 @@
 #include <vector>
 
 #include "nairoclip/core/ai_engine.h"
+// 抠像精度档位（文档 1.6「抠像精度」下拉）复用 chroma_key.h 的 MattingQuality
+// （Basic/HighPrecision；同一产品语义的单一事实来源）。
+#include "nairoclip/core/chroma_key.h"
 
 namespace nairoclip {
 namespace core {
 
-/// 抠像精度档位（文档 1.6「抠像精度」下拉）。
-enum class MattingQuality {
-    Fast = 0,     ///< 快速（256×256 输入；速度优先）
-    Standard = 1, ///< 标准（512×512；默认）
-    HighPrecision = 2, ///< 高精度（768×768；质量优先）
-};
-
-/// 精度名称（"fast"/"standard"/"high_precision"）。
-const char* mattingAiQualityName(MattingQuality quality);
-/// 从整数解析（0..2）。
-bool mattingAiQualityFromInt(int value, MattingQuality& out);
-/// 档位对应的推理输入边长。
+/// 档位对应的推理输入边长（Basic=512 / HighPrecision=768）。
 int mattingAiQualityInputSize(MattingQuality quality);
 
 /// 人像抠像推理器（会话复用；单实例单线程）。

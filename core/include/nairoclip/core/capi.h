@@ -592,6 +592,94 @@ char* nc_ai_task_failure_text(const NcEditor* editor);
 int32_t nc_ai_engine_info(const NcEditor* editor, int32_t* out_available, char** out_version,
                           char** out_note);
 
+// ---- AI 真实推理（深度图 / 人像抠像 / 语音转字幕；文档 Part 4）----
+// 设计：core 提供真实推理会话（模型加载/推理/卸载）+ 效果渲染；
+//       模型文件路径由平台层提供（经 model_manager 分发）；
+//       无模型/无 ORT 时明确失败（不伪造结果）。
+// 耗时说明：单帧推理 100ms~3s（CPU）；平台层应在工作线程执行，
+//           并经 AI 任务状态机（nc_ai_task_*）驱动进度与取消。
+
+/// 加载深度图模型（Depth-Anything ONNX）。
+/// - model_path：模型文件路径；
+/// - out_error：出参（可空）失败原因（需 nc_free_string）。
+/// 返回 NC_OK 或错误码（引擎不可用/文件缺失/模型解析失败）。
+int32_t nc_depth_load(NcEditor* editor, const char* model_path, char** out_error);
+/// 卸载深度图模型。
+int32_t nc_depth_unload(NcEditor* editor);
+/// 深度图模型是否已加载（1/0）。
+int32_t nc_depth_loaded(const NcEditor* editor);
+
+/// 生成单帧深度图（真实推理）。
+/// - rgba/width/height：输入帧（RGBA8）；
+/// - out_depth：出参（库分配；尺寸 = width × height；需 nc_free_buffer；
+///   灰度：255 = 最近 / 0 = 最远）；
+/// - out_width/out_height：出参（可空）输出尺寸；
+/// - out_error：出参（可空）失败原因（需 nc_free_string）。
+/// 返回 NC_OK 或错误码（未加载/尺寸非法/推理失败）。
+int32_t nc_depth_estimate(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,
+                          uint8_t** out_depth, int32_t* out_width, int32_t* out_height,
+                          char** out_error);
+
+/// 应用深度效果到帧（真实像素运算；深度图驱动）。
+/// - mode：1=景深虚化 2=雾化 3=色彩分层 4=视差3D；
+/// - focus_distance：景深对焦距离 0..1（仅 bokeh）；
+/// - aperture：光圈 1.0~22.0（仅 bokeh）；
+/// - intensity：主强度 0..100；
+/// - color_rgba：雾色/近景色调（0xRRGGBBAA）；
+/// - rgba/depth：输入帧与深度图（同尺寸）；frame_time：时间秒（视差轨迹动画）；
+/// 返回 NC_OK 或错误码。
+int32_t nc_depth_apply_effect(uint8_t* rgba, const uint8_t* depth, int32_t width, int32_t height,
+                              int32_t mode, double focus_distance, double aperture,
+                              double intensity, uint32_t color_rgba, double frame_time);
+
+/// 加载人像抠像模型（MODNet ONNX）。
+int32_t nc_matting_load(NcEditor* editor, const char* model_path, char** out_error);
+/// 卸载人像抠像模型。
+int32_t nc_matting_unload(NcEditor* editor);
+/// 人像抠像模型是否已加载（1/0）。
+int32_t nc_matting_loaded(const NcEditor* editor);
+
+/// 生成单帧人像 Alpha 蒙版（真实推理；文档 1.6）。
+/// - quality：0=快速 1=标准 2=高精度（推理分辨率 256/512/768）；
+/// - feather：边缘羽化 0..100（文档默认 35）；
+/// - out_alpha：出参（库分配；尺寸 = width × height；需 nc_free_buffer；
+///   255 = 人像 / 0 = 背景）；
+/// 返回 NC_OK 或错误码。
+int32_t nc_matting_estimate(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,
+                            int32_t quality, double feather, uint8_t** out_alpha,
+                            char** out_error);
+
+/// 应用人像特效（消费 Alpha；文档 Part 4-B 5.2「瘦身/发光轮廓」）。
+/// - effect：34=瘦身 35=发光轮廓（其余走 nc_add_effect）；
+/// - intensity：强度 0..1；alpha：抠像蒙版（尺寸 = width × height；可空——
+///   为空时零改动，不伪造人像区域）。
+int32_t nc_person_effect_apply(uint8_t* rgba, const uint8_t* alpha, int32_t width, int32_t height,
+                               int32_t effect, double intensity);
+
+/// 加载语音识别模型（Whisper encoder + decoder + BPE 词表）。
+/// - tokenizer_path：词表 JSON 路径（可空 = 不加载词表，解码返回 token 占位）。
+int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
+                       const char* tokenizer_path, char** out_error);
+/// 卸载语音识别模型。
+int32_t nc_speech_unload(NcEditor* editor);
+/// 语音识别模型是否已加载（1/0）。
+int32_t nc_speech_loaded(const NcEditor* editor);
+
+/// 识别单声道 PCM（真实推理；文档 3.2）。
+/// - samples：单声道 float PCM（[-1,1]）；frame_count：帧数；sample_rate：采样率；
+/// - language：0=自动 1=中文 2=英语 3=日语 4=韩语；
+/// - out_segments_json：出参（库分配；需 nc_free_string）分段 JSON：
+///   [{"start":秒,"end":秒,"text":"..."}...]；
+/// 返回 NC_OK 或错误码（未加载/音频为空/推理失败）。
+int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t frame_count,
+                             int32_t sample_rate, int32_t language, char** out_segments_json,
+                             char** out_error);
+
+/// 计算 Whisper Mel 频谱（供平台层/诊断；80 × frames）。
+/// - out_mel：出参（库分配；需 nc_free_buffer；浮点数组，长度 = 80 × frames）。
+int32_t nc_speech_mel(const float* samples, int64_t frame_count, int32_t sample_rate,
+                      int32_t frames, float** out_mel);
+
 // ---- 特效 ----
 
 /// 给片段添加特效（type/value 见 core::EffectType / effectSpec 范围）。

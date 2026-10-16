@@ -35,6 +35,10 @@
 #include "nairoclip/core/ai_task.h"
 #include "nairoclip/core/ai_engine.h"
 #include "nairoclip/core/background_fill.h"
+#include "nairoclip/core/depth_ai.h"
+#include "nairoclip/core/matting_ai.h"
+#include "nairoclip/core/speech_ai.h"
+#include "nairoclip/core/person_effects.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/export_plan.h"
@@ -82,6 +86,10 @@ struct NcEditor {
     HeartbeatState heartbeat;
     /// AI 任务状态机（文档 Part 4 各 AI 功能的统一任务契约）。
     AiTaskRunner aiTask;
+    /// AI 真实推理会话（深度图 / 人像抠像 / 语音识别；按需加载）。
+    std::unique_ptr<DepthEstimator> depthEstimator;
+    std::unique_ptr<MattingEstimator> mattingEstimator;
+    std::unique_ptr<SpeechRecognizer> speechRecognizer;
     /// 预览渲染器缓存（nc_preview_render；编辑操作后失效重建）。
     std::unique_ptr<PreviewRenderer> previewRenderer;
     /// 预览缓存有效性签名（编辑历史数 + 载入代次 + 直接修改代次 + 画布）。
@@ -3988,6 +3996,310 @@ int32_t nc_ai_engine_info(const NcEditor* editor, int32_t* out_available, char**
     if (out_available != nullptr) *out_available = info.available ? 1 : 0;
     if (out_version != nullptr) *out_version = dupString(info.version);
     if (out_note != nullptr) *out_note = dupString(info.note);
+    return NC_OK;
+}
+
+// ===========================================================================
+// AI 真实推理（深度图 / 人像抠像 / 语音转字幕）
+// ===========================================================================
+
+int32_t nc_depth_load(NcEditor* editor, const char* model_path, char** out_error) {
+    if (editor == nullptr || model_path == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::string failure;
+    // 复用 editor 上的推理器（会话复用；避免每帧重建）
+    if (editor->depthEstimator == nullptr) {
+        editor->depthEstimator.reset(new (std::nothrow) DepthEstimator());
+    }
+    if (editor->depthEstimator == nullptr) {
+        setDetail(out_error, "内存分配失败");
+        return NC_ERROR_INTERNAL;
+    }
+    if (!editor->depthEstimator->load(model_path, &failure)) {
+        setDetail(out_error, failure);
+        editor->depthEstimator.reset();
+        return NC_ERROR_UNSUPPORTED;
+    }
+    return NC_OK;
+}
+
+int32_t nc_depth_unload(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->depthEstimator != nullptr) {
+        editor->depthEstimator->unload();
+        editor->depthEstimator.reset();
+    }
+    return NC_OK;
+}
+
+int32_t nc_depth_loaded(const NcEditor* editor) {
+    if (editor == nullptr || editor->depthEstimator == nullptr) {
+        return 0;
+    }
+    return editor->depthEstimator->loaded() ? 1 : 0;
+}
+
+int32_t nc_depth_estimate(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,
+                          uint8_t** out_depth, int32_t* out_width, int32_t* out_height,
+                          char** out_error) {
+    if (editor == nullptr || rgba == nullptr || width <= 0 || height <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->depthEstimator == nullptr || !editor->depthEstimator->loaded()) {
+        setDetail(out_error, "深度模型未加载（先调用 nc_depth_load）");
+        return NC_ERROR_UNSUPPORTED;
+    }
+    std::vector<std::uint8_t> depth;
+    std::string failure;
+    if (!editor->depthEstimator->estimate(rgba, width, height, depth, &failure)) {
+        setDetail(out_error, failure);
+        return NC_ERROR_INTERNAL;
+    }
+    if (out_depth != nullptr) {
+        std::uint8_t* buffer = new (std::nothrow) std::uint8_t[depth.size()];
+        if (buffer == nullptr) {
+            return NC_ERROR_INTERNAL;
+        }
+        std::memcpy(buffer, depth.data(), depth.size());
+        *out_depth = buffer;
+    }
+    if (out_width != nullptr) *out_width = width;
+    if (out_height != nullptr) *out_height = height;
+    return NC_OK;
+}
+
+int32_t nc_depth_apply_effect(uint8_t* rgba, const uint8_t* depth, int32_t width, int32_t height,
+                              int32_t mode, double focus_distance, double aperture,
+                              double intensity, uint32_t color_rgba, double frame_time) {
+    if (rgba == nullptr || depth == nullptr || width <= 0 || height <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const std::size_t count = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    std::vector<std::uint8_t> depthVec(depth, depth + count);
+    bool ok = false;
+    switch (mode) {
+        case 1: {  // 景深虚化
+            BokehParams params;
+            params.focusDistance = focus_distance;
+            params.aperture = aperture;
+            params.intensity = intensity;
+            ok = applyBokehEffect(rgba, width, height, depthVec, params);
+            break;
+        }
+        case 2: {  // 雾化
+            FogParams params;
+            params.intensity = intensity;
+            params.colorRgba = color_rgba;
+            params.startDistance = focus_distance;
+            ok = applyFogEffect(rgba, width, height, depthVec, params);
+            break;
+        }
+        case 3: {  // 色彩分层
+            ColorBandsParams params;
+            params.nearRgba = color_rgba;
+            params.smoothness = intensity;
+            ok = applyColorBandsEffect(rgba, width, height, depthVec, params);
+            break;
+        }
+        case 4: {  // 视差3D
+            ParallaxParams params;
+            params.intensity = intensity;
+            params.trajectory = static_cast<int>(focus_distance);
+            params.speed = static_cast<int>(aperture);
+            ok = applyParallaxEffect(rgba, width, height, depthVec, params, frame_time);
+            break;
+        }
+        default:
+            return NC_ERROR_INVALID_ARGUMENT;
+    }
+    return ok ? NC_OK : NC_ERROR_INTERNAL;
+}
+
+int32_t nc_matting_load(NcEditor* editor, const char* model_path, char** out_error) {
+    if (editor == nullptr || model_path == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::string failure;
+    if (editor->mattingEstimator == nullptr) {
+        editor->mattingEstimator.reset(new (std::nothrow) MattingEstimator());
+    }
+    if (editor->mattingEstimator == nullptr) {
+        setDetail(out_error, "内存分配失败");
+        return NC_ERROR_INTERNAL;
+    }
+    if (!editor->mattingEstimator->load(model_path, &failure)) {
+        setDetail(out_error, failure);
+        editor->mattingEstimator.reset();
+        return NC_ERROR_UNSUPPORTED;
+    }
+    return NC_OK;
+}
+
+int32_t nc_matting_unload(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->mattingEstimator != nullptr) {
+        editor->mattingEstimator->unload();
+        editor->mattingEstimator.reset();
+    }
+    return NC_OK;
+}
+
+int32_t nc_matting_loaded(const NcEditor* editor) {
+    if (editor == nullptr || editor->mattingEstimator == nullptr) {
+        return 0;
+    }
+    return editor->mattingEstimator->loaded() ? 1 : 0;
+}
+
+int32_t nc_matting_estimate(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,
+                            int32_t quality, double feather, uint8_t** out_alpha,
+                            char** out_error) {
+    if (editor == nullptr || rgba == nullptr || width <= 0 || height <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->mattingEstimator == nullptr || !editor->mattingEstimator->loaded()) {
+        setDetail(out_error, "抠像模型未加载（先调用 nc_matting_load）");
+        return NC_ERROR_UNSUPPORTED;
+    }
+    MattingQuality mattingQuality;
+    if (!mattingQualityFromInt(quality, mattingQuality)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::vector<std::uint8_t> alpha;
+    std::string failure;
+    if (!editor->mattingEstimator->estimate(rgba, width, height, mattingQuality, feather, alpha,
+                                            &failure)) {
+        setDetail(out_error, failure);
+        return NC_ERROR_INTERNAL;
+    }
+    if (out_alpha != nullptr) {
+        std::uint8_t* buffer = new (std::nothrow) std::uint8_t[alpha.size()];
+        if (buffer == nullptr) {
+            return NC_ERROR_INTERNAL;
+        }
+        std::memcpy(buffer, alpha.data(), alpha.size());
+        *out_alpha = buffer;
+    }
+    return NC_OK;
+}
+
+int32_t nc_person_effect_apply(uint8_t* rgba, const uint8_t* alpha, int32_t width, int32_t height,
+                               int32_t effect, double intensity) {
+    if (rgba == nullptr || width <= 0 || height <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const bool ok = applyPersonEffectToRgba(rgba, width, height, effect, intensity, 0.0, alpha,
+                                            RenderQuality::exportQuality());
+    return ok ? NC_OK : NC_ERROR_INTERNAL;
+}
+
+int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
+                       const char* tokenizer_path, char** out_error) {
+    if (editor == nullptr || encoder_path == nullptr || decoder_path == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::string failure;
+    if (editor->speechRecognizer == nullptr) {
+        editor->speechRecognizer.reset(new (std::nothrow) SpeechRecognizer());
+    }
+    if (editor->speechRecognizer == nullptr) {
+        setDetail(out_error, "内存分配失败");
+        return NC_ERROR_INTERNAL;
+    }
+    if (!editor->speechRecognizer->load(encoder_path, decoder_path, &failure)) {
+        setDetail(out_error, failure);
+        editor->speechRecognizer.reset();
+        return NC_ERROR_UNSUPPORTED;
+    }
+    // 词表（可选；失败不影响模型加载，但解码输出为空——明确告知）
+    if (tokenizer_path != nullptr && tokenizer_path[0] != '\0') {
+        std::string tokenizerFailure;
+        if (!editor->speechRecognizer->loadTokenizer(tokenizer_path, &tokenizerFailure)) {
+            setDetail(out_error, "词表加载失败（解码将返回空文本）：" + tokenizerFailure);
+            // 模型仍可用（部分功能）；返回 OK 但给出提示
+        }
+    }
+    return NC_OK;
+}
+
+int32_t nc_speech_unload(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->speechRecognizer != nullptr) {
+        editor->speechRecognizer->unload();
+        editor->speechRecognizer.reset();
+    }
+    return NC_OK;
+}
+
+int32_t nc_speech_loaded(const NcEditor* editor) {
+    if (editor == nullptr || editor->speechRecognizer == nullptr) {
+        return 0;
+    }
+    return editor->speechRecognizer->loaded() ? 1 : 0;
+}
+
+int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t frame_count,
+                             int32_t sample_rate, int32_t language, char** out_segments_json,
+                             char** out_error) {
+    if (editor == nullptr || samples == nullptr || frame_count <= 0 || sample_rate <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->speechRecognizer == nullptr || !editor->speechRecognizer->loaded()) {
+        setDetail(out_error, "语音识别模型未加载（先调用 nc_speech_load）");
+        return NC_ERROR_UNSUPPORTED;
+    }
+    SpeechLanguage speechLanguage;
+    if (!speechLanguageFromInt(language, speechLanguage)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::vector<SpeechSegment> segments;
+    std::string failure;
+    if (!editor->speechRecognizer->transcribe(samples, static_cast<std::size_t>(frame_count),
+                                              sample_rate, speechLanguage, segments, nullptr,
+                                              &failure)) {
+        setDetail(out_error, failure);
+        return NC_ERROR_INTERNAL;
+    }
+    // 分段 JSON 序列化
+    JsonValue array = JsonValue::array();
+    for (const auto& segment : segments) {
+        JsonValue item = JsonValue::object();
+        item.set("start", JsonValue::number(segment.startSeconds));
+        item.set("end", JsonValue::number(segment.endSeconds));
+        item.set("text", JsonValue::string(segment.text));
+        array.push(std::move(item));
+    }
+    if (out_segments_json != nullptr) {
+        *out_segments_json = dupString(toJsonString(array));
+    }
+    return NC_OK;
+}
+
+int32_t nc_speech_mel(const float* samples, int64_t frame_count, int32_t sample_rate,
+                      int32_t frames, float** out_mel) {
+    if (samples == nullptr || frame_count <= 0 || sample_rate <= 0 || frames <= 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::vector<float> mel;
+    if (!SpeechRecognizer::computeMelSpectrogram(samples, static_cast<std::size_t>(frame_count),
+                                                 sample_rate, frames, mel)) {
+        return NC_ERROR_INTERNAL;
+    }
+    if (out_mel != nullptr) {
+        float* buffer = new (std::nothrow) float[mel.size()];
+        if (buffer == nullptr) {
+            return NC_ERROR_INTERNAL;
+        }
+        std::memcpy(buffer, mel.data(), mel.size() * sizeof(float));
+        *out_mel = buffer;
+    }
     return NC_OK;
 }
 
