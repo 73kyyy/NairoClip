@@ -3,11 +3,10 @@ name: Fetch External Assets (relay)
 # =============================================================================
 # 外部资产中继（下载 → 发布为 Release 资产）
 # =============================================================================
-# 用途：把「沙箱直连不稳定/不可达」的大文件（如 Android NDK）经 GitHub
+# 用途：把「开发沙箱直连不稳定」的大文件（如 Android NDK）经 GitHub
 #       基础设施下载后，发布到本仓库 Release，供开发环境稳定拉取。
-# 触发：手动（workflow_dispatch）；可选 url 与 tag 参数。
-#
-# 说明：这是开发基础设施（不参与 CI 构建/测试）。
+# 触发：手动（workflow_dispatch）；参数：url / name / tag。
+# 说明：开发基础设施，不参与 CI 构建。
 
 on:
   workflow_dispatch:
@@ -32,19 +31,45 @@ jobs:
   fetch:
     name: Download and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Show environment
+        run: |
+          echo "URL   = ${{ github.event.inputs.url }}"
+          echo "NAME  = ${{ github.event.inputs.name }}"
+          echo "TAG   = ${{ github.event.inputs.tag }}"
+          echo "Disk  :"; df -h / ; echo "CPU:"; nproc
 
-      - name: Download asset
+      - name: Download asset (curl with retry)
+        run: |
+          set -uo pipefail
+          URL="${{ github.event.inputs.url }}"
+          NAME="${{ github.event.inputs.name }}"
+          ok=0
+          for attempt in 1 2 3; do
+            echo "--- attempt $attempt ---"
+            if curl -fL --retry 3 --retry-delay 3 --retry-all-errors \
+                 --connect-timeout 30 --max-time 3000 \
+                 -o "$NAME" "$URL"; then
+              ok=1; break
+            fi
+            sleep 10
+          done
+          if [ "$ok" != "1" ]; then echo "download failed after retries"; exit 1; fi
+          ls -lh "$NAME"
+          sha256sum "$NAME" | tee SHA256SUMS.txt
+
+      - name: Verify size (sanity)
         run: |
           set -euo pipefail
-          echo "Fetching: ${{ github.event.inputs.url }}"
-          curl -fL --retry 5 --retry-delay 5 --retry-all-errors \
-               -o "${{ github.event.inputs.name }}" \
-               "${{ github.event.inputs.url }}"
-          ls -lh "${{ github.event.inputs.name }}"
-          sha256sum "${{ github.event.inputs.name }}" | tee SHA256SUMS.txt
+          NAME="${{ github.event.inputs.name }}"
+          SIZE=$(stat -c %s "$NAME")
+          echo "size bytes: $SIZE"
+          if [ "$SIZE" -lt 1000000 ]; then echo "file too small — likely an error page"; exit 1; fi
+          # ZIP 完整性（若为 zip）
+          case "$NAME" in
+            *.zip) unzip -t "$NAME" >/dev/null && echo "zip OK" || { echo "zip corrupt"; exit 1; } ;;
+          esac
 
       - name: Publish to release
         env:
@@ -52,9 +77,11 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ github.event.inputs.tag }}"
+          NAME="${{ github.event.inputs.name }}"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "External assets relay" \
-              --notes "Assets relayed via GitHub infrastructure."
+              --notes "Assets relayed via GitHub infrastructure for development sandbox."
           fi
-          gh release upload "$TAG" "${{ github.event.inputs.name }}" SHA256SUMS.txt --clobber
-          echo "Published to release: $TAG"
+          gh release upload "$TAG" "$NAME" SHA256SUMS.txt --clobber
+          echo "Published: $TAG / $NAME"
+          gh release view "$TAG"
