@@ -1,0 +1,60 @@
+name: Fetch External Assets (relay)
+
+# =============================================================================
+# 外部资产中继（下载 → 发布为 Release 资产）
+# =============================================================================
+# 用途：把「沙箱直连不稳定/不可达」的大文件（如 Android NDK）经 GitHub
+#       基础设施下载后，发布到本仓库 Release，供开发环境稳定拉取。
+# 触发：手动（workflow_dispatch）；可选 url 与 tag 参数。
+#
+# 说明：这是开发基础设施（不参与 CI 构建/测试）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Asset URL to fetch'
+        required: true
+        default: 'https://github.com/Lonemachinist/android-ndk/releases/download/r27d/android-ndk-r27d-linux.zip'
+      name:
+        description: 'Output file name'
+        required: true
+        default: 'android-ndk-r27d-linux.zip'
+      tag:
+        description: 'Release tag to publish under'
+        required: true
+        default: 'assets-relay'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    name: Download and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download asset
+        run: |
+          set -euo pipefail
+          echo "Fetching: ${{ github.event.inputs.url }}"
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors \
+               -o "${{ github.event.inputs.name }}" \
+               "${{ github.event.inputs.url }}"
+          ls -lh "${{ github.event.inputs.name }}"
+          sha256sum "${{ github.event.inputs.name }}" | tee SHA256SUMS.txt
+
+      - name: Publish to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "External assets relay" \
+              --notes "Assets relayed via GitHub infrastructure."
+          fi
+          gh release upload "$TAG" "${{ github.event.inputs.name }}" SHA256SUMS.txt --clobber
+          echo "Published to release: $TAG"
