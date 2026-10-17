@@ -50,6 +50,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <ctime>
+#include <algorithm>
 #include <fstream>
 #include <new>
 #include <vector>
