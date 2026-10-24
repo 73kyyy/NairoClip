@@ -1131,6 +1131,62 @@ int32_t nc_set_camera_tracking(NcEditor* editor, uint64_t subtitle_id, const dou
     return NC_OK;
 }
 
+int32_t nc_set_camera_tracking_scaled(NcEditor* editor, uint64_t subtitle_id,
+                                      const double* times_us, const double* center_x,
+                                      const double* center_y, const double* scales,
+                                      int32_t point_count, int32_t apply_mode) {
+    if (editor == nullptr || subtitle_id == 0 || point_count <= 0 || point_count > 4096 ||
+        times_us == nullptr || center_x == nullptr || center_y == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    SubtitleCue* cue = findSubtitleCue(editor, subtitle_id);
+    if (cue == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    std::vector<SubtitleCue::TrackingPoint> points;
+    points.reserve(static_cast<std::size_t>(point_count));
+    for (int32_t i = 0; i < point_count; ++i) {
+        if (times_us[i] < 0.0) {
+            return NC_ERROR_INVALID_ARGUMENT;
+        }
+        SubtitleCue::TrackingPoint point;
+        point.time = fromMicroseconds(static_cast<std::int64_t>(times_us[i] + 0.5));
+        point.centerX = std::clamp(center_x[i], 0.0, 1.0);
+        point.centerY = std::clamp(center_y[i], 0.0, 1.0);
+        // 缩放范围防御（0.1x ~ 10x；文档未给定上限，按合理工程范围钳制）
+        point.scale = scales != nullptr ? std::clamp(scales[i], 0.1, 10.0) : 1.0;
+        points.push_back(point);
+    }
+    std::sort(points.begin(), points.end(),
+              [](const SubtitleCue::TrackingPoint& a, const SubtitleCue::TrackingPoint& b) {
+                  return a.time < b.time;
+              });
+    cue->tracking = std::move(points);
+    cue->trackingMode = (apply_mode == 1) ? 1 : 0;
+    return NC_OK;
+}
+
+int32_t nc_tracking_point_get_scaled(const NcEditor* editor, uint64_t subtitle_id, int32_t index,
+                                     double* out_time_us, double* out_center_x,
+                                     double* out_center_y, double* out_scale) {
+    if (editor == nullptr || subtitle_id == 0 || index < 0) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const SubtitleCue* cue = findSubtitleCueConst(editor, subtitle_id);
+    if (cue == nullptr) {
+        return NC_ERROR_NOT_FOUND;
+    }
+    if (static_cast<std::size_t>(index) >= cue->tracking.size()) {
+        return NC_ERROR_OUT_OF_RANGE;
+    }
+    const auto& point = cue->tracking[static_cast<std::size_t>(index)];
+    if (out_time_us != nullptr) *out_time_us = static_cast<double>(toMicroseconds(point.time));
+    if (out_center_x != nullptr) *out_center_x = point.centerX;
+    if (out_center_y != nullptr) *out_center_y = point.centerY;
+    if (out_scale != nullptr) *out_scale = point.scale;
+    return NC_OK;
+}
+
 int32_t nc_tracking_point_count(const NcEditor* editor, uint64_t subtitle_id) {
     if (editor == nullptr || subtitle_id == 0) {
         return -1;

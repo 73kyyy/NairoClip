@@ -62,6 +62,13 @@ struct ExportStats {
 /// - readerFactory 用于打开每个素材（同一素材重复打开由执行器缓存）；
 /// - videoSink 每输出一帧调用一次；audioSink 每输出一块调用一次；
 /// - progress（0.0-1.0）返回 false 取消导出。
+/// 字幕采样（供测试与平台层预览；与导出路径同一实现）：
+/// 返回时刻 t 处可见的字幕渲染项（含镜头追踪插值后的 anchor/scale）。
+/// 说明：追踪数据（SubtitleCue::tracking）在此被**真实消费**——
+///       trackingMode=0 覆盖锚点位置，=1 时额外覆盖缩放。
+std::vector<SubtitleRenderItem> subtitlesForTest(const Project& project, SequenceId sequenceId,
+                                                 const Time& t);
+
 ExportStats executeExport(
     const ExportPlan& plan, MediaReaderFactory& readerFactory,
     const std::function<void(const OutputVideoFrame&)>& videoSink,

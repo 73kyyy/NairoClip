@@ -69,6 +69,41 @@ std::vector<SubtitleRenderItem> subtitlesAt(const Project& project, SequenceId s
         item.anchorY = cue->style.anchorY;
         item.alignment = cue->style.alignment;
         item.fontSize = cue->style.fontSize;
+        item.scale = 1.0;
+        // 镜头追踪（文档 Part 4-A 3.3）：按时间插值覆盖锚点；
+        // trackingMode = 1（位置+缩放）时同时覆盖缩放。
+        // 说明：此前追踪数据只存不消费（UI 拖拽锚点后文字并不跟随），
+        //       此处接入渲染路径使其真实生效。
+        if (cue->hasTracking()) {
+            const auto& points = cue->tracking;
+            const Time now = t;
+            // 找到包含 now 的区间并线性插值（区间外取端点）
+            SubtitleCue::TrackingPoint sampled = points.front();
+            if (!(now <= points.front().time)) {
+                sampled = points.back();
+                for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+                    if (points[i].time <= now && now <= points[i + 1].time) {
+                        const double span = (points[i + 1].time - points[i].time).toDouble();
+                        const double u = span > 1e-9
+                                             ? (now - points[i].time).toDouble() / span
+                                             : 0.0;
+                        sampled.time = now;
+                        sampled.centerX =
+                            points[i].centerX + (points[i + 1].centerX - points[i].centerX) * u;
+                        sampled.centerY =
+                            points[i].centerY + (points[i + 1].centerY - points[i].centerY) * u;
+                        sampled.scale =
+                            points[i].scale + (points[i + 1].scale - points[i].scale) * u;
+                        break;
+                    }
+                }
+            }
+            item.anchorX = sampled.centerX;
+            item.anchorY = sampled.centerY;
+            if (cue->trackingMode == 1) {
+                item.scale = sampled.scale;
+            }
+        }
         item.fillRgba = parseColorRgba(cue->style.color);
         item.outlineRgba = parseColorRgba(cue->style.outlineColor);
         item.outlineWidth = cue->style.outlineWidth;
@@ -78,6 +113,13 @@ std::vector<SubtitleRenderItem> subtitlesAt(const Project& project, SequenceId s
 }
 
 }  // namespace
+
+/// 公开包装（测试/平台层预览用；与导出路径同一实现）。
+std::vector<SubtitleRenderItem> subtitlesForTest(const Project& project, SequenceId sequenceId,
+                                                 const Time& t) {
+    return subtitlesAt(project, sequenceId, t);
+}
+
 
 
 

@@ -120,19 +120,37 @@ std::size_t AiTensor::elementCount() const {
 }
 
 bool AiTensor::valid() const {
-    const std::size_t count = elementCount();
-    if (count == 0) {
+    // 说明：形状含 0 长度维度是**合法**的（如 Whisper 首步的
+    // past_key_values 为 [1,6,0,64]）。因此不能因 count == 0 直接判无效；
+    // 只有「形状为空」或「负维度」才非法。
+    if (shape.empty()) {
         return false;
+    }
+    std::size_t count = 1;
+    for (const std::int64_t dim : shape) {
+        if (dim < 0) {
+            return false;
+        }
+        count *= static_cast<std::size_t>(dim);
     }
     if (type == AiTensorType::Float32) {
         return dataFloat.size() == count;
+    }
+    if (type == AiTensorType::Int64) {
+        return dataInt64.size() == count;
     }
     return dataBytes.size() == count;
 }
 
 std::size_t aiTensorByteSize(const AiTensor& tensor) {
     const std::size_t count = tensor.elementCount();
-    return tensor.type == AiTensorType::Float32 ? count * sizeof(float) : count;
+    if (tensor.type == AiTensorType::Float32) {
+        return count * sizeof(float);
+    }
+    if (tensor.type == AiTensorType::Int64) {
+        return count * sizeof(std::int64_t);
+    }
+    return count;  // Int8 / Uint8
 }
 
 }  // namespace core
@@ -156,6 +174,10 @@ AiTensorType mapOrtType(ONNXTensorElementDataType type) {
             return AiTensorType::Int8;
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
             return AiTensorType::Uint8;
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+            return AiTensorType::Int64;
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+            return AiTensorType::Bool;
         default:
             return AiTensorType::Float32;
     }
@@ -387,6 +409,17 @@ bool AiSession::run(const std::vector<AiTensor>& inputs, std::vector<AiTensor>& 
                 inputValues.push_back(Ort::Value::CreateTensor<std::uint8_t>(
                     memInfo, const_cast<std::uint8_t*>(tensor.dataBytes.data()),
                     tensor.dataBytes.size(), tensor.shape.data(), tensor.shape.size()));
+            } else if (tensor.type == AiTensorType::Int64) {
+                inputValues.push_back(Ort::Value::CreateTensor<std::int64_t>(
+                    memInfo, const_cast<std::int64_t*>(tensor.dataInt64.data()),
+                    tensor.dataInt64.size(), tensor.shape.data(), tensor.shape.size()));
+            } else if (tensor.type == AiTensorType::Bool) {
+                // ORT 的 bool 张量在 C++ API 中用 bool*（1 字节/元素）；
+                // core 以 dataBytes 承载，此处按 bool 语义直接传入。
+                inputValues.push_back(Ort::Value::CreateTensor<bool>(
+                    memInfo, reinterpret_cast<bool*>(
+                                 const_cast<std::uint8_t*>(tensor.dataBytes.data())),
+                    tensor.dataBytes.size(), tensor.shape.data(), tensor.shape.size()));
             } else {
                 inputValues.push_back(Ort::Value::CreateTensor<std::int8_t>(
                     memInfo, reinterpret_cast<std::int8_t*>(
@@ -411,14 +444,33 @@ bool AiSession::run(const std::vector<AiTensor>& inputs, std::vector<AiTensor>& 
             AiTensor tensor;
             tensor.shape = info.GetShape();
             tensor.type = mapOrtType(info.GetElementType());
-            const std::size_t count = tensor.elementCount();
-            if (count == 0) {
+            // 注意：输出形状可能含 0 长度维度（如 Whisper 首步的
+            // present.*.decoder.key 为 [1,6,0,64] —— 合法的空 cache）。
+            // 空张量是**有效输出**，不能当作错误（此前误判为「形状无效」，
+            // 导致 Whisper 自回归完全无法运行）。
+            std::size_t count = 1;
+            bool shapeValid = !tensor.shape.empty();
+            for (const std::int64_t dim : tensor.shape) {
+                if (dim < 0) {
+                    shapeValid = false;  // 负维度非法
+                    break;
+                }
+                count *= static_cast<std::size_t>(dim);  // 0 维度 → count = 0（合法）
+            }
+            if (!shapeValid) {
                 if (outputFailure != nullptr) *outputFailure = "输出张量形状无效";
                 return false;
             }
             if (tensor.type == AiTensorType::Float32) {
                 const float* data = value.GetTensorData<float>();
                 tensor.dataFloat.assign(data, data + count);
+            } else if (tensor.type == AiTensorType::Int64) {
+                const std::int64_t* data = value.GetTensorData<std::int64_t>();
+                tensor.dataInt64.assign(data, data + count);
+            } else if (tensor.type == AiTensorType::Int8) {
+                const std::int8_t* data = value.GetTensorData<std::int8_t>();
+                tensor.dataBytes.assign(reinterpret_cast<const std::uint8_t*>(data),
+                                        reinterpret_cast<const std::uint8_t*>(data) + count);
             } else {
                 const std::uint8_t* data = value.GetTensorData<std::uint8_t>();
                 tensor.dataBytes.assign(data, data + count);

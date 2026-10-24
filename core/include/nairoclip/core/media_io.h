@@ -47,6 +47,8 @@ struct SubtitleRenderItem {
     double anchorY = 0.9;
     int alignment = 1;  // 0=左 1=中 2=右
     double fontSize = 48.0;
+    /// 缩放倍数（1.0 = 原始；镜头追踪「位置+缩放」模式会按追踪点插值覆盖）。
+    double scale = 1.0;
     std::uint32_t fillRgba = 0xFFFFFFFF;     // RGBA8 打包
     std::uint32_t outlineRgba = 0x000000FF;
     double outlineWidth = 2.0;

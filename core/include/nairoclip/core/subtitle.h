@@ -43,6 +43,9 @@ struct SubtitleCue {
         Time time;
         double centerX = 0.5;
         double centerY = 0.5;
+        /// 追踪缩放（trackingMode = 1「位置+缩放」时生效；默认 1.0 = 不缩放）。
+        /// 文档 3.3「追踪类型：位置 / 缩放 / 位置+旋转」。
+        double scale = 1.0;
     };
     std::vector<TrackingPoint> tracking;
     /// 追踪应用模式（0 位置 / 1 位置+缩放；文档 3.3「追踪类型」）。

@@ -416,11 +416,24 @@ int32_t nc_apply_speed_curve_preset(NcEditor* editor, int32_t track_index, uint6
 int32_t nc_set_camera_tracking(NcEditor* editor, uint64_t subtitle_id, const double* times_us,
                                const double* center_x, const double* center_y,
                                int32_t point_count, int32_t apply_mode);
+
+/// 设置镜头追踪结果（含缩放；文档 3.3「追踪类型：位置+缩放」）。
+/// - scales：每点的缩放倍数（1.0 = 原始；可空 = 全部 1.0）；
+/// 其余参数同 nc_set_camera_tracking。apply_mode 为 1 时 scale 才参与渲染。
+int32_t nc_set_camera_tracking_scaled(NcEditor* editor, uint64_t subtitle_id,
+                                      const double* times_us, const double* center_x,
+                                      const double* center_y, const double* scales,
+                                      int32_t point_count, int32_t apply_mode);
 /// 读取追踪采样点数（未设置返回 0；错误返回 -1）。
 int32_t nc_tracking_point_count(const NcEditor* editor, uint64_t subtitle_id);
 /// 读取第 index 个追踪采样点（时间微秒/归一化坐标）。
 int32_t nc_tracking_point_get(const NcEditor* editor, uint64_t subtitle_id, int32_t index,
                               double* out_time_us, double* out_center_x, double* out_center_y);
+
+/// 读取第 index 个追踪采样点（含缩放）。
+int32_t nc_tracking_point_get_scaled(const NcEditor* editor, uint64_t subtitle_id, int32_t index,
+                                     double* out_time_us, double* out_center_x,
+                                     double* out_center_y, double* out_scale);
 /// 清除追踪结果（恢复为无追踪状态；可撤销）。
 int32_t nc_clear_camera_tracking(NcEditor* editor, uint64_t subtitle_id);
 

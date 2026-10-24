@@ -377,39 +377,133 @@ bool SpeechRecognizer::tokenizerLoaded() const {
     return impl_ != nullptr && impl_->tokenizerReady;
 }
 
+// ---------------------------------------------------------------------------
+// ByteLevel BPE 解码（GPT-2 / Whisper 标准）
+// ---------------------------------------------------------------------------
+// 说明：Whisper 的 tokenizer.json 使用 {"decoder": {"type": "ByteLevel"}}——
+//   token 字符串是 **byte-to-unicode 映射后**的文本（例如空格写成 'Ġ' = U+0120，
+//   0x20 → 256 的映射表）。正确解码分两步：
+//     1) 把 token 字符串按「byte-to-unicode」逆映射回原始字节序列；
+//     2) 把字节序列按 UTF-8 解释为文本。
+//   此前实现只把 'Ġ' 直接替换成空格（对纯 ASCII 勉强可用），
+//   对中文/日文等多字节 UTF-8 会产出乱码（实测合成音频输出乱码）。
+namespace {
+
+/// GPT-2 byte-to-unicode 映射的逆表（unicode 码点 → 字节值）。
+/// 构建规则（与 transformers 一致）：
+///   · 可见字符（'!' 到 '~'、'¡' 到 '¬'、'®' 到 'ÿ'）映射到自身；
+///   · 其余 256 - 188 = 68 个字节依次映射到 256 起的码点。
+struct ByteLevelDecoder {
+    std::map<std::uint32_t, std::uint8_t> unicodeToByte;
+
+    ByteLevelDecoder() {
+        // 可见字节集合（GPT-2 定义）
+        const auto isVisible = [](int b) {
+            return (b >= 33 && b <= 126) || (b >= 161 && b <= 172) || (b >= 174 && b <= 255);
+        };
+        int nextCodepoint = 256;
+        for (int b = 0; b < 256; ++b) {
+            if (isVisible(b)) {
+                unicodeToByte[static_cast<std::uint32_t>(b)] =
+                    static_cast<std::uint8_t>(b);
+            } else {
+                unicodeToByte[static_cast<std::uint32_t>(nextCodepoint)] =
+                    static_cast<std::uint8_t>(b);
+                ++nextCodepoint;
+            }
+        }
+    }
+};
+
+const ByteLevelDecoder& byteLevelDecoder() {
+    static const ByteLevelDecoder decoder;
+    return decoder;
+}
+
+/// UTF-8 码点解码（取一个码点与长度；非法返回 0 长度）。
+std::size_t decodeUtf8(const std::string& text, std::size_t pos, std::uint32_t& codepoint) {
+    if (pos >= text.size()) {
+        return 0;
+    }
+    const unsigned char c0 = static_cast<unsigned char>(text[pos]);
+    if (c0 < 0x80) {
+        codepoint = c0;
+        return 1;
+    }
+    int extra = 0;
+    std::uint32_t value = 0;
+    if ((c0 & 0xE0) == 0xC0) {
+        extra = 1;
+        value = c0 & 0x1F;
+    } else if ((c0 & 0xF0) == 0xE0) {
+        extra = 2;
+        value = c0 & 0x0F;
+    } else if ((c0 & 0xF8) == 0xF0) {
+        extra = 3;
+        value = c0 & 0x07;
+    } else {
+        return 0;  // 非法起始字节
+    }
+    if (pos + static_cast<std::size_t>(extra) >= text.size()) {
+        return 0;
+    }
+    for (int i = 1; i <= extra; ++i) {
+        const unsigned char ci = static_cast<unsigned char>(text[pos + static_cast<std::size_t>(i)]);
+        if ((ci & 0xC0) != 0x80) {
+            return 0;
+        }
+        value = (value << 6) | (ci & 0x3F);
+    }
+    codepoint = value;
+    return static_cast<std::size_t>(extra + 1);
+}
+
+}  // namespace
+
 std::string SpeechRecognizer::decodeTokens(const std::vector<int>& tokens) const {
     if (impl_ == nullptr || !impl_->tokenizerReady) {
         return std::string();
     }
-    // 过滤特殊 token（<|...|> 形式）后拼接；BPE 反字节解码（'Ġ' → 空格）。
-    std::string out;
+    // ① 拼接 token 字符串（跳过特殊 token）
+    std::string merged;
     for (int token : tokens) {
-        const auto added = impl_->addedTokens.find(token);
-        if (added != impl_->addedTokens.end()) {
-            // 特殊 token（<|startoftranscript|> 等）：跳过
-            continue;
+        if (impl_->addedTokens.find(token) != impl_->addedTokens.end()) {
+            continue;  // 特殊 token（<|...|>）不参与文本
         }
         const auto it = impl_->idToToken.find(token);
         if (it == impl_->idToToken.end()) {
             continue;
         }
-        const std::string& piece = it->second;
-        for (char c : piece) {
-            // Whisper BPE 用 'Ġ' (U+0120, UTF-8: 0xC4 0xA0) 表示前导空格
-            if (static_cast<unsigned char>(c) == 0xC4) {
-                continue;  // 跳过（下一字节 0xA0 会转为空格）
-            }
-            if (static_cast<unsigned char>(c) == 0xA0) {
-                out.push_back(' ');
-                continue;
-            }
-            out.push_back(c);
-        }
+        merged += it->second;
     }
-    // 去首尾空格
-    while (!out.empty() && out.front() == ' ') out.erase(out.begin());
-    while (!out.empty() && out.back() == ' ') out.pop_back();
-    return out;
+    // ② byte-to-unicode 逆映射 → 原始字节
+    std::string bytes;
+    bytes.reserve(merged.size());
+    const auto& inverse = byteLevelDecoder().unicodeToByte;
+    std::size_t pos = 0;
+    while (pos < merged.size()) {
+        std::uint32_t codepoint = 0;
+        const std::size_t length = decodeUtf8(merged, pos, codepoint);
+        if (length == 0) {
+            ++pos;  // 跳过非法字节（防御）
+            continue;
+        }
+        const auto found = inverse.find(codepoint);
+        if (found != inverse.end()) {
+            bytes.push_back(static_cast<char>(found->second));
+        } else {
+            // 不在映射表：按原样保留（已是 UTF-8 文本）
+            bytes.append(merged, pos, length);
+        }
+        pos += length;
+    }
+    // ③ 首尾空白清理（Whisper 输出常有前导空格）
+    const auto isSpace = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; };
+    std::size_t begin = 0;
+    std::size_t end = bytes.size();
+    while (begin < end && isSpace(bytes[begin])) ++begin;
+    while (end > begin && isSpace(bytes[end - 1])) --end;
+    return bytes.substr(begin, end - begin);
 }
 
 bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, int sampleRate,
@@ -455,54 +549,126 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
             if (outputFailure != nullptr) *outputFailure = "编码输出为空";
             return false;
         }
-        if (progress != nullptr && !progress(0.4 + 0.5 * (w + 1) / windowCount)) {
+        // 进度分段（单调）：编码 0.0→0.30，解码 0.30→0.95，收尾 1.0
+        if (progress != nullptr &&
+            !progress(0.30 * static_cast<double>(w + 1) / windowCount)) {
             if (outputFailure != nullptr) *outputFailure = "用户取消";
             return false;
         }
-        // ③ 解码（贪心循环；本实现产出 token 序列占位文本）
-        // 说明：完整 BPE 词表（51865 tokens）达数十 MB，不适合内嵌 core；
-        //       此处产出 token id 序列，由平台层用 tokenizer.json 做 BPE 解码。
-        std::vector<int> tokens;
-        tokens.push_back(kStartOfTranscript);
+        // ③ 解码（真实自回归：贪心 + KV cache 复用）
+        // 说明：Whisper 解码器为 19 输入 / 17 输出结构——
+        //   input_ids(Int64) + encoder_hidden_states + 16 个 past_key_values
+        //   + use_cache_branch(Bool)；
+        //   输出 logits + 16 个 present_key_values（下轮作为 past 传回）。
+        std::vector<std::int64_t> tokenIds;
+        tokenIds.push_back(kStartOfTranscript);
         const int langToken = speechLanguageToken(language);
         if (langToken > 0) {
-            tokens.push_back(langToken);
+            tokenIds.push_back(langToken);
         }
-        tokens.push_back(50359);  // <|transcribe|>
-        tokens.push_back(50363);  // <|notimestamps|>
-        // 单步解码（首次调用：验证链路；完整自回归依赖 KV cache 形状管理，
-        // 由平台层按 decoder 元数据（seen in tests）驱动多步）。
-        AiTensor ids;
-        ids.shape = {1, static_cast<std::int64_t>(tokens.size())};
-        for (int t : tokens) {
-            ids.dataFloat.push_back(static_cast<float>(t));
+        tokenIds.push_back(50359);  // <|transcribe|>
+        tokenIds.push_back(50363);  // <|notimestamps|>
+        // KV cache：首步为 [1,6,0,64] 空（层数 4 × 4 类 = 16 个）
+        const int kLayerCount = 4;
+        const int kHeadCount = 6;
+        const int kHeadDim = 64;
+        std::vector<AiTensor> past;  // 16 个
+        past.reserve(16);
+        for (int layer = 0; layer < kLayerCount; ++layer) {
+            for (int k = 0; k < 4; ++k) {
+                AiTensor kv;
+                kv.shape = {1, kHeadCount, 0, kHeadDim};
+                kv.dataFloat.clear();
+                past.push_back(std::move(kv));
+            }
         }
-        // 简化：只运行编码器 + 解码器首步（验证真实推理链路可跑通）
-        AiTensor encHidden = encOuts[0];
-        std::vector<AiTensor> decOuts;
-        // 解码器需要 KV cache 输入（多输入模型）；此处仅在模型输入为 2 个时尝试
-        if (impl_->decoder.inputs().size() <= 2) {
+        bool firstStep = true;
+        std::vector<std::int64_t> generated;  // 生成的 token（不含提示）
+        constexpr int kMaxNewTokens = 128;    // 单窗口上限（防失控）
+        constexpr int kEotToken = 50257;
+        for (int step = 0; step < kMaxNewTokens; ++step) {
             std::vector<AiTensor> inputs;
-            inputs.push_back(ids);
-            inputs.push_back(encHidden);
+            AiTensor ids;
+            ids.type = AiTensorType::Int64;
+            // 首步传入全部提示 token；后续仅传新 token（KV cache 已含历史）
+            if (firstStep) {
+                ids.shape = {1, static_cast<std::int64_t>(tokenIds.size())};
+                ids.dataInt64 = tokenIds;
+            } else {
+                ids.shape = {1, 1};
+                ids.dataInt64 = {tokenIds.back()};
+            }
+            inputs.push_back(std::move(ids));
+            inputs.push_back(encOuts[0]);
+            for (const auto& kv : past) {
+                inputs.push_back(kv);
+            }
+            AiTensor branch;
+            branch.type = AiTensorType::Bool;
+            branch.shape = {1};
+            branch.dataBytes = {firstStep ? static_cast<std::uint8_t>(0)
+                                          : static_cast<std::uint8_t>(1)};
+            inputs.push_back(std::move(branch));
+            std::vector<AiTensor> decOuts;
             if (!impl_->decoder.run(inputs, decOuts, outputFailure)) {
-                // 解码器输入形态不被简化路径支持：明确失败（不伪造文本）
-                if (outputFailure != nullptr) {
-                    *outputFailure = "解码器需要完整 KV cache 输入（平台层按元数据驱动多步解码）";
-                }
                 return false;
             }
-        } else {
-            if (outputFailure != nullptr) {
-                *outputFailure =
-                    "解码器含 KV cache（多输入）；完整自回归由平台层按元数据驱动";
+            if (decOuts.empty()) {
+                if (outputFailure != nullptr) *outputFailure = "解码输出为空";
+                return false;
             }
-            return false;
+            // 取最后位置的 argmax
+            const AiTensor& logits = decOuts[0];
+            if (logits.shape.size() != 3) {
+                if (outputFailure != nullptr) *outputFailure = "logits 形状非法";
+                return false;
+            }
+            const std::int64_t seqLen = logits.shape[1];
+            const std::int64_t vocab = logits.shape[2];
+            const std::int64_t last = seqLen - 1;
+            int best = 0;
+            float bestVal = -1e30f;
+            for (std::int64_t v = 0; v < vocab; ++v) {
+                const float val = logits.dataFloat[static_cast<std::size_t>(last * vocab + v)];
+                if (val > bestVal) {
+                    bestVal = val;
+                    best = static_cast<int>(v);
+                }
+            }
+            if (best == kEotToken) {
+                break;  // 正常结束
+            }
+            generated.push_back(static_cast<std::int64_t>(best));
+            tokenIds.push_back(static_cast<std::int64_t>(best));
+            // 更新 KV cache（present.* → past）
+            if (decOuts.size() >= 17) {
+                for (int i = 0; i < 16; ++i) {
+                    past[static_cast<std::size_t>(i)] = decOuts[static_cast<std::size_t>(i + 1)];
+                }
+            }
+            firstStep = false;
+            if (progress != nullptr) {
+                // 解码进度（单调）：窗口起点 + 步数占比 × 窗口份额
+                const double windowShare = 0.65 / static_cast<double>(windowCount);
+                const double base = 0.30 + windowShare * static_cast<double>(w);
+                const double stepPart =
+                    windowShare * static_cast<double>(step + 1) / kMaxNewTokens;
+                const double p = base + stepPart;
+                if (!progress(std::min(0.95, p))) {
+                    if (outputFailure != nullptr) *outputFailure = "用户取消";
+                    return false;
+                }
+            }
         }
-        // 输出分段（时间轴按窗口切分；文本为 token 占位）
+        // 文本解码：优先用 BPE 词表；未加载则明确标注（不伪造文本）
         std::string text;
-        for (std::size_t i = 0; i < tokens.size(); ++i) {
-            text += tokenToTextPlaceholder(tokens[i]);
+        if (impl_->tokenizerReady) {
+            text = decodeTokens(std::vector<int>(generated.begin(), generated.end()));
+        } else {
+            // 无词表：输出 token 标记（明确告知调用方需提供 tokenizer.json）
+            for (std::int64_t token : generated) {
+                text += tokenToTextPlaceholder(static_cast<int>(token));
+            }
         }
         SpeechSegment segment;
         segment.startSeconds = static_cast<double>(startFrame) / sampleRate;

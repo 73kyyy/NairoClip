@@ -90,15 +90,24 @@ enum class AiTensorType {
     Float32 = 0,
     Int8 = 1,
     Uint8 = 2,
+    /// 64 位有符号整数（token id / 索引类输入；Whisper、BERT、T5 等
+    /// NLP 模型必需）。数据存于 dataInt64。
+    Int64 = 3,
+    /// 布尔（控制输入，如 Whisper 的 use_cache_branch）。数据存于 dataBytes
+    /// （每元素 1 字节：0 = false，非 0 = true）。
+    Bool = 4,
 };
 
 /// 张量（连续内存；shape 为维度列表）。
 struct AiTensor {
     AiTensorType type = AiTensorType::Float32;
     std::vector<std::int64_t> shape;
-    /// 数据缓冲（Float32 → dataFloat；Int8/Uint8 → dataBytes）。
+    /// 数据缓冲（Float32 → dataFloat；Int8/Uint8 → dataBytes；
+    /// Int64 → dataInt64）。
     std::vector<float> dataFloat;
     std::vector<std::uint8_t> dataBytes;
+    /// 64 位整数缓冲（Int64 类型使用；token id 等）。
+    std::vector<std::int64_t> dataInt64;
 
     /// 元素总数（shape 乘积；空 shape 返回 0）。
     std::size_t elementCount() const;

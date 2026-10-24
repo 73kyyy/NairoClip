@@ -1,3 +1,4 @@
+#include "nairoclip/core/filters.h"
 #include "nairoclip/core/preview.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
@@ -234,6 +235,14 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
                                     clip->effects, frameIndex,
                                     RenderQuality::previewQuality(),
                                     timelineTime.toDouble());
+        }
+        // 应用片段滤镜（文档「🎨滤镜」；预览与导出一致）
+        // 顺序：先滤镜定色彩基调，再叠特效，最后蒙版/抠像裁剪范围。
+        if (clip->filterStyle != FilterStyle::None && clip->filterIntensity > 0.0 &&
+            frame.rgba.size() >=
+                static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height) * 4) {
+            applyFilterToRgba(frame.rgba.data(), frame.width, frame.height,
+                              clip->filterStyle, clip->filterIntensity);
         }
         // 应用片段蒙版（文档「✂️剪辑 → 蒙版」）
         // 预览用 Background 模式：蒙版外填充序列背景色，UI 直接显示最终画面效果。

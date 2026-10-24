@@ -853,6 +853,9 @@ JsonValue writeSubtitleTrack(const SubtitleTrack& track) {
                 p.set("t", writeRational(point.time));
                 p.set("x", JsonValue::number(point.centerX));
                 p.set("y", JsonValue::number(point.centerY));
+                if (point.scale != 1.0) {
+                    p.set("scale", JsonValue::number(point.scale));
+                }
                 points.push(std::move(p));
             }
             tracking.set("points", std::move(points));
@@ -893,6 +896,7 @@ bool readSubtitleTrack(const JsonValue& v, SubtitleTrack& out, std::string& err)
                         if (!readRational(p.get("t"), "t", point.time, err)) return false;
                         point.centerX = p.get("x").asNumber(0.5);
                         point.centerY = p.get("y").asNumber(0.5);
+                        point.scale = p.get("scale").asNumber(1.0);
                         cue.tracking.push_back(point);
                     }
                 }
