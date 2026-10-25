@@ -60,6 +60,12 @@ struct ModelInfo {
     std::string description;
     /// 下载体积（字节；以服务器清单为准，此处为内置参考值）。
     std::int64_t sizeBytes = 0;
+    /// sizeBytes 是否为**精确**校验值。
+    /// - false（内置目录的默认值）：sizeBytes 只是展示用的参考体积，
+    ///   完整性完全由 SHA-256 保证，体积只做合理性下限校验；
+    /// - true（默认，保持既有语义）：逐字节精确校验；
+    ///   服务端清单与外部构造的 ModelInfo 都走这条路径。
+    bool sizeExact = true;
     /// 模型版本（以服务器清单为准；用于更新检测）。
     std::string version;
     /// 能力分类（权益门控依据）。

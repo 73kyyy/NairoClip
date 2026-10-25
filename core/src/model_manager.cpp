@@ -115,10 +115,14 @@ std::vector<ModelInfo> makeCatalog() {
         info.version = version;
         info.capability = capability;
         info.requiresPro = requiresPro;
+        info.sizeExact = false;   // 内置清单：参考体积，非精确校验值
         catalog.push_back(std::move(info));
     };
 
-    // 体积参考文档第 5 部分「二、AI模型管理」的展示值。
+    // 体积参考文档第 5 部分「二、AI模型管理」的展示值——
+    // 只是展示用参考量，不是逐字节精确值，故 sizeExact = false：
+    // 实际可换不同量化版本（fp32/int8/quantized），体积差异可达数倍，
+    // 完整性由安装时下发的 SHA-256 保证。
     add("matting_basic", "智能抠像（基础版）", "人像抠像，精度约 85%（免费版可用）", 60 * kMB,
         "1.0.0", ModelCapability::MattingBasic, false);
     add("matting_hq", "智能抠像（高精度版）", "人像/物品/色度抠像，精度约 98%（Pro）", 120 * kMB,
@@ -804,15 +808,17 @@ ModelVerifyResult verifyModelPayload(const ModelInfo& info,
     ModelVerifyResult result;
     result.sizeBytes = static_cast<std::int64_t>(ciphertext.size());
 
-    // 清单里的 sizeBytes 是「文档展示用的参考体积」，不是逐字节精确值：
-    // 同一能力可换不同量化版本（fp32/int8），体积差异可达数倍。
-    // 这里只做合理性校验：非空且不超过参考值的 10 倍，避免把错误文件当模型。
-    // 完整性以 SHA-256 为准（下方 digestMatch），不靠体积。
+    // 体积校验分两种语义（见 ModelInfo::sizeExact）：
+    //  · sizeExact = true  → 服务端下发的精确值，逐字节比对；
+    //  · sizeExact = false → 内置目录里的参考体积，仅做合理性下限校验。
+    //    同一能力可换不同量化版本（fp32/int8），体积差异可达数倍，
+    //    完整性由下方 SHA-256 保证。
     if (info.sizeBytes > 0) {
-        result.sizeMatch = result.sizeBytes > 1024 &&
-                           result.sizeBytes <= info.sizeBytes * 10;
+        result.sizeMatch = info.sizeExact
+            ? result.sizeBytes == info.sizeBytes
+            : result.sizeBytes > 0;
     } else {
-        result.sizeMatch = result.sizeBytes > 1024;
+        result.sizeMatch = result.sizeBytes > 0;
     }
 
     std::uint8_t digest[kSha256DigestSize];
