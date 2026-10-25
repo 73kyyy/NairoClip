@@ -301,6 +301,73 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     // ---- AI 任务框架（core 管状态机，平台层执行推理）----
+    // ---- 素材 / 片段（编辑器导入与插入链路必需）----
+    if (op == "nc_import_asset") {
+        // uint64_t nc_import_asset(editor, name, path, type, duration_us)
+        // 返回素材 ID（0 = 失败）
+        const uint64_t id = nc_import_asset(
+            ed, JStrField(a, "name").c_str(), JStrField(a, "path").c_str(),
+            static_cast<int32_t>(JInt(a, "type", 0)),
+            static_cast<int64_t>(JInt(a, "duration_us", 0)));
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("导入素材失败");
+        return true;
+    }
+    if (op == "nc_insert_clip") {
+        // uint64_t nc_insert_clip(editor, track_index, asset_id, start_us, duration_us)
+        const uint64_t id = nc_insert_clip(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<uint64_t>(JInt(a, "asset_id", 0)),
+            static_cast<int64_t>(JInt(a, "start_us", 0)),
+            static_cast<int64_t>(JInt(a, "duration_us", 0)));
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("插入片段失败");
+        return true;
+    }
+    if (op == "nc_scene_detect") {
+        // int32_t nc_scene_detect(editor, step_seconds, max_samples,
+        //                         out_boundary_count, double** out_boundaries)
+        int32_t count = 0;
+        double* bounds = nullptr;
+        const int32_t rc = nc_scene_detect(
+            ed, JNum(a, "step_seconds", 0.5),
+            static_cast<int32_t>(JInt(a, "max_samples", 240)), &count, &bounds);
+        if (rc != NC_OK) {
+            *out = Err("场景检测失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string j = "{\"boundary_count\":" + std::to_string(count) + ",\"boundaries\":[";
+        for (int32_t i = 0; i < count && bounds; ++i) {
+            if (i) j += ",";
+            j += Num(bounds[i]);
+        }
+        j += "]}";
+        if (bounds) nc_free_buffer(reinterpret_cast<uint8_t*>(bounds));
+        *out = Ok(j);
+        return true;
+    }
+    if (op == "nc_beat_detect") {
+        // int32_t nc_beat_detect(editor, track_index, out_bpm, out_confidence,
+        //                        out_beat_count, double** out_beats)
+        int32_t count = 0;
+        double bpm = 0.0, confidence = 0.0;
+        double* beats = nullptr;
+        const int32_t rc = nc_beat_detect(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            &bpm, &confidence, &count, &beats);
+        if (rc != NC_OK) {
+            *out = Err("节拍检测失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string j = "{\"bpm\":" + Num(bpm) + ",\"confidence\":" + Num(confidence);
+        j += ",\"beat_count\":" + std::to_string(count) + ",\"beats\":[";
+        for (int32_t i = 0; i < count && beats; ++i) {
+            if (i) j += ",";
+            j += Num(beats[i]);
+        }
+        j += "]}";
+        if (beats) nc_free_buffer(reinterpret_cast<uint8_t*>(beats));
+        *out = Ok(j);
+        return true;
+    }
     if (op == "nc_ai_task_begin") {
         // int32_t nc_ai_task_begin(editor, feature, target_id, char** out_error)
         char* err = nullptr;
