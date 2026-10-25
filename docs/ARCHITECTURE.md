@@ -617,18 +617,37 @@
     ③ 混音器跳过降噪供给 → 真实素材混音测试真实失败（-10dB 断言）。
 
 ### 待办
-- ⬜ 超分辨率（2x/4x；锁定 Real-ESRGAN；ai_engine 已就绪）
-- ⬜ 光流补帧（60/120fps；锁定 RIFE；ai_engine 已就绪）
-- ⬜ 智能抠像（人像/物品；锁定 MediaPipe Selfie；ai_engine 已就绪）
-- ⬜ 人声分离（锁定 UVR-MDX-NET-Voc_FT）/ 语音转字幕（whisper.cpp）/
-  TTS（VITS）/ 字幕翻译（MADLAD-400）/ 镜头追踪（OpenCV CSRT）/
-  深度图（MiDaS）
-- ⬜ 模型分发服务器对接（core 仅实现客户端逻辑：签名 URL 有效期校验/加密存储/
-  断点续传；服务器地址与密钥由用户提供，不硬编码）
-- ⬜ 人物特效（5.2；瘦身/发光轮廓依赖人像抠像）
-- ⬜ 滤镜库 LUT（5.7）/ 背景填充（5.10）/ 画布比例（5.11）
-- M3.0 ⬜ Android 平台层（JNI + MediaCodec 封装，需 NDK 环境）
-- 后续 ⬜ 本地 AI 推理（模型分发走国内云）+ 平台壳（Kotlin/Qt）
+
+> 状态标记以**代码实测**为准（2026-10-25 核对），不以规划文档为准。
+> 「✅」= 有实现文件且编译通过；「⬜」= 仍缺实现。
+
+已完成：
+
+- ✅ 智能抠像（人像/物品）— `core/src/matting_ai.cpp`（AiSession 真实推理）
+- ✅ 光流补帧（60/120fps）— `core/src/interpolation_ai.cpp`
+- ✅ 人声分离 — `core/src/stem_ai.cpp`
+- ✅ 语音转字幕 / 歌词 — `core/src/speech_ai.cpp`（Whisper）
+- ✅ 深度图 — `core/src/depth_ai.cpp`
+- ✅ 人物特效（瘦身 / 发光轮廓）— `core/src/person_effects.cpp`
+- ✅ 背景填充 — `core/src/background_fill.cpp` + `nc_set_clip_background`
+- ✅ 画布比例 — `nc_project_canvas` / `nc_set_project_canvas`
+- ✅ Android 平台层（JNI 直调 C ABI）— `android/` + `mobile/native/android/nc_jni.cpp`
+  · 10 个 JNI 符号导出，静态库链接通过（`POSITION_INDEPENDENT_CODE ON`）
+  · WebView + WebViewAssetLoader 承载前端；`window.NCEngine` 同步桥
+- ✅ iOS 平台层 — `mobile/native/ios/NativeEngineBridge.swift`（C interop + 同步 prompt）
+- ✅ 模型分发客户端 — `core/src/model_manager.cpp`（状态机/断点续传/SHA-256/AES）
+- ✅ 8 个 AI 模型权重获取脚本 — `tools/fetch_models.sh`（hf-mirror，实测可下载）
+- ✅ 模型安装体积校验修正 — 由「精确匹配」改为容差（清单值是参考体积）
+
+仍缺：
+
+- ⬜ 超分辨率（2x/4x）— **缺实现文件**；模型 `super_res_2x4x` 已可下载
+- ⬜ 字幕翻译 — **缺实现文件**；模型 `translate_zh_en` 已可下载
+- ⬜ TTS（VITS）— **缺实现文件**；模型 `tts_zh` 已可下载
+- ⬜ 镜头追踪（OpenCV CSRT）— 仅有 `AiFeatureType::CameraTracking` 枚举，无实现
+- ⬜ 滤镜库 LUT（5.7）— C ABI 无 `nc_set_lut` 一类入口
+- ⬜ 模型分发**服务器**对接 — core 只做了客户端逻辑；签名 URL 的服务端需另行部署
+- ⬜ 真机运行验证 — APK 需 CI 出包后安装；本机为 aarch64 且无 NDK x86_64 工具链
 
 ## 8. 兼容性预留
 - 绑定层将在 core 之上提供稳定 C ABI，JNI / Swift / Qt 均经该层接入；
