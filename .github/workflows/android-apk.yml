@@ -34,8 +34,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest runner 自带 Android SDK，且已预装 build-tools / platform。
+      # 不用 setup-android@v3：其 sdkmanager 装 'tools' 包会失败。
+      - name: Locate Android SDK
+        run: |
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          ls "${ANDROID_SDK_ROOT:-$ANDROID_HOME}" 2>/dev/null | head -10 || true
+          ls "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platforms" 2>/dev/null || true
+          ls "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" 2>/dev/null || true
 
       - name: Setup Android NDK r27d
         uses: nttld/setup-ndk@v1
@@ -76,19 +82,21 @@ jobs:
       - name: Write local.properties
         run: |
           {
-            echo "sdk.dir=$ANDROID_SDK_ROOT"
+            echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
             echo "wx.appId=${{ secrets.WX_APP_ID }}"
             echo "qq.appId=${{ secrets.QQ_APP_ID }}"
             echo "auth.backend=${{ secrets.AUTH_BACKEND }}"
           } > android/local.properties
 
+      # 仓库未提交 gradle wrapper：用 gradle/actions 提供的 gradle 生成后构建
+      - name: Generate Gradle wrapper
+        working-directory: android
+        run: gradle wrapper --gradle-version 8.7 --no-daemon
+
       - name: Assemble release APK
         working-directory: android
         run: |
           set -euo pipefail
-          if [ ! -f gradlew ]; then
-            gradle wrapper --gradle-version 8.7
-          fi
           chmod +x gradlew
           ./gradlew :app:assembleRelease --stacktrace --no-daemon
 
