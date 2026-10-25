@@ -140,6 +140,48 @@ class NativeEngineBridge(private val appContext: android.content.Context? = null
         return JSONObject().put("projects", out).toString()
     }
 
+    /**
+     * 安装模型：读入文件字节 → 算 SHA-256 → 交给 core 校验并记录。
+     * core 不碰文件系统，读写都由平台层完成。
+     * 返回 {"installed":1|0,"message":"…"}。
+     */
+    @JavascriptInterface
+    @Synchronized
+    fun installModel(modelId: String, filePath: String): String {
+        val f = java.io.File(filePath)
+        if (!f.isFile) return err("文件不存在：$filePath")
+
+        val bytes: ByteArray = try {
+            f.readBytes()
+        } catch (e: Throwable) {
+            return err("读取失败：${e.message}")
+        }
+        if (bytes.isEmpty()) return err("文件为空")
+
+        val sha = try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            md.digest(bytes).joinToString("") { "%02x".format(it) }
+        } catch (e: Throwable) {
+            return err("计算 SHA-256 失败：${e.message}")
+        }
+
+        return try {
+            nativeInstallModel(ensure(), modelId, bytes, f.absolutePath, sha,
+                               System.currentTimeMillis() / 1000)
+        } catch (e: Throwable) {
+            err("安装调用失败：${e.message}")
+        }
+    }
+
+    /** 模型文件应放的目录（应用私有）。 */
+    @JavascriptInterface
+    fun modelsDir(): String = modelRoot()?.absolutePath ?: ""
+
+    private fun modelRoot(): java.io.File? {
+        val base = appContext?.filesDir ?: return null
+        return java.io.File(base, "models").also { it.mkdirs() }
+    }
+
     /** AI 模型目录与状态（nc_model_catalog / nc_model_info / nc_model_status）。 */
     @JavascriptInterface
     @Synchronized
@@ -219,6 +261,9 @@ class NativeEngineBridge(private val appContext: android.content.Context? = null
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
     private external fun nativeWaveform(handle: Long, assetId: Long): String
     private external fun nativeModels(handle: Long): String
+    private external fun nativeInstallModel(handle: Long, modelId: String, data: ByteArray,
+                                            path: String, sha256: String,
+                                            nowUnix: Long): String
     private external fun nativePresetFrame(handle: Long, kind: String, style: Int,
                                           timeUs: Long, width: Int): ByteArray
 
