@@ -301,10 +301,6 @@ char* nc_preview_subtitles(const NcEditor* editor, int64_t time_us);
 /// 一般不必手动调用）。
 void nc_preview_invalidate(NcEditor* editor);
 
-/// 重建预览渲染器缓存（工程被外部修改后调用；一般不必手动调用，
-/// nc_project_load/编辑操作会自动失效）。
-void nc_preview_invalidate(NcEditor* editor);
-
 // ---- 缩略图（文档 Part 2-B「时间轴胶片条」/ 素材库预览）----
 
 /// 为素材生成缩略图序列（真实解码）。

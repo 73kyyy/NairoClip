@@ -219,10 +219,27 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         ctx->pix_fmt = AV_PIX_FMT_YUV420P;
         ctx->gop_size = static_cast<int>(config.frameRate.toDouble() * 2.0);
         ctx->max_b_frames = 2;
-        // 选项设置：crf/preset 为编码器特有（x264/openh264 支持；硬件编码器
-        // 不识别时 av_opt_set 返回错误码即忽略——编码器将用自身默认码控）。
-        av_opt_set_int(ctx->priv_data, "crf", config.crf, 0);
-        av_opt_set(ctx->priv_data, "preset", config.preset.c_str(), 0);
+        // 选项设置：crf/preset 为编码器特有。
+        // 关键：av_opt_set 失败**不能静默忽略**。
+        // 例：h264_nvenc 不认识 x264 的 preset 名（veryfast 等），此处会返回
+        // AVERROR_OPTION_NOT_FOUND；若继续，avcodec_open2 仍可能成功，但编码器
+        // 参数是残缺的，直到写第一帧才炸。这里直接判定该候选不可用并回退。
+        const int crfErr = av_opt_set_int(ctx->priv_data, "crf", config.crf, 0);
+        const int presetErr =
+            av_opt_set(ctx->priv_data, "preset", config.preset.c_str(), 0);
+        if (presetErr == AVERROR_OPTION_NOT_FOUND) {
+            // 编码器不提供 preset 选项（部分硬件后端）：不算错误，用其默认码控。
+            // 但要确认它至少不是「有 preset 却拒绝该取值」的情况。
+            const AVOption* presetOpt = av_opt_find(ctx->priv_data, "preset", nullptr,
+                                                   0, AV_OPT_SEARCH_CHILDREN);
+            if (presetOpt != nullptr) {
+                attempted += (attempted.empty() ? "" : "、") + candidate.name +
+                             "(preset 不支持 '" + config.preset + "')";
+                avcodec_free_context(&ctx);
+                continue;  // 有 preset 选项但取值非法 → 该候选不可用
+            }
+        }
+        (void)crfErr;  // crf 不被识别时用编码器默认码控（不阻断）
         // 性能模式：编码线程上限（0 = 编码器自动）
         if (config.threads > 0) {
             ctx->thread_count = config.threads;

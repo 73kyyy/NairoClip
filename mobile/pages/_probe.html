@@ -1,0 +1,9 @@
+<!DOCTYPE html><html><body style="font:14px monospace;background:#111;color:#0f0"><div id="o">pending</div>
+<video id="v" muted preload="auto"></video>
+<script>
+const v=document.getElementById('v'),o=document.getElementById('o');
+v.src='../../design/media/shot_city.mp4';
+v.addEventListener('loadedmetadata',()=>{o.textContent='META dur='+v.duration+' '+v.videoWidth+'x'+v.videoHeight;});
+v.addEventListener('error',()=>{o.textContent='ERR '+(v.error&&v.error.code);});
+setTimeout(()=>{if(o.textContent==='pending')o.textContent='TIMEOUT type='+v.canPlayType('video/mp4');},3500);
+</script></body></html>

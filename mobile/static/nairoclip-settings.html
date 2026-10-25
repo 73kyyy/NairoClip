@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip</title>
+<style>
+/* NairoClip Mobile · 设计令牌
+   底色/尺寸取自参考稿（1332×2738 = 444×913 CSS @3x）；
+   图标与强调色按《产品UI和UX开发文档》Part 1 §1.2/§1.3：
+   默认 #9B9B9E、激活 #2D8CFF、描边 1.5px、一级 20px / 二三级 18px。 */
+/* 字体与剪辑页、设计稿同一套（design/assets/base.css 同样声明）：
+   拉丁/数字用 Instrument Sans + JetBrains Mono，中文回落到系统 Noto Sans CJK。 */
+@font-face { font-family: "Instrument Sans"; font-weight: 400; font-display: swap;
+             src: url("../assets/fonts/InstrumentSans-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Instrument Sans"; font-weight: 700; font-display: swap;
+             src: url("../assets/fonts/InstrumentSans-Bold.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap;
+             src: url("../assets/fonts/JetBrainsMono-Regular.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap;
+             src: url("../assets/fonts/JetBrainsMono-Bold.ttf") format("truetype"); }
+
+:root {
+  --bg-void: #000000;
+  --bg-dock: #111413;
+  --bg-timeline: #151817;
+  --bg-app: #18191B;
+  --bg-toolbar: #1C1D1F;
+  --bg-stage: #232323;
+
+  --panel-2: #202224;   /* 二级工具栏（文档 #2A2A2D 系列） */
+  --panel-3: #26282A;   /* 三级面板 */
+
+  --line-1: #26282A;
+  --line-2: #34373A;
+  --line-3: #3A3A3D;
+
+  --text-hi: #F2F2F2;
+  --text-mid: #9B9B9E;
+  --text-low: #6A6E70;
+
+  --accent: #2D8CFF;
+  --accent-soft: rgba(45, 140, 255, .22);    /* 文档全局唯一强调色 */
+  --danger: #E5484D;    /* 文档警示色 */
+
+  --font: "Instrument Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", sans-serif;
+  --font-num: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* NairoClip Mobile · 首页 / 我的（设置）共用样式
+   配色沿用 tokens.css：深色、无彩色强调、图标线性 1.5px。
+   布局单位用 clamp/vw，与剪辑页保持一致的自适应策略。 */
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body { background: var(--bg-app); font-family: var(--font); color: var(--text-hi);
+       display: flex; justify-content: center; overflow: hidden; }
+
+.screen { position: relative; width: 100%; height: 100vh; height: 100dvh;
+          display: flex; flex-direction: column; overflow: hidden;
+          padding-bottom: env(safe-area-inset-bottom, 0px); }
+.i { width: 20px; height: 20px; display: block; }
+
+/* ---------- 顶栏 ---------- */
+.hd { flex: none; height: clamp(44px, 5.4vh, 56px); display: flex;
+      align-items: center; padding: 0 14px; gap: 8px; }
+.hd h1 { margin: 0; font-size: clamp(17px, 4.6vw, 20px); font-weight: 700; letter-spacing: -.3px; }
+.hd .sp { flex: 1; }
+.hd-btn { width: 34px; height: 34px; border: 0; background: transparent;
+          color: #C8CDCB; display: grid; place-items: center; padding: 0; }
+.hd-btn .i { width: 20px; height: 20px; }
+
+/* ---------- 滚动区 ---------- */
+.scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+          -webkit-overflow-scrolling: touch; padding: 0 14px 12px; }
+.scroll::-webkit-scrollbar { width: 0; }
+
+/* ---------- 开始创作卡 ---------- */
+.create { width: 100%; border: 1px dashed #3A3E40; border-radius: 12px;
+          background: linear-gradient(180deg, #202325, #1B1E20);
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 8px; padding: clamp(20px, 4.6vh, 34px) 12px; color: #EDF0EE; }
+.create .plus { width: 38px; height: 38px; border-radius: 50%;
+                border: 1px solid #4A4F52; display: grid; place-items: center; }
+.create .plus .i { width: 20px; height: 20px; }
+.create b { font-size: 15px; font-weight: 600; }
+.create span { font-size: 11px; color: var(--text-low); }
+
+/* ---------- 四宫格快捷入口 ---------- */
+.quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.q { border: 0; background: transparent; display: flex; flex-direction: column;
+     align-items: center; gap: 7px; padding: 10px 4px; color: #D4D9D7; }
+.q .box { width: 42px; height: 42px; border-radius: 11px; background: #24282A;
+          display: grid; place-items: center; }
+.q .box .i { width: 21px; height: 21px; }
+.q span { font-size: 11px; }
+
+/* ---------- 区块标题 ---------- */
+.sec { display: flex; align-items: center; margin: 18px 2px 9px; }
+.sec h2 { margin: 0; font-size: 13.5px; font-weight: 600; color: #E8EBE9; }
+.sec .count { color: var(--text-low); font-weight: 500; }
+.sec .sp { flex: 1; }
+.sec button { border: 0; background: transparent; color: var(--text-mid);
+              font-family: var(--font); font-size: 12px; padding: 4px 2px; }
+
+/* ---------- 草稿网格 ---------- */
+.drafts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.card { position: relative; border: 0; background: transparent; padding: 0;
+        display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.card .thumb { position: relative; width: 100%; aspect-ratio: 9 / 14; border-radius: 9px;
+               overflow: hidden; background: linear-gradient(160deg, #2A2F32, #1C2022); }
+.card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card .dur { position: absolute; right: 5px; bottom: 5px; padding: 2px 5px; border-radius: 3px;
+             background: rgba(0,0,0,.66); font: 600 9.5px/1.4 var(--font-num); color: #F0F2F0; }
+.card .title { font-size: 12px; color: #E6E9E7; white-space: nowrap; overflow: hidden;
+               text-overflow: ellipsis; }
+.card .meta { font-size: 10px; color: #6E7472; }
+.card .check { position: absolute; left: 6px; top: 6px; width: 18px; height: 18px;
+               border-radius: 50%; border: 1.5px solid #FFFFFF; background: rgba(0,0,0,.4);
+               display: none; place-items: center; }
+.managing .card .check { display: grid; }
+.card.picked .check { background: #FFFFFF; }
+.card.picked .check::after { content: ""; width: 8px; height: 4px; border-left: 1.6px solid #111;
+                             border-bottom: 1.6px solid #111; transform: rotate(-45deg) translateY(-1px); }
+
+/* ---------- 空态 ---------- */
+.empty { display: flex; flex-direction: column; align-items: center; gap: 9px;
+         padding: 40px 10px; color: #5A605E; }
+.empty .i { width: 30px; height: 30px; opacity: .6; }
+.empty p { margin: 0; font-size: 12px; }
+.empty small { font-size: 10.5px; color: #4B504E; }
+
+/* ---------- 底部 Tab ---------- */
+.tabs { flex: none; height: clamp(50px, 6.4vh, 62px); display: grid;
+        grid-template-columns: repeat(4, 1fr); background: #101312;
+        border-top: 1px solid #1E2221; }
+.tab { border: 0; background: transparent; display: flex; flex-direction: column;
+       align-items: center; justify-content: center; gap: 4px;
+       color: #686E6C; font-family: var(--font); font-size: 10px; padding: 0; }
+.tab .i { width: 21px; height: 21px; }
+.tab.on { color: #FFFFFF; }
+
+/* ---------- 我的：用户卡 ---------- */
+.user { display: flex; align-items: center; gap: 12px; padding: 14px 2px 6px; }
+.avatar { width: 54px; height: 54px; border-radius: 50%; flex: none;
+          background: linear-gradient(150deg, #3A4043, #23282A);
+          display: grid; place-items: center; color: #C9CFCC; font-size: 19px; font-weight: 700;
+          border: 1px solid #3A3F42; }
+.user .info { min-width: 0; }
+.user .name { font-size: 15px; font-weight: 600; }
+.user .id { font-size: 10.5px; color: #6E7472; margin-top: 4px; font-family: var(--font-num); }
+.bind { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px;
+        font-size: 10.5px; color: #C9CDCB; border: 1px solid #3A3F42;
+        border-radius: 10px; padding: 3px 8px; background: transparent; }
+
+/* ---------- 会员卡（银描边，无金色，按文档） ---------- */
+.vip { width: 100%; margin-top: 12px; border-radius: 11px; padding: 13px 14px;
+       background: #1E2224; border: 1px solid #4A4F52;
+       display: flex; align-items: center; gap: 10px; }
+.vip .vip-ico { flex: none; width: 19px; height: 19px; color: #C9CFCC; }
+.vip .txt { text-align: left; flex: 1 1 auto; min-width: 0; }
+.vip b { display: block; font-size: 13.5px; color: #F2F4F2; }
+.vip small { display: block; margin-top: 4px; font-size: 10.5px; color: #8B918F; }
+.vip .go { margin-left: auto; font-size: 11.5px; color: #E8EBE9; white-space: nowrap; }
+
+/* ---------- 列表分组 ---------- */
+.group { margin-top: 14px; background: #1A1D1F; border: 1px solid #262A2C;
+         border-radius: 11px; overflow: hidden; }
+.row { width: 100%; display: flex; align-items: center; gap: 10px;
+       padding: 14px 13px; border: 0; background: transparent; color: #E7EAE8;
+       font-family: var(--font); font-size: 13px; text-align: left; }
+.row + .row { border-top: 1px solid #232728; }
+.row .i { width: 18px; height: 18px; color: #9BA19E; flex: none; }
+.row .val { margin-left: auto; font-size: 11.5px; color: #7C8280; font-family: var(--font-num); }
+.row .chev { width: 14px; height: 14px; color: #565C5A; margin-left: 4px; }
+.row.danger { color: var(--danger); }
+
+/* 手风琴 */
+.acc-body { display: none; padding: 0 13px 13px; }
+.group.open .acc-body { display: block; }
+.group.open .row .chev { transform: rotate(90deg); }
+.acc-body .line { display: flex; align-items: center; font-size: 11.5px; color: #8B918F;
+                  padding: 6px 0; }
+.acc-body .line .val { margin-left: auto; font-family: var(--font-num); }
+
+/* <button class="line"> 需要显式抹掉浏览器原生按钮外观，
+   否则在展开区会渲染成白底黑框（Safari/WebKit 默认） */
+button.line {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 11.5px;
+  color: #8B918F;
+  text-align: left;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+button.line:active { color: #C4CAC8; }
+button.line + button.line { border-top: 1px solid #22262a; }
+
+/* 下拉选择（设置页通用/外观） */
+.sel {
+  margin-left: auto;
+  max-width: 58%;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  border: 1px solid #2C3133;
+  border-radius: 7px;
+  background-color: #1A1B1E;
+  /* 自绘箭头：避免各平台原生 select 外观差异 */
+  background-image: linear-gradient(45deg, transparent 50%, #8B918F 50%),
+                    linear-gradient(135deg, #8B918F 50%, transparent 50%);
+  background-position: right 12px center, right 8px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  -webkit-appearance: none;
+  appearance: none;
+  color: #C9CFCC;
+  font-family: var(--font);
+  font-size: 11.5px;
+  text-align: right;
+  cursor: pointer;
+}
+.sel:focus { outline: 1px solid #3D4A46; border-color: #3D4A46; }
+
+/* 危险操作行（退出登录 / 清除数据） */
+button.line.danger,
+button.line.danger .val { color: #E5484D; }
+button.line.danger:active { color: #FF6B6F; }
+
+/* 说明性小字行（不是可点项） */
+.acc-body .line.note-line {
+  display: block;
+  color: #5F6563;
+  font-size: 10.5px;
+  line-height: 1.65;
+  padding-top: 2px;
+}
+
+/* 开关 */
+.sw {
+  margin-left: auto;
+  flex: none;
+  width: 38px; height: 22px;
+  padding: 0;
+  border: 0; border-radius: 11px;
+  background: #2C3133;
+  position: relative;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background .16s ease;
+}
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #8B918F;
+  transition: transform .16s ease, background .16s ease;
+}
+.sw[aria-pressed="true"] { background: #3A4144; }
+.sw[aria-pressed="true"]::after { transform: translateX(16px); background: #E6EAE8; }
+.bar { height: 4px; border-radius: 2px; background: #2C3133; overflow: hidden; margin-top: 8px; }
+.bar i { display: block; height: 100%; background: #C9CFCC; }
+
+/* ---------- 退出登录 ---------- */
+.logout { width: 100%; margin: 18px 0 6px; padding: 13px; border-radius: 11px;
+          border: 1px solid #3A2626; background: transparent; color: var(--danger);
+          font-family: var(--font); font-size: 13px; }
+.copy { text-align: center; color: #4E5452; font-size: 10px; padding: 10px 0 18px; }
+
+/* ---------- 小屏兜底 ---------- */
+@media (max-width: 360px) {
+  .scroll { padding: 0 10px 10px; }
+  .drafts { gap: 8px; }
+  .card .title { font-size: 11px; }
+  .row { padding: 12px 11px; font-size: 12.5px; }
+  .q .box { width: 38px; height: 38px; }
+}
+
+/* hidden 必须彻底隐藏，避免空态与网格同时出现 */
+.drafts[hidden], .empty[hidden] { display: none !important; }
+
+</style>
+</head>
+<body >
+
+<div class="screen" id="screen">
+
+  <header class="hd">
+    <button class="hd-btn" id="btn-back" aria-label="返回">
+      <svg class="i"><use href="#i-chevron"/></svg>
+    </button>
+    <h1>设置</h1>
+  </header>
+
+  <div class="scroll">
+
+    <!-- ============ 账号 ============ -->
+    <div class="group">
+      <button class="row" data-open="account">
+        <svg class="i"><use href="#i-user"/></svg>
+        <span>账号</span>
+        <span class="val" id="acc-state">未登录</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <button class="line" id="row-login">登录 / 注册<span class="val">›</span></button>
+        <div class="line">会员状态<span class="val" id="vip-state">未开通</span></div>
+        <div class="line">登录方式<span class="val" id="login-method">—</span></div>
+        <div class="line">登录设备<span class="val" id="dev-state">—</span></div>
+        <button class="line danger" id="row-logout" hidden>退出登录<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 通用 ============ -->
+    <div class="group">
+      <button class="row" data-open="general">
+        <svg class="i"><use href="#i-sliders"/></svg>
+        <span>通用</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">语言
+          <select class="sel" id="sel-lang">
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁體中文</option>
+            <option value="en-US">English</option>
+          </select>
+        </div>
+        <div class="line">外观
+          <select class="sel" id="sel-theme">
+            <option value="auto">跟随系统</option>
+            <option value="dark">深色</option>
+            <option value="light">浅色</option>
+          </select>
+        </div>
+        <div class="line">启动时打开
+          <select class="sel" id="sel-start">
+            <option value="home">首页</option>
+            <option value="last">上次的工程</option>
+          </select>
+        </div>
+        <div class="line">显示新手引导
+          <button class="sw" id="sw-guide" aria-pressed="true"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 通知 ============ -->
+    <div class="group">
+      <button class="row" data-open="notify">
+        <svg class="i"><use href="#i-bell"/></svg>
+        <span>通知</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">草稿提醒
+          <button class="sw" id="sw-draft" aria-pressed="false"></button>
+        </div>
+        <div class="line">导出完成提醒
+          <button class="sw" id="sw-export" aria-pressed="true"></button>
+        </div>
+        <div class="line">会员与活动
+          <button class="sw" id="sw-promo" aria-pressed="false"></button>
+        </div>
+        <div class="line note-line">通知权限需在系统设置中开启，应用内仅控制是否发送。</div>
+      </div>
+    </div>
+
+    <!-- ============ 存储 ============ -->
+    <div class="group">
+      <button class="row" data-open="storage">
+        <svg class="i"><use href="#i-folder"/></svg>
+        <span>存储</span>
+        <span class="val" id="storage-val">—</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">草稿工程<span class="val" id="st-draft">—</span></div>
+        <div class="line">AI 模型<span class="val" id="st-model">—</span></div>
+        <div class="line">代理视频<span class="val" id="st-proxy">—</span></div>
+        <div class="bar"><i id="st-bar" style="width:0%"></i></div>
+        <div class="line note-line" id="st-note">读取中…</div>
+        <button class="line" id="row-clear-cache">清理缓存<span class="val" id="cache-val">—</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 隐私与安全 ============ -->
+    <div class="group">
+      <button class="row" data-open="privacy">
+        <svg class="i"><use href="#i-lock"/></svg>
+        <span>隐私与安全</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">素材处理<span class="val">仅本机</span></div>
+        <div class="line">上传联网素材
+          <button class="sw" id="sw-network" aria-pressed="false"></button>
+        </div>
+        <button class="line" data-doc="privacy">隐私政策<span class="val">›</span></button>
+        <button class="line" id="row-perm">权限管理<span class="val">›</span></button>
+        <button class="line" id="row-export-data">导出我的数据<span class="val">›</span></button>
+        <button class="line danger" id="row-wipe">清除本地数据<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 帮助与支持 ============ -->
+    <div class="group">
+      <button class="row" data-open="help">
+        <svg class="i"><use href="#i-help"/></svg>
+        <span>帮助与支持</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <button class="line" id="row-faq">常见问题<span class="val">›</span></button>
+        <button class="line" id="row-feedback">意见反馈<span class="val">›</span></button>
+        <button class="line" id="row-update">检查更新<span class="val" id="update-val">—</span></button>
+        <button class="line" id="row-logs">诊断日志<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 关于 ============ -->
+    <div class="group">
+      <button class="row" data-open="about">
+        <svg class="i"><use href="#i-info"/></svg>
+        <span>关于</span>
+        <span class="val" id="about-ver">—</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">应用版本<span class="val" id="about-build">—</span></div>
+        <div class="line">本地引擎<span class="val" id="about-core">—</span></div>
+        <div class="line">AI 引擎<span class="val" id="about-ai">—</span></div>
+        <button class="line" data-doc="terms">用户协议<span class="val">›</span></button>
+        <button class="line" data-doc="copyright">版权与许可<span class="val">›</span></button>
+        <button class="line" data-doc="thirdparty">第三方组件<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <div class="copy">© 2026 NairoClip · 纯本地处理，素材不上传</div>
+  </div>
+</div>
+
+
+<script>
+window.NC_STATIC_STATE = {"project": {"name": "霓虹夜行 · 城市短片", "width": 1080, "height": 1920, "fps_num": 30, "fps_den": 1, "duration_us": 8000000, "can_undo": false, "can_redo": false, "undo_count": 0, "redo_count": 0, "undo_name": "", "entitlement": 0, "ai_engine_available": true, "ai_engine_version": "1.23.0", "ai_engine_note": "ONNX Runtime 1.23.0（MIT）；CPU 后端恒可用"}, "assets": [{"id": 2, "name": "城市夜景 A", "file": "shot_city.mp4", "type": 0, "duration_us": 6000000, "has_thumbs": false, "has_waveform": false}, {"id": 3, "name": "暖光特写 B", "file": "shot_warm.mp4", "type": 0, "duration_us": 5000000, "has_thumbs": false, "has_waveform": false}, {"id": 4, "name": "霓虹空镜 C", "file": "shot_neon.mp4", "type": 0, "duration_us": 4000000, "has_thumbs": false, "has_waveform": false}, {"id": 5, "name": "夜幕铺底音乐", "file": "music_bed.wav", "type": 1, "duration_us": 8000000, "has_thumbs": false, "has_waveform": false}, {"id": 6, "name": "转场风声", "file": "sfx_whoosh.wav", "type": 1, "duration_us": 900000, "has_thumbs": false, "has_waveform": false}], "tracks": [{"index": 0, "id": 7, "name": "主画面", "type": 0, "locked": false, "muted": false, "hidden": false, "solo": false, "gain_db": 0, "clips": [{"id": 10, "index": 0, "start_us": 0, "duration_us": 3500000, "asset_id": 2, "speed_num": 1, "speed_den": 1, "enabled": true, "opacity": 1, "filter_style": 0, "filter_intensity": 0, "effect_count": 1, "is_compound": false}, {"id": 11, "index": 1, "start_us": 3500000, "duration_us": 3000000, "asset_id": 3, "speed_num": 1, "speed_den": 1, "enabled": true, "opacity": 1, "filter_style": 1, "filter_intensity": 62, "effect_count": 0, "is_compound": false}, {"id": 12, "index": 2, "start_us": 6500000, "duration_us": 1500000, "asset_id": 4, "speed_num": 1, "speed_den": 1, "enabled": true, "opacity": 0.94, "filter_style": 0, "filter_intensity": 0, "effect_count": 1, "is_compound": false}]}, {"index": 1, "id": 8, "name": "音乐", "type": 1, "locked": false, "muted": false, "hidden": false, "solo": false, "gain_db": 0, "clips": [{"id": 13, "index": 0, "start_us": 0, "duration_us": 8000000, "asset_id": 5, "speed_num": 1, "speed_den": 1, "enabled": true, "opacity": 1, "filter_style": 0, "filter_intensity": 0, "effect_count": 0, "is_compound": false}]}, {"index": 2, "id": 9, "name": "音效", "type": 1, "locked": false, "muted": false, "hidden": false, "solo": false, "gain_db": 0, "clips": [{"id": 14, "index": 0, "start_us": 3350000, "duration_us": 400000, "asset_id": 6, "speed_num": 1, "speed_den": 1, "enabled": true, "opacity": 1, "filter_style": 0, "filter_intensity": 0, "effect_count": 0, "is_compound": false}, {"id": 15, "index": 1, "start_us": 6350000, "duration_us": 400000, "asset_id": 6, "speed_num": 1, "speed_den": 1, "enabled": true, "opacity": 1, "filter_style": 0, "filter_intensity": 0, "effect_count": 0, "is_compound": false}]}], "subtitles": [{"start_us": 400000, "duration_us": 2200000, "text": "凌晨两点，城市还没睡"}, {"start_us": 3600000, "duration_us": 1800000, "text": "霓虹把街道切成两半"}, {"start_us": 6400000, "duration_us": 1400000, "text": "我们把这一刻留住"}], "markers": [{"id": 23, "time_us": 300000, "name": "开场钩子", "color": "#C6F24E"}, {"id": 24, "time_us": 3500000, "name": "转场 1", "color": "#8B7CFF"}, {"id": 25, "time_us": 7200000, "name": "落版", "color": "#FFB020"}]};
+window.NC_STATIC_PROJECTS = [];
+window.NC_STATIC_MODELS = {"model_bytes": 0, "proxy_bytes": 0, "draft_bytes": 9109, "used_percent": 4, "note": "代理占用来自 nc_proxy_usage；草稿大小来自工程文件实际字节"};
+</script>
+<script>
+/* NairoClip Mobile · 图标精灵
+   规范（文档 Part 1 §1.3 / 附录一）：outline、1.5px、24 视框、无实心填充。
+   一级 20×20，二/三级 18×18，颜色由 CSS currentColor 控制。 */
+(function () {
+  const S = (d) => d;
+  const P = {
+    /* --- 首页功能亮点 --- */
+    'i-auto': '<rect x="2.8" y="5.6" width="12.2" height="12.8" rx="2"/>' +
+      '<path d="M5.5 5.6v12.8M12.3 5.6v12.8"/>' +
+      '<path d="M18.6 3.2l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9z"/>',
+    'i-ref': '<rect x="2.6" y="4.4" width="8.2" height="9.6" rx="1.7" stroke-dasharray="2.2 2.1"/>' +
+      '<rect x="13.2" y="10" width="8.2" height="9.6" rx="1.7"/>' +
+      '<path d="M10.4 11.2l1.9 1.9-1.9 1.9"/>',
+    'i-beat': '<path d="M3.4 13.8v4M7 10.6v7.2M10.6 7.4v10.4M14.2 9.8v8M17.8 12v5.8M21 8.8v9.2"/>' +
+      '<path d="M5.6 4.4v1.9M12 4.4v1.9M18.4 4.4v1.9"/>',
+    'i-cutout': '<circle cx="9.2" cy="8.6" r="3.1"/>' +
+      '<path d="M3.4 19.8c0-3.3 2.6-5.5 5.8-5.5s5.8 2.2 5.8 5.5"/>' +
+      '<rect x="14.2" y="3.6" width="6.6" height="6.6" rx="1.3" stroke-dasharray="1.9 1.9"/>',
+
+    /* --- 顶栏 --- */
+    'i-share': '<path d="M12 15.5V3.6"/><path d="M7.8 7.4 12 3.2l4.2 4.2"/>' +
+      '<path d="M5 12.4v6.6a1.8 1.8 0 0 0 1.8 1.8h10.4a1.8 1.8 0 0 0 1.8-1.8v-6.6"/>',
+    'i-gear':
+      '<path d="M10.3 3.6h3.4l.5 2 1.5.86 2-.62 1.7 2.95-1.5 1.4v1.72l1.5 1.4-1.7 2.95-2-.62-1.5.86-.5 2h-3.4l-.5-2-1.5-.86-2 .62-1.7-2.95 1.5-1.4v-1.72l-1.5-1.4 1.7-2.95 2 .62 1.5-.86z"/>' +
+      '<circle cx="12" cy="12" r="2.9"/>',
+
+    /* --- 一级分类 --- */
+    'i-clip': '<circle cx="6.8" cy="17.2" r="2.4"/><circle cx="17.2" cy="17.2" r="2.4"/>' +
+      '<path d="M8.5 15.5 17.2 4.2M15.5 15.5 6.8 4.2"/>',
+    'i-audio': '<path d="M9 17.4V6.6l9-2v10.6"/><ellipse cx="6.4" cy="17.4" rx="2.6" ry="2.1"/>' +
+      '<ellipse cx="15.4" cy="15.2" rx="2.6" ry="2.1"/>',
+    'i-text': '<path d="M5 5.6h14"/><path d="M12 5.6v13"/>',
+    'i-pip': '<rect x="3.2" y="5" width="12.4" height="9.4" rx="1.8"/>' +
+      '<rect x="11.4" y="11.4" width="9.4" height="7.4" rx="1.6"/>',
+    'i-fx': '<path d="M12 3.4l1.5 4.3 4.3 1.5-4.3 1.5L12 15l-1.5-4.3L6.2 9.2l4.3-1.5z"/>' +
+      '<path d="M6.4 15.2l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+    'i-trans': '<path d="M3.4 8.4h5.2l-1.9-1.9"/><path d="M20.6 15.6h-5.2l1.9 1.9"/>' +
+      '<rect x="7.4" y="6.6" width="9.2" height="10.8" rx="1.6"/>',
+    'i-filter': '<circle cx="9" cy="9" r="5"/><circle cx="15" cy="15" r="5"/>',
+    'i-adjust': '<path d="M4 6.6h16M4 12h16M4 17.4h16"/>' +
+      '<circle cx="9" cy="6.6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="17.4" r="2"/>',
+    'i-ratio': '<rect x="3.4" y="6" width="17.2" height="12" rx="2"/>' +
+      '<path d="M3.4 10.4h17.2M9.2 6v12"/>',
+    'i-bg': '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2"/>' +
+      '<path d="M3.4 15.4l4.2-4.2 3.4 3.4 2.6-2.4 5.2 5.2"/><circle cx="8.4" cy="9" r="1.4"/>',
+    'i-mask': '<path d="M8.4 3.8H6.2A2.4 2.4 0 0 0 3.8 6.2v2.2M15.6 3.8h2.2a2.4 2.4 0 0 1 2.4 2.4v2.2' +
+      'M8.4 20.2H6.2a2.4 2.4 0 0 1-2.4-2.4v-2.2M15.6 20.2h2.2a2.4 2.4 0 0 0 2.4-2.4v-2.2"/>' +
+      '<circle cx="12" cy="12" r="3.2" stroke-dasharray="2.6 2.2"/>',
+    'i-ai': '<rect x="4.2" y="6.4" width="15.6" height="12.4" rx="3"/>' +
+      '<path d="M12 3.2v3.2"/><circle cx="12" cy="2.6" r="1.1"/>' +
+      '<circle cx="9" cy="12" r="1.1"/><circle cx="15" cy="12" r="1.1"/><path d="M9.6 15.8h4.8"/>',
+
+    /* --- 顶栏圆工具 --- */
+    'i-plus': '<path d="M12 5.2v13.6M5.2 12h13.6"/>',
+    'i-folder': '<path d="M3.6 8.4a2 2 0 0 1 2-2h3.2l1.8 2h6.8a2 2 0 0 1 2 2v6.4a2 2 0 0 1-2 2H5.6a2 2 0 0 1-2-2z"/>',
+    'i-play-next': '<path d="M6.6 5.4v13.2"/><path d="M10.6 12 19 6.4v11.2z"/>',
+    'i-clap': '<path d="M3.8 9.8h16.4v7.6a2 2 0 0 1-2 2H5.8a2 2 0 0 1-2-2z"/>' +
+      '<path d="M3.8 9.8 5.2 5.6a1.2 1.2 0 0 1 1.5-.8l10.4 3.3a1.2 1.2 0 0 1 .8 1.5l-.3 1.2"/>' +
+      '<path d="M8.6 6.6 10.4 9.8M12.8 7.8l1.8 3.2"/>',
+    'i-stack': '<rect x="4.8" y="4.6" width="14.4" height="3.4" rx="1.2"/>' +
+      '<rect x="4.8" y="10.3" width="14.4" height="3.4" rx="1.2"/>' +
+      '<rect x="4.8" y="16" width="14.4" height="3.4" rx="1.2"/>',
+    'i-key': '<circle cx="9.4" cy="14.8" r="3.2"/><path d="M11.7 12.4 17.8 6.3M15.4 8.6l1.7 1.7"/>' +
+      '<path d="M18.6 12.8l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6z"/>',
+    'i-hash': '<path d="M9.4 4.2 7.8 19.8M16.2 4.2l-1.6 15.6M4.8 9.4h14.4M4 14.6h14.4"/>',
+    'i-undo': '<path d="M8.8 6.6 5 10.4l3.8 3.8"/><path d="M5 10.4h8.4a5.2 5.2 0 0 1 0 10.4H9.2"/>',
+    'i-redo': '<path d="M15.2 6.6 19 10.4l-3.8 3.8"/><path d="M19 10.4h-8.4a5.2 5.2 0 0 0 0 10.4h4.2"/>',
+    'i-expand': '<path d="M20.2 3.8 13.8 10.2"/><path d="M20.2 3.8h-5.4M20.2 3.8v5.4"/>' +
+      '<path d="M3.8 20.2 10.2 13.8"/><path d="M3.8 20.2h5.4M3.8 20.2v-5.4"/>',
+
+    /* --- 二/三级 --- */
+    'i-split': '<path d="M12 3.4v6.2M12 14.4v6.2"/><path d="M5.2 9.6h13.6M5.2 14.4h13.6"/>',
+    'i-speed': '<path d="M4.2 18.2 9.2 9.6l4 4.4 6.4-9"/><circle cx="4.6" cy="17.8" r="1.6"/>' +
+      '<circle cx="13.2" cy="14" r="1.6"/>',
+    'i-volume': '<path d="M4.4 9.6h3.2L12 6.2v11.6l-4.4-3.4H4.4z"/>' +
+      '<path d="M15.4 9.4a3.6 3.6 0 0 1 0 5.2"/><path d="M17.8 6.8a7.2 7.2 0 0 1 0 10.4"/>',
+    'i-trash': '<path d="M4.8 7.4h14.4"/><path d="M9.6 7.4V5.6a1 1 0 0 1 1-1h2.8a1 1 0 0 1 1 1v1.8"/>' +
+      '<path d="M6.8 7.4l.8 11.4a1.6 1.6 0 0 0 1.6 1.5h5.6a1.6 1.6 0 0 0 1.6-1.5l.8-11.4"/>' +
+      '<path d="M10.6 10.8v6M13.4 10.8v6"/>',
+    'i-copy': '<rect x="8.6" y="8.6" width="11" height="11" rx="2"/>' +
+      '<path d="M15.4 8.6V6.4a2 2 0 0 0-2-2H6.4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2.2"/>',
+    'i-reverse': '<path d="M20 8.4A8.4 8.4 0 0 0 5.2 6.6L3.6 8.4"/><path d="M3.6 4.2v4.2h4.2"/>' +
+      '<path d="M4 15.6a8.4 8.4 0 0 0 14.8 1.8l1.6-1.8"/><path d="M20.4 19.8v-4.2h-4.2"/>',
+    'i-freeze': '<rect x="3.4" y="5.6" width="17.2" height="12.8" rx="2"/><path d="M9.4 5.6v12.8M14.6 5.6v12.8"/>',
+    'i-denoise': '<path d="M3.4 12h2.2l1.6-4.4L10 17l2.2-9.4L14.6 12h2.4l1.4-2.6L20.6 12"/>',
+    'i-opacity': '<path d="M12 3.8c3.4 4 5.6 6.6 5.6 9.4A5.6 5.6 0 0 1 6.4 13.2c0-2.8 2.2-5.4 5.6-9.4z"/>' +
+      '<path d="M12 8.4v8.2"/>',
+    'i-crop': '<path d="M6.4 3.6v13.6h13.6"/><path d="M3.6 6.4h13.6v13.6"/>',
+    'i-person': '<circle cx="12" cy="8.2" r="3.4"/><path d="M5.2 19.6c.6-3.6 3.4-5.6 6.8-5.6s6.2 2 6.8 5.6"/>',
+    'i-frames': '<rect x="3.4" y="6.4" width="6" height="11.2" rx="1.4"/>' +
+      '<rect x="11" y="6.4" width="6" height="11.2" rx="1.4"/><path d="M19 8.6v6.8"/>',
+    'i-note': '<path d="M9.6 17.4V7l8.2-1.8v10.4"/><ellipse cx="7" cy="17.4" rx="2.6" ry="2"/>' +
+      '<ellipse cx="15.2" cy="15.6" rx="2.6" ry="2"/>',
+    'i-bell': '<path d="M8 16.6V11a4 4 0 0 1 8 0v5.6l1.6 2H6.4z"/><path d="M10.4 18.6a1.8 1.8 0 0 0 3.2 0"/>',
+    'i-music-in': '<rect x="3.4" y="4.8" width="12.2" height="14.4" rx="2"/>' +
+      '<path d="M6.4 8.6h6.2M6.4 12h6.2"/><path d="M19.6 8.6v6.8M17.2 12l2.4 2.4L22 12"/>',
+    'i-mic': '<rect x="9.4" y="3.2" width="5.2" height="10" rx="2.6"/>' +
+      '<path d="M5.8 11.6a6.2 6.2 0 0 0 12.4 0"/><path d="M12 17.8v3"/>',
+    'i-fade': '<path d="M3.6 17.4 12 6.6l8.4 10.8"/><path d="M3.6 20.4h16.8"/>',
+    'i-split-audio': '<path d="M12 3.4v17.2"/>' +
+      '<path d="M8.4 6.6 5 10l3.4 3.4M15.6 6.6 19 10l-3.4 3.4"/>',
+    'i-text-add': '<path d="M4 5.6h12"/><path d="M10 5.6v12.8"/><path d="M17.4 15.4v5M14.9 17.9h5"/>',
+    'i-caption': '<rect x="3.4" y="5.6" width="17.2" height="12.8" rx="2.4"/>' +
+      '<path d="M7 11.4h4.6M13.4 11.4h3.6M7 14.4h3.4M11.4 14.4h5.6"/>',
+    'i-lyrics': '<path d="M9.6 17.4V6.8l8-1.6v10.4"/><ellipse cx="7" cy="17.4" rx="2.6" ry="2"/>' +
+      '<ellipse cx="15" cy="15.6" rx="2.6" ry="2"/><path d="M4 4.6h4"/>',
+    'i-track': '<circle cx="12" cy="12" r="7.4"/><circle cx="12" cy="12" r="2.2"/>' +
+      '<path d="M12 2.4v3M12 18.6v3M2.4 12h3M18.6 12h3"/>',
+    'i-translate': '<path d="M3.6 6.4h8.6M7.9 4.2v2.2M10 6.4c0 3.4-2.6 6.2-6 7.4"/>' +
+      '<path d="M5.4 10.4c1.4 2 3.2 3.2 5.4 3.8"/><path d="M12.6 20.2 16.4 11l3.8 9.2M14 17.2h4.8"/>',
+    'i-tts': '<path d="M4.4 9.6h3l4.4-3.4v11.6l-4.4-3.4h-3z"/>' +
+      '<path d="M15 8.6l4.6 6.8M19.6 8.6 15 15.4"/>',
+    'i-pip-add': '<rect x="3.2" y="5.4" width="12" height="9" rx="1.8"/>' +
+      '<path d="M15.2 11.6h5.6v7.2h-5.6z"/><path d="M18 13.8v2.8M16.6 15.2h2.8"/>',
+    'i-bolt': '<path d="M13.4 3.4 6.6 13.2h4.4l-1 7.4 7.2-10h-4.6z"/>',
+    'i-swap': '<path d="M4.4 8.6h13.2l-3-3"/><path d="M19.6 15.4H6.4l3 3"/>',
+    'i-keyframes': '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2"/>' +
+      '<path d="M8.2 12h2.4M13.4 12h2.4"/><path d="M10.6 9.8v4.4M13.4 9.8v4.4"/>',
+    'i-palette': '<path d="M12 3.6a8.4 8.4 0 1 0 0 16.8c1.2 0 1.8-.8 1.8-1.8 0-1.4 1-2.2 2.4-2.2h1.4a2.8 2.8 0 0 0 2.8-2.8c0-5.5-3.8-10-8.4-10z"/>' +
+      '<circle cx="8.4" cy="9.2" r="1"/><circle cx="12" cy="7.2" r="1"/><circle cx="15.6" cy="9.2" r="1"/>',
+    'i-layers': '<path d="M12 3.6 3.8 8.2 12 12.8l8.2-4.6z"/><path d="M3.8 12.4 12 17l8.2-4.6"/>',
+    'i-chevron-down': '<path d="M5.6 9 12 15.4 18.4 9"/>',
+    /* 返回箭头：左指 chevron（02-me / 04-settings 顶栏用） */
+    'i-chevron': '<path d="M14.4 5.6 8 12l6.4 6.4"/>',
+    /* 右指 chevron：列表行「›」入口（.row .chev 用；展开时由 CSS 旋转 90°） */
+    'i-chevron-right': '<path d="M9.6 5.6 16 12l-6.4 6.4"/>',
+    'i-eye': '<path d="M2.6 12S6 6.2 12 6.2 21.4 12 21.4 12 18 17.8 12 17.8 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.8"/>',
+    'i-eye-off': '<path d="M4 4l16 16"/><path d="M9.4 6.6A9.2 9.2 0 0 1 12 6.2c6 0 9.4 5.8 9.4 5.8a15 15 0 0 1-3 3.6"/>' +
+      '<path d="M6.4 8.2A15.4 15.4 0 0 0 2.6 12S6 17.8 12 17.8a9.6 9.6 0 0 0 3.4-.6"/>',
+    'i-lock': '<rect x="5" y="10.4" width="14" height="9.4" rx="2"/><path d="M8.2 10.4V7.8a3.8 3.8 0 0 1 7.6 0v2.6"/>',
+    'i-unlock': '<rect x="5" y="10.4" width="14" height="9.4" rx="2"/><path d="M8.2 10.4V7.8a3.8 3.8 0 0 1 7.2-1.4"/>',
+    'i-speaker': '<path d="M4.4 9.6h3.2L12 6.2v11.6l-4.4-3.4H4.4z"/><path d="M15.4 9.4a3.6 3.6 0 0 1 0 5.2"/>',
+    'i-speaker-off': '<path d="M4.4 9.6h3.2L12 6.2v11.6l-4.4-3.4H4.4z"/><path d="M15.2 9.6l4 4.8M19.2 9.6l-4 4.8"/>',
+    'i-film': '<rect x="3.4" y="5.2" width="17.2" height="13.6" rx="1.8"/>' +
+      '<path d="M7.6 5.2v13.6M16.4 5.2v13.6M3.4 9.4h4.2M3.4 14.6h4.2M16.4 9.4h4.2M16.4 14.6h4.2"/>',
+    'i-scissors': '<circle cx="7" cy="18" r="2.6"/><circle cx="17" cy="18" r="2.6"/><path d="M8.9 16.1 17.4 4M15.1 16.1 6.6 4"/>',
+    'i-search': '<circle cx="11" cy="11" r="6.4"/><path d="M15.6 15.6 20.4 20.4"/>',
+    'i-hex-gear': '<path d="M12 2.6 20.1 7.3v9.4L12 21.4 3.9 16.7V7.3z"/><circle cx="12" cy="12" r="2.9"/>',
+    'i-close': '<path d="M6 6l12 12M18 6 6 18"/>',
+    'i-play': '<path d="M7.4 4.6 19 12 7.4 19.4z"/>',
+    'i-pause': '<path d="M9.2 4.8v14.4M14.8 4.8v14.4"/>',
+    'i-prev': '<path d="M6 5.4v13.2"/><path d="M18.6 5.8v12.4L9 12z"/>',
+    'i-next': '<path d="M18 5.4v13.2"/><path d="M5.4 5.8v12.4L15 12z"/>',
+    'i-reset': '<path d="M4.6 9.2A7.8 7.8 0 0 1 19.4 12"/><path d="M4 4.6v4.8h4.8"/>' +
+      '<path d="M19.4 14.8A7.8 7.8 0 0 1 4.6 12"/>',
+
+    /* --- 「我的」页语义图标 --- */
+    /* 账号与安全：单人轮廓 + 勾（身份已验证） */
+    'i-user': '<circle cx="12" cy="8.2" r="3.6"/>' +
+      '<path d="M4.8 20.2c0-3.6 3.2-6 7.2-6"/>' +
+      '<path d="M15.2 18.4l1.7 1.7 3.3-3.4"/>',
+    /* 偏好 / 通用设置：推子滑块（不是齿轮，避免与设置页混淆） */
+    'i-sliders': '<path d="M4 7.2h9M17 7.2h3M4 16.8h3M11 16.8h9"/>' +
+      '<circle cx="15" cy="7.2" r="2.1"/><circle cx="9" cy="16.8" r="2.1"/>',
+    /* 帮助与反馈：问号圆环（不是铃铛） */
+    'i-help': '<circle cx="12" cy="12" r="8.6"/>' +
+      '<path d="M9.7 9.6a2.4 2.4 0 0 1 4.6 1c0 1.5-2.3 1.7-2.3 3.2"/>' +
+      '<path d="M12 17.2v.01"/>',
+    /* 关于：信息 i */
+    'i-info': '<circle cx="12" cy="12" r="8.6"/>' +
+      '<path d="M12 11.2v5.4"/><path d="M12 7.9v.01"/>',
+    /* 会员：皇冠 */
+    'i-crown': '<path d="M4 8.4l3.4 2.6L12 5.2l4.6 5.8L20 8.4l-1.3 9.2H5.3z"/>' +
+      '<path d="M5.3 17.6h13.4"/>',
+    /* 编辑资料：铅笔 */
+    'i-edit': '<path d="M4.2 19.8h3.2L19 8.2a2 2 0 0 0 0-2.8l-.4-.4a2 2 0 0 0-2.8 0L4.2 16.6z"/>' +
+      '<path d="M14.6 6.4l3 3"/>',
+    /* 我的主页 / 个人：纯人形（底部 tab 用一级图标也可复用） */
+    'i-person-outline': '<circle cx="12" cy="8" r="3.7"/>' +
+      '<path d="M5 20.3c0-3.5 3.1-5.9 7-5.9s7 2.4 7 5.9"/>',
+
+    /* 手机号登录：听筒 + 机身 */
+    'i-phone': '<rect x="6.6" y="2.8" width="10.8" height="18.4" rx="2.6"/>' +
+      '<path d="M10.6 18.2h2.8"/>',
+
+    /* --- 品牌图标（第三方登录）
+       来源：simple-icons 13.11.0（CC0-1.0），24 视框、实心填充。
+       与线性图标不同：这批是填充图形，渲染时单独覆盖 fill/stroke，
+       见下方 BRAND_SET。 */
+    'i-brand-wechat': '<path fill-rule="evenodd" d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 0 1 .598.082l1.584.926a.272.272 0 0 0 .14.047c.134 0 .24-.111.24-.247 0-.06-.023-.12-.038-.177l-.327-1.233a.582.582 0 0 1-.023-.156.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-6.656-6.088V8.89c-.135-.01-.27-.027-.407-.03zm-2.53 3.274c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.97-.982zm4.844 0c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.969-.982z"/>',
+    'i-brand-qq': '<path fill-rule="evenodd" d="M21.395 15.035a40 40 0 0 0-.803-2.264l-1.079-2.695c.001-.032.014-.562.014-.836C19.526 4.632 17.351 0 12 0S4.474 4.632 4.474 9.241c0 .274.013.804.014.836l-1.08 2.695a39 39 0 0 0-.802 2.264c-1.021 3.283-.69 4.643-.438 4.673.54.065 2.103-2.472 2.103-2.472 0 1.469.756 3.387 2.394 4.771-.612.188-1.363.479-1.845.835-.434.32-.379.646-.301.778.343.578 5.883.369 7.482.189 1.6.18 7.14.389 7.483-.189.078-.132.132-.458-.301-.778-.483-.356-1.233-.646-1.846-.836 1.637-1.384 2.393-3.302 2.393-4.771 0 0 1.563 2.537 2.103 2.472.251-.03.581-1.39-.438-4.673"/>',
+    'i-brand-apple': '<path fill-rule="evenodd" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/>'
+  };
+
+  /* 填充型图标集合：只吃 fill，不吃描边，否则空心轮廓会失真 */
+  const BRAND_SET = new Set(['i-brand-wechat', 'i-brand-qq', 'i-brand-apple']);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+  svg.innerHTML = '<defs>' + Object.entries(P).map(([id, d]) =>
+    (BRAND_SET.has(id)
+      ? `<symbol id="${id}" viewBox="0 0 24 24" fill="currentColor" stroke="none">${d}</symbol>`
+      : `<symbol id="${id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
+        `stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</symbol>`)
+  ).join('') + '</defs>';
+  document.addEventListener('DOMContentLoaded', () => document.body.appendChild(svg));
+})();
+
+</script>
+<script>
+/* NairoClip Mobile · 设置页
+   ---------------------------------------------------------------------------
+   范围：只放**系统级设置**（账号 / 通用 / 通知 / 存储 / 隐私安全 / 帮助 / 关于）。
+   剪辑相关项（吸附、拖拽缩略图、代理剪辑、撤销上限等）已从本页移出，
+   它们是剪辑器内的就地控制，放在「设置」里既不属于系统设置、也与实际作用域不符。
+   数据来源：存储与引擎状态读平台注入的 window.NCEngine（JNI / C interop 直调，
+   不用 HTTP），版本号读打包注入的 NC_APP_VERSION；取不到就不显示，不编造。
+   ------------------------------------------------------------------------- */
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+
+/* 平台桥（同步）。没有桥就如实显示“不可用”，不伪造数值。 */
+function bridge() {
+  const b = window.NCEngine;
+  return (b && typeof b.call === 'function') ? b : null;
+}
+function readState() {
+  const b = bridge();
+  if (!b || typeof b.state !== 'function') throw new Error('无引擎桥');
+  const raw = b.state();
+  return (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
+}
+function readModels() {
+  const b = bridge();
+  if (!b || typeof b.models !== 'function') throw new Error('无模型接口');
+  const raw = b.models();
+  const d = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
+  return d.models || d.items || [];
+}
+
+const LS_USER = 'nairoclip.user';
+const LS_PREF = 'nairoclip.pref';
+
+const APP_VERSION = window.NC_APP_VERSION || '';
+
+/* ---------- 工具 ---------- */
+function toast(msg) {
+  let el = $('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.style.cssText =
+      'position:fixed;left:50%;bottom:80px;transform:translateX(-50%);' +
+      'padding:9px 15px;border-radius:9px;background:rgba(28,28,31,.96);' +
+      'border:1px solid #33333A;color:#EDEFF1;font-size:12.5px;z-index:999;' +
+      'max-width:78vw;text-align:center;line-height:1.5;pointer-events:none;' +
+      'transition:opacity .2s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+}
+
+const pageUrl = (name) => `${name}${qp.get('api') ? '?api=' + encodeURIComponent(qp.get('api')) : ''}`;
+
+/* ---------- 偏好读写 ---------- */
+function loadPref() {
+  try { return JSON.parse(localStorage.getItem(LS_PREF) || '{}'); } catch (e) { return {}; }
+}
+function savePref(p) {
+  try { localStorage.setItem(LS_PREF, JSON.stringify(p)); } catch (e) {}
+}
+function getPref(key, def) {
+  const p = loadPref();
+  return key in p ? p[key] : def;
+}
+function setPref(key, val) {
+  const p = loadPref();
+  p[key] = val;
+  savePref(p);
+}
+
+/* ---------- 开关 ---------- */
+function bindSwitch(id, key, defVal, onChange) {
+  const el = $(id);
+  if (!el) return;
+  const on = !!getPref(key, defVal);
+  el.setAttribute('aria-pressed', on ? 'true' : 'false');
+  el.addEventListener('click', () => {
+    const next = el.getAttribute('aria-pressed') !== 'true';
+    el.setAttribute('aria-pressed', next ? 'true' : 'false');
+    setPref(key, next);
+    if (onChange) onChange(next);
+  });
+}
+
+/* ---------- 下拉 ---------- */
+function bindSelect(id, key, defVal, onChange) {
+  const el = $(id);
+  if (!el) return;
+  el.value = String(getPref(key, defVal));
+  el.addEventListener('change', () => {
+    setPref(key, el.value);
+    if (onChange) onChange(el.value);
+  });
+}
+
+/* ---------- 账号 ---------- */
+function readUser() {
+  try { return JSON.parse(localStorage.getItem(LS_USER) || 'null'); } catch (e) { return null; }
+}
+
+const METHOD_LABEL = { phone: '手机号', wechat: '微信', qq: 'QQ', apple: 'Apple ID' };
+
+function paintUser() {
+  const u = readUser();
+  const logged = !!(u && u.loggedIn);
+
+  if ($('acc-state')) $('acc-state').textContent = logged ? (u.nickname || '已登录') : '未登录';
+  if ($('vip-state')) $('vip-state').textContent = (logged && u.tier > 0) ? '已开通' : '未开通';
+  if ($('login-method')) $('login-method').textContent = logged ? (METHOD_LABEL[u.method] || '—') : '—';
+  if ($('dev-state')) $('dev-state').textContent = logged ? '1 台（本机）' : '—';
+
+  const rl = $('row-login');
+  if (rl && rl.firstChild && rl.firstChild.nodeType === 3) {
+    rl.firstChild.textContent = logged ? '切换账号' : '登录 / 注册';
+  }
+  if ($('row-logout')) $('row-logout').hidden = !logged;
+}
+
+if ($('row-login')) {
+  $('row-login').addEventListener('click', () => { location.href = pageUrl('03-auth.html'); });
+}
+
+if ($('row-logout')) {
+  $('row-logout').addEventListener('click', () => {
+    if (!window.confirm('退出后本地草稿仍保留，确认退出登录？')) return;
+    try { localStorage.setItem(LS_USER, JSON.stringify({ loggedIn: false })); } catch (e) {}
+    toast('已退出登录');
+    paintUser();
+  });
+}
+
+/* ---------- 存储（真实引擎数据） ---------- */
+async function paintStorage() {
+  try {
+    const st = readState();
+    const dur = (st.project?.duration_us || 0) / 1e6;
+    if ($('st-draft')) $('st-draft').textContent = `1 个（${dur.toFixed(1)}s）`;
+    if ($('storage-val')) $('storage-val').textContent = '本地工程';
+  } catch (e) {
+    if ($('st-draft')) $('st-draft').textContent = '无本地工程';
+    if ($('storage-val')) $('storage-val').textContent = '—';
+    if ($('st-note')) $('st-note').textContent = '未连接到本地引擎，存储统计不可用';
+  }
+
+  try {
+    const list = readModels();
+    /* 引擎字段：status 0=未下载 1=下载中 2=已安装 3=损坏 4=可更新 5=校验中 */
+    const ready = list.filter((m) => m.status === 2).length;
+    if ($('st-model')) {
+      $('st-model').textContent = list.length ? `${ready}/${list.length} 已就绪` : '无模型';
+    }
+    if (list.length && $('st-bar')) {
+      const pct = Math.round((ready / list.length) * 100);
+      $('st-bar').style.width = `${pct}%`;
+      if ($('st-note')) $('st-note').textContent = `AI 模型就绪度 ${pct}%`;
+    }
+  } catch (e) {
+    if ($('st-model')) $('st-model').textContent = '—';
+  }
+
+  if ($('st-proxy')) $('st-proxy').textContent = '未开启';
+  if ($('cache-val')) $('cache-val').textContent = '›';
+}
+
+if ($('row-clear-cache')) {
+  $('row-clear-cache').addEventListener('click', () => {
+    toast('缓存清理由平台层执行（当前为 Web 评审宿主）');
+  });
+}
+
+/* ---------- 隐私与安全 ---------- */
+if ($('row-perm')) {
+  $('row-perm').addEventListener('click', () => {
+    toast('权限管理需跳转系统设置（相册 / 麦克风 / 通知）');
+  });
+}
+if ($('row-export-data')) {
+  $('row-export-data').addEventListener('click', () => {
+    toast('数据导出由平台层打包（当前为 Web 评审宿主）');
+  });
+}
+if ($('row-wipe')) {
+  $('row-wipe').addEventListener('click', () => {
+    if (!window.confirm('将清除本机的草稿、缓存与设置，不可恢复。确认继续？')) return;
+    toast('清除本地数据需平台层执行（当前为 Web 评审宿主）');
+  });
+}
+
+/* ---------- 帮助 ---------- */
+[['row-faq', '常见问题'], ['row-feedback', '意见反馈'], ['row-logs', '诊断日志']]
+  .forEach(([id, name]) => {
+    if ($(id)) $(id).addEventListener('click', () => toast(`${name}：待接入正式内容`));
+  });
+
+if ($('row-update')) {
+  $('row-update').addEventListener('click', () => {
+    // 无更新服务端点：如实说明，不假装检查过
+    toast('当前为离线构建，暂无更新服务');
+  });
+}
+
+/* ---------- 关于 ---------- */
+async function paintAbout() {
+  if ($('about-build')) $('about-build').textContent = APP_VERSION || '评审宿主';
+  if ($('about-ver')) $('about-ver').textContent = APP_VERSION || '';
+
+  /* 本地引擎连通性 */
+  try {
+    const st = readState();
+    if ($('about-core')) $('about-core').textContent = st.project ? '已连接' : '已连接 · 空工程';
+  } catch (e) {
+    if ($('about-core')) $('about-core').textContent = '未连接';
+  }
+
+  /* AI 引擎：有模型清单即视为在线 */
+  try {
+    const list = readModels();
+    const ready = list.filter((m) => m.status === 2).length;
+    if ($('about-ai')) {
+      $('about-ai').textContent = list.length ? `在线 · ${ready}/${list.length} 就绪` : '在线 · 无模型';
+    }
+  } catch (e) {
+    if ($('about-ai')) $('about-ai').textContent = '未连接';
+  }
+}
+
+/* ---------- 协议文档 ---------- */
+const DOC_NAME = {
+  terms: '用户协议',
+  privacy: '隐私政策',
+  copyright: '版权与许可',
+  thirdparty: '第三方组件'
+};
+document.querySelectorAll('[data-doc]').forEach((el) => {
+  el.addEventListener('click', () => {
+    toast(`${DOC_NAME[el.dataset.doc] || '文档'}：待接入正式文本`);
+  });
+});
+
+/* ---------- 折叠分组 ---------- */
+document.querySelectorAll('.row[data-open]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const group = btn.closest('.group');
+    const opened = group.classList.contains('open');
+    document.querySelectorAll('.group.open').forEach((g) => {
+      if (g !== group) g.classList.remove('open');
+    });
+    group.classList.toggle('open', !opened);
+  });
+});
+
+/* ---------- 返回 ---------- */
+if ($('btn-back')) {
+  $('btn-back').addEventListener('click', () => { location.href = pageUrl('01-home.html'); });
+}
+
+/* ---------- 初始化 ---------- */
+paintUser();
+paintStorage();
+paintAbout();
+
+/* 通用 */
+bindSelect('sel-lang', 'lang', 'zh-CN', (v) => {
+  if (v !== 'zh-CN') toast('多语言文案待接入，当前仅简体中文完整');
+});
+bindSelect('sel-theme', 'theme', 'auto');
+bindSelect('sel-start', 'startPage', 'home');
+bindSwitch('sw-guide', 'showGuide', true);
+
+/* 通知 */
+bindSwitch('sw-draft', 'notifyDraft', false);
+bindSwitch('sw-export', 'notifyExport', true);
+bindSwitch('sw-promo', 'notifyPromo', false);
+
+/* 隐私 */
+bindSwitch('sw-network', 'allowNetworkAssets', false, (on) => {
+  if (on) toast('联网素材需在系统设置授予网络权限');
+});
+
+</script>
+</body>
+</html>

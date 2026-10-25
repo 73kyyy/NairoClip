@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NairoClip · 剪辑页</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/editor.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ① 顶部栏 -->
+  <header class="topbar">
+    <button class="brand" id="btn-rename" title="重命名工程">NairoClip</button>
+    <div class="top-right">
+      <button class="tb" id="btn-share" aria-label="分享"><svg class="i"><use href="#i-share"/></svg></button>
+      <button class="export" id="btn-export">导出</button>
+    </div>
+  </header>
+
+  <!-- ② 预览区 9:16 -->
+  <section class="stage" id="stage">
+    <div class="canvas" id="canvas">
+      <img class="canvas-still" id="still" alt="预览帧">
+      <!-- 空态提示已移到轨道背板，预览区保持纯净 -->
+    </div>
+  </section>
+
+  <!-- ③ 圆工具行（参考稿） -->
+  <section class="toolbar">
+    <div class="circles" id="circles">
+      <button class="cbtn c-plus" data-act="import" aria-label="导入素材"><svg class="i"><use href="#i-plus"/></svg></button>
+      <button class="cbtn" data-act="media" aria-label="素材库"><svg class="i"><use href="#i-folder"/></svg></button>
+      <span class="c-sep"></span>
+      <button class="cbtn" data-act="play-next" aria-label="下一段"><svg class="i"><use href="#i-play-next"/></svg></button>
+      <button class="cbtn" data-act="scene" aria-label="场景检测"><svg class="i"><use href="#i-clap"/></svg></button>
+      <button class="cbtn" data-act="layers" aria-label="图层"><svg class="i"><use href="#i-stack"/></svg></button>
+      <button class="cbtn c-key" data-act="keyframe" aria-label="关键帧"><svg class="i"><use href="#i-key"/></svg></button>
+      <button class="cbtn" data-act="marker" aria-label="标记"><svg class="i"><use href="#i-hash"/></svg></button>
+      <button class="cbtn c-ai" data-act="ai" aria-label="AI 工具">AI</button>
+      <span class="c-sep"></span>
+      <button class="cbtn" data-act="undo" id="btn-undo" aria-label="撤销"><svg class="i"><use href="#i-undo"/></svg></button>
+      <button class="cbtn" data-act="redo" id="btn-redo" aria-label="重做"><svg class="i"><use href="#i-redo"/></svg></button>
+    </div>
+    <div class="strip"><div class="strip-done" id="strip-done"></div></div>
+  </section>
+
+  <!-- ④ 时间轴：刻度尺 + 轨道（播放头贯穿两区） -->
+  <section class="timeline" id="timeline">
+    <div class="ruler" id="ruler">
+      <canvas class="ruler-canvas" id="ruler-canvas"></canvas>
+      <button class="start-badge" id="start-badge" aria-label="从头播放">
+        <span class="sb-tri"></span>
+      </button>
+      <button class="heads-toggle" id="heads-toggle" aria-label="展开/收起轨道图标">
+        <span class="rail"></span>
+        <svg class="i"><use href="#i-chevron-down"/></svg>
+      </button>
+      <div class="playhead" id="playhead">
+        <span class="ph-read" id="ph-read">0:00</span>
+      </div>
+    </div>
+    <div class="tracks" id="tracks">
+      <div class="empty-hint" id="empty-hint">
+        <span class="eh-text">＋ 添加素材开始剪辑</span>
+      </div>
+      <!-- 悬浮轨道控制列：随轨道数量生成（眼睛/喇叭/锁） -->
+      <div class="floating-heads" id="floating-heads"></div>
+    </div>
+    <div class="playhead-line" id="playhead-line"></div>
+  </section>
+
+  <!-- ⑤ 悬浮播放控制 -->
+  <section class="transport">
+    <button class="tp" id="btn-prev" aria-label="上一帧"><svg class="i"><use href="#i-prev"/></svg></button>
+    <button class="tp" id="btn-split" aria-label="分割"><svg class="i"><use href="#i-scissors"/></svg></button>
+    <button class="tp tp-main" id="btn-play" aria-label="播放"><svg class="i"><use href="#i-play"/></svg></button>
+    <button class="tp" id="btn-next" aria-label="下一帧"><svg class="i"><use href="#i-next"/></svg></button>
+    <button class="tp tp-del" id="btn-delete" aria-label="删除"><svg class="i"><use href="#i-trash"/></svg></button>
+  </section>
+
+  <!-- ⑥ 工具栏：一级 ↔ 二级 在同一行横向展开 -->
+  <section class="bar" id="bar">
+    <div class="bar-track" id="bar-track"></div>
+  </section>
+</div>
+
+<!-- 三级面板：底部上滑（参数调节 / 曲线 / 抠像） -->
+<div class="l3-mask" id="l3-mask" hidden></div>
+<section class="l3" id="l3" hidden>
+  <div class="l3-grip"></div>
+  <div class="l3-head">
+    <button class="l3-x" id="l3-close" aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button>
+    <b class="l3-title" id="l3-title">调节</b>
+    <button class="l3-reset" id="l3-reset" aria-label="重置"><svg class="i"><use href="#i-reset"/></svg></button>
+  </div>
+  <div class="l3-seg" id="l3-seg" hidden></div>
+  <div class="l3-actions" id="l3-actions" hidden></div>
+  <div class="l3-body" id="l3-body"></div>
+</section>
+
+<div class="sheet-mask" id="sheet-mask" hidden>
+  <div class="sheet">
+    <div class="sheet-head"><span>添加素材</span>
+      <button class="sheet-close" id="sheet-close"><svg class="i"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="sheet-list" id="sheet-list"></div>
+  </div>
+</div>
+
+<script src="../assets/engine.js"></script>
+<script src="../assets/nc-api.js"></script>
+<script src="../assets/icons.js"></script>
+<script src="../assets/l3-spec.js"></script>
+<script src="../assets/l3-panel.js"></script>
+<script src="../assets/editor.js"></script>
+</body>
+</html>

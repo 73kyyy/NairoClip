@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NairoClip · 首页</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/components.css">
+<link rel="stylesheet" href="../assets/page.css">
+</head>
+<body class="stage">
+
+<div class="stage-col">
+  <div class="phone">
+    <!-- 状态栏（系统区，非 App 内容） -->
+    <div class="statusbar">
+      <span>9:41</span>
+      <span class="sb-right">
+        <svg class="icn icn-16"><use href="#i-signal"/></svg>
+        <svg class="icn icn-16"><use href="#i-wifi"/></svg>
+        <svg class="icn icn-16"><use href="#i-battery"/></svg>
+      </span>
+    </div>
+
+    <!-- 顶部用户区 -->
+    <div class="home-top">
+      <button class="avatar" data-placeholder="个人主页开发中" aria-label="个人主页">
+        <span style="font-size:15px;font-weight:600;color:#C9C9CD">林</span>
+      </button>
+      <div class="greeting">
+        <div class="g-name">你好，林之</div>
+        <div class="g-hi">今天想做点什么</div>
+      </div>
+      <div class="top-actions">
+        <button class="nav-btn quiet" data-placeholder="搜索功能开发中" aria-label="搜索">
+          <svg class="icn icn-20"><use href="#i-search"/></svg>
+        </button>
+        <button class="nav-btn" onclick="location.href='02-settings.html'" aria-label="设置">
+          <svg class="icn icn-20"><use href="#i-settings"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <!-- 主创作入口 -->
+      <button class="hero-card" data-placeholder="进入素材选择（下一步开发）">
+        <span class="hero-plus"><svg class="icn icn-24"><use href="#i-plus"/></svg></span>
+        <span class="hero-text">
+          <span class="h-title" style="display:block">开始创作</span>
+          <span class="h-sub" style="display:block">从相册选择视频或照片开始剪辑</span>
+        </span>
+      </button>
+
+      <!-- 快捷入口 -->
+      <div class="quick-grid">
+        <button class="quick-card active" data-placeholder="进入素材选择（下一步开发）">
+          <svg class="icn icn-22 q-ic"><use href="#i-clapper"/></svg>
+          <span class="q-label">剪辑</span>
+        </button>
+        <button class="quick-card" data-placeholder="功能开发中">
+          <svg class="icn icn-22 q-ic"><use href="#i-wand"/></svg>
+          <span class="q-label">一键成片</span>
+        </button>
+        <button class="quick-card" data-placeholder="功能开发中">
+          <svg class="icn icn-22 q-ic"><use href="#i-text-image"/></svg>
+          <span class="q-label">图文成片</span>
+        </button>
+        <button class="quick-card" data-placeholder="功能开发中">
+          <svg class="icn icn-22 q-ic"><use href="#i-record"/></svg>
+          <span class="q-label">录屏</span>
+        </button>
+      </div>
+
+      <!-- 草稿管理区 -->
+      <div class="draft-sec">
+        <div class="section-head">
+          <div class="section-title">我的草稿<span class="count">（<span id="draft-count">6</span>）</span></div>
+          <button class="section-action" id="draft-manage">管理</button>
+        </div>
+
+        <div class="draft-grid" id="draft-grid">
+          <div class="draft-card" data-title="海边落日 vlog">
+            <div class="draft-thumb">
+              <div class="draft-check"><svg class="icn icn-12"><use href="#i-check"/></svg></div>
+              <div class="draft-dur">00:32</div>
+            </div>
+            <div class="draft-meta">
+              <div class="draft-title">海边落日 vlog</div>
+              <div class="draft-time"><svg class="icn icn-12"><use href="#i-clock"/></svg>今天 09:24</div>
+            </div>
+          </div>
+
+          <div class="draft-card" data-title="咖啡店探店">
+            <div class="draft-thumb">
+              <div class="draft-check"><svg class="icn icn-12"><use href="#i-check"/></svg></div>
+              <div class="draft-dur">01:18</div>
+            </div>
+            <div class="draft-meta">
+              <div class="draft-title">咖啡店探店</div>
+              <div class="draft-time"><svg class="icn icn-12"><use href="#i-clock"/></svg>昨天 21:08</div>
+            </div>
+          </div>
+
+          <div class="draft-card" data-title="产品开箱 01">
+            <div class="draft-thumb">
+              <div class="draft-check"><svg class="icn icn-12"><use href="#i-check"/></svg></div>
+              <div class="draft-dur">00:47</div>
+            </div>
+            <div class="draft-meta">
+              <div class="draft-title">产品开箱 01</div>
+              <div class="draft-time"><svg class="icn icn-12"><use href="#i-clock"/></svg>10月15日</div>
+            </div>
+          </div>
+
+          <div class="draft-card" data-title="城市夜景延时">
+            <div class="draft-thumb">
+              <div class="draft-check"><svg class="icn icn-12"><use href="#i-check"/></svg></div>
+              <div class="draft-dur">00:12</div>
+            </div>
+            <div class="draft-meta">
+              <div class="draft-title">城市夜景延时</div>
+              <div class="draft-time"><svg class="icn icn-12"><use href="#i-clock"/></svg>10月12日</div>
+            </div>
+          </div>
+
+          <div class="draft-card" data-title="周末骑行记录">
+            <div class="draft-thumb">
+              <div class="draft-check"><svg class="icn icn-12"><use href="#i-check"/></svg></div>
+              <div class="draft-dur">02:05</div>
+            </div>
+            <div class="draft-meta">
+              <div class="draft-title">周末骑行记录</div>
+              <div class="draft-time"><svg class="icn icn-12"><use href="#i-clock"/></svg>10月09日</div>
+            </div>
+          </div>
+
+          <div class="draft-card" data-title="旅行混剪 4K">
+            <div class="draft-thumb">
+              <div class="draft-check"><svg class="icn icn-12"><use href="#i-check"/></svg></div>
+              <div class="draft-dur">00:58</div>
+            </div>
+            <div class="draft-meta">
+              <div class="draft-title">旅行混剪 4K</div>
+              <div class="draft-time"><svg class="icn icn-12"><use href="#i-clock"/></svg>09月28日</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height:18px"></div>
+    </div>
+
+    <!-- 多选删除模式底栏 -->
+    <div class="manage-bar hidden" id="draft-manage-bar">
+      <span class="mb-all">已选 <b id="draft-selected-count" style="color:var(--accent)">0</b> 项</span>
+      <span class="mb-spacer"></span>
+      <button class="mb-del" id="draft-delete">删除</button>
+    </div>
+
+    <!-- 底部 Tab -->
+    <div class="tabbar">
+      <button class="tab active">
+        <svg class="icn icn-22"><use href="#i-nav-edit"/></svg>
+        <span>剪辑</span><span class="tab-dot"></span>
+      </button>
+      <button class="tab" data-placeholder="模板功能开发中">
+        <svg class="icn icn-22"><use href="#i-nav-template"/></svg>
+        <span>模板</span><span class="tab-dot"></span>
+      </button>
+      <button class="tab" data-placeholder="消息功能开发中">
+        <svg class="icn icn-22"><use href="#i-nav-message"/></svg>
+        <span>消息</span><span class="tab-dot"></span>
+      </button>
+      <button class="tab" onclick="location.href='02-settings.html'">
+        <svg class="icn icn-22"><use href="#i-nav-me"/></svg>
+        <span>我的</span><span class="tab-dot"></span>
+      </button>
+    </div>
+
+    <div class="home-indicator"></div>
+
+    <!-- 草稿长按菜单 -->
+    <div class="overlay bottom hidden" id="sheet-draft">
+      <div class="action-sheet">
+        <div class="as-title">海边落日 vlog</div>
+        <button class="as-item" id="sheet-rename">
+          <svg class="icn icn-18"><use href="#i-pencil"/></svg>重命名</button>
+        <button class="as-item" id="sheet-share">
+          <svg class="icn icn-18"><use href="#i-share"/></svg>分享</button>
+        <button class="as-item danger" id="sheet-delete">
+          <svg class="icn icn-18"><use href="#i-trash"/></svg>删除</button>
+        <button class="as-cancel" id="sheet-cancel">取消</button>
+      </div>
+    </div>
+
+    <!-- 通用确认对话框 -->
+    <div class="overlay hidden" id="dlg-generic">
+      <div class="dialog">
+        <div class="dg-icon danger"><svg class="icn icn-22"><use href="#i-trash"/></svg></div>
+        <div class="dg-title">确认操作</div>
+        <div class="dg-desc"></div>
+        <div class="dg-actions">
+          <button class="btn js-cancel btn-ghost">取消</button>
+          <button class="btn js-ok btn-danger">确认</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-cap">
+    首页 · 390×844 · 草稿 6 个（&gt;8 时才显示搜索框）<br>
+    点按「管理」进入多选删除；长按草稿卡片弹出重命名 / 分享 / 删除
+  </div>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/capture.js"></script>
+</body>
+</html>

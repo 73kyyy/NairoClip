@@ -1,0 +1,143 @@
+/* 控件层：按钮、分段、输入、开关、滑杆、页签、芯片、提示 */
+
+/* ---- 按钮 ---- */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  height:28px;padding:0 10px;
+  border:var(--hair) solid var(--ink-500);
+  border-radius:var(--r-ctl);
+  background:var(--ink-650);
+  color:var(--paper-2);
+  font-size:var(--fs-12);font-weight:400;letter-spacing:.01em;
+  transition:background var(--t-state) var(--ease),border-color var(--t-state) var(--ease),color var(--t-state) var(--ease);
+  white-space:nowrap;user-select:none;
+}
+.btn:hover{background:var(--ink-600);border-color:var(--ink-450);color:var(--paper)}
+.btn:active{background:var(--ink-550)}
+.btn[disabled],.btn.is-disabled{opacity:.38;cursor:not-allowed;background:var(--ink-700)}
+.btn .ic{color:var(--paper-dim)}
+.btn:hover .ic{color:var(--paper)}
+
+/* 主按钮：切角 + 琥珀，唯一的高饱和动作 */
+.btn-primary{
+  color:#1A1206;background:var(--tungsten);border-color:transparent;
+  font-weight:700;letter-spacing:.02em;
+  padding:0 16px;height:30px;
+}
+.btn-primary:hover{background:var(--tungsten-hi);color:#1A1206}
+.btn-primary:active{background:var(--tungsten-deep);color:#FFF3E2}
+.btn-primary .ic{color:#1A1206;stroke-width:1.8}
+
+/* 幽灵按钮：面板内的次级动作 */
+.btn-ghost{background:transparent;border-color:transparent;color:var(--paper-dim);height:26px;padding:0 8px}
+.btn-ghost:hover{background:var(--ink-650);color:var(--paper)}
+
+/* 图标按钮 */
+.btn-icon{width:28px;padding:0;justify-content:center;background:transparent;border-color:transparent;color:var(--paper-dim)}
+.btn-icon:hover{background:var(--ink-650);color:var(--paper)}
+.btn-icon[aria-pressed="true"]{color:var(--tungsten);background:var(--tungsten-ghost)}
+.btn-icon.is-on{color:var(--signal)}
+
+/* 危险动作 */
+.btn-danger{color:var(--alarm);border-color:rgba(216,88,60,.4);background:transparent}
+.btn-danger:hover{background:var(--alarm-ghost);border-color:var(--alarm)}
+
+/* 尺寸 */
+.btn-sm{height:24px;padding:0 8px;font-size:var(--fs-11)}
+.btn-lg{height:36px;padding:0 20px;font-size:var(--fs-13)}
+
+/* ---- 分段控件（模式切换）---- */
+.seg{display:inline-flex;background:var(--ink-700);border:var(--hair) solid var(--ink-600);border-radius:var(--r-ctl);padding:2px;gap:2px}
+.seg button{height:22px;padding:0 10px;border-radius:3px;font-size:var(--fs-11);color:var(--paper-dim);letter-spacing:.02em}
+.seg button:hover{color:var(--paper)}
+.seg button[aria-selected="true"]{background:var(--ink-550);color:var(--paper);box-shadow:inset 0 0 0 1px var(--ink-450)}
+
+/* ---- 输入 ---- */
+.field{
+  height:28px;background:var(--ink-650);border:var(--hair) solid var(--ink-550);
+  border-radius:var(--r-ctl);padding:0 8px;width:100%;color:var(--paper);
+  font-size:var(--fs-12);
+}
+.field::placeholder{color:var(--paper-ghost)}
+.field:hover{border-color:var(--ink-450)}
+.field:focus{border-color:var(--tungsten-deep);background:var(--ink-600);outline:none;box-shadow:0 0 0 2px var(--tungsten-ghost)}
+.field.num{font-family:var(--num);font-variant-numeric:tabular-nums}
+
+/* ---- 数值/参数行 ---- */
+.param{display:grid;grid-template-columns:86px 1fr 52px;align-items:center;gap:10px;padding:5px 0}
+.param-label{font-size:var(--fs-11);color:var(--paper-dim);letter-spacing:.02em;cursor:default}
+.param-value{
+  font-family:var(--num);font-variant-numeric:tabular-nums;font-size:var(--fs-11);
+  color:var(--paper);text-align:right;background:var(--ink-650);
+  border:var(--hair) solid transparent;border-radius:3px;height:22px;padding:0 4px;width:100%;
+}
+.param-value:hover{border-color:var(--ink-500)}
+.param-value:focus{border-color:var(--tungsten-deep);outline:none}
+
+/* 滑杆：2px 轨道 + 方形滑块（工具感） */
+.slider{-webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent;cursor:pointer}
+.slider::-webkit-slider-runnable-track{height:2px;background:var(--ink-500);border-radius:1px}
+.slider::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:9px;height:13px;margin-top:-5.5px;
+  background:var(--paper-2);border:0;border-radius:1px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55);
+}
+.slider:hover::-webkit-slider-thumb{background:var(--tungsten-hi)}
+.slider:active::-webkit-slider-thumb{background:var(--tungsten)}
+.slider::-moz-range-track{height:2px;background:var(--ink-500)}
+.slider::-moz-range-thumb{width:9px;height:13px;border-radius:1px;background:var(--paper-2);border:0}
+
+/* ---- 开关 ---- */
+.switch{width:30px;height:16px;border-radius:8px;background:var(--ink-550);border:var(--hair) solid var(--ink-450);position:relative;transition:background var(--t-state) var(--ease)}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--paper-dim);transition:transform var(--t-state) var(--ease),background var(--t-state)}
+.switch[aria-checked="true"]{background:var(--tungsten-deep);border-color:var(--tungsten)}
+.switch[aria-checked="true"]::after{transform:translateX(14px);background:var(--tungsten-hi)}
+
+/* ---- 页签 ---- */
+.tabs{display:flex;gap:0;border-bottom:var(--hair) solid var(--ink-600);padding:0 4px}
+.tab{
+  height:32px;padding:0 11px;font-size:var(--fs-12);color:var(--paper-dim);
+  border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:.02em;
+}
+.tab:hover{color:var(--paper)}
+.tab[aria-selected="true"]{color:var(--paper);border-bottom-color:var(--tungsten)}
+
+/* ---- 芯片/标记 ---- */
+.chip{
+  display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 6px;
+  border:var(--hair) solid var(--ink-500);border-radius:3px;
+  font-size:10.5px;letter-spacing:.03em;color:var(--paper-dim);background:transparent;
+}
+.chip.is-signal{color:var(--signal);border-color:rgba(87,195,182,.35)}
+.chip.is-pro{color:var(--pro);border-color:rgba(201,174,106,.42)}
+.chip.is-alarm{color:var(--alarm);border-color:rgba(216,88,60,.4)}
+.chip.is-tungsten{color:var(--tungsten);border-color:rgba(240,160,60,.4)}
+.chip-dot{width:4px;height:4px;border-radius:50%;background:currentColor}
+
+/* ---- 提示条（内联，不用 toast 打断）---- */
+.notice{
+  display:flex;align-items:flex-start;gap:8px;padding:9px 11px;
+  border:var(--hair) solid var(--ink-500);border-left:2px solid var(--tungsten);
+  background:var(--ink-700);border-radius:0 var(--r-ctl) var(--r-ctl) 0;font-size:var(--fs-11);
+  color:var(--paper-2);line-height:1.5;
+}
+.notice.is-alarm{border-left-color:var(--alarm)}
+.notice.is-signal{border-left-color:var(--signal)}
+.notice .ic{width:14px;height:14px;margin-top:1px}
+
+/* ---- 复选 ---- */
+.check{width:13px;height:13px;border:var(--hair) solid var(--ink-450);border-radius:2px;background:var(--ink-650);flex:none;position:relative}
+.check[aria-checked="true"]{background:var(--tungsten);border-color:var(--tungsten)}
+.check[aria-checked="true"]::after{content:"";position:absolute;left:3.5px;top:1px;width:4px;height:7px;border:1.5px solid #1A1206;border-top:0;border-left:0;transform:rotate(42deg)}
+
+/* ---- 进度（真实进度专用；不接受外部设假值）---- */
+.meter{height:3px;background:var(--ink-550);border-radius:2px;overflow:hidden}
+.meter > i{display:block;height:100%;background:var(--tungsten);transition:width 160ms linear}
+.meter.is-signal > i{background:var(--signal)}
+
+/* ---- 表格行 ---- */
+.row{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-bottom:var(--hair) solid var(--ink-700)}
+.row:hover{background:var(--ink-720,rgba(255,255,255,.02))}
+
+/* ---- 快捷键/键帽 ---- */
+.kbd{font-family:var(--num);font-size:10px;padding:1px 4px;border:var(--hair) solid var(--ink-500);border-bottom-width:2px;border-radius:3px;color:var(--paper-dim);background:var(--ink-700)}

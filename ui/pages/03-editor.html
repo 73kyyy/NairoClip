@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NairoClip · 剪辑页</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/components.css">
+<link rel="stylesheet" href="../assets/editor.css">
+<link rel="stylesheet" href="../assets/page.css">
+</head>
+<body class="stage">
+
+<div class="stage-col">
+  <div class="phone editor" id="ed">
+    <!-- 系统状态栏（非 App 内容） -->
+    <div class="statusbar">
+      <span>9:41</span>
+      <span class="sb-right">
+        <svg class="icn icn-16"><use href="#i-signal"/></svg>
+        <svg class="icn icn-16"><use href="#i-wifi"/></svg>
+        <svg class="icn icn-16"><use href="#i-battery"/></svg>
+      </span>
+    </div>
+
+    <!-- ① 顶部栏 §5：只有软件名称与导出按钮 -->
+    <div class="ed-topbar">
+      <span class="ed-brand">NairoClip</span>
+      <span class="sp"></span>
+      <button class="btn-pill-s" id="btn-export">导出</button>
+    </div>
+
+    <!-- ② 预览区 §6 -->
+    <div class="ed-preview" id="preview">
+      <div class="ed-canvas" id="ed-canvas">
+        <span class="sc-label">9:16</span>
+        <div class="sc-sun" id="sc-sun"></div>
+        <div class="sc-hill"></div>
+        <div class="sc-sea"></div>
+        <div class="sc-subtitle" id="p-sub">我们沿着海岸线走了很久</div>
+      </div>
+      <div class="curve-mini off" id="curve-mini">
+        <span class="cm-cap">曲线变速</span>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <path class="cm-grid" d="M25 0v100M50 0v100M75 0v100" vector-effect="non-scaling-stroke"/>
+          <path class="cm-axis" d="M0 78h100" vector-effect="non-scaling-stroke"/>
+          <path class="cm-line" id="cm-line" d="M0 60L32 56L64 30L100 12" vector-effect="non-scaling-stroke"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ③ 撤销 / 重做 §7.2 -->
+    <div class="ed-history">
+      <button class="hist-btn" id="btn-undo" aria-label="撤销" disabled>
+        <svg class="icn"><use href="#i-undo"/></svg>
+      </button>
+      <button class="hist-btn" id="btn-redo" aria-label="重做" disabled>
+        <svg class="icn"><use href="#i-redo"/></svg>
+      </button>
+    </div>
+
+    <!-- ④ 时间轴：刻度尺 + 轨道 §7 / §8 -->
+    <div class="ed-timeline" id="timeline">
+      <div class="ruler" id="ruler">
+        <div class="ruler-inner" id="ruler-inner"></div>
+      </div>
+
+      <div class="tl-scroll" id="tl-scroll">
+        <div class="tl-inner" id="tl-inner"></div>
+      </div>
+
+      <div class="add-row">
+        <span class="ctl-gap"></span>
+        <button class="add-track" id="add-track">
+          <svg class="icn"><use href="#i-plus"/></svg>添加新轨道
+        </button>
+      </div>
+
+      <div class="collapse-row">
+        <button class="collapse-btn" id="collapse-btn" aria-label="收起轨道控制列">
+          <svg class="icn"><use href="#i-chev-down"/></svg>
+        </button>
+        <span class="collapse-hint" id="collapse-hint">收起控制列</span>
+      </div>
+
+      <div class="lane-feather" id="feather"></div>
+      <div class="snap-line" id="snap-line"></div>
+      <div class="playhead" id="playhead"></div>
+    </div>
+
+    <!-- ⑤ 播放控制（剪刀 / 播放 / 删除）§9 -->
+    <div class="ed-play">
+      <button class="play-btn side" id="btn-cut" aria-label="在播放头处分割">
+        <svg class="icn"><use href="#i-scissors"/></svg>
+      </button>
+      <button class="play-btn main" id="btn-play" aria-label="播放">
+        <svg class="icn"><use href="#i-play"/></svg>
+      </button>
+      <button class="play-btn side" id="btn-del" aria-label="删除选中片段">
+        <svg class="icn"><use href="#i-trash"/></svg>
+      </button>
+    </div>
+
+    <!-- 三级调节面板 §10 -->
+    <div class="ed-panel" id="panel"></div>
+
+    <!-- ⑥ 单排工具栏：一级 ⇄ 二级 就地切换（§11） -->
+    <div class="ed-tools">
+      <div class="toolbar" id="toolbar"></div>
+    </div>
+
+    <div class="home-indicator"></div>
+
+    <!-- 片段长按菜单 §8.3.4 -->
+    <div class="overlay bottom hidden" id="sheet-clip">
+      <div class="action-sheet">
+        <div class="as-title" id="sheet-clip-title">片段</div>
+        <button class="as-item" data-act="copy">
+          <svg class="icn icn-18"><use href="#i-duplicate"/></svg>复制</button>
+        <button class="as-item" data-act="replace">
+          <svg class="icn icn-18"><use href="#i-image"/></svg>替换素材</button>
+        <button class="as-item danger" data-act="delete">
+          <svg class="icn icn-18"><use href="#i-trash"/></svg>删除</button>
+        <button class="as-cancel" data-act="cancel">取消</button>
+      </div>
+    </div>
+
+    <!-- 新增轨道 §28 -->
+    <div class="overlay bottom hidden" id="sheet-track">
+      <div class="action-sheet">
+        <div class="as-title">添加新轨道</div>
+        <button class="as-item" data-type="video">
+          <svg class="icn icn-18"><use href="#i-film"/></svg>视频 / 画中画</button>
+        <button class="as-item" data-type="audio">
+          <svg class="icn icn-18"><use href="#i-volume"/></svg>音频</button>
+        <button class="as-item" data-type="sub">
+          <svg class="icn icn-18"><use href="#i-text"/></svg>字幕</button>
+        <button class="as-cancel" data-type="cancel">取消</button>
+      </div>
+    </div>
+
+    <!-- 轨道数量性能提示 §29.5 -->
+    <div class="overlay hidden" id="dlg-perf">
+      <div class="dialog perf-dialog">
+        <div class="dg-icon"><svg class="icn icn-22"><use href="#i-layers"/></svg></div>
+        <div class="dg-title" id="perf-title">当前项目轨道较多</div>
+        <div class="dg-desc" id="perf-desc">继续添加可能影响预览流畅度</div>
+        <div class="dg-actions">
+          <button class="btn btn-ghost" id="perf-cancel">取消</button>
+          <button class="btn btn-primary" id="perf-ok">继续添加</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-cap">
+    剪辑页 · 390×844 · 播放头固定屏幕水平居中<br>
+    刻度尺点按定位 / 双指捏合缩放 / 拖动片段吸附 / 长按片段出菜单 / 控制列收起状态记忆
+  </div>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/capture.js"></script>
+<script src="../assets/editor.js"></script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip · 首页</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/home.css">
+</head>
+<body>
+<div class="screen" id="screen">
+
+  <!-- 顶部：头像 + 问候 / 搜索 / 设置 -->
+  <header class="hd">
+    <button class="me" id="btn-me" aria-label="我的">
+      <svg class="i"><use href="#i-person"/></svg>
+    </button>
+    <span class="sp"></span>
+    <button class="hd-btn" id="btn-search" aria-label="搜索">
+      <svg class="i"><use href="#i-search"/></svg>
+    </button>
+    <button class="hd-btn" id="btn-settings" aria-label="设置">
+      <svg class="i"><use href="#i-hex-gear"/></svg>
+    </button>
+  </header>
+
+  <!-- 搜索态：就地替换顶栏 -->
+  <div class="searchbar" id="searchbar">
+    <span class="box">
+      <svg class="i"><use href="#i-search"/></svg>
+      <input id="q" type="search" placeholder="搜索草稿名称" autocomplete="off">
+    </span>
+    <button class="cancel" id="btn-cancel">取消</button>
+  </div>
+
+  <div class="scroll" id="scroll">
+
+    <!-- 主创作入口 -->
+    <button class="hero" id="btn-create">
+      <span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>
+      <span class="txt">
+        <b>开始创作</b>
+        <span>导入视频或照片，立即开始剪辑</span>
+      </span>
+    </button>
+
+    <!-- 快捷入口（文档 Part 1 §2.2 四项） -->
+    <div class="quick">
+      <button class="q" data-q="auto">
+        <svg class="i"><use href="#i-auto"/></svg>
+        <b>智能成片</b><span>选好素材自动剪一版</span>
+      </button>
+      <button class="q" data-q="ref">
+        <svg class="i"><use href="#i-ref"/></svg>
+        <b>参考仿剪</b><span>照着别人的节奏剪</span>
+      </button>
+      <button class="q" data-q="beat">
+        <svg class="i"><use href="#i-beat"/></svg>
+        <b>音乐卡点</b><span>跟着鼓点自动踩点</span>
+      </button>
+      <button class="q" data-q="cutout">
+        <svg class="i"><use href="#i-cutout"/></svg>
+        <b>智能抠像</b><span>人像绿幕一键扣</span>
+      </button>
+    </div>
+
+    <!-- 草稿 -->
+    <div class="sec">
+      <h2>我的草稿</h2>
+      <span class="count" id="draft-count">0</span>
+      <span class="sp"></span>
+      <button id="btn-manage">管理</button>
+    </div>
+
+    <div class="list" id="list"></div>
+
+    <div class="empty" id="empty" hidden>
+      <svg class="i"><use href="#i-folder"/></svg>
+      <b>还没有任何草稿</b>
+      <small>点击上方「开始创作」<br>选好素材就能开始第一条片子</small>
+    </div>
+
+  </div>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/home.js"></script>
+</body>
+</html>

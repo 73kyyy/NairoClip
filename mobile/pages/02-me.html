@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip · 我的</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/pages.css">
+</head>
+<body>
+<div class="screen" id="screen">
+
+  <header class="hd">
+    <button class="hd-btn" id="btn-back" aria-label="返回"><svg class="i"><use href="#i-chevron"/></svg></button>
+    <h1>我的</h1>
+  </header>
+
+  <div class="scroll">
+
+    <div class="user">
+      <div class="avatar" id="avatar">N</div>
+      <div class="info">
+        <div class="name" id="nickname">未登录</div>
+        <div class="id" id="uid">ID: —</div>
+        <button class="bind" id="btn-bind">未绑定手机号 · 去绑定</button>
+      </div>
+    </div>
+
+    <button class="vip" id="btn-vip">
+      <svg class="i vip-ico"><use href="#i-crown"/></svg>
+      <div class="txt">
+        <b>开通会员</b>
+        <small>解锁全部特效 / 4K 导出 / 去水印</small>
+      </div>
+      <span class="go" id="vip-state">未开通 ›</span>
+    </button>
+
+    <div class="group">
+      <button class="row" data-open="account">
+        <svg class="i"><use href="#i-user"/></svg>
+        <span>账号与安全</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">手机号<span class="val" id="acc-phone">未绑定</span></div>
+        <div class="line">微信 / QQ / Apple<span class="val">未绑定</span></div>
+        <div class="line">修改密码<span class="val">›</span></div>
+        <div class="line" style="color:#E5484D">账号注销<span class="val" style="color:#E5484D">›</span></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <button class="row" data-open="general">
+        <svg class="i"><use href="#i-sliders"/></svg>
+        <span>剪辑偏好</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">预览质量<span class="val" id="set-preview">自动</span></div>
+        <div class="line">代理媒体<span class="val" id="set-proxy">关</span></div>
+        <div class="line">默认导出<span class="val">1080P · 30fps</span></div>
+      </div>
+    </div>
+
+    <div class="group" id="grp-storage">
+      <button class="row" data-open="storage">
+        <svg class="i"><use href="#i-folder"/></svg>
+        <span>存储空间</span>
+        <span class="val" id="storage-val">—</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">AI 模型<span class="val" id="st-model">—</span></div>
+        <div class="line">代理视频<span class="val" id="st-proxy">—</span></div>
+        <div class="line">草稿工程<span class="val" id="st-draft">—</span></div>
+        <div class="bar"><i id="st-bar" style="width:0%"></i></div>
+        <div class="line" style="color:#6E7472;font-size:10.5px" id="st-note">读取中…</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <button class="row" data-open="help">
+        <svg class="i"><use href="#i-help"/></svg>
+        <span>帮助与反馈</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">意见反馈<span class="val">›</span></div>
+        <div class="line">常见问题<span class="val">›</span></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <button class="row" data-open="about">
+        <svg class="i"><use href="#i-info"/></svg>
+        <span>关于 NairoClip</span>
+        <span class="val" id="about-ver">—</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">版本<span class="val" id="about-build">—</span></div>
+        <div class="line">AI 引擎<span class="val" id="about-ai">—</span></div>
+        <div class="line">用户协议<span class="val">›</span></div>
+        <div class="line">隐私政策<span class="val">›</span></div>
+      </div>
+    </div>
+
+    <button class="logout" id="btn-logout">退出登录</button>
+    <div class="copy">© 2026 NairoClip · 纯本地处理，素材不上传</div>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab" data-tab="home"><svg class="i"><use href="#i-clip"/></svg><span>剪辑</span></button>
+    <button class="tab" data-tab="template"><svg class="i"><use href="#i-layers"/></svg><span>模板</span></button>
+    <button class="tab" data-tab="message"><svg class="i"><use href="#i-bell"/></svg><span>消息</span></button>
+    <button class="tab on" data-tab="me"><svg class="i"><use href="#i-person"/></svg><span>我的</span></button>
+  </nav>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/me.js"></script>
+</body>
+</html>

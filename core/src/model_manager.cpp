@@ -804,8 +804,15 @@ ModelVerifyResult verifyModelPayload(const ModelInfo& info,
     ModelVerifyResult result;
     result.sizeBytes = static_cast<std::int64_t>(ciphertext.size());
 
+    // 清单里的 sizeBytes 是「文档展示用的参考体积」，不是逐字节精确值：
+    // 同一能力可换不同量化版本（fp32/int8），体积差异可达数倍。
+    // 这里只做合理性校验：非空且不超过参考值的 10 倍，避免把错误文件当模型。
+    // 完整性以 SHA-256 为准（下方 digestMatch），不靠体积。
     if (info.sizeBytes > 0) {
-        result.sizeMatch = result.sizeBytes == info.sizeBytes;
+        result.sizeMatch = result.sizeBytes > 1024 &&
+                           result.sizeBytes <= info.sizeBytes * 10;
+    } else {
+        result.sizeMatch = result.sizeBytes > 1024;
     }
 
     std::uint8_t digest[kSha256DigestSize];
@@ -825,7 +832,7 @@ ModelVerifyResult verifyModelPayload(const ModelInfo& info,
     if (result.ok) {
         result.message = "完整性校验通过";
     } else if (!result.sizeMatch) {
-        result.message = "文件大小不符（期望 " + formatBytesText(info.sizeBytes) + "，实际 " +
+        result.message = "文件大小异常（参考 " + formatBytesText(info.sizeBytes) + "，实际 " +
                          formatBytesText(result.sizeBytes) + "）";
     } else {
         result.message = "摘要校验失败，文件可能已损坏，请重新下载";

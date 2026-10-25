@@ -1,0 +1,237 @@
+/* NairoClip Mobile · 首页 / 我的（设置）共用样式
+   配色沿用 tokens.css：深色、无彩色强调、图标线性 1.5px。
+   布局单位用 clamp/vw，与剪辑页保持一致的自适应策略。 */
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body { background: var(--bg-app); font-family: var(--font); color: var(--text-hi);
+       display: flex; justify-content: center; overflow: hidden; }
+
+.screen { position: relative; width: 100%; height: 100vh; height: 100dvh;
+          display: flex; flex-direction: column; overflow: hidden;
+          padding-bottom: env(safe-area-inset-bottom, 0px); }
+.i { width: 20px; height: 20px; display: block; }
+
+/* ---------- 顶栏 ---------- */
+.hd { flex: none; height: clamp(44px, 5.4vh, 56px); display: flex;
+      align-items: center; padding: 0 14px; gap: 8px; }
+.hd h1 { margin: 0; font-size: clamp(17px, 4.6vw, 20px); font-weight: 700; letter-spacing: -.3px; }
+.hd .sp { flex: 1; }
+.hd-btn { width: 34px; height: 34px; border: 0; background: transparent;
+          color: #C8CDCB; display: grid; place-items: center; padding: 0; }
+.hd-btn .i { width: 20px; height: 20px; }
+
+/* ---------- 滚动区 ---------- */
+.scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+          -webkit-overflow-scrolling: touch; padding: 0 14px 12px; }
+.scroll::-webkit-scrollbar { width: 0; }
+
+/* ---------- 开始创作卡 ---------- */
+.create { width: 100%; border: 1px dashed #3A3E40; border-radius: 12px;
+          background: linear-gradient(180deg, #202325, #1B1E20);
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 8px; padding: clamp(20px, 4.6vh, 34px) 12px; color: #EDF0EE; }
+.create .plus { width: 38px; height: 38px; border-radius: 50%;
+                border: 1px solid #4A4F52; display: grid; place-items: center; }
+.create .plus .i { width: 20px; height: 20px; }
+.create b { font-size: 15px; font-weight: 600; }
+.create span { font-size: 11px; color: var(--text-low); }
+
+/* ---------- 四宫格快捷入口 ---------- */
+.quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.q { border: 0; background: transparent; display: flex; flex-direction: column;
+     align-items: center; gap: 7px; padding: 10px 4px; color: #D4D9D7; }
+.q .box { width: 42px; height: 42px; border-radius: 11px; background: #24282A;
+          display: grid; place-items: center; }
+.q .box .i { width: 21px; height: 21px; }
+.q span { font-size: 11px; }
+
+/* ---------- 区块标题 ---------- */
+.sec { display: flex; align-items: center; margin: 18px 2px 9px; }
+.sec h2 { margin: 0; font-size: 13.5px; font-weight: 600; color: #E8EBE9; }
+.sec .count { color: var(--text-low); font-weight: 500; }
+.sec .sp { flex: 1; }
+.sec button { border: 0; background: transparent; color: var(--text-mid);
+              font-family: var(--font); font-size: 12px; padding: 4px 2px; }
+
+/* ---------- 草稿网格 ---------- */
+.drafts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.card { position: relative; border: 0; background: transparent; padding: 0;
+        display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.card .thumb { position: relative; width: 100%; aspect-ratio: 9 / 14; border-radius: 9px;
+               overflow: hidden; background: linear-gradient(160deg, #2A2F32, #1C2022); }
+.card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card .dur { position: absolute; right: 5px; bottom: 5px; padding: 2px 5px; border-radius: 3px;
+             background: rgba(0,0,0,.66); font: 600 9.5px/1.4 var(--font-num); color: #F0F2F0; }
+.card .title { font-size: 12px; color: #E6E9E7; white-space: nowrap; overflow: hidden;
+               text-overflow: ellipsis; }
+.card .meta { font-size: 10px; color: #6E7472; }
+.card .check { position: absolute; left: 6px; top: 6px; width: 18px; height: 18px;
+               border-radius: 50%; border: 1.5px solid #FFFFFF; background: rgba(0,0,0,.4);
+               display: none; place-items: center; }
+.managing .card .check { display: grid; }
+.card.picked .check { background: #FFFFFF; }
+.card.picked .check::after { content: ""; width: 8px; height: 4px; border-left: 1.6px solid #111;
+                             border-bottom: 1.6px solid #111; transform: rotate(-45deg) translateY(-1px); }
+
+/* ---------- 空态 ---------- */
+.empty { display: flex; flex-direction: column; align-items: center; gap: 9px;
+         padding: 40px 10px; color: #5A605E; }
+.empty .i { width: 30px; height: 30px; opacity: .6; }
+.empty p { margin: 0; font-size: 12px; }
+.empty small { font-size: 10.5px; color: #4B504E; }
+
+/* ---------- 底部 Tab ---------- */
+.tabs { flex: none; height: clamp(50px, 6.4vh, 62px); display: grid;
+        grid-template-columns: repeat(4, 1fr); background: #101312;
+        border-top: 1px solid #1E2221; }
+.tab { border: 0; background: transparent; display: flex; flex-direction: column;
+       align-items: center; justify-content: center; gap: 4px;
+       color: #686E6C; font-family: var(--font); font-size: 10px; padding: 0; }
+.tab .i { width: 21px; height: 21px; }
+.tab.on { color: #FFFFFF; }
+
+/* ---------- 我的：用户卡 ---------- */
+.user { display: flex; align-items: center; gap: 12px; padding: 14px 2px 6px; }
+.avatar { width: 54px; height: 54px; border-radius: 50%; flex: none;
+          background: linear-gradient(150deg, #3A4043, #23282A);
+          display: grid; place-items: center; color: #C9CFCC; font-size: 19px; font-weight: 700;
+          border: 1px solid #3A3F42; }
+.user .info { min-width: 0; }
+.user .name { font-size: 15px; font-weight: 600; }
+.user .id { font-size: 10.5px; color: #6E7472; margin-top: 4px; font-family: var(--font-num); }
+.bind { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px;
+        font-size: 10.5px; color: #C9CDCB; border: 1px solid #3A3F42;
+        border-radius: 10px; padding: 3px 8px; background: transparent; }
+
+/* ---------- 会员卡（银描边，无金色，按文档） ---------- */
+.vip { width: 100%; margin-top: 12px; border-radius: 11px; padding: 13px 14px;
+       background: #1E2224; border: 1px solid #4A4F52;
+       display: flex; align-items: center; gap: 10px; }
+.vip .vip-ico { flex: none; width: 19px; height: 19px; color: #C9CFCC; }
+.vip .txt { text-align: left; flex: 1 1 auto; min-width: 0; }
+.vip b { display: block; font-size: 13.5px; color: #F2F4F2; }
+.vip small { display: block; margin-top: 4px; font-size: 10.5px; color: #8B918F; }
+.vip .go { margin-left: auto; font-size: 11.5px; color: #E8EBE9; white-space: nowrap; }
+
+/* ---------- 列表分组 ---------- */
+.group { margin-top: 14px; background: #1A1D1F; border: 1px solid #262A2C;
+         border-radius: 11px; overflow: hidden; }
+.row { width: 100%; display: flex; align-items: center; gap: 10px;
+       padding: 14px 13px; border: 0; background: transparent; color: #E7EAE8;
+       font-family: var(--font); font-size: 13px; text-align: left; }
+.row + .row { border-top: 1px solid #232728; }
+.row .i { width: 18px; height: 18px; color: #9BA19E; flex: none; }
+.row .val { margin-left: auto; font-size: 11.5px; color: #7C8280; font-family: var(--font-num); }
+.row .chev { width: 14px; height: 14px; color: #565C5A; margin-left: 4px; }
+.row.danger { color: var(--danger); }
+
+/* 手风琴 */
+.acc-body { display: none; padding: 0 13px 13px; }
+.group.open .acc-body { display: block; }
+.group.open .row .chev { transform: rotate(90deg); }
+.acc-body .line { display: flex; align-items: center; font-size: 11.5px; color: #8B918F;
+                  padding: 6px 0; }
+.acc-body .line .val { margin-left: auto; font-family: var(--font-num); }
+
+/* <button class="line"> 需要显式抹掉浏览器原生按钮外观，
+   否则在展开区会渲染成白底黑框（Safari/WebKit 默认） */
+button.line {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 11.5px;
+  color: #8B918F;
+  text-align: left;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+button.line:active { color: #C4CAC8; }
+button.line + button.line { border-top: 1px solid #22262a; }
+
+/* 下拉选择（设置页通用/外观） */
+.sel {
+  margin-left: auto;
+  max-width: 58%;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  border: 1px solid #2C3133;
+  border-radius: 7px;
+  background-color: #1A1B1E;
+  /* 自绘箭头：避免各平台原生 select 外观差异 */
+  background-image: linear-gradient(45deg, transparent 50%, #8B918F 50%),
+                    linear-gradient(135deg, #8B918F 50%, transparent 50%);
+  background-position: right 12px center, right 8px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  -webkit-appearance: none;
+  appearance: none;
+  color: #C9CFCC;
+  font-family: var(--font);
+  font-size: 11.5px;
+  text-align: right;
+  cursor: pointer;
+}
+.sel:focus { outline: 1px solid #3D4A46; border-color: #3D4A46; }
+
+/* 危险操作行（退出登录 / 清除数据） */
+button.line.danger,
+button.line.danger .val { color: #E5484D; }
+button.line.danger:active { color: #FF6B6F; }
+
+/* 说明性小字行（不是可点项） */
+.acc-body .line.note-line {
+  display: block;
+  color: #5F6563;
+  font-size: 10.5px;
+  line-height: 1.65;
+  padding-top: 2px;
+}
+
+/* 开关 */
+.sw {
+  margin-left: auto;
+  flex: none;
+  width: 38px; height: 22px;
+  padding: 0;
+  border: 0; border-radius: 11px;
+  background: #2C3133;
+  position: relative;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background .16s ease;
+}
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #8B918F;
+  transition: transform .16s ease, background .16s ease;
+}
+.sw[aria-pressed="true"] { background: #3A4144; }
+.sw[aria-pressed="true"]::after { transform: translateX(16px); background: #E6EAE8; }
+.bar { height: 4px; border-radius: 2px; background: #2C3133; overflow: hidden; margin-top: 8px; }
+.bar i { display: block; height: 100%; background: #C9CFCC; }
+
+/* ---------- 退出登录 ---------- */
+.logout { width: 100%; margin: 18px 0 6px; padding: 13px; border-radius: 11px;
+          border: 1px solid #3A2626; background: transparent; color: var(--danger);
+          font-family: var(--font); font-size: 13px; }
+.copy { text-align: center; color: #4E5452; font-size: 10px; padding: 10px 0 18px; }
+
+/* ---------- 小屏兜底 ---------- */
+@media (max-width: 360px) {
+  .scroll { padding: 0 10px 10px; }
+  .drafts { gap: 8px; }
+  .card .title { font-size: 11px; }
+  .row { padding: 12px 11px; font-size: 12.5px; }
+  .q .box { width: 38px; height: 38px; }
+}
+
+/* hidden 必须彻底隐藏，避免空态与网格同时出现 */
+.drafts[hidden], .empty[hidden] { display: none !important; }

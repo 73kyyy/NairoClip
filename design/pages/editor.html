@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>剪辑台 · NairoClip</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/base.css">
+<link rel="stylesheet" href="/assets/controls.css">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- 导航轨：图标 + 脊线指示，不做气泡 -->
+  <nav class="rail" aria-label="主导航">
+    <a class="rail-logo" href="/pages/home.html" aria-label="NairoClip 首页">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2.5" y="5" width="19" height="14" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M2.5 9h4M2.5 15h4M17.5 9h4M17.5 15h4" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M7.5 5v14M16.5 5v14" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M10 9.5 15 12l-5 2.5z" fill="currentColor"/>
+      </svg>
+    </a>
+    <button class="rail-btn" aria-label="项目" data-nav="home"></button>
+    <button class="rail-btn" aria-label="剪辑台" aria-current="page" data-nav="editor"></button>
+    <button class="rail-btn" aria-label="素材" data-nav="media"></button>
+    <button class="rail-btn" aria-label="AI 工具" data-nav="ai"></button>
+    <div class="rail-spacer"></div>
+    <div class="rail-sep"></div>
+    <button class="rail-btn" aria-label="检查器" id="railInspector"></button>
+    <button class="rail-btn" aria-label="设置" data-nav="settings"></button>
+  </nav>
+
+  <div class="main">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <div class="project-id">
+        <button class="project-name" id="projectName" title="点击重命名">未命名项目</button>
+        <span class="project-meta" id="projectMeta">1080×1920 · 30fps</span>
+      </div>
+      <span class="save-state" id="saveState"><i class="dot"></i><span>草稿未保存</span></span>
+
+      <div class="topbar-spacer"></div>
+
+      <div class="topbar-group">
+        <button class="btn-icon" id="undoBtn" title="撤销 (Ctrl+Z)"></button>
+        <button class="btn-icon" id="redoBtn" title="重做 (Ctrl+Shift+Z)"></button>
+      </div>
+      <div class="topbar-sep"></div>
+      <div class="topbar-group">
+        <button class="btn-icon" id="splitBtn" title="在播放头分割 (S)"></button>
+        <button class="btn-icon" id="markerBtn" title="添加标记 (M)"></button>
+        <button class="btn-icon" id="deleteBtn" title="删除选中片段 (Del)"></button>
+      </div>
+      <div class="topbar-sep"></div>
+      <div class="topbar-group">
+        <button class="btn" id="saveBtn">保存草稿</button>
+        <button class="btn btn-primary chamfer-sm" id="exportBtn">导出</button>
+      </div>
+    </header>
+
+    <!-- 离线提示（真实扫描后出现） -->
+    <div class="offline-bar hidden" id="offlineBar"></div>
+
+    <div class="workspace" id="workspace">
+      <!-- 舞台 -->
+      <section class="stage" aria-label="预览舞台">
+        <div class="stage-bar">
+          <span class="mono" id="stageLabel">节目</span>
+          <span class="dim">·</span>
+          <span class="mono" id="stageRatio">9:16</span>
+          <span class="dim">·</span>
+          <span id="stageSource">预览由本地引擎渲染</span>
+          <div style="flex:1"></div>
+          <button class="btn-ghost btn btn-sm" id="safeBtn" aria-pressed="false">安全框</button>
+          <button class="btn-ghost btn btn-sm" id="qualityBtn">预览质量 50%</button>
+        </div>
+        <div class="stage-canvas">
+          <div class="frame-wrap">
+            <div class="frame" id="frame">
+              <img id="frameImg" alt="当前帧预览" draggable="false">
+              <div class="frame-grid" id="frameGrid">
+                <div class="frame-safe"></div>
+              </div>
+              <div class="subtitle-layer" id="subtitleLayer"></div>
+              <div class="frame-badge" id="frameBadge"><i class="dot"></i><span>00:00:00:00</span></div>
+            </div>
+          </div>
+        </div>
+        <!-- 走带 -->
+        <div class="transport">
+          <div class="timecode num" id="timecode">00:00:00:<span class="f">00</span></div>
+          <span class="timecode-total" id="durationTotal">/ 00:00:00:00</span>
+          <div class="transport-actions">
+            <button class="btn-icon" id="toStartBtn" title="回到起点 (Home)"></button>
+            <button class="btn-icon" id="prevFrameBtn" title="上一帧 (←)"></button>
+            <button class="btn-icon" id="playBtn" title="播放 (Space)"></button>
+            <button class="btn-icon" id="nextFrameBtn" title="下一帧 (→)"></button>
+            <button class="btn-icon" id="toEndBtn" title="到结尾 (End)"></button>
+            <button class="btn-icon" id="loopBtn" title="循环播放" aria-pressed="false"></button>
+          </div>
+          <div class="transport-spacer"></div>
+          <div class="transport-right">
+            <button class="btn-icon" id="snapBtn" title="吸附 (Alt 临时关闭)" aria-pressed="true"></button>
+            <button class="btn-icon" id="volumeBtn" title="预览音量"></button>
+            <div class="zoom" title="时间轴缩放">
+              <button class="btn-icon btn-sm" id="zoomOutBtn" aria-label="缩小"></button>
+              <input class="slider" id="zoomSlider" type="range" min="0" max="100" value="42" aria-label="时间轴缩放">
+              <button class="btn-icon btn-sm" id="zoomInBtn" aria-label="放大"></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 检查器 -->
+      <aside class="inspector" id="inspector" aria-label="检查器">
+        <div class="inspector-head">
+          <span class="inspector-title" id="inspectorTitle">片段</span>
+          <span class="inspector-sub" id="inspectorSub"></span>
+          <div style="flex:1"></div>
+          <button class="btn-icon btn-sm" id="inspectorClose" title="收起检查器"></button>
+        </div>
+        <div class="inspector-body" id="inspectorBody"></div>
+      </aside>
+    </div>
+
+    <!-- 时间轴 -->
+    <section class="timeline" aria-label="时间轴">
+      <div class="timeline-toolbar">
+        <div class="seg" id="toolSeg" role="tablist" aria-label="编辑工具">
+          <button role="tab" data-tool="select" aria-selected="true">选择</button>
+          <button role="tab" data-tool="blade" aria-selected="false">切割</button>
+          <button role="tab" data-tool="ripple" aria-selected="false">波纹</button>
+        </div>
+        <div class="topbar-sep"></div>
+        <button class="btn btn-ghost btn-sm" id="addVideoTrackBtn">+ 视频轨</button>
+        <button class="btn btn-ghost btn-sm" id="addAudioTrackBtn">+ 音频轨</button>
+        <div style="flex:1"></div>
+        <span class="faint mono" id="tlHint" style="font-size:10px">拖动片段移动 · 拖边缘裁剪 · S 分割</span>
+      </div>
+      <div class="tl-body">
+        <div class="tl-heads">
+          <div class="tl-heads-ruler">轨道</div>
+          <div class="tl-heads-list" id="trackHeads"></div>
+        </div>
+        <div class="tl-scroll" id="tlScroll">
+          <div class="tl-content" id="tlContent">
+            <div class="tl-ruler" id="tlRuler"><canvas id="rulerCanvas"></canvas></div>
+            <div class="tl-tracks" id="tlTracks"></div>
+            <div class="playhead" id="playhead">
+              <div class="playhead-readout num" id="playheadReadout">00:00:00:00</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="statusbar">
+      <span class="sb-item"><i class="dot" id="engineDot"></i><span id="engineText">引擎</span></span>
+      <span class="sb-item" id="sbFormat">1080×1920 · 30fps</span>
+      <span class="sb-item" id="sbSelection">未选择</span>
+      <span class="statusbar-spacer"></span>
+      <span class="sb-item" id="sbHistory">历史 0</span>
+      <span class="sb-item" id="sbProxy">预览：原片</span>
+      <span class="sb-item">本地处理 · 不上传素材</span>
+    </footer>
+  </div>
+</div>
+
+<div id="layers"></div>
+<script type="module" src="/assets/editor.js"></script>
+</body>
+</html>

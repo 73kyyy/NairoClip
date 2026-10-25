@@ -42,12 +42,13 @@ ToneParams paramsFor(FilterStyle style) {
             p.gamma = 0.98;
             break;
         case FilterStyle::Retro:
-            // 复古：暖黄 + 低饱和 + 暗部抬升
-            p.temperature = 0.35;
-            p.saturation = 0.75;
-            p.lift = 0.10;
-            p.contrast = 0.95;
-            p.gainG = 0.97;
+            // 复古：暖黄 + 高饱和 + 轻微褪色（与 Film/HighGray 拉开）
+            p.temperature = 0.58;
+            p.saturation = 0.72;
+            p.lift = 0.02;
+            p.contrast = 1.06;
+            p.gainG = 0.93;
+            p.gainB = 0.86;
             break;
         case FilterStyle::Fresh:
             // 清新：高亮 + 冷绿倾向 + 高饱和
@@ -71,13 +72,14 @@ ToneParams paramsFor(FilterStyle style) {
             p.gamma = 1.05;
             break;
         case FilterStyle::Japanese:
-            // 日系：低对比 + 高明度 + 淡青
-            p.contrast = 0.88;
-            p.brightness = 0.10;
-            p.lift = 0.06;
-            p.gainB = 1.04;
+            // 日系：极低对比 + 高明度 + 冷青（与 Cream 的暖白拉开）
+            p.contrast = 0.74;
+            p.brightness = 0.16;
+            p.lift = 0.14;
+            p.gainB = 1.12;
             p.gainG = 1.02;
-            p.saturation = 0.94;
+            p.saturation = 0.82;
+            p.temperature = -0.22;
             break;
         case FilterStyle::Film:
             // 胶片：密度曲线（暗部抬升 + 高光压肩）+ 轻微品红
@@ -109,19 +111,20 @@ ToneParams paramsFor(FilterStyle style) {
             p.gainB = 0.92;
             break;
         case FilterStyle::HighGray:
-            // 高级灰：低饱和 + 灰调 + 柔对比
-            p.saturation = 0.60;
-            p.contrast = 0.92;
-            p.lift = 0.08;
-            p.saturation = 0.60;
+            // 高级灰：低饱和 + 灰调 + 柔对比 + 中间调微压
+            p.saturation = 0.52;
+            p.contrast = 0.88;
+            p.lift = 0.05;
+            p.gamma = 1.04;
             break;
         case FilterStyle::Cream:
-            // 奶油：柔光 + 低对比 + 暖白
-            p.brightness = 0.10;
-            p.contrast = 0.86;
-            p.temperature = 0.20;
-            p.lift = 0.12;
-            p.gamma = 0.94;
+            // 奶油：柔光 + 低对比 + 暖白（比日系更暖更亮）
+            p.brightness = 0.15;
+            p.contrast = 0.78;
+            p.temperature = 0.46;
+            p.lift = 0.24;
+            p.gamma = 0.88;
+            p.gainR = 1.04;
             break;
         case FilterStyle::Negative:
             // 负片：反色

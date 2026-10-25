@@ -18,3 +18,19 @@ Thumbs.db
 
 # AI 配置目录（本地附件/记忆，不进入仓库）
 .aicode/
+
+# Android / Gradle
+/android/local.properties
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/src/main/cpp/prebuilt/
+/android/*.jks
+/android/*.keystore
+
+# AI 模型权重（GB 级，由 tools/fetch_models.sh 获取，不入库）
+/models/
+
+# 移动端调试截图（构建产物，不入库）
+/mobile/screenshots/
+/mobile/.cache/

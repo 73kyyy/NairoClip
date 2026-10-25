@@ -75,6 +75,9 @@ add_library(nairoclip_core STATIC
     src/media_offline.cpp
     src/model_manager.cpp
 )
+
+# Android 平台层通过 libnc_jni.so 链接本静态库，必须 PIC。
+set_target_properties(nairoclip_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(nairoclip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )

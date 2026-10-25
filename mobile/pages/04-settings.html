@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip · 设置</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/pages.css">
+</head>
+<body>
+<div class="screen" id="screen">
+
+  <header class="hd">
+    <button class="hd-btn" id="btn-back" aria-label="返回">
+      <svg class="i"><use href="#i-chevron"/></svg>
+    </button>
+    <h1>设置</h1>
+  </header>
+
+  <div class="scroll">
+
+    <!-- ============ 账号 ============ -->
+    <div class="group">
+      <button class="row" data-open="account">
+        <svg class="i"><use href="#i-user"/></svg>
+        <span>账号</span>
+        <span class="val" id="acc-state">未登录</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <button class="line" id="row-login">登录 / 注册<span class="val">›</span></button>
+        <div class="line">会员状态<span class="val" id="vip-state">未开通</span></div>
+        <div class="line">登录方式<span class="val" id="login-method">—</span></div>
+        <div class="line">登录设备<span class="val" id="dev-state">—</span></div>
+        <button class="line danger" id="row-logout" hidden>退出登录<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 通用 ============ -->
+    <div class="group">
+      <button class="row" data-open="general">
+        <svg class="i"><use href="#i-sliders"/></svg>
+        <span>通用</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">语言
+          <select class="sel" id="sel-lang">
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁體中文</option>
+            <option value="en-US">English</option>
+          </select>
+        </div>
+        <div class="line">外观
+          <select class="sel" id="sel-theme">
+            <option value="auto">跟随系统</option>
+            <option value="dark">深色</option>
+            <option value="light">浅色</option>
+          </select>
+        </div>
+        <div class="line">启动时打开
+          <select class="sel" id="sel-start">
+            <option value="home">首页</option>
+            <option value="last">上次的工程</option>
+          </select>
+        </div>
+        <div class="line">显示新手引导
+          <button class="sw" id="sw-guide" aria-pressed="true"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 通知 ============ -->
+    <div class="group">
+      <button class="row" data-open="notify">
+        <svg class="i"><use href="#i-bell"/></svg>
+        <span>通知</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">草稿提醒
+          <button class="sw" id="sw-draft" aria-pressed="false"></button>
+        </div>
+        <div class="line">导出完成提醒
+          <button class="sw" id="sw-export" aria-pressed="true"></button>
+        </div>
+        <div class="line">会员与活动
+          <button class="sw" id="sw-promo" aria-pressed="false"></button>
+        </div>
+        <div class="line note-line">通知权限需在系统设置中开启，应用内仅控制是否发送。</div>
+      </div>
+    </div>
+
+    <!-- ============ 存储 ============ -->
+    <div class="group">
+      <button class="row" data-open="storage">
+        <svg class="i"><use href="#i-folder"/></svg>
+        <span>存储</span>
+        <span class="val" id="storage-val">—</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">草稿工程<span class="val" id="st-draft">—</span></div>
+        <div class="line">AI 模型<span class="val" id="st-model">—</span></div>
+        <div class="line">代理视频<span class="val" id="st-proxy">—</span></div>
+        <div class="bar"><i id="st-bar" style="width:0%"></i></div>
+        <div class="line note-line" id="st-note">读取中…</div>
+        <button class="line" id="row-clear-cache">清理缓存<span class="val" id="cache-val">—</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 隐私与安全 ============ -->
+    <div class="group">
+      <button class="row" data-open="privacy">
+        <svg class="i"><use href="#i-lock"/></svg>
+        <span>隐私与安全</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">素材处理<span class="val">仅本机</span></div>
+        <div class="line">上传联网素材
+          <button class="sw" id="sw-network" aria-pressed="false"></button>
+        </div>
+        <button class="line" data-doc="privacy">隐私政策<span class="val">›</span></button>
+        <button class="line" id="row-perm">权限管理<span class="val">›</span></button>
+        <button class="line" id="row-export-data">导出我的数据<span class="val">›</span></button>
+        <button class="line danger" id="row-wipe">清除本地数据<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 帮助与支持 ============ -->
+    <div class="group">
+      <button class="row" data-open="help">
+        <svg class="i"><use href="#i-help"/></svg>
+        <span>帮助与支持</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <button class="line" id="row-faq">常见问题<span class="val">›</span></button>
+        <button class="line" id="row-feedback">意见反馈<span class="val">›</span></button>
+        <button class="line" id="row-update">检查更新<span class="val" id="update-val">—</span></button>
+        <button class="line" id="row-logs">诊断日志<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <!-- ============ 关于 ============ -->
+    <div class="group">
+      <button class="row" data-open="about">
+        <svg class="i"><use href="#i-info"/></svg>
+        <span>关于</span>
+        <span class="val" id="about-ver">—</span>
+        <svg class="i chev"><use href="#i-chevron-right"/></svg>
+      </button>
+      <div class="acc-body">
+        <div class="line">应用版本<span class="val" id="about-build">—</span></div>
+        <div class="line">本地引擎<span class="val" id="about-core">—</span></div>
+        <div class="line">AI 引擎<span class="val" id="about-ai">—</span></div>
+        <button class="line" data-doc="terms">用户协议<span class="val">›</span></button>
+        <button class="line" data-doc="copyright">版权与许可<span class="val">›</span></button>
+        <button class="line" data-doc="thirdparty">第三方组件<span class="val">›</span></button>
+      </div>
+    </div>
+
+    <div class="copy">© 2026 NairoClip · 纯本地处理，素材不上传</div>
+  </div>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/settings.js"></script>
+</body>
+</html>

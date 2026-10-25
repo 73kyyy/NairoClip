@@ -1,0 +1,438 @@
+{
+  "format": "nclip",
+  "version": 1,
+  "project": {
+    "name": "霓虹夜行 · 城市短片"
+  },
+  "assets": [
+    {
+      "id": 2,
+      "path": "design/media/shot_city.mp4",
+      "name": "城市夜景 A",
+      "type": "video",
+      "duration": [
+        6,
+        1
+      ],
+      "frameRate": [
+        30,
+        1
+      ],
+      "width": 0,
+      "height": 0,
+      "sampleRate": 0,
+      "channels": 0,
+      "offline": false
+    },
+    {
+      "id": 3,
+      "path": "design/media/shot_warm.mp4",
+      "name": "暖光特写 B",
+      "type": "video",
+      "duration": [
+        5,
+        1
+      ],
+      "frameRate": [
+        30,
+        1
+      ],
+      "width": 0,
+      "height": 0,
+      "sampleRate": 0,
+      "channels": 0,
+      "offline": false
+    },
+    {
+      "id": 4,
+      "path": "design/media/shot_neon.mp4",
+      "name": "霓虹空镜 C",
+      "type": "video",
+      "duration": [
+        4,
+        1
+      ],
+      "frameRate": [
+        30,
+        1
+      ],
+      "width": 0,
+      "height": 0,
+      "sampleRate": 0,
+      "channels": 0,
+      "offline": false
+    },
+    {
+      "id": 5,
+      "path": "design/media/music_bed.wav",
+      "name": "夜幕铺底音乐",
+      "type": "audio",
+      "duration": [
+        8,
+        1
+      ],
+      "frameRate": [
+        30,
+        1
+      ],
+      "width": 0,
+      "height": 0,
+      "sampleRate": 0,
+      "channels": 0,
+      "offline": false
+    },
+    {
+      "id": 6,
+      "path": "design/media/sfx_whoosh.wav",
+      "name": "转场风声",
+      "type": "audio",
+      "duration": [
+        9,
+        10
+      ],
+      "frameRate": [
+        30,
+        1
+      ],
+      "width": 0,
+      "height": 0,
+      "sampleRate": 0,
+      "channels": 0,
+      "offline": false
+    }
+  ],
+  "sequences": [
+    {
+      "id": 1,
+      "name": "主序列",
+      "frameRate": [
+        30,
+        1
+      ],
+      "width": 1080,
+      "height": 1920,
+      "tracks": [
+        {
+          "id": 7,
+          "type": "video",
+          "name": "主画面",
+          "locked": false,
+          "muted": false,
+          "hidden": false,
+          "clips": [
+            {
+              "id": 10,
+              "asset": 2,
+              "start": [
+                0,
+                1
+              ],
+              "duration": [
+                7,
+                2
+              ],
+              "sourceIn": [
+                0,
+                1
+              ],
+              "speed": [
+                1,
+                1
+              ],
+              "enabled": true,
+              "effects": [
+                {
+                  "id": 18,
+                  "type": 8,
+                  "value": 0.38,
+                  "enabled": true
+                }
+              ]
+            },
+            {
+              "id": 11,
+              "asset": 3,
+              "start": [
+                7,
+                2
+              ],
+              "duration": [
+                3,
+                1
+              ],
+              "sourceIn": [
+                0,
+                1
+              ],
+              "speed": [
+                1,
+                1
+              ],
+              "filter": {
+                "style": "movie",
+                "intensity": 62
+              },
+              "enabled": true
+            },
+            {
+              "id": 12,
+              "asset": 4,
+              "start": [
+                13,
+                2
+              ],
+              "duration": [
+                3,
+                2
+              ],
+              "sourceIn": [
+                0,
+                1
+              ],
+              "speed": [
+                1,
+                1
+              ],
+              "enabled": true,
+              "animation": {
+                "opacity": [
+                  {
+                    "time": [
+                      0,
+                      1
+                    ],
+                    "value": 0.93999999999999995,
+                    "easing": {
+                      "type": "linear"
+                    }
+                  }
+                ]
+              },
+              "effects": [
+                {
+                  "id": 19,
+                  "type": 28,
+                  "value": 0.20000000000000001,
+                  "enabled": true
+                }
+              ]
+            }
+          ],
+          "transitions": [
+            {
+              "id": 16,
+              "type": "crossDissolve",
+              "duration": [
+                1,
+                2
+              ],
+              "fromClip": 10,
+              "toClip": 11,
+              "name": "交叉溶解"
+            },
+            {
+              "id": 17,
+              "type": "blurDissolve",
+              "duration": [
+                2,
+                5
+              ],
+              "fromClip": 11,
+              "toClip": 12,
+              "name": "模糊叠化"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "audio",
+          "name": "音乐",
+          "locked": false,
+          "muted": false,
+          "hidden": false,
+          "clips": [
+            {
+              "id": 13,
+              "asset": 5,
+              "start": [
+                0,
+                1
+              ],
+              "duration": [
+                8,
+                1
+              ],
+              "sourceIn": [
+                0,
+                1
+              ],
+              "speed": [
+                1,
+                1
+              ],
+              "enabled": true
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "audio",
+          "name": "音效",
+          "locked": false,
+          "muted": false,
+          "hidden": false,
+          "clips": [
+            {
+              "id": 14,
+              "asset": 6,
+              "start": [
+                67,
+                20
+              ],
+              "duration": [
+                2,
+                5
+              ],
+              "sourceIn": [
+                0,
+                1
+              ],
+              "speed": [
+                1,
+                1
+              ],
+              "enabled": true
+            },
+            {
+              "id": 15,
+              "asset": 6,
+              "start": [
+                127,
+                20
+              ],
+              "duration": [
+                2,
+                5
+              ],
+              "sourceIn": [
+                0,
+                1
+              ],
+              "speed": [
+                1,
+                1
+              ],
+              "enabled": true
+            }
+          ]
+        }
+      ],
+      "markers": [
+        {
+          "id": 23,
+          "time": [
+            3,
+            10
+          ],
+          "name": "开场钩子",
+          "color": "#C6F24E"
+        },
+        {
+          "id": 24,
+          "time": [
+            7,
+            2
+          ],
+          "name": "转场 1",
+          "color": "#8B7CFF"
+        },
+        {
+          "id": 25,
+          "time": [
+            36,
+            5
+          ],
+          "name": "落版",
+          "color": "#FFB020"
+        }
+      ],
+      "subtitles": [
+        {
+          "id": 20,
+          "start": [
+            2,
+            5
+          ],
+          "duration": [
+            11,
+            5
+          ],
+          "text": "凌晨两点，城市还没睡",
+          "enabled": true,
+          "style": {
+            "fontFamily": "默认",
+            "fontSize": 48,
+            "color": "#FFFFFF",
+            "outlineColor": "#000000",
+            "outlineWidth": 2,
+            "backgroundColor": "#00000000",
+            "backgroundPadding": 8,
+            "alignment": 1,
+            "anchorX": 0.5,
+            "anchorY": 0.90000000000000002
+          }
+        },
+        {
+          "id": 21,
+          "start": [
+            18,
+            5
+          ],
+          "duration": [
+            9,
+            5
+          ],
+          "text": "霓虹把街道切成两半",
+          "enabled": true,
+          "style": {
+            "fontFamily": "默认",
+            "fontSize": 48,
+            "color": "#FFFFFF",
+            "outlineColor": "#000000",
+            "outlineWidth": 2,
+            "backgroundColor": "#00000000",
+            "backgroundPadding": 8,
+            "alignment": 1,
+            "anchorX": 0.5,
+            "anchorY": 0.90000000000000002
+          }
+        },
+        {
+          "id": 22,
+          "start": [
+            32,
+            5
+          ],
+          "duration": [
+            7,
+            5
+          ],
+          "text": "我们把这一刻留住",
+          "enabled": true,
+          "style": {
+            "fontFamily": "默认",
+            "fontSize": 48,
+            "color": "#FFFFFF",
+            "outlineColor": "#000000",
+            "outlineWidth": 2,
+            "backgroundColor": "#00000000",
+            "backgroundPadding": 8,
+            "alignment": 1,
+            "anchorX": 0.5,
+            "anchorY": 0.90000000000000002
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NairoClip · 首页（草稿为空）</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/components.css">
+<link rel="stylesheet" href="../assets/page.css">
+</head>
+<body class="stage">
+
+<div class="stage-col">
+  <div class="phone">
+    <div class="statusbar">
+      <span>9:41</span>
+      <span class="sb-right">
+        <svg class="icn icn-16"><use href="#i-signal"/></svg>
+        <svg class="icn icn-16"><use href="#i-wifi"/></svg>
+        <svg class="icn icn-16"><use href="#i-battery"/></svg>
+      </span>
+    </div>
+
+    <div class="home-top">
+      <button class="avatar" data-placeholder="个人主页开发中" aria-label="个人主页">
+        <span style="font-size:15px;font-weight:600;color:#C9C9CD">林</span>
+      </button>
+      <div class="greeting">
+        <div class="g-name">你好，林之</div>
+        <div class="g-hi">今天想做点什么</div>
+      </div>
+      <div class="top-actions">
+        <button class="nav-btn quiet" data-placeholder="搜索功能开发中" aria-label="搜索">
+          <svg class="icn icn-20"><use href="#i-search"/></svg>
+        </button>
+        <button class="nav-btn" onclick="location.href='02-settings.html'" aria-label="设置">
+          <svg class="icn icn-20"><use href="#i-settings"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <button class="hero-card" data-placeholder="进入素材选择（下一步开发）">
+        <span class="hero-plus"><svg class="icn icn-24"><use href="#i-plus"/></svg></span>
+        <span class="hero-text">
+          <span class="h-title" style="display:block">开始创作</span>
+          <span class="h-sub" style="display:block">从相册选择视频或照片开始剪辑</span>
+        </span>
+      </button>
+
+      <div class="quick-grid">
+        <button class="quick-card active" data-placeholder="进入素材选择（下一步开发）">
+          <svg class="icn icn-22 q-ic"><use href="#i-clapper"/></svg>
+          <span class="q-label">剪辑</span>
+        </button>
+        <button class="quick-card" data-placeholder="功能开发中">
+          <svg class="icn icn-22 q-ic"><use href="#i-wand"/></svg>
+          <span class="q-label">一键成片</span>
+        </button>
+        <button class="quick-card" data-placeholder="功能开发中">
+          <svg class="icn icn-22 q-ic"><use href="#i-text-image"/></svg>
+          <span class="q-label">图文成片</span>
+        </button>
+        <button class="quick-card" data-placeholder="功能开发中">
+          <svg class="icn icn-22 q-ic"><use href="#i-record"/></svg>
+          <span class="q-label">录屏</span>
+        </button>
+      </div>
+
+      <div class="draft-sec">
+        <div class="section-head">
+          <div class="section-title">我的草稿<span class="count">（0）</span></div>
+        </div>
+
+        <!-- 草稿为 0 时的空状态（文档 §29.1） -->
+        <div class="empty-state">
+          <div class="es-art">
+            <svg class="icn icn-28"><use href="#i-folder"/></svg>
+          </div>
+          <div class="es-title">还没有任何创作记录</div>
+          <div class="es-sub">点击上方「开始创作」开启第一个作品</div>
+        </div>
+      </div>
+
+      <div style="height:18px"></div>
+    </div>
+
+    <div class="tabbar">
+      <button class="tab active">
+        <svg class="icn icn-22"><use href="#i-nav-edit"/></svg>
+        <span>剪辑</span><span class="tab-dot"></span>
+      </button>
+      <button class="tab" data-placeholder="模板功能开发中">
+        <svg class="icn icn-22"><use href="#i-nav-template"/></svg>
+        <span>模板</span><span class="tab-dot"></span>
+      </button>
+      <button class="tab" data-placeholder="消息功能开发中">
+        <svg class="icn icn-22"><use href="#i-nav-message"/></svg>
+        <span>消息</span><span class="tab-dot"></span>
+      </button>
+      <button class="tab" onclick="location.href='02-settings.html'">
+        <svg class="icn icn-22"><use href="#i-nav-me"/></svg>
+        <span>我的</span><span class="tab-dot"></span>
+      </button>
+    </div>
+
+    <div class="home-indicator"></div>
+  </div>
+
+  <div class="stage-cap">
+    首页空状态 · 草稿数量为 0 时显示，产生任意草稿后立即恢复两列网格
+  </div>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/capture.js"></script>
+</body>
+</html>

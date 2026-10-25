@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip · 登录</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/pages.css">
+<link rel="stylesheet" href="../assets/auth.css">
+</head>
+<body data-page="auth">
+<div class="screen" id="screen">
+
+  <!-- 顶栏：返回 + 说明（右侧文字按钮，与参考一致） -->
+  <header class="auth-hd">
+    <button class="auth-back" id="btn-back" aria-label="返回">
+      <svg class="i"><use href="#i-chevron"/></svg>
+    </button>
+    <button class="auth-help" id="btn-help">说明</button>
+  </header>
+
+  <div class="scroll" id="scroll">
+
+    <!-- 品牌区 -->
+    <section class="auth-brand">
+      <div class="auth-logo" aria-hidden="true">
+        <img src="../static/appicon/nmark.svg" alt="NairoClip">
+      </div>
+      <h1 class="auth-name">NairoClip</h1>
+    </section>
+
+    <!-- 登录方式：全宽药丸按钮，点哪个进哪个 -->
+    <section class="auth-list" id="auth-list">
+
+      <!-- 手机号（主按钮：实心白） -->
+      <button class="auth-btn primary" data-m="phone">
+        <span class="ab-ico"><svg><use href="#i-phone"/></svg></span>
+        <span class="ab-txt">使用手机号登录</span>
+      </button>
+
+      <!-- 微信 -->
+      <button class="auth-btn" data-m="wechat">
+        <span class="ab-ico brand-wechat"><svg><use href="#i-brand-wechat"/></svg></span>
+        <span class="ab-txt">使用微信登录</span>
+      </button>
+
+      <!-- QQ -->
+      <button class="auth-btn" data-m="qq">
+        <span class="ab-ico brand-qq"><svg><use href="#i-brand-qq"/></svg></span>
+        <span class="ab-txt">使用 QQ 登录</span>
+      </button>
+
+      <!-- Apple ID：仅 iOS（Android 上整块移除） -->
+      <button class="auth-btn" data-m="apple" id="btn-apple">
+        <span class="ab-ico brand-apple"><svg><use href="#i-brand-apple"/></svg></span>
+        <span class="ab-txt">通过 Apple 登录</span>
+      </button>
+
+    </section>
+
+    <!-- 协议 -->
+    <p class="auth-agree">
+      我已阅读并确认同意 NairoClip<a data-doc="terms">《用户协议》</a>及<a data-doc="privacy">《隐私政策》</a>
+    </p>
+
+    <!-- 次入口 -->
+    <button class="auth-later" id="btn-later">稍后再说（仅本地使用）</button>
+  </div>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/auth.js"></script>
+</body>
+</html>

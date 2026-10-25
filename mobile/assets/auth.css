@@ -1,0 +1,281 @@
+/* NairoClip Mobile · 登录页组
+   ---------------------------------------------------------------------------
+   布局参照 CapCut 登录页：顶栏（返回 / 说明）→ 居中 Logo → 全宽药丸按钮列表
+   → 协议说明。点按钮跳转到各自的登录页（手机号 / 微信 / QQ / Apple）。
+   配色沿用应用暗色语言（底 #0B0B0C，实心白为唯一强调），不跟参考走浅色。
+   ------------------------------------------------------------------------- */
+
+/* ---------- 顶栏 ---------- */
+.auth-hd {
+  flex: none;
+  height: clamp(46px, 5.6vh, 58px);
+  padding: 0 12px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.auth-back {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  border: 0; background: transparent;
+  color: #D6DADC;
+  padding: 0;
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.auth-back .i { width: 21px; height: 21px; }
+.auth-back:active { color: #FFFFFF; }
+
+.auth-help {
+  padding: 6px 8px;
+  border: 0; background: transparent;
+  color: #8D9296;
+  font-family: var(--font);
+  font-size: 13.5px;
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.auth-help:active { color: #D6DADC; }
+
+.auth-title {
+  flex: 1 1 auto;
+  text-align: center;
+  padding-right: 36px;   /* 与左侧返回键等宽，标题真正居中 */
+  font-size: 15px;
+  font-weight: 600;
+  color: #EDEFF1;
+}
+
+/* ---------- 品牌区 ---------- */
+.auth-brand {
+  padding: clamp(30px, 9vh, 78px) 0 clamp(26px, 7vh, 62px);
+  text-align: center;
+}
+.auth-logo {
+  width: 84px; height: 84px;
+  margin: 0 auto 12px;
+  display: grid; place-items: center;
+}
+/* 字标本身透明、无底板，直接浮在页面底色上 */
+.auth-logo img { width: 100%; height: 100%; display: block; object-fit: contain; }
+
+.auth-name {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -.6px;
+  color: #F4F5F6;
+}
+
+/* ---------- 方式列表（药丸按钮） ---------- */
+.auth-list {
+  padding: 0 22px;
+  display: flex; flex-direction: column; gap: 11px;
+}
+
+.auth-btn {
+  position: relative;
+  width: 100%;
+  height: 50px;
+  padding: 0 18px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid #3A3A40;
+  border-radius: 999px;
+  background: transparent;
+  color: #E9EBEC;
+  font-family: var(--font);
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  transition: background .15s ease, border-color .15s ease;
+}
+.auth-btn:active { background: #17181A; border-color: #4A4A52; }
+
+/* 图标绝对定位在最左，文字始终居中——与参考稿一致 */
+.auth-btn .ab-ico {
+  position: absolute;
+  left: 18px; top: 50%;
+  transform: translateY(-50%);
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  color: #DDE0E2;
+}
+.auth-btn .ab-ico svg { width: 100%; height: 100%; display: block; }
+
+/* 品牌色（填充型图标吃 currentColor） */
+.ab-ico.brand-wechat { color: #07C160; }
+.ab-ico.brand-qq { color: #12B7F5; }
+.ab-ico.brand-apple { color: #F2F2F3; }
+
+.auth-btn .ab-txt { line-height: 1; }
+
+/* 主按钮：实心白（对应参考里的黑色主按钮，暗色主题反相处理） */
+.auth-btn.primary {
+  background: #F2F2F3;
+  border-color: #F2F2F3;
+  color: #0E0E10;
+  font-weight: 600;
+}
+.auth-btn.primary:active { background: #DCDEE0; }
+.auth-btn.primary .ab-ico { color: #101012; }
+
+/* ---------- 协议 ---------- */
+.auth-agree {
+  margin: 20px 30px 0;
+  font-size: 11.5px;
+  line-height: 1.75;
+  text-align: center;
+  color: #86898D;
+}
+.auth-agree a {
+  color: #4FC3D9;             /* 参考稿用青色链接，这里保留但压低饱和 */
+  text-decoration: none;
+}
+.auth-agree a:active { color: #7FD9EA; }
+
+/* 未勾选协议就点授权时，就地高亮提示（避免把人送去授权后才被拒） */
+.auth-agree.flash {
+  animation: agreeFlash .9s ease;
+  border-radius: 8px;
+}
+@keyframes agreeFlash {
+  0%, 100% { color: #86898D; background: transparent; }
+  30%      { color: #FFD08A; background: rgba(255, 176, 32, .12); }
+}
+
+/* ---------- 次入口 ---------- */
+.auth-later {
+  display: block;
+  width: calc(100% - 44px);
+  margin: clamp(18px, 5vh, 40px) 22px 0;
+  height: 42px;
+  border: 0; background: transparent;
+  color: #7C8185;
+  font-family: var(--font);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.auth-later:active { color: #C6CACC; }
+
+/* ===========================================================================
+   子页面（手机号 / 微信 / QQ / Apple）
+   =========================================================================== */
+
+.form-lead {
+  margin: 14px 22px 20px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #7C8185;
+}
+
+.form-body { padding: 0 22px clamp(24px, 5vh, 40px); }
+
+.lab { display: block; margin: 0 0 7px; font-size: 11.5px; color: #8A8F93; }
+
+.field {
+  display: flex; align-items: center; gap: 8px;
+  height: 47px;
+  padding: 0 13px;
+  margin-bottom: 3px;
+  background: #161618;
+  border: 1px solid #2A2A2D;
+  border-radius: 11px;
+  transition: border-color .16s ease;
+}
+.field:focus-within { border-color: #414148; }
+.field.bad { border-color: #E5484D; }
+
+.field .prefix {
+  flex: none; font-size: 14px; color: #A8ADB1;
+  padding-right: 9px; border-right: 1px solid #2A2A2D;
+}
+.field input {
+  flex: 1 1 auto; min-width: 0; height: 100%;
+  border: 0; outline: 0; background: transparent;
+  color: #F2F2F3; font-size: 15px; font-family: var(--font);
+  letter-spacing: .3px;
+}
+.field input::placeholder { color: #5D6266; }
+
+.field .clear {
+  flex: none; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%; background: #2A2A2D; color: #9AA0A4;
+  cursor: pointer;
+}
+.field .clear[hidden] { display: none; }
+.field .clear .i { width: 12px; height: 12px; }
+
+.field .send {
+  flex: none; height: 30px; padding: 0 11px;
+  border: 0; border-radius: 7px;
+  background: #F2F2F3; color: #101012;
+  font-size: 12px; font-weight: 600; font-family: var(--font);
+  cursor: pointer; white-space: nowrap;
+}
+.field .send:disabled { background: #26262A; color: #5D6266; cursor: default; }
+
+.err { margin: 5px 0 10px; font-size: 11px; color: #E5484D; }
+.err[hidden] { display: none; }
+
+.primary {
+  width: 100%; height: 47px;
+  margin-top: 14px;
+  border: 0; border-radius: 11px;
+  background: #F2F2F3; color: #0E0E10;
+  font-size: 15px; font-weight: 600; font-family: var(--font);
+  cursor: pointer;
+}
+.primary:disabled { background: #26262A; color: #5D6266; cursor: default; }
+
+.agree {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin: 15px 1px 0;
+  font-size: 11px; line-height: 1.6; color: #7C8185;
+  cursor: pointer;
+}
+.agree input {
+  flex: none; width: 15px; height: 15px; margin: 1px 0 0;
+  accent-color: #F2F2F3; cursor: pointer;
+}
+.agree a { color: #6FCBDB; text-decoration: none; }
+
+/* 第三方子页的图标主视觉 */
+.third-hero {
+  text-align: center;
+  padding: clamp(34px, 10vh, 86px) 0 clamp(22px, 6vh, 50px);
+}
+.third-ico {
+  width: 62px; height: 62px;
+  margin: 0 auto 16px;
+  display: grid; place-items: center;
+  border: 1px solid #2E2E33;
+  border-radius: 17px;
+  background: #161618;
+}
+.third-ico svg { width: 30px; height: 30px; display: block; }
+.third-ico.brand-wechat { color: #07C160; }
+.third-ico.brand-qq { color: #12B7F5; }
+.third-ico.brand-apple { color: #F2F2F3; }
+
+.third-hero h2 {
+  margin: 0 0 6px;
+  font-size: 18px; font-weight: 600; color: #F2F3F4;
+}
+.third-sub { margin: 0; font-size: 11.5px; color: #7C8185; }
+
+.pane-note {
+  margin: 0 0 14px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #7C8185;
+}
+
+/* ---------- 小屏 ---------- */
+@media (max-width: 360px) {
+  .auth-list { padding: 0 16px; }
+  .auth-btn { height: 46px; font-size: 13.5px; }
+  .auth-btn .ab-ico { left: 15px; width: 20px; height: 20px; }
+  .auth-name { font-size: 24px; }
+  .auth-logo { width: 54px; height: 54px; }
+  .form-body { padding: 0 16px 24px; }
+}

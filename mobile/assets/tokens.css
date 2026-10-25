@@ -1,0 +1,42 @@
+/* NairoClip Mobile · 设计令牌
+   底色/尺寸取自参考稿（1332×2738 = 444×913 CSS @3x）；
+   图标与强调色按《产品UI和UX开发文档》Part 1 §1.2/§1.3：
+   默认 #9B9B9E、激活 #2D8CFF、描边 1.5px、一级 20px / 二三级 18px。 */
+/* 字体与剪辑页、设计稿同一套（design/assets/base.css 同样声明）：
+   拉丁/数字用 Instrument Sans + JetBrains Mono，中文回落到系统 Noto Sans CJK。 */
+@font-face { font-family: "Instrument Sans"; font-weight: 400; font-display: swap;
+             src: url("fonts/InstrumentSans-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Instrument Sans"; font-weight: 700; font-display: swap;
+             src: url("fonts/InstrumentSans-Bold.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap;
+             src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap;
+             src: url("fonts/JetBrainsMono-Bold.ttf") format("truetype"); }
+
+:root {
+  --bg-void: #000000;
+  --bg-dock: #111413;
+  --bg-timeline: #151817;
+  --bg-app: #18191B;
+  --bg-toolbar: #1C1D1F;
+  --bg-stage: #232323;
+
+  --panel-2: #202224;   /* 二级工具栏（文档 #2A2A2D 系列） */
+  --panel-3: #26282A;   /* 三级面板 */
+
+  --line-1: #26282A;
+  --line-2: #34373A;
+  --line-3: #3A3A3D;
+
+  --text-hi: #F2F2F2;
+  --text-mid: #9B9B9E;
+  --text-low: #6A6E70;
+
+  --accent: #2D8CFF;
+  --accent-soft: rgba(45, 140, 255, .22);    /* 文档全局唯一强调色 */
+  --danger: #E5484D;    /* 文档警示色 */
+
+  --font: "Instrument Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", sans-serif;
+  --font-num: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
