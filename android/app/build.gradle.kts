@@ -43,10 +43,26 @@ android {
         }
     }
 
+    signingConfigs {
+        // 签名文件由 CI 生成到 android/app/nairoclip-release.jks（不入库）。
+        // 本地没有该文件时退回 debug 签名，保证 assembleRelease 仍可跑。
+        val ks = file("nairoclip-release.jks")
+        if (ks.exists()) {
+            create("release") {
+                storeFile = ks
+                storePassword = secret("keystore.password", "KEYSTORE_PASSWORD").ifEmpty { "nairoclip" }
+                keyAlias = secret("keystore.alias", "KEYSTORE_ALIAS").ifEmpty { "nairoclip" }
+                keyPassword = secret("keystore.keyPassword", "KEY_PASSWORD").ifEmpty { "nairoclip" }
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (file("nairoclip-release.jks").exists())
+                signingConfigs.getByName("release")
+            else signingConfigs.getByName("debug")
         }
     }
 

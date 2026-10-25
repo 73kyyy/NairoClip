@@ -88,6 +88,24 @@ jobs:
             echo "auth.backend=${{ secrets.AUTH_BACKEND }}"
           } > android/local.properties
 
+      # 生成签名 keystore（发布用；密码可由 secrets 覆盖）
+      - name: Generate signing keystore
+        working-directory: android/app
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v \
+            -keystore nairoclip-release.jks \
+            -alias "${KEYSTORE_ALIAS:-nairoclip}" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "${KEYSTORE_PASSWORD:-nairoclip}" \
+            -keypass "${KEY_PASSWORD:-nairoclip}" \
+            -dname "CN=NairoClip, OU=Dev, O=NairoClip, L=NA, S=NA, C=CN"
+          ls -lh nairoclip-release.jks
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
       # 仓库未提交 gradle wrapper：用 gradle/actions 提供的 gradle 生成后构建
       - name: Generate Gradle wrapper
         working-directory: android
