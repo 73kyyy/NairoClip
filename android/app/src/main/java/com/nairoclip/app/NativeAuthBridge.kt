@@ -102,11 +102,6 @@ class NativeAuthBridge(
             finish("wechat", Result(ok = false, error = "未安装微信客户端"))
             return
         }
-        if (!wxApi.isWXAppSupportAPI) {
-            finish("wechat", Result(ok = false, error = "当前微信版本不支持登录"))
-            return
-        }
-
         pendingWeChatAuth = { r -> finish("wechat", r) }
 
         val req = SendAuth.Req().apply {
@@ -149,6 +144,12 @@ class NativeAuthBridge(
 
             override fun onCancel() {
                 finish("qq", Result(ok = false, error = "用户取消"))
+            }
+
+            // QQ SDK 3.5.19 的 IUiListener 要求实现 onWarning（低风险提示，
+            // 不中断流程，仅记录）。
+            override fun onWarning(code: Int) {
+                Log.w(tag, "QQ onWarning: $code")
             }
         }
         qqTencent.login(activity, "get_user_info", qqListener)

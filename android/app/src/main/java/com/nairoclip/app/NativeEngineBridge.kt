@@ -11,7 +11,7 @@ import org.json.JSONObject
  * 依据 docs/UI_INTEGRATION.md §7「平台层对接（不要用 HTTP）」：
  *   · Android = Kotlin + JNI 直调 nc_*
  *   · 单个 NcEditor* 不支持多线程并发 → 本类用 @Synchronized 串行化
- *   · char* 用 nc_free_string 释放；uint8_t*/double* 用 nc_free_buffer 释放
+ *   · char 指针用 nc_free_string 释放；字节/浮点数组用 nc_free_buffer 释放
  *
  * 注入：
  *   NativeEngineBridge.loadLibrary()
@@ -162,9 +162,9 @@ class NativeEngineBridge(private val appContext: android.content.Context? = null
     }
 
     /**
-     * native 侧返回 [w:int32][h:int32][RGBA8...] 原始像素——C ABI 的
+     * native 侧返回「宽:int32 高:int32 RGBA8...」原始像素——C ABI 的
      * nc_preview_render / nc_thumbnail_generate 输出的是像素而不是 PNG，
-     * 这里用 Bitmap 编码成 PNG 再转 data:URL 交给 <img>。
+     * 这里用 Bitmap 编码成 PNG 再转 data:URL 交给 image 标签。
      */
     private fun rgbaToDataUrl(raw: ByteArray): String {
         if (raw.size < 12) return ""

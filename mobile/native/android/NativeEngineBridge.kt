@@ -11,7 +11,7 @@ import org.json.JSONObject
  * 依据 docs/UI_INTEGRATION.md §7「平台层对接（不要用 HTTP）」：
  *   · Android = Kotlin + JNI 直调 nc_*
  *   · 单个 NcEditor* 不支持多线程并发 → 本类用 @Synchronized 串行化
- *   · char* 用 nc_free_string 释放；uint8_t*/double* 用 nc_free_buffer 释放
+ *   · char 指针用 nc_free_string 释放；字节/浮点数组用 nc_free_buffer 释放
  *
  * 注入：
  *   NativeEngineBridge.loadLibrary()
@@ -140,50 +140,6 @@ class NativeEngineBridge(private val appContext: android.content.Context? = null
         return JSONObject().put("projects", out).toString()
     }
 
-    /**
-     * 安装模型：读入文件字节 → 算 SHA-256 → 交给 core 校验并记录。
-     * core 不碰文件系统，所以读写都由平台层完成。
-     * 返回 {"installed":1|0,"message":"…"} 的 JSON 字符串。
-     */
-    @JavascriptInterface
-    @Synchronized
-    fun installModel(modelId: String, filePath: String): String {
-        val f = java.io.File(filePath)
-        if (!f.isFile) return err("文件不存在：$filePath")
-
-        val bytes: ByteArray = try {
-            f.readBytes()
-        } catch (e: Throwable) {
-            return err("读取失败：${e.message}")
-        }
-        if (bytes.isEmpty()) return err("文件为空")
-
-        val sha = try {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            md.digest(bytes).joinToString("") { "%02x".format(it) }
-        } catch (e: Throwable) {
-            return err("计算 SHA-256 失败：${e.message}")
-        }
-
-        return try {
-            nativeInstallModel(
-                ensure(), modelId, bytes, f.absolutePath, sha,
-                System.currentTimeMillis() / 1000
-            )
-        } catch (e: Throwable) {
-            err("安装调用失败：${e.message}")
-        }
-    }
-
-    /** 模型文件应放的目录（应用私有）。 */
-    @JavascriptInterface
-    fun modelsDir(): String = modelRoot()?.absolutePath ?: ""
-
-    private fun modelRoot(): java.io.File? {
-        val base = appContext?.filesDir ?: return null
-        return java.io.File(base, "models").also { it.mkdirs() }
-    }
-
     /** AI 模型目录与状态（nc_model_catalog / nc_model_info / nc_model_status）。 */
     @JavascriptInterface
     @Synchronized
@@ -206,9 +162,9 @@ class NativeEngineBridge(private val appContext: android.content.Context? = null
     }
 
     /**
-     * native 侧返回 [w:int32][h:int32][RGBA8...] 原始像素——C ABI 的
+     * native 侧返回「宽:int32 高:int32 RGBA8...」原始像素——C ABI 的
      * nc_preview_render / nc_thumbnail_generate 输出的是像素而不是 PNG，
-     * 这里用 Bitmap 编码成 PNG 再转 data:URL 交给 <img>。
+     * 这里用 Bitmap 编码成 PNG 再转 data:URL 交给 image 标签。
      */
     private fun rgbaToDataUrl(raw: ByteArray): String {
         if (raw.size < 12) return ""
@@ -263,9 +219,6 @@ class NativeEngineBridge(private val appContext: android.content.Context? = null
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
     private external fun nativeWaveform(handle: Long, assetId: Long): String
     private external fun nativeModels(handle: Long): String
-    private external fun nativeInstallModel(handle: Long, modelId: String, data: ByteArray,
-                                            path: String, sha256: String,
-                                            nowUnix: Long): String
     private external fun nativePresetFrame(handle: Long, kind: String, style: Int,
                                           timeUs: Long, width: Int): ByteArray
 
