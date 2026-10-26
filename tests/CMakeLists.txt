@@ -3,6 +3,7 @@ add_executable(nairoclip_tests
     test_rational.cpp
     test_time.cpp
     test_model.cpp
+    test_model_invariants.cpp
     test_editor.cpp
     test_keyframe.cpp
     test_transition.cpp
@@ -95,4 +96,28 @@ else()
     target_compile_options(nairoclip_tests PRIVATE -Wall -Wextra)
 endif()
 
+# ---------------------------------------------------------------------------
+# 测试素材前置
+# ---------------------------------------------------------------------------
+# 背景：FFmpeg 真实编解码用例依赖 /tmp/media_gen/test_av.mp4 等素材。
+# 这些素材由 tests/fixtures/generate_media.sh 生成，但此前没有任何自动化
+# 步骤调用它——新环境首次跑测试必然出现若干失败（或被静默跳过）。
+#
+# 处置：把生成逻辑挂到测试可执行文件的构建后步骤（POST_BUILD），
+# 幂等（脚本内部判断已存在则跳过），失败不阻断构建（无 ffmpeg 的机器
+# 仍可编译，只是相关用例会跳过）。
+# 用 ffmpeg CLI 是否存在判断（生成脚本本身依赖 CLI，而非 libav*）。
+find_program(NAIROCLIP_FFMPEG_CLI ffmpeg)
+if(NAIROCLIP_FFMPEG_CLI)
+    add_custom_command(TARGET nairoclip_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "准备测试素材 /tmp/media_gen ..."
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/generate_media.sh /tmp/media_gen
+        COMMENT "生成 FFmpeg 测试素材（幂等）"
+        VERBATIM)
+endif()
+
 add_test(NAME nairoclip_tests COMMAND nairoclip_tests)
+# ctest 默认在 build/ 下运行；测试内部已做仓库根解析，但从源目录运行
+# 更稳妥（部分用例使用相对路径读取 models/ 与 fixtures）。
+set_tests_properties(nairoclip_tests PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)

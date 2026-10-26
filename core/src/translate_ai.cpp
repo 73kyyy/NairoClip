@@ -495,8 +495,9 @@ bool Translator::translate(const std::string& text, std::string& outText, int ma
     const AiTensor hidden = encOut[0];
 
     // ---- beam search（config num_beams = 6）----
-    // 说明：Marian/OPUS 的训练解码方式是 beam search；纯贪心会陷入短语复读
-    //（实测 merged 与分体导出均如此，且分体配合 beam 可产出完整译文）。
+    // 说明：Marian/OPUS 系用 beam search 训练解码；m2m100 亦适用。
+    // 纯贪心在本仓库的 m2m100 上其实也能收敛（实测 "I LOVE CHINA" 正确），
+    // 但 beam 对长句更稳，故保留。
     const int limit = maxNewTokens > 0 ? maxNewTokens : 128;
     constexpr int kBeams = 6;
     // 最小生成长度 = 1（不限制）。
@@ -740,18 +741,21 @@ bool Translator::translate(const std::string& text, std::string& outText, int ma
 
     // 复读检测（不截断，只标记）
     // ---------------------------------------------------------------------
-    // 实测结论：OPUS-MT-ZH-EN（77M）对中文短句存在固有退化——对同一输入，
-    // 6 条 beam 会收敛到同一退化路径（如 "park park park ..."），
-    // EOS logit 仅 1~2.4（普通 token 为 6~9），说明模型本身不倾向收尾。
+    // 历史背景：OPUS-MT-ZH-EN（77M）对中文短句存在固有退化——6 条 beam 会
+    // 收敛到同一退化路径（"park park park ..."），EOS logit 仅 1~2.4
+    // （普通 token 为 6~9），模型本身不倾向收尾。
     //
-    // 处置原则：**不做激进截断**。实测任何截断阈值都会把正常句（如
-    // "We are going to the park for a walk"）削成残句（"We are going"），
-    // 反而降低可用性。因此保留完整输出，仅通过返回值语义告知调用方
-    // 该句可能含重复；由上层决定是否采用。
+    // 现状：已换用 m2m100-418M，复读问题从**根因**解决（14 句抽样零复读，
+    // 见 docs/TRANSLATE_FRAMEWORK.md §5）。原因不是换了大模型，而是修复了
+    // 源序列缺 __zh__ / 缺 </s>、beam 混排已完成假设、minLen 强制长度
+    // 这四处缺陷——m2m100 的 EOS 预测本身是可靠的。
     //
-    // 后续改进方向（需换模型，见 docs/ROADMAP.md §5.4）：
-    //   使用更大规模的翻译模型（如 m2m100-418M / mbart-large-50），
-    //   它们对短句的收尾更稳定。
+    // 保留本检测的用途：作为**兜底信号**。若将来换成其他模型或导出，
+    // 复读仍可能以别的形式出现；此时 lastResultDegenerate() 能提示上层复核。
+    //
+    // 处置原则：**只标记，不截断**。实测任何截断阈值都会把正常句
+    // （"We are going to the park for a walk"）削成残句（"We are going"），
+    // 反而降低可用性。由上层决定是否采用或提示用户。
     bool degenerate = false;
     {
         const std::size_t n = finalTokens.size();
@@ -783,9 +787,13 @@ bool Translator::translate(const std::string& text, std::string& outText, int ma
 }
 
 const char* Translator::knownLimitation() {
-    return "OPUS-MT-ZH-EN（77M）对短中文句（约 6 字以内）存在复读倾向，"
-           "译文可能出现重复词；长句通常稳定。该限制来自模型本身，"
-           "需换用更大规模模型方可根治（见 docs/ROADMAP.md §5.4）。";
+    // 注意：本函数是**面向用户**的提示文案，必须与当前实际模型能力一致。
+    // 历史版本写的是「OPUS-MT 对短句复读、需换更大模型」——该结论在
+    // 换用 m2m100-418M 后已不成立（14 句抽样零复读，见
+    // docs/TRANSLATE_FRAMEWORK.md §5），继续返回旧文案属于误导用户。
+    return "当前模型为中→英专用，不支持其他语向。极短且歧义的中文"
+           "（如「你好」「这个多少钱」）可能译出多余虚词或标点；"
+           "疑问句的疑问语气可能丢失。建议对短句译文做一次人工复核。";
 }
 
 bool Translator::translateLines(const std::vector<std::string>& lines, TranslateDirection direction,
@@ -809,8 +817,15 @@ bool Translator::translateLines(const std::vector<std::string>& lines, Translate
             continue;
         }
         std::string err;
-        int tokens = 0;
         std::string out;
+        // 诊断字段：源句分词长度（含 BPE 子词）。
+        // 说明：此前该字段恒为 0（声明后从未赋值），属误导性数据；
+        //       译文 token 数在 translate() 内部产生但未回传，
+        //       故此处填可稳定获取的源 token 数。
+        std::vector<std::int64_t> srcTokenIds;
+        if (encodeText(src, srcTokenIds)) {
+            line.tokenCount = static_cast<int>(srcTokenIds.size());
+        }
         if (translate(src, out, 0, &err)) {
             line.target = out;
             ++stats.linesOk;
@@ -818,7 +833,6 @@ bool Translator::translateLines(const std::vector<std::string>& lines, Translate
             line.error = err.empty() ? "翻译失败" : err;
             ++stats.linesFailed;
         }
-        line.tokenCount = tokens;
         outLines.push_back(line);
     }
     const auto t1 = std::chrono::steady_clock::now();

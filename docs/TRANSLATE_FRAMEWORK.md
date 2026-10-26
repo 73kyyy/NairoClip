@@ -12,7 +12,7 @@
 |---|---|
 | 推理链路（分词 → encoder → beam decode → 反分词） | ✅ 可用 |
 | C ABI（`nc_translate_*`） | ✅ 已实现 |
-| 单元测试 `Translate.*` | ✅ 7/7 通过 |
+| 单元测试 `Translate.*` | ✅ 12/12 通过（含 5 个 m2m100 专项，均真实推理不跳过） |
 | 当前分发模型（`tools/fetch_models.sh`） | `Xenova/opus-mt-zh-en`（OPUS-MT 77M，Apache-2.0） |
 | 试验模型（本地，**未入分发**） | `facebook/m2m100_418M`（418M，**协议待核查**） |
 | m2m100 质量 | ✅ 14 句抽样全部无复读、无退化标记 |
@@ -217,6 +217,23 @@ m2m100 的 EOS 预测本身可靠（正确译文末尾 p(EOS) 即为最高分）
 以上应通过**翻译后处理或术语约束**解决，不应靠解码参数硬压。
 
 ---
+
+## 5.2 测试覆盖
+
+| 用例 | 覆盖点 |
+|---|---|
+| `Translate.Tokenizer*` / `DecodeSkipsSpecialTokens` | 分词/反分词（纯逻辑，恒执行） |
+| `Translate.RealInferenceProducesEnglish` | OPUS 路径端到端 |
+| `Translate.BatchReportsPerLineStatus` | 逐行状态 + `tokenCount` 真实填充 |
+| `Translate.BpeTokenizerRoundTrips` | m2m100 BPE 可逆性（Metaspace `▁`） |
+| `Translate.BpeProducesEnglishWithoutDegeneration` | **缺 `__zh__`/`</s>` 的回归防护** |
+| `Translate.BpeShortSentenceTerminates` | **`minLen` 过长的回归防护**（EOS 可达性） |
+| `Translate.BpeBatchTranslatesAllNonEmptyLines` | m2m100 批量路径 |
+| `Translate.BpeKnownLimitationMentionsNoStaleModel` | 用户文案不含过时结论 |
+
+**注意**：`DecodeSkipsSpecialTokens` 曾长期写错——把 OPUS 的 id 2 当作 `<unk>`，
+实际 id 2 是逗号 `,`（`0=</s>`、`1=<unk>`、`65000=<pad>`）。
+该错误未暴露是因为模型路径解析失败时整例被 skip。现已修正并补反向断言。
 
 ## 6. 失败处置约定
 

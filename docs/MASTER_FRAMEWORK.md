@@ -39,7 +39,7 @@
 | `core/include` 公开头文件 | **83** 个 `.h` |
 | 核心代码量 | **45,231** 行 |
 | C ABI 导出函数 | **241** 个 `nc_*` |
-| 测试文件 / 实际执行用例 | **86** 个 / **1146** 个（源码声明 1147，7 处 `#if` 条件编译所致） |
+| 测试文件 / 实际执行用例 | **87** 个 / **1177** 个（**0 失败**） |
 | 已落地模型 | **8** 个（另 2 个空目录） |
 | 平台层 | Android（Kotlin+JNI）、桌面 C++ 构建；**无 iOS** |
 
@@ -96,8 +96,32 @@
 |---|---|---|---|
 | 1 | **iOS 端完全缺失** | 无任何 iOS 代码 | 三端对等无法达成；App Store 无法上架 |
 | 2 | **Android JNI 未封装** | `android/.../cpp/` 为空 | Android 无法调用 241 个 C ABI 中的任何一个 |
-| 3 | **人像抠像无模型** | `matting_basic`/`matting_hq` 均为空目录 | 该功能"有代码无模型"，等于不可用 |
+| 3 | **人像抠像无模型** | `matting_basic`/`matting_hq` 均为空目录；候选 ONNX 实测输出恒 0（详见 §3.1） | 该功能"有代码无模型"，等于不可用 |
 | 4 | **TTS 无实现** | 有 `tts_zh` 模型（116M），无 `tts_ai.cpp` | 模型闲置 |
+
+### 3.1 抠像模型排查记录（2026-10-26）
+
+为补齐 P0-3，实测了两个公开 ONNX 导出，**均不可用**：
+
+| 模型 | 协议 | 输入签名 | 实测输出 |
+|---|---|---|---|
+| `onnx-community/mediapipe_selfie_segmentation` | Apache-2.0 | `[1,3,256,256]` | **恒 0**（全白输入 max ≤ 0.001） |
+| `Xenova/modnet` | Apache-2.0 | `[1,3,-1,-1]` | **恒 0**（全白输入 max ≤ 0.009） |
+
+测试方法：分别用 RGB/BGR × [0,1]/[-1,1] 四种预处理组合，输入纯色与半亮半暗图，
+输出均近似恒定。结论：**这两个 ONNX 导出本身失效**，不是预处理参数问题。
+
+> 副作用：仓库中曾有注释声称"MediaPipe 用 BGR 通道序，实测 max≈0.44"——
+> 该结论无法复现，已删除并改为 MODNet 官方约定（RGB + [-1,1]）。
+
+**现有测试为何没发现**：`tests/test_matting_ai.cpp` 读的是
+`/workspace/deps/modnet.onnx`（开发机本地文件），而非仓库内模型。
+测试通过 ≠ 产品可用。已在本文件 §9.2 记录该类"测试与实物脱节"风险。
+
+**后续可行路径**（未做，需要上游支持）：
+1. 用 `optimum` 从官方 PyTorch 权重自行导出 ONNX（最可靠）；
+2. 找提供 `sigmoid` 后处理的正确导出；
+3. 改用 MediaPipe 官方 `.tflite` + TFLite 运行时（需引入新依赖）。
 
 ### P1 — 影响可用性
 
@@ -114,7 +138,7 @@
 |---|---|
 | 9 | 短句过译、疑问语气丢失、时间消歧（详见 `TRANSLATE_FRAMEWORK.md` §5.1） |
 | 10 | 批量翻译串行，长字幕吞吐低 |
-| 11 | 12 个模块无对应测试文件（`stem_ai`、`render_engine`、`project` 等） |
+| 11 | ~~12 个模块无对应测试文件~~ → 已补 `test_model_invariants.cpp`（Clip/Track/Sequence 26 例）；`stem_ai`、`render_engine` 仍缺 |
 
 ---
 
@@ -270,19 +294,28 @@ for d in models/*/; do printf '%-24s %s\n' "$(basename $d)" "$(ls $d | wc -l)"; 
 grep -rn -iE 'bgfx|vulkan|opengl|metal' core/src/*.cpp | wc -l
 ```
 
-### 9.2 测试环境前置
+### 9.2 测试环境前置（已自动化）
 
-`nairoclip_tests` 有 3 个用例依赖 `/tmp/media_gen/test_av.mp4`
-（由其它用例生成，顺序不保证）。**未创建该目录时会出现 9 个假失败**：
+**曾经的问题**（2026-10-26 修复）：
 
-```bash
-mkdir -p /tmp/media_gen     # 不建则 MediaWriter/ExportRunner 系列失败
-```
+1. FFmpeg 用例依赖 `/tmp/media_gen/*.mp4`，但无任何步骤生成 → 9 个假失败；
+2. 模型推理用例用相对路径 `models/...`，ctest 从 `build/` 运行时找不到
+   → **全部静默 skip，表现为"通过"**。这是更危险的假安全：
+   1146 个用例"全绿"，而真实推理一次都没跑过。
 
-建目录后实测：**1146 用例，3 失败**（剩余 3 个同样因 `test_av.mp4` 缺失）。
+**现在的做法**：
 
-> 这是**测试自身的环境耦合缺陷**，不是产品代码缺陷。
-> 建议后续把 fixture 生成改为显式前置（见 §3 P2-11）。
+| 问题 | 修复 |
+|---|---|
+| 素材缺失 | `tests/CMakeLists.txt` 的 POST_BUILD 调用 `fixtures/generate_media.sh`（幂等） |
+| 路径找不到 | `test_translate_ai.cpp` 的 `repoRoot()` 自动向上探测仓库根 |
+| ctest 工作目录 | `set_tests_properties(... WORKING_DIRECTORY <repo>)` |
+
+**当前基线**：1177 用例，**0 失败**（需 ffmpeg CLI 与模型在 `models/` 下）。
+
+> 仍存在的脱节风险：`test_matting_ai.cpp` 用的是 `/workspace/deps/modnet.onnx`
+> （开发机绝对路径），而不是仓库内模型。这类"测试通过但产品无模型"的情况
+> 需要在接入真实模型时一并改为仓库内路径。
 
 ---
 

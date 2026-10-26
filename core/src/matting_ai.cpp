@@ -37,11 +37,20 @@ void preprocessModnet(const std::uint8_t* pixels, int srcW, int srcH, int dstW, 
                 const double top = at(x0, y0) * (1.0 - fx) + at(x1, y0) * fx;
                 const double bot = at(x0, y1) * (1.0 - fx) + at(x1, y1) * fx;
                 const double value = top * (1.0 - fy) + bot * fy;
-                // MediaPipe Selfie Segmentation 预处理：BGR 通道序 + [-1, 1] 归一化。
-                // 依据实测（models/matting_basic/mediapipe_selfie.onnx）：
-                //   RGB[0,1] / BGR[0,1] / RGB[-1,1] 输出几乎恒 0；
-                //   BGR[-1,1] 输出 max≈0.44，能正确区分前景。
-                // 通道映射：c=0(R)->目标槽 2，c=1(G)->1，c=2(B)->0。
+                // MODNet 约定：RGB 通道序 + [-1, 1] 归一化（mean=std=0.5）。
+                // 依据 models 侧 preprocessor_config.json：
+                //   image_mean = image_std = [0.5,0.5,0.5]，rescale = 1/255，
+                //   即 (x/255 - 0.5) / 0.5 = x/255 * 2 - 1。
+                //
+                // ⚠️ 历史注记（2026-10-26 实测证伪）：
+                //   曾有版本改为「MediaPipe 的 BGR 通道序」，依据是一条未经复现的
+                //   "BGR[-1,1] 输出 max≈0.44" 注释。本次对
+                //   onnx-community/mediapipe_selfie_segmentation 与 Xenova/modnet
+                //   两个导出实测，**四种预处理组合（RGB/BGR × [0,1]/[-1,1]）
+                //   输出均近乎恒定 0**（全白输入下 max ≤ 0.009）。
+                //   结论：那两个 ONNX 导出本身不可用，不能作为通道序的依据。
+                //   通道序在此处保持 RGB（符合 MODNet 官方约定）。
+                //   若将来接入可用模型，请先用真实人像帧验证再改这里。
                 const int slot = 2 - c;
                 out[static_cast<std::size_t>(slot) * plane +
                     static_cast<std::size_t>(y) * static_cast<std::size_t>(dstW) +
