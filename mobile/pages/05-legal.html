@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>条款与说明</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/components.css">
+<link rel="stylesheet" href="../assets/page.css">
+<style>
+  /* 法律文档阅读页：长文排版，无图片资源 */
+  .legal-wrap { padding: 0 16px 40px; max-width: 760px; margin: 0 auto; }
+  .legal-head { padding: 8px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .legal-title { font-size: 20px; font-weight: 600; color: var(--fg-1); letter-spacing: .2px; }
+  .legal-meta { margin-top: 6px; font-size: 12px; color: var(--fg-3); }
+  .legal-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px 12px; scrollbar-width: none; }
+  .legal-tabs::-webkit-scrollbar { display: none; }
+  .legal-tab {
+    flex: 0 0 auto; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--bg-2);
+    font-size: 13px; color: var(--fg-2); cursor: pointer; white-space: nowrap;
+  }
+  .legal-tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .legal-sec { margin: 0 0 18px; }
+  .legal-sec > h3 {
+    font-size: 15px; font-weight: 600; color: var(--fg-1);
+    margin: 18px 0 8px; scroll-margin-top: 12px;
+  }
+  .legal-sec > p {
+    margin: 0 0 9px; font-size: 14px; line-height: 1.72; color: var(--fg-2);
+    text-align: justify; word-break: break-word;
+  }
+  .legal-sec.highlight { background: rgba(255,255,255,.04); border-radius: 10px; padding: 2px 10px 10px; }
+  .legal-foot { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line);
+                font-size: 12px; color: var(--fg-3); line-height: 1.7; }
+  .legal-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .legal-actions button {
+    padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--bg-2); color: var(--fg-1); font-size: 13px; cursor: pointer;
+  }
+</style>
+</head>
+<body class="page">
+
+<header class="topbar">
+  <button class="icon-btn" id="btn-back" aria-label="返回">‹</button>
+  <span class="topbar-title" id="doc-title">条款与说明</span>
+  <span class="topbar-spacer"></span>
+</header>
+
+<div class="legal-tabs" id="legal-tabs" role="tablist"></div>
+
+<main class="legal-wrap">
+  <div class="legal-head">
+    <div class="legal-title" id="doc-heading">—</div>
+    <div class="legal-meta" id="doc-meta">—</div>
+  </div>
+
+  <div id="doc-body"></div>
+
+  <div class="legal-actions">
+    <button id="btn-copy">复制全文</button>
+    <button id="btn-top">回到顶部</button>
+  </div>
+
+  <div class="legal-foot" id="doc-foot"></div>
+</main>
+
+<script src="../assets/legal/legal-text.js"></script>
+<script src="../assets/legal/legal-page.js"></script>
+</body>
+</html>
