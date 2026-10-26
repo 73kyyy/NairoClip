@@ -38,6 +38,8 @@
 #include "nairoclip/core/depth_ai.h"
 #include "nairoclip/core/matting_ai.h"
 #include "nairoclip/core/speech_ai.h"
+#include "nairoclip/core/super_res_ai.h"
+#include "nairoclip/core/translate_ai.h"
 #include "nairoclip/core/person_effects.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -91,6 +93,8 @@ struct NcEditor {
     std::unique_ptr<DepthEstimator> depthEstimator;
     std::unique_ptr<MattingEstimator> mattingEstimator;
     std::unique_ptr<SpeechRecognizer> speechRecognizer;
+    std::unique_ptr<SuperResEstimator> superResEstimator;
+    std::unique_ptr<Translator> translator;
     /// 预览渲染器缓存（nc_preview_render；编辑操作后失效重建）。
     std::unique_ptr<PreviewRenderer> previewRenderer;
     /// 预览缓存有效性签名（编辑历史数 + 载入代次 + 直接修改代次 + 画布）。
@@ -4059,6 +4063,203 @@ int32_t nc_ai_engine_info(const NcEditor* editor, int32_t* out_available, char**
 // ===========================================================================
 // AI 真实推理（深度图 / 人像抠像 / 语音转字幕）
 // ===========================================================================
+
+// =============================================================================
+// 超分辨率（真实推理）
+// =============================================================================
+
+int32_t nc_superres_load(NcEditor* editor, const char* model_path, char** out_error) {
+    if (editor == nullptr || model_path == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::string failure;
+    if (editor->superResEstimator == nullptr) {
+        editor->superResEstimator.reset(new (std::nothrow) SuperResEstimator());
+    }
+    if (editor->superResEstimator == nullptr) {
+        setDetail(out_error, "内存分配失败");
+        return NC_ERROR_INTERNAL;
+    }
+    if (!editor->superResEstimator->load(model_path, &failure)) {
+        setDetail(out_error, failure);
+        editor->superResEstimator.reset();
+        return NC_ERROR_UNSUPPORTED;
+    }
+    return NC_OK;
+}
+
+int32_t nc_superres_unload(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->superResEstimator != nullptr) {
+        editor->superResEstimator->unload();
+        editor->superResEstimator.reset();
+    }
+    return NC_OK;
+}
+
+int32_t nc_superres_loaded(const NcEditor* editor) {
+    if (editor == nullptr || editor->superResEstimator == nullptr) {
+        return 0;
+    }
+    return editor->superResEstimator->loaded() ? 1 : 0;
+}
+
+int32_t nc_superres_upscale(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,
+                            int32_t scale, uint8_t** out_rgba, int32_t* out_width,
+                            int32_t* out_height, int32_t* out_tiles, int32_t* out_fallbacks,
+                            char** out_error) {
+    if (editor == nullptr || rgba == nullptr || width <= 0 || height <= 0 ||
+        (scale != 2 && scale != 4)) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->superResEstimator == nullptr || !editor->superResEstimator->loaded()) {
+        setDetail(out_error, "超分模型未加载（先调用 nc_superres_load）");
+        return NC_ERROR_UNSUPPORTED;
+    }
+    std::vector<std::uint8_t> out;
+    SuperResStats stats;
+    std::string failure;
+    const SuperResScale sc = (scale == 2) ? SuperResScale::X2 : SuperResScale::X4;
+    SuperResTiling tiling;  // 默认：自动分块 + 羽化拼接
+    if (!editor->superResEstimator->upscale(rgba, width, height, sc, tiling, out, &stats,
+                                            &failure)) {
+        setDetail(out_error, failure);
+        return NC_ERROR_INTERNAL;
+    }
+    if (out_rgba != nullptr) {
+        std::uint8_t* buffer = new (std::nothrow) std::uint8_t[out.size()];
+        if (buffer == nullptr) {
+            return NC_ERROR_INTERNAL;
+        }
+        std::memcpy(buffer, out.data(), out.size());
+        *out_rgba = buffer;
+    }
+    if (out_width != nullptr) *out_width = stats.outputWidth;
+    if (out_height != nullptr) *out_height = stats.outputHeight;
+    if (out_tiles != nullptr) *out_tiles = stats.tilesTotal;
+    if (out_fallbacks != nullptr) *out_fallbacks = stats.tilesFallback;
+    return NC_OK;
+}
+
+// =============================================================================
+// 字幕翻译（真实推理）
+// =============================================================================
+
+int32_t nc_translate_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
+                          const char* decoder_with_past_path, const char* tokenizer_json_path,
+                          char** out_error) {
+    if (editor == nullptr || encoder_path == nullptr || decoder_path == nullptr ||
+        decoder_with_past_path == nullptr || tokenizer_json_path == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::string failure;
+    if (editor->translator == nullptr) {
+        editor->translator.reset(new (std::nothrow) Translator());
+    }
+    if (editor->translator == nullptr) {
+        setDetail(out_error, "内存分配失败");
+        return NC_ERROR_INTERNAL;
+    }
+    if (!editor->translator->load(encoder_path, decoder_path, decoder_with_past_path,
+                                  tokenizer_json_path, &failure)) {
+        setDetail(out_error, failure);
+        editor->translator.reset();
+        return NC_ERROR_UNSUPPORTED;
+    }
+    return NC_OK;
+}
+
+int32_t nc_translate_unload(NcEditor* editor) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->translator != nullptr) {
+        editor->translator->unload();
+        editor->translator.reset();
+    }
+    return NC_OK;
+}
+
+int32_t nc_translate_loaded(const NcEditor* editor) {
+    if (editor == nullptr || editor->translator == nullptr) {
+        return 0;
+    }
+    return editor->translator->loaded() ? 1 : 0;
+}
+
+int32_t nc_translate_text(NcEditor* editor, const char* text, char** out_text, char** out_error) {
+    if (editor == nullptr || text == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->translator == nullptr || !editor->translator->loaded()) {
+        setDetail(out_error, "翻译模型未加载（先调用 nc_translate_load）");
+        return NC_ERROR_UNSUPPORTED;
+    }
+    std::string translated;
+    std::string failure;
+    if (!editor->translator->translate(text, translated, 0, &failure)) {
+        setDetail(out_error, failure);
+        return NC_ERROR_INTERNAL;
+    }
+    if (out_text != nullptr) {
+        *out_text = dupString(translated);
+    }
+    return NC_OK;
+}
+
+int32_t nc_translate_subtitles(NcEditor* editor, char** out_json, char** out_error) {
+    if (editor == nullptr) {
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (editor->translator == nullptr || !editor->translator->loaded()) {
+        setDetail(out_error, "翻译模型未加载（先调用 nc_translate_load）");
+        return NC_ERROR_UNSUPPORTED;
+    }
+    const auto& project = editor->project;
+    if (project.sequences.empty()) {
+        setDetail(out_error, "工程无序列");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    const Sequence& seq = project.sequences.front();
+    const auto& cues = seq.subtitles.cues();
+
+    JsonValue root = JsonValue::object();
+    root.set("ok", JsonValue::boolean(true));
+    root.set("total", JsonValue::integer(static_cast<std::int64_t>(cues.size())));
+    JsonValue lines = JsonValue::array();
+    int translatedCount = 0;
+    int failedCount = 0;
+    for (const auto& cue : cues) {
+        JsonValue item = JsonValue::object();
+        item.set("src", JsonValue::string(cue.text));
+        std::string out;
+        std::string failure;
+        if (editor->translator->translate(cue.text, out, 0, &failure) && !out.empty()) {
+            item.set("dst", JsonValue::string(out));
+            item.set("error", JsonValue::string(""));
+            // 真正落盘：经编辑器命令改写字幕文本（可撤销；不改时间与样式）
+            SubtitleCue updated = cue;
+            updated.text = out;
+            editor->editor->upsertSubtitle(seq.id, updated);
+            ++translatedCount;
+        } else {
+            item.set("dst", JsonValue::string(""));
+            item.set("error", JsonValue::string(failure.empty() ? "翻译失败" : failure));
+            ++failedCount;
+        }
+        lines.push(item);
+    }
+    root.set("translated", JsonValue::integer(translatedCount));
+    root.set("failed", JsonValue::integer(failedCount));
+    root.set("lines", lines);
+    root.set("ok", JsonValue::boolean(failedCount == 0));
+    if (out_json != nullptr) {
+        *out_json = dupString(toJsonString(root));
+    }
+    return (failedCount == 0) ? NC_OK : NC_ERROR_INTERNAL;
+}
 
 int32_t nc_depth_load(NcEditor* editor, const char* model_path, char** out_error) {
     if (editor == nullptr || model_path == nullptr) {

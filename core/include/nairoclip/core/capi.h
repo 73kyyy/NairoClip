@@ -641,6 +641,59 @@ int32_t nc_depth_apply_effect(uint8_t* rgba, const uint8_t* depth, int32_t width
                               int32_t mode, double focus_distance, double aperture,
                               double intensity, uint32_t color_rgba, double frame_time);
 
+// =============================================================================
+// 超分辨率（真实推理；模型见 docs/COMPLIANCE.md §2.1 锁定清单）
+// =============================================================================
+
+/// 加载超分模型（.onnx）。
+/// 返回 NC_OK 或错误码（引擎不可用/文件缺失/模型解析失败）。
+int32_t nc_superres_load(NcEditor* editor, const char* model_path, char** out_error);
+/// 卸载超分模型。
+int32_t nc_superres_unload(NcEditor* editor);
+/// 超分模型是否已加载（1/0）。
+int32_t nc_superres_loaded(const NcEditor* editor);
+
+/// 放大单帧（真实推理；分块重叠 + 羽化拼接；块内失败回退双线性）。
+/// - scale：2 或 4；
+/// - out_rgba：出参（库分配；尺寸 = (width*scale) × (height*scale) × 4；
+///   需 nc_free_buffer）；
+/// - out_width/out_height：出参（可空）输出尺寸；
+/// - out_tiles/out_fallbacks：出参（可空）分块总数 / 回退块数（诊断）；
+/// - out_error：出参（可空）失败原因（需 nc_free_string）。
+int32_t nc_superres_upscale(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,
+                            int32_t scale, uint8_t** out_rgba, int32_t* out_width,
+                            int32_t* out_height, int32_t* out_tiles, int32_t* out_fallbacks,
+                            char** out_error);
+
+// =============================================================================
+// 字幕翻译（真实推理）
+// =============================================================================
+
+/// 加载翻译模型（分体导出四件产物）。
+/// - encoder_path / decoder_path / decoder_with_past_path：三个 .onnx；
+/// - tokenizer_json_path：tokenizer.json；
+/// 说明：必须使用**分体导出**（decoder_model + decoder_with_past_model）。
+///       merged 导出在 cache 分支下 encoder KV 会收缩，导致译文退化。
+int32_t nc_translate_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
+                          const char* decoder_with_past_path, const char* tokenizer_json_path,
+                          char** out_error);
+/// 卸载翻译模型。
+int32_t nc_translate_unload(NcEditor* editor);
+/// 翻译模型是否已加载（1/0）。
+int32_t nc_translate_loaded(const NcEditor* editor);
+
+/// 单句翻译（中→英）。
+/// - text：UTF-8 原文；
+/// - out_text：出参（库分配；需 nc_free_string）；
+/// - out_error：出参（可空）失败原因（需 nc_free_string）。
+int32_t nc_translate_text(NcEditor* editor, const char* text, char** out_text, char** out_error);
+
+/// 批量翻译当前工程字幕（整条轨道）。
+/// - out_json：出参（库分配；JSON：{ok,total,translated,failed,lines:[{src,dst,error}]}；
+///   需 nc_free_string）；
+/// 说明：仅改写字幕文本，不改时间与样式；单句失败保留原文并在 error 中说明。
+int32_t nc_translate_subtitles(NcEditor* editor, char** out_json, char** out_error);
+
 /// 加载人像抠像模型（MODNet ONNX）。
 int32_t nc_matting_load(NcEditor* editor, const char* model_path, char** out_error);
 /// 卸载人像抠像模型。

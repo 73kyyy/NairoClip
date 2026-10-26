@@ -63,6 +63,8 @@ add_library(nairoclip_core STATIC
     src/speech_ai.cpp
     src/interpolation_ai.cpp
     src/stem_ai.cpp
+    src/super_res_ai.cpp
+    src/translate_ai.cpp
     src/blend_modes.cpp
     src/render_engine.cpp
     src/particle_engine.cpp
