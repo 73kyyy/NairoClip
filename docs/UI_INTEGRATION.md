@@ -16,7 +16,7 @@
 | 设计桥 `/api/edit` 支持的 op | **31** | `grep 'op == "'` 统计 |
 | 设计桥直接调用的 `nc_*` | **87** | `grep -oE 'nc_[a-z0-9_]+\('` 去重 |
 | **缺口**（C ABI 有、桥未接） | **145** | 232 − 87 |
-| 设计桥编译 | 通过 | `bash design/tools/build_harness.sh build` |
+| 设计桥编译 | 通过 | `cmake --build build --target nc_design_harness` |
 | 设计桥运行 | 通过 | 实测 `工程就绪：3 条轨道，时长 8.00s` |
 | 桥引用的 87 个 `nc_*` 全存在 | 87/87 | 与 `capi.h` 逐一比对 |
 
@@ -420,17 +420,16 @@ ONNX Runtime：`/workspace/deps/onnxruntime-linux-aarch64-1.23.0/`（1.23.0，IR
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
       -DNAIROCLIP_ORT_ROOT=/workspace/deps/onnxruntime-linux-aarch64-1.23.0
 cmake --build build --parallel 4
-cd build && ./tests/nairoclip_tests      # 1132 cases, 0 failed
+cd build && ./tests/nairoclip_tests      # 1146 cases（需先 mkdir -p /tmp/media_gen）
 
 # 无 FFmpeg（降级路径）
-cmake -S . -B build_noffmpeg -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
-      -DNAIROCLIP_ORT_ROOT=OFF
+cmake -S . -B build_noffmpeg -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON -DNAIROCLIP_ORT_ROOT=OFF
 cmake --build build_noffmpeg --parallel 4
-./build_noffmpeg/tests/nairoclip_tests   # 1087 cases, 0 failed
 
-# 设计桥
-bash design/tools/build_harness.sh build
-./design/tools/nc_design_harness 8777 design
+# 设计桥（已纳入 CMake，产物在 build/design/tools/）
+cmake --build build --target nc_design_harness
+./build/design/tools/nc_design_harness 8777 design
 ```
 
 ---

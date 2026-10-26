@@ -104,24 +104,26 @@ NairoClip/
 ├── core/                       # C++17 核心库（零第三方依赖）
 │   ├── include/nairoclip/core/ # 公开头文件（rational/time/types/media/clip/track/sequence/project/command/commands/editor）
 │   └── src/                    # 实现
-├── tests/                      # 单元测试（零依赖自研框架）
-│   └── fixtures/               # 测试素材生成脚本（FFmpeg 真实编解码测试依赖）
+├── models/                     # AI 模型与推理代码
+├── tests/                      # 单元测试（零依赖自研框架，1146 用例）
 ├── docs/ARCHITECTURE.md        # 架构设计说明
-└── .github/workflows/ci.yml    # CI：三平台构建 + 测试
+└── .github/workflows/ci.yml    # CI：三平台构建
 ```
 
-## 构建与测试
+## 构建
 
 ```bash
-# FFmpeg 真实编解码测试需要测试素材（首次或清理后执行一次）
-bash tests/fixtures/generate_media.sh
-
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-cd build && ctest -C Release --output-on-failure
 ```
 
-> 未生成测试素材时，依赖真实视频/音频的读取用例会显式跳过（不会给出假绿）；建议先执行上面的素材生成脚本。未编译 FFmpeg 时，这些用例在编译期被排除（`NAIROCLIP_HAS_FFMPEG`）。
+> 测试套件：`tests/` 下 86 个文件、1146 个用例（自研零依赖框架）。
+> 部分用例依赖 `/tmp/media_gen/` 下的测试素材，首次运行前需先建目录：
+>
+> ```bash
+> mkdir -p /tmp/media_gen
+> cd build && ./tests/nairoclip_tests
+> ```
 
 ## 核心设计要点
 

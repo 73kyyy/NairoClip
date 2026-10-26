@@ -45,9 +45,19 @@
 
 ## 6. 测试与 CI
 
-- 自研零依赖测试框架（tests/test_framework.h），用例自动注册；
+- 自研零依赖测试框架（`tests/test_framework.h`），用例自动注册；
 - 覆盖：有理数运算、帧号/时间换算、模型不变量、编辑器全部操作、撤销/重做、边界拒绝；
+- 当前规模：86 个测试文件、1146 个用例；
 - GitHub Actions：ubuntu / macos / windows 三平台 Release 构建 + ctest。
+
+> 依赖真实媒体素材的用例需要先建 `/tmp/media_gen/`（见 README「构建」）。
+
+## 6.1 后续框架
+
+后续开发的模块边界、目录约定、扩展点、里程碑与质量门见 **`docs/ROADMAP.md`**。
+该文档同时登记当前真实缺口（合规偏离 / 功能实现状态），以代码实测为准。
+
+---
 
 ## 7. 里程碑（截至 M2.32，测试 998 用例全绿）
 
@@ -639,10 +649,13 @@
 - ✅ 8 个 AI 模型权重获取脚本 — `tools/fetch_models.sh`（hf-mirror，实测可下载）
 - ✅ 模型安装体积校验修正 — 由「精确匹配」改为容差（清单值是参考体积）
 
-仍缺：
+仍缺（详见 `docs/ROADMAP.md` §5，以代码实测为准）：
 
-- ⬜ 超分辨率（2x/4x）— **缺实现文件**；模型 `super_res_2x4x` 已可下载
-- ⬜ 字幕翻译 — **缺实现文件**；模型 `translate_zh_en` 已可下载
+- ✅ 超分辨率（2x/4x）— 已实现 `core/src/super_res_ai.cpp` + C ABI + 测试
+- ✅ 字幕翻译 — 已实现 `core/src/translate_ai.cpp` + C ABI + 测试；
+  现用 m2m100-418M（MIT，核查见 `docs/licenses/m2m100_418M.md`），
+  14 句抽样无复读。解码约束与质量基线见 `docs/TRANSLATE_FRAMEWORK.md`
+- ✅ 深度图 — 已接入 MiDaS（锁定清单内）+ 修正预处理参数 + 测试
 - ⬜ TTS（VITS）— **缺实现文件**；模型 `tts_zh` 已可下载
 - ⬜ 镜头追踪（OpenCV CSRT）— 仅有 `AiFeatureType::CameraTracking` 枚举，无实现
 - ⬜ 滤镜库 LUT（5.7）— C ABI 无 `nc_set_lut` 一类入口

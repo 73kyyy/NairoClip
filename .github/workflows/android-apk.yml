@@ -53,6 +53,24 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      # 出包前剔除仅用于开发的测试与素材（只影响本次 CI 工作区，仓库内容不变）。
+      # 目的：① 产物不携带任何测试资产；② 缩小打包上下文与构建时间。
+      # 注意：这些目录在仓库中保留，供后续开发/回归使用；
+      #       任何 CI 之外的本地构建都不执行本步骤。
+      - name: Prune dev-only test assets (workflow workspace only)
+        run: |
+          set -euo pipefail
+          echo "剔除前："
+          du -sh tests design/tools mobile/tools 2>/dev/null || true
+          rm -rf tests
+          rm -rf design/tools
+          rm -rf mobile/tools
+          rm -rf build_test build_noffmpeg build_pic build_release
+          echo "剔除后（应全部不存在）："
+          for d in tests design/tools mobile/tools; do
+            if [ -e "$d" ]; then echo "❌ 仍存在: $d"; exit 1; else echo "✅ 已剔除: $d"; fi
+          done
+
       - name: Build core for each ABI
         run: |
           set -euo pipefail
@@ -120,6 +138,20 @@ jobs:
 
       - name: Show APK
         run: find android -name '*.apk' -exec ls -lh {} \;
+
+      # 产物自检：确认 APK 内不含测试/开发资产
+      - name: Verify APK has no test assets
+        run: |
+          set -euo pipefail
+          APK=$(find android -name '*.apk' | head -1)
+          echo "检查: $APK"
+          LIST=$(unzip -l "$APK")
+          if echo "$LIST" | grep -qiE 'test|fixture|media_gen|tools/w'; then
+            echo "❌ APK 含测试资产："
+            echo "$LIST" | grep -iE 'test|fixture|media_gen|tools/w' | head -20
+            exit 1
+          fi
+          echo "✅ APK 不含测试资产"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
