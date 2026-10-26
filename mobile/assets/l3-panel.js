@@ -98,6 +98,7 @@
 
     const el = EL();
     el.title.textContent = spec.title;
+    bindLegalEntry(el, key, spec);
     el.panel.hidden = false;
     el.mask.hidden = false;
     requestAnimationFrame(() => el.panel.classList.add('open'));
@@ -105,6 +106,69 @@
     renderSeg();
     renderActions();
     renderBody();
+  }
+
+  /* ---------------- 法律入口（每个模块面板都有） ----------------
+     规则：面板标题右侧显示「?」按钮，点击直达与该功能相关的条款。
+     映射依据《人工智能生成合成内容标识办法》的触发范围：
+       · 视觉类 AI（特效/抠像/超分/背景）→ AI 生成内容标识说明 §2
+       · 文本类 AI（字幕/翻译）          → AI 功能与模型说明 §3
+       · 音频类 AI（配音/降噪/分离）      → AI 生成内容标识说明 §2
+       · 导出                            → 用户协议 §5（标识义务）
+     未列入的面板统一指向「AI 功能与模型说明」，保证任何模块都有出口。 */
+  const LEGAL_BY_PANEL = {
+    fxscreen: ['aiNotice', 2], fxperson: ['aiNotice', 2],
+    fxatmo: ['aiNotice', 2], fxmotion: ['aiNotice', 2],
+    fxparam: ['aiNotice', 2],
+    matting: ['aiNotice', 2], chroma: ['aiNotice', 2],
+    bgfill: ['aiNotice', 2], superres: ['aiNotice', 2],
+    depth: ['aiNotice', 2], reframe: ['aiNotice', 2],
+    transpreset: ['aiNotice', 2], transparam: ['aiNotice', 2],
+    subtitle: ['aiModels', 3], subtitlestyle: ['aiModels', 3],
+    translate: ['aiModels', 3], speechcut: ['aiModels', 3],
+    tts: ['aiNotice', 2], audio: ['aiNotice', 2], denoise: ['aiNotice', 2],
+    export: ['terms', 5], exportpage: ['terms', 5]
+  };
+
+  function legalTarget(key, spec) {
+    if (LEGAL_BY_PANEL[key]) return LEGAL_BY_PANEL[key];
+    // 兜底：按面板名猜测功能类别
+    const t = (spec && spec.title) || '';
+    if (/字幕|翻译|文字/.test(t)) return ['aiModels', 3];
+    if (/特效|抠像|超分|背景|景深|蒙版/.test(t)) return ['aiNotice', 2];
+    if (/音频|配音|降噪|音量/.test(t)) return ['aiNotice', 2];
+    return ['aiModels', 1];
+  }
+
+  /** 在面板标题右侧挂「?」入口（幂等：重复打开不重复插入）。 */
+  function bindLegalEntry(el, key, spec) {
+    if (!el || !el.title) return;
+    const wrap = el.title.parentElement;
+    if (!wrap) return;
+    let btn = wrap.querySelector('.panel-legal');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'panel-legal';
+      btn.type = 'button';
+      btn.setAttribute('aria-label', '查看功能说明与合规条款');
+      btn.textContent = '?';
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const [doc, sec] = btn._target || ['aiModels', 1];
+        const url = `05-legal.html?doc=${encodeURIComponent(doc)}` +
+                    `&from=${encodeURIComponent('10-editor.html')}` +
+                    (sec ? `#sec-${sec}` : '');
+        location.href = url;
+      });
+      // 插入到标题之后
+      if (el.title.nextSibling) wrap.insertBefore(btn, el.title.nextSibling);
+      else wrap.appendChild(btn);
+    }
+    btn._target = legalTarget(key, spec);
+    const t = btn._target;
+    const names = { terms: '用户协议', privacy: '隐私政策', copyright: '版权与许可',
+                    aiNotice: 'AI 生成内容标识说明', aiModels: 'AI 功能与模型说明' };
+    btn.title = `本功能的 AI 标识与合规说明（${names[t[0]] || t[0]} 第 ${t[1]} 条）`;
   }
 
   function close() {
@@ -853,6 +917,9 @@
 
   window.L3OPEN = open;
   window.L3CLOSE = close;
+  /** 供其他模块（如导出确认、AI 任务提示）复用同一套法律跳转。 */
+  window.L3LEGAL = bindLegalEntry;
+  window.L3LEGAL_TARGET = legalTarget;
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bind);
   } else {

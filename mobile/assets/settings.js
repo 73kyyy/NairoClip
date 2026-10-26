@@ -229,18 +229,33 @@ async function paintAbout() {
   }
 }
 
-/* ---------- 协议文档 ---------- */
-const DOC_NAME = {
-  terms: '用户协议',
-  privacy: '隐私政策',
-  copyright: '版权与许可',
-  thirdparty: '第三方组件'
-};
+/* ---------- 协议文档（跳转到法律阅读页，文本见 assets/legal/legal-text.js） ---------- */
+/* data-doc 的取值直接对应 NCLegal 的文档 id：
+   terms / privacy / copyright / aiNotice / aiModels
+   data-sec 可选：定位到第 N 条（用于「AI 标识义务」这类精确跳转）。 */
 document.querySelectorAll('[data-doc]').forEach((el) => {
   el.addEventListener('click', () => {
-    toast(`${DOC_NAME[el.dataset.doc] || '文档'}：待接入正式文本`);
+    const doc = el.dataset.doc;
+    const sec = el.dataset.sec;
+    openLegal(doc, sec);
   });
 });
+
+/**
+ * 打开法律文档。
+ * @param {string} doc 文档 id
+ * @param {string|number} [sec] 段序号（1 起）
+ * @param {string} [from] 返回目标页
+ */
+function openLegal(doc, sec, from) {
+  const legal = window.NCLegal;
+  const known = legal ? legal.listDocs() : [];
+  const id = known.indexOf(doc) >= 0 ? doc : (known[0] || 'terms');
+  let url = `05-legal.html?doc=${encodeURIComponent(id)}`;
+  if (from) url += `&from=${encodeURIComponent(from)}`;
+  if (sec) url += `#sec-${encodeURIComponent(sec)}`;
+  location.href = url;
+}
 
 /* ---------- 折叠分组 ---------- */
 document.querySelectorAll('.row[data-open]').forEach((btn) => {

@@ -176,4 +176,18 @@ paintUser();
 /* ---------- 启动 ---------- */
 (async function boot() {
   await load();
+
+/* ---------- 条款跳转（02-me.html 的「关于」区） ----------
+   data-doc / data-sec 语义与设置页一致；文本见 assets/legal/legal-text.js。 */
+document.querySelectorAll('[data-doc]').forEach((el) => {
+  el.addEventListener('click', () => {
+    const doc = el.dataset.doc || 'terms';
+    const sec = el.dataset.sec;
+    let url = `05-legal.html?doc=${encodeURIComponent(doc)}` +
+              `&from=${encodeURIComponent('02-me.html')}`;
+    if (sec) url += `#sec-${encodeURIComponent(sec)}`;
+    location.href = url;
+  });
+});
+
 })();

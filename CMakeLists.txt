@@ -19,6 +19,14 @@ option(NAIROCLIP_DEVELOPMENT_GPL_OK
 add_subdirectory(core)
 add_subdirectory(tools)
 
+# 设计桥：仅桌面/开发构建需要（依赖 zlib 的 PNG 编码与本地 HTTP）。
+# 交叉编译（Android/iOS）与 CI 出包时被剔除，因此按目录存在性条件加入，
+# 避免「剔除后配置阶段失败」。
+option(NAIROCLIP_BUILD_DESIGN_HARNESS "Build design review harness (desktop)" ON)
+if(NAIROCLIP_BUILD_DESIGN_HARNESS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/design/tools/CMakeLists.txt")
+    add_subdirectory(design/tools)
+endif()
+
 if(NAIROCLIP_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

@@ -132,7 +132,7 @@
     ],
     人物: [
       { id: 31, name: '抖动' }, { id: 32, name: '放大' }, { id: 33, name: '边缘检测' },
-      { id: 34, name: '瘦身' }, { id: 37, name: '发光轮廓' }
+      { id: 34, name: '瘦身' }, { id: 35, name: '发光轮廓' }
     ]
   };
 
@@ -143,11 +143,44 @@
   ];
 
   /* 转场：仅列常用名，id 对应引擎 transitionTypes */
+  /* 转场预设：id 必须等于 core::TransitionType 枚举值（0..33），
+     直接作为 nc_add_transition 的 transition_type 传入。
+     名称取自 core/src/transition.cpp 的 transitionName()，逐字一致。 */
   const TRANSITIONS = [
-    { id: 1, name: '叠化' },   { id: 2, name: '闪白' },   { id: 3, name: '闪黑' },
-    { id: 4, name: '左推' },   { id: 5, name: '右推' },   { id: 6, name: '上推' },
-    { id: 7, name: '下推' },   { id: 8, name: '放大' },   { id: 9, name: '缩小' },
-    { id: 10, name: '旋转' },  { id: 11, name: '模糊' },  { id: 12, name: '故障' }
+    { id: 0,  name: '交叉溶解',   cat: '基础' },
+    { id: 1,  name: '淡入黑场',   cat: '基础' },
+    { id: 2,  name: '从黑场淡入', cat: '基础' },
+    { id: 3,  name: '闪白',       cat: '基础' },
+    { id: 4,  name: '左向擦除',   cat: '几何' },
+    { id: 5,  name: '右向擦除',   cat: '几何' },
+    { id: 6,  name: '上滑',       cat: '运镜' },
+    { id: 7,  name: '缩放',       cat: '运镜' },
+    { id: 8,  name: '硬切',       cat: '基础' },
+    { id: 9,  name: '色彩叠化',   cat: '叠化' },
+    { id: 10, name: '模糊叠化',   cat: '叠化' },
+    { id: 11, name: '拉远',       cat: '运镜' },
+    { id: 12, name: '旋转',       cat: '运镜' },
+    { id: 13, name: '甩镜',       cat: '运镜' },
+    { id: 14, name: '缩放冲击',   cat: '运镜' },
+    { id: 15, name: '波纹',       cat: '扭曲' },
+    { id: 16, name: '液化',       cat: '扭曲' },
+    { id: 17, name: '鱼眼',       cat: '扭曲' },
+    { id: 18, name: '故障扭曲',   cat: '扭曲' },
+    { id: 19, name: 'RGB 分离',   cat: '故障' },
+    { id: 20, name: '信号干扰',   cat: '故障' },
+    { id: 21, name: '数字噪点',   cat: '故障' },
+    { id: 22, name: '光晕扫过',   cat: '光效' },
+    { id: 23, name: '镜头光斑',   cat: '光效' },
+    { id: 24, name: '曝光闪烁',   cat: '光效' },
+    { id: 25, name: '圆形擦除',   cat: '几何' },
+    { id: 26, name: '百叶窗',     cat: '几何' },
+    { id: 27, name: '马赛克分割', cat: '几何' },
+    { id: 28, name: '像素化',     cat: '几何' },
+    { id: 29, name: '粒子消散',   cat: '粒子' },
+    { id: 30, name: '烟雾过渡',   cat: '粒子' },
+    { id: 31, name: '光点聚散',   cat: '粒子' },
+    { id: 32, name: '胶片闪烁',   cat: '复古' },
+    { id: 33, name: '老电影划痕转场', cat: '复古' }
   ];
 
   const RATIOS = [

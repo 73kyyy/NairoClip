@@ -38,3 +38,6 @@ Thumbs.db
 # Android 签名文件（由 CI 生成，不入库）
 /android/app/*.jks
 /android/app/*.keystore
+
+# 设计桥编译产物
+/design/tools/nc_design_harness

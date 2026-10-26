@@ -12,8 +12,8 @@
 //
 // 仅用于设计评审与平台层对接参考，不进入产品运行时。
 //
-// 构建：bash design/tools/build_harness.sh
-// 运行：./design/tools/nc_design_harness [port] [design_root]
+// 构建：cmake --build build --target nc_design_harness
+// 运行：./build/design/tools/nc_design_harness [port] [design_root]
 // =============================================================================
 
 #include "nairoclip/core/capi.h"
