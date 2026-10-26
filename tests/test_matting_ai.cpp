@@ -74,8 +74,11 @@ NC_TEST(MattingAI, QualityNamesAndSizes) {
     NC_CHECK_EQ(std::string(mattingQualityName(MattingQuality::HighPrecision)),
                 std::string("high_precision"));
     // 推理输入边长（基础 512 / 高精度 768）
-    NC_CHECK_EQ(mattingAiQualityInputSize(MattingQuality::Basic), 512);
-    NC_CHECK_EQ(mattingAiQualityInputSize(MattingQuality::HighPrecision), 768);
+    // 锁定模型 MediaPipe Selfie Segmentation 输入固定 256×256（实测 I/O）。
+    // 两档位共用同一输入尺寸；差别体现在后处理羽化与上采样精度，
+    // 不改变「三端功能对等」原则（见 docs/COMPLIANCE.md §3）。
+    NC_CHECK_EQ(mattingAiQualityInputSize(MattingQuality::Basic), 256);
+    NC_CHECK_EQ(mattingAiQualityInputSize(MattingQuality::HighPrecision), 256);
     MattingQuality quality;
     NC_CHECK(mattingQualityFromInt(0, quality) && quality == MattingQuality::Basic);
     NC_CHECK(mattingQualityFromInt(1, quality) && quality == MattingQuality::HighPrecision);

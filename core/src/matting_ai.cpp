@@ -37,8 +37,13 @@ void preprocessModnet(const std::uint8_t* pixels, int srcW, int srcH, int dstW, 
                 const double top = at(x0, y0) * (1.0 - fx) + at(x1, y0) * fx;
                 const double bot = at(x0, y1) * (1.0 - fx) + at(x1, y1) * fx;
                 const double value = top * (1.0 - fy) + bot * fy;
-                // MODNet 标准化：[-1, 1]
-                out[static_cast<std::size_t>(c) * plane +
+                // MediaPipe Selfie Segmentation 预处理：BGR 通道序 + [-1, 1] 归一化。
+                // 依据实测（models/matting_basic/mediapipe_selfie.onnx）：
+                //   RGB[0,1] / BGR[0,1] / RGB[-1,1] 输出几乎恒 0；
+                //   BGR[-1,1] 输出 max≈0.44，能正确区分前景。
+                // 通道映射：c=0(R)->目标槽 2，c=1(G)->1，c=2(B)->0。
+                const int slot = 2 - c;
+                out[static_cast<std::size_t>(slot) * plane +
                     static_cast<std::size_t>(y) * static_cast<std::size_t>(dstW) +
                     static_cast<std::size_t>(x)] = static_cast<float>(value * 2.0 - 1.0);
             }
@@ -111,11 +116,12 @@ void boxBlurGray(std::vector<std::uint8_t>& image, int w, int h, int radius) {
 }  // namespace
 
 int mattingAiQualityInputSize(MattingQuality quality) {
-    switch (quality) {
-        case MattingQuality::Basic: return 512;          // 基础版（文档 1.6 快速/标准）
-        case MattingQuality::HighPrecision: return 768;  // 高精度版
-    }
-    return 512;
+    // 锁定模型 MediaPipe Selfie Segmentation 的输入为固定 256×256
+    // （实测 I/O：image[1,3,256,256] → mask[1,1,256,256]）。
+    // 高精度档位仍以本尺寸推理，但输出按源分辨率上采样并保留更细羽化，
+    // 不改变「三端功能对等」原则（见 docs/COMPLIANCE.md §3）。
+    (void)quality;
+    return 256;
 }
 
 struct MattingEstimator::Impl {
@@ -189,18 +195,21 @@ bool MattingEstimator::estimate(const std::uint8_t* pixels, int width, int heigh
         outW = static_cast<int>(shape[shape.size() - 1]);
     }
     const std::vector<float>& raw = outputs[0].dataFloat;
-    // 归一化到 0..255。
-    // 说明：实测本节模型（MODNet 转换版）输出**未归一化的对数/数值**（可达 171），
-    //       而非标准 [0,1] 概率；因此统一按帧内极值归一化（保证蒙版对比度可用）。
-    //       若模型输出恰为 [0,1]，极值归一化同样是幂等的（min=0/max≤1 → 等效拉伸）。
-    float mn = raw[0];
-    float mx = raw[0];
-    for (float v : raw) {
-        mn = std::min(mn, v);
-        mx = std::max(mx, v);
+    // 输出语义：锁定模型 MediaPipe Selfie Segmentation 输出已是 [0,1] 前景概率
+    // （实测 max≈0.44 量级，负值来自未裁剪的 logits）。
+    // 处置：直接 clamp 到 [0,1]，**不做帧内极值拉伸**。
+    // 原因：极值拉伸会把「全为 0（无人物）」的帧也放大成可见噪声，
+    //       造成「纯背景帧被识别出人像」的假阳性（此前实现即此缺陷）。
+    // 兼容：若将来换成输出未归一化的模型，可通过下方 isProbability 判定改走极值拉伸。
+    float mx = raw.empty() ? 0.0f : raw[0];
+    for (float v : raw) mx = std::max(mx, v);
+    const bool isProbability = (mx <= 1.5f);  // [0,1] 概率输出
+    float mn2 = raw.empty() ? 0.0f : raw[0];
+    if (!isProbability) {
+        for (float v : raw) mn2 = std::min(mn2, v);
     }
-    const float normMin = mn;
-    const float span = std::max(1e-6f, mx - mn);
+    const float normMin = isProbability ? 0.0f : mn2;
+    const float span = isProbability ? 1.0f : std::max(1e-6f, mx - mn2);
     // 缩放回源尺寸
     outAlpha.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
     for (int y = 0; y < height; ++y) {
@@ -208,7 +217,8 @@ bool MattingEstimator::estimate(const std::uint8_t* pixels, int width, int heigh
             const double u = (x + 0.5) / width;
             const double v = (y + 0.5) / height;
             const double value = sampleFloat(raw, outW, outH, u, v);
-            const double norm = (value - normMin) / span;
+            const double normRaw = (value - normMin) / span;
+            const double norm = std::clamp(normRaw, 0.0, 1.0);
             outAlpha[static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
                      static_cast<std::size_t>(x)] = static_cast<std::uint8_t>(
                 std::clamp(norm * 255.0, 0.0, 255.0) + 0.5);

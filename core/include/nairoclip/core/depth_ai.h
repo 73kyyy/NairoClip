@@ -63,8 +63,9 @@ public:
     bool estimate(const std::uint8_t* pixels, int width, int height,
                   std::vector<std::uint8_t>& outDepth, std::string* outputFailure = nullptr);
 
-    /// 推理输入边长（模型固定 518；供平台层预估耗时）。
-    static constexpr int inputSize() { return 518; }
+    /// 推理输入边长（锁定模型 DPT-Hybrid/MiDaS 固定 384，见
+    /// 模型自带 preprocessor_config.json 的 size.height/width；供平台层预估耗时）。
+    static constexpr int inputSize() { return 384; }
 
 private:
     struct Impl;

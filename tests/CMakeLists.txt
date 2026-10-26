@@ -23,6 +23,8 @@ add_executable(nairoclip_tests
     test_transition_library.cpp
     test_ai_advanced.cpp
     test_depth_ai.cpp
+    test_super_res_ai.cpp
+    test_translate_ai.cpp
     test_matting_ai.cpp
     test_speech_ai.cpp
     test_interpolation_ai.cpp

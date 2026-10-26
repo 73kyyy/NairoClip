@@ -10,12 +10,17 @@ namespace core {
 
 namespace {
 
-/// 双线性缩放 RGBA8 → RGB float（0..1）并归一化（Depth-Anything 预处理）。
-/// 输出布局：[1, 3, H, W]（CHW；ImageNet 均值/方差）。
+/// 双线性缩放 RGBA8 → RGB float（0..1）并归一化（DPT/MiDaS 预处理）。
+/// 输出布局：[1, 3, H, W]（CHW）。
+/// 归一化参数取自模型自带 preprocessor_config.json：
+///   image_mean = [0.5, 0.5, 0.5]，image_std = [0.5, 0.5, 0.5]，
+///   rescale_factor = 1/255（即先除以 255 再 (x-0.5)/0.5）。
+/// 注意：**不是** ImageNet 均值/方差（那是 Depth-Anything 的约定）。
+/// 用错会让深度图对比度与远近关系失真（此前实现即为此缺陷）。
 void preprocessToCHW(const std::uint8_t* pixels, int srcW, int srcH, int dstW, int dstH,
                      std::vector<float>& out) {
-    static constexpr float kMean[3] = {0.485f, 0.456f, 0.406f};
-    static constexpr float kStd[3] = {0.229f, 0.224f, 0.225f};
+    static constexpr float kMean[3] = {0.5f, 0.5f, 0.5f};
+    static constexpr float kStd[3] = {0.5f, 0.5f, 0.5f};
     out.assign(static_cast<std::size_t>(3) * static_cast<std::size_t>(dstH) *
                    static_cast<std::size_t>(dstW),
                0.0f);
