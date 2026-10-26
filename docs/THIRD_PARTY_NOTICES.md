@@ -57,6 +57,7 @@
 | UVR-MDX-NET-Voc_FT | MIT | 保留版权与许可声明 |
 | whisper.cpp（含模型） | MIT | 保留版权与许可声明 |
 | MADLAD-400 | Apache-2.0 | 保留 NOTICE 与许可声明 |
+| **m2m100-418M**（`facebook/m2m100_418M`） | **MIT** | 保留版权与许可声明；核查记录 `docs/licenses/m2m100_418M.md`；ONNX 导出：`Xenova/m2m100_418M` |
 | VITS（官方 LJSpeech/VCTK 权重） | MIT（代码）/ 数据集各自协议（LJSpeech 公版权、VCTK CC-BY-4.0） | 注明权重来源与数据集 |
 | MiDaS | MIT | 保留版权与许可声明 |
 | Silero VAD | MIT | 保留版权与许可声明 |
@@ -96,6 +97,12 @@ SOFTWARE.
 > 说明：上为 MIT 标准全文。正式发行时，每个组件的 `copyright notice` 行须替换为
 > 各项目实际版权行（如 `Copyright (c) Microsoft Corporation`），并在本文件中
 > 逐组件列出。
+>
+> 本项目涉及的 MIT 组件版权行：
+>
+> - **m2m100-418M**：`Copyright (c) Facebook, Inc. and its affiliates.`
+>   （来源：facebookresearch/fairseq LICENSE；模型卡声明 `license: mit`；
+>   见 `docs/licenses/m2m100_418M-LICENSE.txt`）
 
 ### BSD 2-Clause License（适用于 bgfx / dav1d）
 

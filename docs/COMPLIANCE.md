@@ -52,7 +52,7 @@
 | 超分辨率 | Real-ESRGAN（+ OpenCV 人脸定向增强） | BSD-3-Clause |
 | 人声分离 | UVR-MDX-NET-Voc_FT | MIT |
 | 语音转字幕 | whisper.cpp | MIT |
-| 字幕翻译 | MADLAD-400（首阶段云端 API） | Apache-2.0 |
+| 字幕翻译 | **m2m100-418M**（`facebook/m2m100_418M`）<br>原定 MADLAD-400 已因"必须本地部署"放弃 | **MIT**<br>（核查记录 `docs/licenses/m2m100_418M.md`） |
 | TTS | VITS（官方 LJSpeech/VCTK 权重） | MIT（权重限定） |
 | **深度图** | **MiDaS** | MIT |
 | 镜头追踪 | OpenCV CSRT/KCF（传统算法） | Apache-2.0 |
@@ -161,7 +161,7 @@
 | # | 校验项 | 代码/文档位置 | 状态 |
 |---|---|---|---|
 | 1 | 深度图锁定 MiDaS（禁止 Depth-Anything 转正） | 本文档 2.1/2.2 | ✅ 已记录 |
-| 2 | 模型变更走独立协议核查 | 本文档 2.3 | ✅ 机制已定义 |
+| 2 | 模型变更走独立协议核查 | 本文档 2.3 | ✅ 机制已定义；m2m100-418M 已核查（`docs/licenses/`） |
 | 3 | 三端功能集合/导出质量上限一致 | 本文档 3 | ✅ 已定义（平台层执行） |
 | 4 | 量化精度为唯一允许差异 | 本文档 3 | ✅ 已定义 |
 | 5 | 低端设备不隐藏/不降级（提示耗时） | 本文档 3 | ✅ 已定义（UI 层执行） |
@@ -177,6 +177,7 @@
 | 15 | AI 标识（显式画面 + 显式音频 + 隐式元数据） | `ai_label` / `ai_marking` | ✅ 已实现（源码级）+ 端到端验证 |
 | 16 | 日志留存 ≥6 个月 | 本文档 4.3 | ⚠️ 平台层执行 |
 | 17 | 开源 NOTICE 页面（协议全文 + CI 审计） | `docs/THIRD_PARTY_NOTICES.md` | ✅ 已产出（CI 待接） |
+| 17b | 翻译模型协议核查（m2m100-418M = MIT） | `docs/licenses/m2m100_418M.md` | ✅ 已核查（待负责人签字） |
 | 18 | 加密合规声明（ITSAppUsesNonExemptEncryption） | 本文档 5.2 | ⚠️ 提审时执行 |
 | 19 | 服务端灾备 | 本文档 5.3 | ⚠️ 平台层执行 |
 
