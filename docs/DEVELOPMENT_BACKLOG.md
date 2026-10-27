@@ -641,19 +641,71 @@ POST_BUILD 步骤幂等生成，`touch` 源码触发重编译后自动恢复，�
 
 ---
 
-### B2-2 ⬜ 智能填充算法
+### B2-2 ✅ 智能填充算法
 
-**不是随机塞素材**，而是打分匹配：
+**已实施（2026-10-28）**：`core/include/nairoclip/core/template_fill.h` +
+`core/src/template_fill.cpp`。
 
-| 维度 | 权重 | 说明 |
+**先说能力边界（这是本次最重要的判断）**
+
+文档列了四个打分维度，但其中两个**本库拿不到数据**：
+
+| 维度 | 需要的数据 | 现状 |
 |---|---|---|
-| 时长是否够槽位 | 硬性 | 不够直接排除 |
-| 色调与相邻槽位协调 | 高 | 避免相邻镜头色温跳变 |
-| 主体位置适配 | 中 | 居中/偏左/偏右 |
-| 运动方向承接 | 中 | 左摇接左摇 |
-| 素材复用惩罚 | 低 | 同一素材避开相邻 |
+| 时长够不够槽位 | `MediaAsset::duration` | ✅ 已有 → 硬性过滤 |
+| 色调与相邻槽位协调 | 素材平均色 | ⚠️ 需调用方先分析（`AssetFeatures::color`）|
+| 主体位置适配 | 主体在画面的 x/y | ❌ **无任何分析能力** |
+| 运动方向承接 | 运镜方向 | ❌ **无任何分析能力** |
 
-**交付**：给定素材集 + 模板，断言输出槽位分配合理（每个槽位有素材、时长足够）。
+所以接口设计成 `AssetFeatures` **由调用方提供**，不假装能自己算出来。
+不填时对应维度按 **0.5 中性分**处理——关键是所有候选都用同一中性值，
+因此**只影响绝对分、不影响相对排序**，不会扭曲选择结果。
+
+为什么不在填充时解码视频取平均色：会引入 FFmpeg 依赖，且 100 个素材要解码
+100 次，在 UI 交互路径上不可接受。正确做法是**导入时分析一次并缓存**，
+`AssetFeatures` 就是那个缓存载体。
+
+**打分公式**：
+```
+总分 = 时长余量分 × 1.0
+     + 色调协调分 × 2.0
+     + 主体位置分 × 1.5
+     + 运动承接分 × 1.5
+     - 复用惩罚 × 0.8 × 已用次数
+```
+各分项归一化到 0..1，权重可配（`FillWeights`）。
+
+**几个刻意的设计选择**：
+
+1. **「刚好够」不是满分**。时长余量 = 素材/槽位，比值 1.0 → 0.5 分，
+   2.0 以上 → 1.0 分。刚好够意味着没有裁剪余地，用户想微调时长就得重填。
+2. **贪心而非全局最优**。槽位之间通过「与前一个已选素材比」耦合，贪心
+   已能保证相邻协调，且 O(S×C) 而非指数级——UI 交互必须能即时出结果。
+3. **复用不是开关而是惩罚**。素材够用时复用会被扣分自然避免；素材不够时
+   宁可复用也不留空。同一套逻辑覆盖两种场景，不需要额外配置。
+4. **复用惩罚关掉后会黏在最优素材上**（`ReusePenaltyZeroAllowsStickingToOne`
+   固化了这个行为）——这是权重设计的必然结果，写进测试免得日后被当 bug。
+
+**测试**（`tests/test_template_fill.cpp`，15 用例）：
+- `FillsEverySlotWhenEnoughMaterial` / `ReusesWhenMaterialIsScarce` — 够/不够两种情形；
+- `TooShortAssetIsHardFiltered` — 硬性过滤，且**原因要说明时长不够**；
+- `ImageIsNeverFilteredByDuration` — 图片可无限拉长（`duration=0` 也能填 10s 槽位）；
+- `PrefersLongerAssetForSlack` / `ReusePenaltyAvoidsUnnecessaryRepeats`
+  / `ReusePenaltyZeroAllowsStickingToOne` — 两个权重各自可验证；
+- `ColorHarmonyPrefersSimilarToPrevious` — 相邻色调协调；
+- `MissingFeaturesAreNeutralNotPenalized` — **缺特征不受系统性歧视**（这条守住了
+  「不伪造数据」的承诺）；
+- `NoCandidateReportsReason` — 填不上要说清为什么；
+- `Deterministic` / `WorksWithBuiltinTemplates`（10 个内置模板 + 充足素材必须全填满）。
+
+**变异验证**：
+1. 「去掉时长硬过滤」→ `TooShortAssetIsHardFiltered` 报警 ✅
+2. 「去掉复用惩罚」→ `ReusePenaltyAvoidsUnnecessaryRepeats` 报警 ✅
+
+**未完成**：
+- 接入 B2-3 模板应用管线（把 `FillResult` 变成真实时间线上的片段）；
+- 导入时的素材分析（算 `ColorProfile` 并缓存），这是让色调维度真正生效的前提；
+- 主体位置/运动方向需要 B5-3（人脸/目标跟踪）才有数据来源。
 
 ---
 
