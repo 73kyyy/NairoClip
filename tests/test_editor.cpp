@@ -905,3 +905,179 @@ NC_TEST(Editor, DetachAudioStillWorksOnAudioTrack) {
     NC_CHECK_EQ(findTrack(f.project, f.seqId, audioTrack)->clips.size(), std::size_t(1));
 }
 
+
+// =============================================================================
+// 轨道重排（B2-5）
+// =============================================================================
+//
+// 背景：视频轨的上下顺序决定遮挡关系（上层盖下层）。此前轨道只能增删、
+// 不能改顺序，用户建错顺序后只能删了重建。
+
+namespace {
+
+/// 建 3 条轨道：V1 / V2 / V3，按创建顺序存放。
+struct TrackOrderFixture {
+    Project project;
+    SequenceId seqId;
+    TrackId v1, v2, v3;
+    explicit TrackOrderFixture() {
+        Sequence seq;
+        seq.id = SequenceId{project.ids.next()};
+        seq.frameRate = fps30();
+        project.sequences.push_back(seq);
+        seqId = project.sequences.front().id;
+        TimelineEditor editor(project);
+        NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &v1).isOk());
+        NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V2", &v2).isOk());
+        NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V3", &v3).isOk());
+    }
+    std::vector<TrackId> order() const {
+        std::vector<TrackId> out;
+        for (const auto& t : project.sequences[0].tracks) out.push_back(t.id);
+        return out;
+    }
+};
+
+}  // namespace
+
+NC_TEST(Editor, MoveTrackReordersAndUndoes) {
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+    // 把 V1 移到末尾
+    NC_CHECK(editor.moveTrack(f.seqId, f.v1, 2).isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v2, f.v3, f.v1}));
+    NC_CHECK(f.project.sequences[0].invariantsHold());
+    // 撤销 → 还原原始顺序
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+    // 重做 → 再次移动
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v2, f.v3, f.v1}));
+}
+
+NC_TEST(Editor, MoveTrackUpward) {
+    // 向上移动是另一个分支（索引变小），单独覆盖
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(editor.moveTrack(f.seqId, f.v3, 0).isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v3, f.v1, f.v2}));
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+}
+
+NC_TEST(Editor, MoveTrackRejectsOutOfRange) {
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(!editor.moveTrack(f.seqId, f.v1, -1).isOk());
+    NC_CHECK(!editor.moveTrack(f.seqId, f.v1, 3).isOk());
+    NC_CHECK(!editor.moveTrack(f.seqId, f.v1, 100).isOk());
+    // 越界不得改动顺序
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+}
+
+NC_TEST(Editor, MoveTrackRejectsLockedTrack) {
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(editor.setTrackLocked(f.seqId, f.v1, true).isOk());
+    const Result r = editor.moveTrack(f.seqId, f.v1, 2);
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::Locked);
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+}
+
+NC_TEST(Editor, MoveTrackAllowsCrossType) {
+    // 跨类型重排允许：顺序只影响渲染层级，不改变轨道语义
+    Project project;
+    Sequence seq;
+    seq.id = SequenceId{project.ids.next()};
+    seq.frameRate = fps30();
+    project.sequences.push_back(seq);
+    const SequenceId seqId = project.sequences.front().id;
+    TimelineEditor editor(project);
+    TrackId v, a;
+    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &v).isOk());
+    NC_CHECK(editor.addTrack(seqId, TrackType::Audio, "A1", &a).isOk());
+    // 音频轨移到视频轨上方
+    NC_CHECK(editor.moveTrack(seqId, a, 0).isOk());
+    NC_CHECK(project.sequences[0].tracks[0].id == a);
+    NC_CHECK(project.sequences[0].tracks[1].id == v);
+}
+
+NC_TEST(Editor, MoveTrackToSameIndexKeepsOrder) {
+    // 拖回原位：顺序不变，撤销后仍是同一顺序。
+    //
+    // 已知局限：框架的 no-op 抑制需要 Command 层支持（commit 目前总入栈），
+    // 所以这里会产生一条「移动轨道」的空历史记录。撤销它不会破坏任何数据，
+    // 只是历史面板多一项。未为此改动 Command 接口——收益不足以承担影响面。
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(editor.moveTrack(f.seqId, f.v2, 1).isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+    const std::size_t before = editor.undoCount();
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+    NC_CHECK(editor.undoCount() < before);
+}
+
+NC_TEST(Editor, MoveTrackMergesConsecutiveDrags) {
+    // 手势拖动会连续产生多条 MoveTrackCommand。开启合并后应只留一条历史，
+    // 否则逐像素拖动会把撤销栈塞满。中途目标位置以最后一次为准。
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    editor.setMergeEnabled(true);
+    const std::size_t before = editor.undoCount();
+    NC_CHECK(editor.moveTrack(f.seqId, f.v1, 1).isOk());
+    NC_CHECK(editor.moveTrack(f.seqId, f.v1, 2).isOk());
+    NC_CHECK(editor.moveTrack(f.seqId, f.v1, 1).isOk());
+    NC_CHECK_EQ(editor.undoCount() - before, std::size_t(1));
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v2, f.v1, f.v3}));
+    // 一次撤销回到拖动前
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
+}
+
+// =============================================================================
+// 轨道高度与折叠（B2-10）
+// =============================================================================
+
+NC_TEST(Editor, TrackHeightDefaultsAndRange) {
+    TrackOrderFixture f;
+    NC_CHECK_EQ(f.project.sequences[0].tracks[0].heightPx, Track::kDefaultTrackHeight);
+    TimelineEditor editor(f.project);
+    NC_CHECK(editor.setTrackHeight(f.seqId, f.v1, 120).isOk());
+    NC_CHECK_EQ(f.project.sequences[0].tracks[0].heightPx, 120);
+    // 边界值可用
+    NC_CHECK(editor.setTrackHeight(f.seqId, f.v1, Track::kMinTrackHeight).isOk());
+    NC_CHECK(editor.setTrackHeight(f.seqId, f.v1, Track::kMaxTrackHeight).isOk());
+    // 越界拒绝，而不是静默截断
+    const Result tooSmall = editor.setTrackHeight(f.seqId, f.v1, Track::kMinTrackHeight - 1);
+    NC_CHECK(!tooSmall.isOk());
+    NC_CHECK(tooSmall.code == ErrorCode::InvalidArgument);
+    const Result tooBig = editor.setTrackHeight(f.seqId, f.v1, Track::kMaxTrackHeight + 1);
+    NC_CHECK(!tooBig.isOk());
+}
+
+NC_TEST(Editor, TrackHeightChangeUndoes) {
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(editor.setTrackHeight(f.seqId, f.v1, 120).isOk());
+    NC_CHECK(editor.undo().isOk());
+    NC_CHECK_EQ(f.project.sequences[0].tracks[0].heightPx, Track::kDefaultTrackHeight);
+    NC_CHECK(editor.redo().isOk());
+    NC_CHECK_EQ(f.project.sequences[0].tracks[0].heightPx, 120);
+}
+
+NC_TEST(Editor, TrackCollapseKeepsHeight) {
+    // 折叠只是显示状态，展开后应恢复原来的高度
+    TrackOrderFixture f;
+    TimelineEditor editor(f.project);
+    NC_CHECK(editor.setTrackHeight(f.seqId, f.v1, 120).isOk());
+    NC_CHECK(editor.setTrackHeight(f.seqId, f.v1, 120, true).isOk());
+    NC_CHECK(f.project.sequences[0].tracks[0].collapsed);
+    NC_CHECK_EQ(f.project.sequences[0].tracks[0].heightPx, 120);
+    // 展开
+    NC_CHECK(editor.setTrackHeight(f.seqId, f.v1, 120, false).isOk());
+    NC_CHECK(!f.project.sequences[0].tracks[0].collapsed);
+    NC_CHECK_EQ(f.project.sequences[0].tracks[0].heightPx, 120);
+}

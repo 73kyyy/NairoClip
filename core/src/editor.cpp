@@ -57,6 +57,16 @@ Result TimelineEditor::addTrack(SequenceId sequenceId, TrackType type, const std
     return r;
 }
 
+Result TimelineEditor::moveTrack(SequenceId sequenceId, TrackId trackId, int newIndex) {
+    return commit(std::make_unique<MoveTrackCommand>(sequenceId, trackId, newIndex));
+}
+
+Result TimelineEditor::setTrackHeight(SequenceId sequenceId, TrackId trackId, int heightPx,
+                                      bool collapsed) {
+    return commit(
+        std::make_unique<SetTrackHeightCommand>(sequenceId, trackId, heightPx, collapsed));
+}
+
 Result TimelineEditor::renameTrack(SequenceId sequenceId, TrackId trackId,
                                     const std::string& newName) {
     return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, SetTrackCommand::Field::Name,

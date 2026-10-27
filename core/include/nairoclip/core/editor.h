@@ -48,8 +48,15 @@ public:
     Result addTrack(SequenceId sequenceId, TrackType type, const std::string& name,
                     TrackId* outId = nullptr);
     Result removeTrack(SequenceId sequenceId, TrackId trackId);
+    /// 移动轨道到指定位置（B2-5）。顺序决定遮挡层级（上层盖下层）。
+    /// newIndex 需在 [0, 轨道数-1]；轨道锁定时拒绝。可撤销。
+    Result moveTrack(SequenceId sequenceId, TrackId trackId, int newIndex);
 
     // ---- 轨道属性 ----
+    /// 设置轨道显示高度与折叠状态（B2-10）。高度范围 [24, 200] 像素。可撤销。
+    Result setTrackHeight(SequenceId sequenceId, TrackId trackId, int heightPx,
+                          bool collapsed = false);
+
     /// 重命名轨道。
     Result renameTrack(SequenceId sequenceId, TrackId trackId, const std::string& newName);
     /// 设置轨道锁定（锁定后所有编辑被拒绝）。

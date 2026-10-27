@@ -87,6 +87,23 @@ struct Track {
     std::vector<Transition> transitions;
     /// 音频自动闪避设置（仅音频轨有效；默认关闭）。
     AutoDuckSettings autoDuck;
+    /// 轨道在时间轴上的显示高度（像素，B2-10）。
+    ///
+    /// 为什么放核心层：用户调好的布局要跨会话保留，必须跟随工程序列化。
+    /// 取值范围 [kMinTrackHeight, kMaxTrackHeight]，越界由 setTrackHeight 拒绝
+    /// 而不是静默截断——静默截断会让用户「拖了半天突然跳回去」。
+    int heightPx = kDefaultTrackHeight;
+    /// 是否折叠为仅标题栏（B2-10）。折叠时 heightPx 保留，展开后恢复。
+    bool collapsed = false;
+
+    static constexpr int kMinTrackHeight = 24;
+    static constexpr int kDefaultTrackHeight = 48;
+    static constexpr int kMaxTrackHeight = 200;
+
+    /// 高度是否在合法范围。
+    bool heightValid() const {
+        return heightPx >= kMinTrackHeight && heightPx <= kMaxTrackHeight;
+    }
 
     /// 独奏状态是否有效（音频轨语义）。
     bool soloActive() const { return solo; }

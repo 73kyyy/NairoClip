@@ -223,6 +223,127 @@ Result RemoveTrackCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------- MoveTrackCommand（B2-5） ----------------
+
+MoveTrackCommand::MoveTrackCommand(SequenceId sequenceId, TrackId trackId, int newIndex)
+    : sequenceId_(sequenceId), trackId_(trackId), newIndex_(newIndex) {}
+
+Result MoveTrackCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const int count = static_cast<int>(seq->tracks.size());
+    if (newIndex_ < 0 || newIndex_ >= count) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "目标位置超出范围（有效范围 0~" + std::to_string(count - 1) + "）");
+    }
+    const auto it = std::find_if(seq->tracks.begin(), seq->tracks.end(),
+                                 [this](const Track& t) { return t.id == trackId_; });
+    if (it == seq->tracks.end()) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (it->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定，无法移动");
+    }
+    const int from = static_cast<int>(std::distance(seq->tracks.begin(), it));
+    // 快照必须在「是否为 no-op」判定之前记录：否则同索引移动虽然不改顺序，
+    // 却会留下一条 undo 时无权还原的命令（revert 会报「缺少轨道快照」）。
+    if (!oldIndex_.has_value()) {
+        oldIndex_ = from;
+        moved_ = *it;
+    }
+    if (from == newIndex_) {
+        return Result::ok();  // 位置没变：不改动 tracks
+    }
+    // 取出再插入：等价于「删除 + 在目标位置插入」，避免逐位交换的边界错误。
+    Track moved = *it;
+    seq->tracks.erase(it);
+    seq->tracks.insert(seq->tracks.begin() + newIndex_, std::move(moved));
+    return Result::ok();
+}
+
+Result MoveTrackCommand::revert(Project& project) {
+    if (!oldIndex_.has_value() || !moved_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少轨道快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const auto it = std::find_if(seq->tracks.begin(), seq->tracks.end(),
+                                 [this](const Track& t) { return t.id == trackId_; });
+    if (it == seq->tracks.end()) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    seq->tracks.erase(it);
+    const int back = std::min(*oldIndex_, static_cast<int>(seq->tracks.size()));
+    seq->tracks.insert(seq->tracks.begin() + back, *moved_);
+    return Result::ok();
+}
+
+bool MoveTrackCommand::canMergeWith(const Command& other) const {
+    // 只合并「同一序列、同一条轨道」的连续移动。
+    // 用 dynamic_cast 而非改基类接口：合并是可选能力，不是所有命令都需要。
+    const auto* o = dynamic_cast<const MoveTrackCommand*>(&other);
+    return o != nullptr && o->sequenceId_.value == sequenceId_.value &&
+           o->trackId_.value == trackId_.value;
+}
+
+void MoveTrackCommand::mergeFrom(const Command& other) {
+    const auto* o = dynamic_cast<const MoveTrackCommand*>(&other);
+    if (o != nullptr) {
+        // 保留最初的 oldIndex_（撤销要回到起点），只更新目标位置
+        newIndex_ = o->newIndex_;
+    }
+}
+
+// ---------------- SetTrackHeightCommand（B2-10） ----------------
+
+SetTrackHeightCommand::SetTrackHeightCommand(SequenceId sequenceId, TrackId trackId,
+                                             int heightPx, bool collapsed)
+    : sequenceId_(sequenceId), trackId_(trackId), heightPx_(heightPx), collapsed_(collapsed) {}
+
+Result SetTrackHeightCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    Track* track = seq->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (heightPx_ < Track::kMinTrackHeight || heightPx_ > Track::kMaxTrackHeight) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "轨道高度超出范围（" + std::to_string(Track::kMinTrackHeight) +
+                                "~" + std::to_string(Track::kMaxTrackHeight) + " 像素）");
+    }
+    if (!oldHeight_.has_value()) {
+        oldHeight_ = track->heightPx;
+        oldCollapsed_ = track->collapsed;
+    }
+    track->heightPx = heightPx_;
+    track->collapsed = collapsed_;
+    return Result::ok();
+}
+
+Result SetTrackHeightCommand::revert(Project& project) {
+    if (!oldHeight_.has_value() || !oldCollapsed_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少轨道快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    Track* track = seq->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    track->heightPx = *oldHeight_;
+    track->collapsed = *oldCollapsed_;
+    return Result::ok();
+}
+
 // ---------------- InsertClipCommand ----------------
 
 InsertClipCommand::InsertClipCommand(SequenceId sequenceId, TrackId trackId, Clip clip)

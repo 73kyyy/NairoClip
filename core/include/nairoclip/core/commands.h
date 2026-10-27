@@ -50,6 +50,55 @@ private:
     std::optional<std::size_t> removedIndex_;
 };
 
+/// 移动轨道到指定位置（B2-5）。
+///
+/// 为什么需要：视频轨的上下顺序决定遮挡关系（上层盖下层）。不能重排
+/// 意味着用户建错顺序后只能删了重建。
+///
+/// 校验：newIndex 必须在 [0, tracks.size()-1]；被移动轨道不得锁定。
+/// 跨类型重排允许——顺序只影响渲染层级，不改变轨道语义。
+class MoveTrackCommand : public Command {
+public:
+    MoveTrackCommand(SequenceId sequenceId, TrackId trackId, int newIndex);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "移动轨道"; }
+
+    /// 连续拖动同一条轨道时合并为一次历史（与 moveClip 的手势语义一致）。
+    /// 否则逐像素拖动会塞满撤销栈。
+    bool canMergeWith(const Command& other) const override;
+    void mergeFrom(const Command& other) override;
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    int newIndex_;
+    std::optional<int> oldIndex_;   // apply 时记录，供 revert 还原
+    std::optional<Track> moved_;    // 被移动轨道的快照
+};
+
+/// 设置轨道显示高度与折叠状态（B2-10）。
+///
+/// 视图状态也要可撤销：拖动调高时用户可能想撤回某次调整，
+/// 与其它编辑操作保持一致的撤销语义。
+class SetTrackHeightCommand : public Command {
+public:
+    SetTrackHeightCommand(SequenceId sequenceId, TrackId trackId, int heightPx, bool collapsed);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return collapsed_ ? "折叠轨道" : "调整轨道高度"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    int heightPx_;
+    bool collapsed_;
+    std::optional<int> oldHeight_;
+    std::optional<bool> oldCollapsed_;
+};
+
 /// 插入片段。
 class InsertClipCommand : public Command {
 public:

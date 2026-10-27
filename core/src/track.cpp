@@ -43,6 +43,10 @@ int Track::indexOf(ClipId clipId) const {
 }
 
 bool Track::invariantsHold() const {
+    // B2-10：显示高度越界会让时间轴布局错乱，属于不变量的一部分。
+    if (!heightValid()) {
+        return false;
+    }
     for (std::size_t i = 0; i < clips.size(); ++i) {
         if (!clips[i].valid()) {
             return false;

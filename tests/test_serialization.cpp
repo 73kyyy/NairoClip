@@ -549,3 +549,74 @@ NC_TEST(Serialization, AdjustmentAndEffectAreSameValue) {
     // 枚举数值锁定为 3：C ABI 与老工程文件都依赖它
     NC_CHECK_EQ(static_cast<int>(TrackType::Adjustment), 3);
 }
+
+// =============================================================================
+// 轨道显示高度与折叠（B2-10）
+// =============================================================================
+
+namespace {
+
+Project projectWithOneTrack() {
+    Project p;
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    s.name = "s";
+    s.frameRate = fps30();
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    t.type = TrackType::Video;
+    t.name = "v";
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+    return p;
+}
+
+}  // namespace
+
+NC_TEST(Serialization, TrackHeightRoundtrip) {
+    Project p = projectWithOneTrack();
+    p.sequences[0].tracks[0].heightPx = 120;
+    p.sequences[0].tracks[0].collapsed = true;
+
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(saveProjectToNclip(p), out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK_EQ(out.sequences[0].tracks[0].heightPx, 120);
+    NC_CHECK(out.sequences[0].tracks[0].collapsed);
+}
+
+NC_TEST(Serialization, TrackDefaultHeightOmitsField) {
+    // 默认高度不写入：保持文件 diff 稳定、并让老版本 App 看不出差异
+    Project p = projectWithOneTrack();
+    const std::string text = saveProjectToNclip(p);
+    NC_CHECK(text.find("\"heightPx\"") == std::string::npos);
+    NC_CHECK(text.find("\"collapsed\"") == std::string::npos);
+}
+
+NC_TEST(Serialization, TrackHeightMissingUsesDefault) {
+    // 老工程没有该字段 → 取默认高度，而不是 0
+    Project out;
+    const std::string text =
+        "{\"format\":\"nclip\",\"version\":1,\"project\":{\"name\":\"t\"},\"assets\":[],"
+        "\"sequences\":[{\"id\":1,\"name\":\"s\",\"frameRate\":[30,1],\"width\":1920,"
+        "\"height\":1080,\"tracks\":[{\"id\":2,\"type\":\"video\",\"name\":\"v\","
+        "\"clips\":[]}],\"markers\":[]}]}";
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK_EQ(out.sequences[0].tracks[0].heightPx, Track::kDefaultTrackHeight);
+    NC_CHECK(!out.sequences[0].tracks[0].collapsed);
+}
+
+NC_TEST(Serialization, TrackHeightOutOfRangeIsClamped) {
+    // 高度写坏（如手改文件）不应让整个工程打不开 —— 截断到合法范围
+    const std::string text =
+        "{\"format\":\"nclip\",\"version\":1,\"project\":{\"name\":\"t\"},\"assets\":[],"
+        "\"sequences\":[{\"id\":1,\"name\":\"s\",\"frameRate\":[30,1],\"width\":1920,"
+        "\"height\":1080,\"tracks\":[{\"id\":2,\"type\":\"video\",\"name\":\"v\","
+        "\"heightPx\":9999,\"clips\":[]}],\"markers\":[]}]}";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK_EQ(out.sequences[0].tracks[0].heightPx, Track::kMaxTrackHeight);
+    NC_CHECK(out.sequences[0].invariantsHold());
+}

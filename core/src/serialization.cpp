@@ -704,6 +704,13 @@ JsonValue writeTrack(const Track& t) {
     if (t.gainDb != 0.0) {
         o.set("gainDb", JsonValue::number(t.gainDb));
     }
+    // 显示高度/折叠（B2-10；仅非默认值时写入，保持 diff 稳定）
+    if (t.heightPx != Track::kDefaultTrackHeight) {
+        o.set("heightPx", JsonValue::integer(t.heightPx));
+    }
+    if (t.collapsed) {
+        o.set("collapsed", JsonValue::boolean(true));
+    }
     // 自动闪避（仅启用时写入，保持文件向后兼容与 diff 稳定）
     if (t.autoDuck.enabled || t.autoDuck.sensitivity != 0.5 ||
         t.autoDuck.duckAmountDb != 12.0 || t.autoDuck.attackSeconds != 0.08 ||
@@ -748,6 +755,12 @@ bool readTrack(const JsonValue& v, Track& out, std::string& err) {
     out.gainDb = v.get("gainDb").asNumber(0.0);
     if (out.gainDb < -60.0) out.gainDb = -60.0;
     if (out.gainDb > 12.0) out.gainDb = 12.0;
+    // 显示高度/折叠（B2-10）。缺省 = 默认高度；越界截断而不是拒绝，
+    // 理由同 gainDb：一份高度写坏的文件不该让整个工程打不开。
+    out.heightPx = static_cast<int>(v.get("heightPx").asInteger(Track::kDefaultTrackHeight));
+    if (out.heightPx < Track::kMinTrackHeight) out.heightPx = Track::kMinTrackHeight;
+    if (out.heightPx > Track::kMaxTrackHeight) out.heightPx = Track::kMaxTrackHeight;
+    out.collapsed = v.get("collapsed").asBool(false);
     out.autoDuck = AutoDuckSettings{};
     if (v.has("autoDuck")) {
         const JsonValue& duck = v.get("autoDuck");

@@ -411,7 +411,21 @@ UI：模板选择页（见 `docs/UI_BACKLOG.md` P-06）。
 
 ---
 
-### B2-5 ⬜ 轨道重排序
+### B2-5 ✅ 轨道重排序
+
+**已实施（2026-10-27）**：
+
+- `TimelineEditor::moveTrack(seq, track, newIndex)` + `MoveTrackCommand`；
+- 校验：`newIndex ∈ [0, tracks.size()-1]`；锁定轨道拒绝；`-1`/越界均拒绝并给中文原因；
+- 跨类型重排允许（顺序只影响渲染层级）；
+- 连续拖动同一轨道会合并为一条历史（`canMergeWith`/`mergeFrom`），
+  避免逐像素拖动塞满撤销栈；
+- 撤销/重做往返，重排后 `invariantsHold()` 仍成立。
+
+**已知局限**：移动到原位置仍会产生一条空历史记录。要抑制它需要
+`Command` 层增加 no-op 钩子，影响面大于收益，暂不处理（已在测试中注明）。
+
+**原始问题**：
 
 **现状**：`editor.h` / `commands.h` / `capi.h` **无任何** `moveTrack` /
 `reorderTrack` / `swapTrack`。轨道只能增删，**不能改上下顺序**。
@@ -567,7 +581,21 @@ int32_t nc_track_group_list(NcEditor*, int32_t sequence_index, char** out_json, 
 
 ---
 
-### B2-10 ⬜ 轨道高度可调 + 折叠
+### B2-10 ✅ 轨道高度可调 + 折叠（核心层）
+
+**已实施（2026-10-27）**：
+
+- `Track` 增加 `heightPx`（默认 48，范围 24~200）与 `collapsed`；
+- `TimelineEditor::setTrackHeight(...)` + `SetTrackHeightCommand`（可撤销）；
+- 越界**拒绝**而非静默截断——静默截断会让用户「拖了半天突然跳回去」；
+- 序列化：仅非默认值写入（保持 diff 稳定）；读取时缺省用默认值，
+  **越界值截断**而不是拒绝（高度写坏不该让整份工程打不开，与 `gainDb` 同策略）；
+- `Track::invariantsHold()` 纳入高度合法性。
+
+**待完成**：UI 层拖拽调高/双击折叠的交互与 `nc_track_*` C ABI 暴露。
+本次只交付核心层数据模型与持久化。
+
+**原始问题**：
 
 **现状**：`editor.js` 中 `ROW_H` 是常量，所有轨道等高，不可调、不可折叠。
 
