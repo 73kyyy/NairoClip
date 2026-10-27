@@ -120,6 +120,13 @@ void fft(std::vector<double>& re, std::vector<double>& im) {
 /// 线性重采样（源 → 16kHz 单声道）。
 std::vector<float> resampleTo16k(const float* samples, std::size_t frameCount,
                                  int sampleRate) {
+    // B0-6 边界审计：本函数原先只有调用方 `computeMelSpectrogram` 在守卫
+    // （它检查了 frameCount == 0），自身无防护。而 frameCount 为 0 时
+    // `frameCount - 1` 会下溢成 SIZE_MAX，`std::min` 取到它 → samples[i1]
+    // 越界读。作为「可能被新调用者复用的内部工具」，在这里补自身守卫。
+    if (samples == nullptr || frameCount == 0 || sampleRate <= 0) {
+        return {};
+    }
     if (sampleRate == kSampleRate) {
         return std::vector<float>(samples, samples + frameCount);
     }

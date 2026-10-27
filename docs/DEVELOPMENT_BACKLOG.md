@@ -209,19 +209,52 @@ if (version > kNclipFormatVersion) {
 
 ---
 
-### B0-6 ⬜ 边界访问审计（P2）
+### B0-6 ✅ 边界访问审计（P2）
 
-**问题**：直接下标 `[]` 279 处，`.at()` 仅 25 处。
+**问题**：直接下标 `[]` 1529 处，`.at()` 仅 31 处。越界是 UB
+（可能不崩溃、可能读到垃圾）。
 
-**说明**：C++ 里 `[]` 不检查越界，越界是 UB（可能不崩溃，可能读到垃圾）。
+**审计结果（三类路径逐一核实）**：
 
-**方案**：不需要全部改 `.at()`（有性能代价），只审计**外部输入决定的索引**：
+**1. C ABI 传入的 index/count —— 已完备，无需改动**
+- 程序化扫描：69 处「容器下标访问」全部在同一函数体内有范围检查；
+- **实际攻击验证**：写探针用越界参数（`-1/-1000/INT32_MAX/1000/99999`、
+  `clip_id=0xFFFFFFFF`、`asset_index=-1`）打 `nc_remove_track` /
+  `nc_rename_track` / `nc_clip_info` / `nc_remove_clip` /
+  `nc_set_clip_opacity` / `nc_asset_get` 等 12 个入口，
+  编译时加 `-D_GLIBCXX_ASSERTIONS`（能捕获容器越界）→
+  **全部返回错误码，程序存活，未触发任何断言**。
+- 说明：ASAN 在此容器内初始化失败（`sanitizer_allocator_primary64` 地址空间
+  冲突），故改用 `_GLIBCXX_ASSERTIONS`，对「容器下标越界」这一类目标够用。
 
-- C ABI 传入的 `index` / `count`
-- JSON 解析的下标
-- 时间→帧号换算的结果
+**2. JSON 解析的下标 —— 已完备**
+`json.h` 提供的是 `at(std::size_t)`，自带边界检查；代码里没有裸
+`jsonArray[i]` 式访问（`grep` 确认仅有 2 处 `items[i]`，均为**自己分配的
+数组**在 `i < count` 循环内，安全）。
 
-**交付**：上述三类路径加显式范围检查 + 拒绝非法值。
+**3. 时间→帧号换算 —— 发现并修复一处真实隐患**
+`core/src/speech_ai.cpp` 的 `resampleTo16k`：
+```cpp
+const std::size_t i1 = std::min(frameCount - 1, i0 + 1);
+const float b = samples[i1];
+```
+`frameCount == 0` 时 `frameCount - 1` **下溢成 SIZE_MAX**，`std::min` 取到它
+→ `samples[i1]` 越界读。当前唯一调用方 `computeMelSpectrogram` 已有
+`frameCount == 0` 守卫，所以**触发不到**；但该函数是匿名命名空间的通用工具，
+新调用者一旦漏检就会中招。已补自身守卫（`samples == nullptr || frameCount == 0
+|| sampleRate <= 0` → 返回空）。
+
+**回归测试**（`tests/test_bounds_audit.cpp`，7 用例）：
+把「手工探针跑一遍没问题」固化为可重复验证——
+- `NegativeTrackIndexRejected` / `HugeTrackIndexRejected` / `ClipIndexOutOfRangeRejected`
+  / `UnknownClipIdRejected` / `AssetIndexOutOfRangeRejected`
+  —— 每类都同时断言「非法被拒」**和**「合法仍可用」（防「一律拒绝」的假实现），
+  且拒绝后**计数不变**（证明真的没动数据）；
+- `NullEditorNeverCrashes` / `ZeroLengthInsertRejectedOrSane`。
+
+**未完成**：`[]` 的绝对数量仍大（1529 处），本轮只审计了「外部输入决定」
+的三类路径。剩余多为内部循环（`for i < size` 紧邻），风险低。
+若要全量替换为 `.at()`，需先评估热点路径性能，属独立工作项。
 
 ---
 
