@@ -34,7 +34,7 @@ B2 是编辑器专业度的基础（轨道成组/重排/调整图层）；B4 是
 
 > 依据 `docs/ARCHITECTURE_AUDIT.md`。这些不是新功能，但**不做会在 B1~B4 中大爆**。
 
-### B0-1 ⬜ `Rational` 溢出保护（P0，最高）
+### B0-1 ✅ `Rational` 溢出保护（P0，最高）
 
 **问题**：`core/src/rational.cpp:17` 在无 `__int128` 的平台（MSVC）
 `Wide = std::int64_t`，乘法静默溢出。
@@ -60,7 +60,7 @@ using Wide = std::int64_t;   // ← Windows 上溢出无声
 
 ---
 
-### B0-2 ⬜ 线程模型明确化（P0）
+### B0-2 ✅ 线程模型明确化（P0）
 
 **问题**：全库 `std::mutex`/`std::atomic` **0 处**，`static` 可变状态 0 处
 （这点很好），但因此**任何并发调用都不安全**。
@@ -113,7 +113,7 @@ using Wide = std::int64_t;   // ← Windows 上溢出无声
 
 ---
 
-### B0-5 ⬜ 序列化向后兼容（P1）
+### B0-5 ✅ 序列化向后兼容（P1）
 
 **问题**：`serialization.cpp:1174` 只拒绝**高版本**，没有声明**低版本迁移策略**。
 
@@ -151,13 +151,35 @@ if (version > kNclipFormatVersion) {
 
 ---
 
-### B0-7 ⬜ 轨道类型校验（防混拖）
+### B0-7 ✅ 轨道类型校验（防混拖）
 
 **问题**：`validateClipPlacement()`（`core/src/commands.cpp:22`）**不校验轨道类型**。
 音频片段可拖进视频轨、视频可拖进字幕轨，目前**不报错**。
 
 **后果**：导出时行为未定义。音频轨里放视频片段，混音器如何处理无人知道；
 字幕轨里放视频，字幕渲染会尝试把视频当字幕文本解析。
+
+**已实施（2026-10-27）**：
+
+相容表与文档方案有一处**有意偏离**——音频轨**接受**含音轨的视频素材：
+
+| 轨道类型 | 可接受 | 说明 |
+|---|---|---|
+| `Video` | 视频 / 图片 / 复合片段 | 音频进视频轨 = 黑屏，拒绝 |
+| `Audio` | 音频 / **视频** | 视频进音频轨 = 取声音（音画分离依赖），允许 |
+| `Subtitle` | 无（走 SubtitleEvent） | 任何 Clip 均拒绝 |
+| `Effect` | 无（空壳，见 B0-8） | 任何 Clip 均拒绝 |
+
+偏离原因：实施时全量套件有 3 个既有用例（`ExportRunner.RealAudioMixToEncodedFile`、
+`ExportRunner.AudioGainAndFadeApplied`、`SmartMovie.ClearPreservesLockedTrack`）
+依赖「视频素材放音频轨」，且 `DetachAudioCommand` 生成的音频片段本就沿用视频
+asset。真实软件里把 mp4 拖到音频轨取声音也是标准操作。故音频轨拒绝的是
+`Image`（无声可读）而非 `Video`。
+
+宽容项：`MediaType::Unknown`（未 probe）一律放行——否则「刚导入就拖不进时间轴」。
+
+**交付**：越界拖放被拒绝且给出中文原因（含类型名）；`tests/test_editor.cpp`
+新增 9 个正反例（含音画分离回归保护）；变异测试确认规则被有效覆盖。
 
 **方案**：在 `validateClipPlacement` 增加类型相容表：
 
@@ -177,9 +199,21 @@ if (version > kNclipFormatVersion) {
 
 ---
 
-### B0-8 ⬜ `TrackType::Effect` 空壳清理
+### B0-8 ✅ `TrackType::Effect` 空壳清理
 
-**问题**：`TrackType::Effect` 只在 4 处出现，**全是序列化/ABI 转换**：
+**已实施（2026-10-27，方案 A 的保守变体）**：
+
+- 枚举更名为 `TrackType::Adjustment`，**数值仍为 3**；
+- 磁盘字符串**继续写 `"effect"`**（格式版本未变，改字符串会让旧版 App 读不了），
+  读取时 `"effect"` 与 `"adjustment"` 都接受；
+- `trackTypeLabel` 中文名改为「调整图层」；
+- 补 4 个用例：旧串可读、新串可读、仍写出旧串、枚举值恒为 3。
+
+⚠️ **注意**：本次只消除了「名字误导」，**没有实现渲染**。调整图层的真正生效
+仍是 B2-6 的范围。在此之前 `validateClipPlacement` 拒绝任何 Clip 落入该类型
+轨道，避免用户以为「放了就会有效果」。
+
+**原始问题**：`TrackType::Effect` 只在 4 处出现，**全是序列化/ABI 转换**：
 
 ```
 capi.cpp:456          数字 3 → Effect

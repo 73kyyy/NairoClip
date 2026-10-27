@@ -13,7 +13,15 @@ enum class TrackType {
     Video,
     Audio,
     Subtitle,
-    Effect,
+    /// 调整图层容器（B0-8 由 `Effect` 更名而来；渲染实现在 B2-6）。
+    ///
+    /// 数值固定为 3 —— 老工程文件与 C ABI 的 `track_type == 3` 都映射到这里，
+    /// **不可改变数值**，否则历史工程会轨道错位。
+    ///
+    /// 当前状态：**尚未有渲染代码消费它**，创建后放入的内容不会生效。
+    /// 因此 `validateClipPlacement` 拒绝任何 Clip 落入（见 B0-7），
+    /// UI 侧也应禁止用户创建，等 B2-6 落地后再开放。
+    Adjustment,
 };
 
 /// 音频自动闪避（Auto Ducking）设置——轨道级属性。

@@ -64,7 +64,10 @@ const char* trackTypeName(TrackType t) {
         case TrackType::Video: return "video";
         case TrackType::Audio: return "audio";
         case TrackType::Subtitle: return "subtitle";
-        case TrackType::Effect: return "effect";
+        // 仍写出 "effect" 而非 "adjustment"：格式版本号没变（v1），
+        // 换成新字符串会让**旧版 App** 读到无法识别的轨道类型而整份工程打不开。
+        // 等 B2-6 落地并同步提升 kNclipFormatVersion 时再切换，届时由迁移链兜底。
+        case TrackType::Adjustment: return "effect";
     }
     return "video";
 }
@@ -73,7 +76,8 @@ bool parseTrackType(const std::string& s, TrackType& out) {
     if (s == "video") { out = TrackType::Video; return true; }
     if (s == "audio") { out = TrackType::Audio; return true; }
     if (s == "subtitle") { out = TrackType::Subtitle; return true; }
-    if (s == "effect") { out = TrackType::Effect; return true; }
+    // 两个名字都收：历史文件是 "effect"，将来切换后写 "adjustment"。
+    if (s == "effect" || s == "adjustment") { out = TrackType::Adjustment; return true; }
     return false;
 }
 

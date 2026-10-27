@@ -484,3 +484,68 @@ NC_TEST(Serialization, ZeroAndNegativeVersionRejected) {
         loadProjectFromNclip("{\"format\":\"nclip\",\"version\":-1}", out2);
     NC_CHECK(!neg.result.isOk());
 }
+
+// =============================================================================
+// 轨道类型更名：Effect → Adjustment（B0-8）
+// =============================================================================
+//
+// 背景：`TrackType::Effect` 是空壳（无任何渲染代码消费），更名为语义正确的
+// `Adjustment`（调整图层，见 B2-6）。约束有两条：
+//   1. 枚举数值必须仍是 3 —— 老工程文件与 C ABI 都按 3 存储；
+//   2. 磁盘上的 "effect" 字符串必须仍能读入 —— 否则历史工程打不开。
+
+namespace {
+
+/// 构造一个只含一条指定类型轨道的 v1 工程 JSON。
+std::string projectWithTrackType(const std::string& typeName) {
+    return "{\"format\":\"nclip\",\"version\":1,"
+           "\"project\":{\"name\":\"t\"},"
+           "\"assets\":[],"
+           "\"sequences\":[{\"id\":1,\"name\":\"s\",\"frameRate\":[30,1],"
+           "\"width\":1920,\"height\":1080,\"tracks\":[{\"id\":2,\"type\":\"" +
+           typeName + "\",\"name\":\"x\",\"clips\":[]}],\"markers\":[]}]}";
+}
+
+}  // namespace
+
+NC_TEST(Serialization, LegacyEffectTrackTypeStillLoads) {
+    // 历史工程写的是 "effect"，必须仍能读成 Adjustment
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(projectWithTrackType("effect"), out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK_EQ(out.sequences.size(), std::size_t(1));
+    NC_CHECK_EQ(out.sequences[0].tracks.size(), std::size_t(1));
+    NC_CHECK(out.sequences[0].tracks[0].type == TrackType::Adjustment);
+}
+
+NC_TEST(Serialization, AdjustmentTrackTypeNameAccepted) {
+    // 更名后的新字符串也要能读（前向兼容）
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(projectWithTrackType("adjustment"), out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK(out.sequences[0].tracks[0].type == TrackType::Adjustment);
+}
+
+NC_TEST(Serialization, AdjustmentTrackStillWritesLegacyName) {
+    // 格式版本仍是 v1：必须继续写 "effect"，否则旧版 App 读不了这份工程
+    Project p;
+    Sequence s;
+    s.id = SequenceId{p.ids.next()};
+    s.name = "s";
+    s.frameRate = fps30();
+    Track t;
+    t.id = TrackId{p.ids.next()};
+    t.type = TrackType::Adjustment;
+    t.name = "调整";
+    s.tracks.push_back(t);
+    p.sequences.push_back(s);
+
+    const std::string text = saveProjectToNclip(p);
+    NC_CHECK(text.find("\"effect\"") != std::string::npos);
+    NC_CHECK(text.find("\"adjustment\"") == std::string::npos);
+}
+
+NC_TEST(Serialization, AdjustmentAndEffectAreSameValue) {
+    // 枚举数值锁定为 3：C ABI 与老工程文件都依赖它
+    NC_CHECK_EQ(static_cast<int>(TrackType::Adjustment), 3);
+}

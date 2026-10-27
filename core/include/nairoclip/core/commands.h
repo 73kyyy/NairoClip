@@ -13,7 +13,7 @@
 namespace nairoclip {
 namespace core {
 
-/// 通用校验：clip 放入 track 是否合法（重叠、锁定、素材范围、参数）。
+/// 通用校验：clip 放入 track 是否合法（重叠、锁定、素材范围、参数、轨道类型）。
 /// ignoreClipId 用于「修改自身」场景（忽略与自己的重叠检查）。
 Result validateClipPlacement(const Project& project, const Track& track, const Clip& clip,
                              ClipId ignoreClipId = ClipId{});

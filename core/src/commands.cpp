@@ -17,6 +17,76 @@ std::vector<Clip>::iterator insertionPoint(std::vector<Clip>& clips, const Time&
                             [](const Clip& c, const Time& s) { return c.start < s; });
 }
 
+/// 片段内容类型与轨道类型的相容性判定（B0-7）。
+///
+/// 为什么必须校验：轨道类型决定**渲染与混音语义**。
+///   · 音频片段进视频轨 → 预览取不到画面帧（黑屏），用户以为「素材坏了」；
+///   · 图片进音频轨 → 混音器拿到的是静态图，读不出 PCM（静音/未定义）；
+///   · 字幕轨只承载 SubtitleEvent（不走 Clip），任何 Clip 都不合法。
+///
+/// 为什么视频**可以**进音频轨：
+///   带画面的 mp4 通常含音轨，「把视频拖到音频轨取声音」是剪辑软件的标准
+///   操作（音画分离本质就是这个）。混音器只读它的音频流，不读画面。
+///   因此音频轨接受 Audio 与 Video，拒绝 Image。
+///
+/// 宽容原则（避免误伤既有工程与真实流程）：
+///   · MediaType::Unknown（导入后尚未 probe）→ 放行。真实流程里大量存在，
+///     硬拒会让用户「刚导入就拖不进时间轴」。
+///   · 无有效 asset 的片段（占位/生成片段）→ 放行，其语义由上层决定。
+enum class PlacementCompat {
+    Allowed,
+    AllowedBecauseUnknown,
+    Rejected,
+};
+
+PlacementCompat trackAcceptsClipType(TrackType trackType, MediaType mediaType) {
+    if (mediaType == MediaType::Unknown) {
+        return PlacementCompat::AllowedBecauseUnknown;
+    }
+    switch (trackType) {
+        case TrackType::Video:
+            // 视频轨承载画面：视频 / 图片
+            return (mediaType == MediaType::Video || mediaType == MediaType::Image)
+                       ? PlacementCompat::Allowed
+                       : PlacementCompat::Rejected;
+        case TrackType::Audio:
+            // 音频轨承载声音：音频素材 + 含音轨的视频（取声音）。图片无声可读。
+            return (mediaType == MediaType::Audio || mediaType == MediaType::Video)
+                       ? PlacementCompat::Allowed
+                       : PlacementCompat::Rejected;
+        case TrackType::Subtitle:
+            // 字幕走 SubtitleEvent，不接受任何 Clip
+            return PlacementCompat::Rejected;
+        case TrackType::Adjustment:
+            // 调整图层尚未实现渲染（B2-6），创建后放入的内容不会生效。
+            // 故此处拒绝任何 Clip，避免用户以为「放了就会有效果」。
+            return PlacementCompat::Rejected;
+    }
+    return PlacementCompat::Rejected;
+}
+
+/// 轨道类型的中文名（面向用户的错误消息）。
+const char* trackTypeLabel(TrackType t) {
+    switch (t) {
+        case TrackType::Video: return "视频轨";
+        case TrackType::Audio: return "音频轨";
+        case TrackType::Subtitle: return "字幕轨";
+        case TrackType::Adjustment: return "调整图层";
+    }
+    return "轨道";
+}
+
+/// 素材类型的中文名（面向用户的错误消息）。
+const char* mediaTypeLabel(MediaType t) {
+    switch (t) {
+        case MediaType::Video: return "视频";
+        case MediaType::Audio: return "音频";
+        case MediaType::Image: return "图片";
+        case MediaType::Unknown: return "未知类型";
+    }
+    return "未知类型";
+}
+
 }  // namespace
 
 Result validateClipPlacement(const Project& project, const Track& track, const Clip& clip,
@@ -29,6 +99,29 @@ Result validateClipPlacement(const Project& project, const Track& track, const C
     }
     if (track.hasOverlap(clip.start, clip.end(), ignoreClipId)) {
         return Result::fail(ErrorCode::Overlap, "与轨道上的已有片段重叠");
+    }
+    // B0-7：轨道类型 ↔ 片段内容类型相容校验。
+    // 放在重叠检查之后：位置冲突对用户更直观，先报「重叠」再报「放错轨」。
+    if (clip.isCompound()) {
+        // 复合片段是渲染结果（含画面），只能进视频轨
+        if (track.type != TrackType::Video) {
+            return Result::fail(ErrorCode::InvalidArgument,
+                                std::string("复合片段只能放入视频轨（当前为") +
+                                    trackTypeLabel(track.type) + "）");
+        }
+    } else if (clip.asset.isValid()) {
+        const MediaAsset* asset = project.findAsset(clip.asset);
+        // 素材不存在由下方既有分支报 NotFound，这里不重复判定
+        if (asset != nullptr &&
+            trackAcceptsClipType(track.type, asset->type) == PlacementCompat::Rejected) {
+            return Result::fail(ErrorCode::InvalidArgument,
+                                std::string("片段类型（") + mediaTypeLabel(asset->type) +
+                                    "）不能放入" + trackTypeLabel(track.type));
+        }
+    } else if (track.type == TrackType::Subtitle || track.type == TrackType::Adjustment) {
+        // 无素材引用的片段（文字/占位）：字幕轨与特效轨仍不接受
+        return Result::fail(ErrorCode::InvalidArgument,
+                            std::string(trackTypeLabel(track.type)) + "不接受片段");
     }
     // 复合片段（嵌套序列）：校验收件序列存在
     if (clip.isCompound()) {

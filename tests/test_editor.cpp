@@ -485,10 +485,14 @@ NC_TEST(Editor, DetachAudioCreatesAudioClip) {
     NC_CHECK(editor.detachAudio(f.seqId, f.trackId, videoClip, audioTrack).isOk());
     const Track* at = findTrack(f.project, f.seqId, audioTrack);
     NC_CHECK_EQ(at->clips.size(), std::size_t(1));
-    NC_CHECK(at->clips[0].start == Rational::make(1));
-    NC_CHECK(at->clips[0].duration == Rational::make(3));
-    NC_CHECK(at->clips[0].asset == f.assetId);
-    NC_CHECK(at->clips[0].id != videoClip);
+    // 前置断言失败时不要越界：NC_CHECK 不中断执行，clips[0] 在空 vector 上
+    // 是 UB（实测会让整套测试段错误，后续用例结果全部丢失）。
+    if (at->clips.size() == 1) {
+        NC_CHECK(at->clips[0].start == Rational::make(1));
+        NC_CHECK(at->clips[0].duration == Rational::make(3));
+        NC_CHECK(at->clips[0].asset == f.assetId);
+        NC_CHECK(at->clips[0].id != videoClip);
+    }
     // 撤销 → 音频消失
     NC_CHECK(editor.undo().isOk());
     NC_CHECK_EQ(findTrack(f.project, f.seqId, audioTrack)->clips.size(), std::size_t(0));
@@ -507,9 +511,16 @@ NC_TEST(Editor, DetachAudioRejectsOverlap) {
     vc.duration = Rational::make(3);
     ClipId videoClip;
     NC_CHECK(editor.insertClip(f.seqId, f.trackId, vc, &videoClip).isOk());
-    // 音频轨已有冲突片段
+    // 音频轨已有冲突片段（用真实音频素材——B0-7 后视频素材不能放音频轨）
+    MediaAsset music;
+    music.id = AssetId{f.project.ids.next()};
+    music.name = "音乐.wav";
+    music.path = "/audio/a.wav";
+    music.type = MediaType::Audio;
+    music.duration = Rational::make(60);
+    f.project.assets.push_back(music);
     Clip existing;
-    existing.asset = f.assetId;
+    existing.asset = music.id;
     existing.start = Rational::make(1);
     existing.duration = Rational::make(1);
     NC_CHECK(editor.insertClip(f.seqId, audioTrack, existing).isOk());
@@ -694,3 +705,203 @@ NC_TEST(Editor, MergeDisabledKeepsSeparateHistory) {
     NC_CHECK(editor.undo().isOk());
     NC_CHECK(findClip(f.project, f.seqId, f.trackId, clipId)->start == Rational::make(1));
 }
+
+// =============================================================================
+// 轨道类型校验（B0-7）
+// =============================================================================
+//
+// 背景：轨道类型决定渲染与混音语义。音频片段进视频轨 → 预览黑屏；
+// 视频片段进音频轨 → 混音器按 PCM 读取（噪声/崩溃）。此前一律放行。
+
+namespace {
+
+/// 在 Fixture 基础上再挂一条音频轨，并额外准备音频/图片/未知类型素材。
+struct TypeFixture {
+    Fixture f;
+    TrackId audioTrack;
+    AssetId audioAsset;
+    AssetId imageAsset;
+    AssetId unknownAsset;
+    explicit TypeFixture() {
+        TimelineEditor editor(f.project);
+        NC_CHECK(editor.addTrack(f.seqId, TrackType::Audio, "A1", &audioTrack).isOk());
+        MediaAsset a;
+        a.id = AssetId{f.project.ids.next()};
+        a.name = "音乐.wav";
+        a.path = "/audio/a.wav";
+        a.type = MediaType::Audio;
+        a.duration = Rational::make(60);
+        f.project.assets.push_back(a);
+        audioAsset = a.id;
+        MediaAsset img;
+        img.id = AssetId{f.project.ids.next()};
+        img.name = "封面.png";
+        img.path = "/img/c.png";
+        img.type = MediaType::Image;
+        f.project.assets.push_back(img);
+        imageAsset = img.id;
+        MediaAsset unk;
+        unk.id = AssetId{f.project.ids.next()};
+        unk.name = "未探测.bin";
+        unk.path = "/x/unknown.bin";
+        unk.type = MediaType::Unknown;
+        f.project.assets.push_back(unk);
+        unknownAsset = unk.id;
+    }
+};
+
+Clip clipOf(const AssetId& asset, const Time& start, const Time& duration) {
+    Clip c;
+    c.asset = asset;
+    c.start = start;
+    c.duration = duration;
+    return c;
+}
+
+}  // namespace
+
+NC_TEST(Editor, AudioClipRejectedOnVideoTrack) {
+    TypeFixture t;
+    TimelineEditor editor(t.f.project);
+    const Result r = editor.insertClip(t.f.seqId, t.f.trackId,
+                                       clipOf(t.audioAsset, Rational::make(0), Rational::make(2)));
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::InvalidArgument);
+    // 消息要说清「是什么放不进哪里」，不能只说"操作失败"
+    NC_CHECK(r.message.find("音频") != std::string::npos);
+    NC_CHECK(r.message.find("视频轨") != std::string::npos);
+    // 未被写入
+    NC_CHECK_EQ(t.f.track()->clips.size(), std::size_t(0));
+}
+
+NC_TEST(Editor, ImageClipRejectedOnAudioTrack) {
+    // 图片没有音轨，放进音频轨混音器读不出 PCM —— 必须拒绝。
+    // 注意：视频素材**允许**进音频轨（取声音，见 AudioClipAllowedOnAudioTrack）。
+    TypeFixture t;
+    TimelineEditor editor(t.f.project);
+    const Result r = editor.insertClip(t.f.seqId, t.audioTrack,
+                                       clipOf(t.imageAsset, Rational::make(0), Rational::make(2)));
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::InvalidArgument);
+    NC_CHECK(r.message.find("图片") != std::string::npos);
+    NC_CHECK(r.message.find("音频轨") != std::string::npos);
+    NC_CHECK_EQ(findTrack(t.f.project, t.f.seqId, t.audioTrack)->clips.size(), std::size_t(0));
+}
+
+NC_TEST(Editor, VideoAssetAllowedOnAudioTrackForSoundExtraction) {
+    // 带画面的 mp4 通常含音轨，「拖到音频轨取声音」是剪辑软件的标准操作，
+    // 音画分离功能本身也依赖它。这条不能被 B0-7 误伤。
+    TypeFixture t;
+    TimelineEditor editor(t.f.project);
+    NC_CHECK(editor
+                 .insertClip(t.f.seqId, t.audioTrack,
+                             clipOf(t.f.assetId, Rational::make(0), Rational::make(2)))
+                 .isOk());
+    NC_CHECK_EQ(findTrack(t.f.project, t.f.seqId, t.audioTrack)->clips.size(), std::size_t(1));
+}
+
+NC_TEST(Editor, ImageClipAllowedOnVideoTrack) {
+    // 图片进视频轨是正常用法（封面/图文），不能误拒
+    TypeFixture t;
+    TimelineEditor editor(t.f.project);
+    NC_CHECK(editor
+                 .insertClip(t.f.seqId, t.f.trackId,
+                             clipOf(t.imageAsset, Rational::make(0), Rational::make(2)))
+                 .isOk());
+    NC_CHECK_EQ(t.f.track()->clips.size(), std::size_t(1));
+}
+
+NC_TEST(Editor, AudioClipAllowedOnAudioTrack) {
+    TypeFixture t;
+    TimelineEditor editor(t.f.project);
+    NC_CHECK(editor
+                 .insertClip(t.f.seqId, t.audioTrack,
+                             clipOf(t.audioAsset, Rational::make(0), Rational::make(2)))
+                 .isOk());
+    NC_CHECK_EQ(findTrack(t.f.project, t.f.seqId, t.audioTrack)->clips.size(), std::size_t(1));
+}
+
+NC_TEST(Editor, UnknownTypeClipNotBlockedByTrackType) {
+    // 导入后尚未 probe 的素材在真实流程里大量存在。硬拒会让用户
+    // 「刚导入就拖不进时间轴」，因此 Unknown 必须放行。
+    TypeFixture t;
+    TimelineEditor editor(t.f.project);
+    NC_CHECK(editor
+                 .insertClip(t.f.seqId, t.f.trackId,
+                             clipOf(t.unknownAsset, Rational::make(0), Rational::make(2)))
+                 .isOk());
+    NC_CHECK(editor
+                 .insertClip(t.f.seqId, t.audioTrack,
+                             clipOf(t.unknownAsset, Rational::make(0), Rational::make(2)))
+                 .isOk());
+}
+
+NC_TEST(Editor, ClipWithoutAssetRejectedOnSubtitleAndEffectTracks) {
+    // 无素材引用的片段（文字/占位）：字幕与特效轨都不接受
+    Fixture f;
+    TimelineEditor editor(f.project);
+    TrackId subTrack;
+    NC_CHECK(editor.addTrack(f.seqId, TrackType::Subtitle, "S1", &subTrack).isOk());
+    TrackId fxTrack;
+    NC_CHECK(editor.addTrack(f.seqId, TrackType::Adjustment, "E1", &fxTrack).isOk());
+    Clip bare;
+    bare.start = Rational::make(0);
+    bare.duration = Rational::make(2);
+    NC_CHECK(!editor.insertClip(f.seqId, subTrack, bare).isOk());
+    NC_CHECK(!editor.insertClip(f.seqId, fxTrack, bare).isOk());
+}
+
+NC_TEST(Editor, MoveClipToWrongTypeTrackRejected) {
+    // 拖拽换轨是最容易混拖的路径，必须同样被拦
+    TypeFixture t;
+    TimelineEditor editor(t.f.project);
+    ClipId clipId;
+    NC_CHECK(editor
+                 .insertClip(t.f.seqId, t.f.trackId,
+                             clipOf(t.imageAsset, Rational::make(0), Rational::make(2)), &clipId)
+                 .isOk());
+    const Result r =
+        editor.moveClipToTrack(t.f.seqId, t.f.trackId, t.audioTrack, clipId, Rational::make(0));
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::InvalidArgument);
+    // 源轨仍在，目标轨未写入
+    NC_CHECK_EQ(t.f.track()->clips.size(), std::size_t(1));
+    NC_CHECK_EQ(findTrack(t.f.project, t.f.seqId, t.audioTrack)->clips.size(), std::size_t(0));
+}
+
+NC_TEST(Editor, CompoundClipRejectedOnAudioTrack) {
+    // 复合片段是渲染结果（含画面），只能进视频轨
+    TypeFixture t;
+    // 再建一条序列作为嵌套内容
+    Sequence nested;
+    nested.id = SequenceId{t.f.project.ids.next()};
+    nested.name = "嵌套";
+    nested.frameRate = fps30();
+    t.f.project.sequences.push_back(nested);
+    TimelineEditor editor(t.f.project);
+    Clip c;
+    c.nestedSequence = nested.id;
+    c.start = Rational::make(0);
+    c.duration = Rational::make(2);
+    const Result r = editor.insertClip(t.f.seqId, t.audioTrack, c);
+    NC_CHECK(!r.isOk());
+    NC_CHECK(r.code == ErrorCode::InvalidArgument);
+    NC_CHECK(r.message.find("复合片段") != std::string::npos);
+}
+
+NC_TEST(Editor, DetachAudioStillWorksOnAudioTrack) {
+    // 回归保护：音画分离生成的音频片段沿用视频素材（MediaType::Video），
+    // 走的是 allowTrackTypeMismatch 豁免。若有人去掉豁免，此用例会红。
+    Fixture f;
+    TimelineEditor editor(f.project);
+    TrackId audioTrack;
+    NC_CHECK(editor.addTrack(f.seqId, TrackType::Audio, "A1", &audioTrack).isOk());
+    ClipId videoClip;
+    NC_CHECK(editor
+                 .insertClip(f.seqId, f.trackId,
+                             makeClip(f.assetId, Rational::make(1), Rational::make(3)), &videoClip)
+                 .isOk());
+    NC_CHECK(editor.detachAudio(f.seqId, f.trackId, videoClip, audioTrack).isOk());
+    NC_CHECK_EQ(findTrack(f.project, f.seqId, audioTrack)->clips.size(), std::size_t(1));
+}
+

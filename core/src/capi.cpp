@@ -453,7 +453,7 @@ uint64_t nc_add_track(NcEditor* editor, const char* name, int32_t track_type) {
         case 0: type = TrackType::Video; break;
         case 1: type = TrackType::Audio; break;
         case 2: type = TrackType::Subtitle; break;
-        case 3: type = TrackType::Effect; break;
+        case 3: type = TrackType::Adjustment; break;
         default: return 0;
     }
     TrackId id;
@@ -524,7 +524,7 @@ int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_
             case TrackType::Video: *out_type = 0; break;
             case TrackType::Audio: *out_type = 1; break;
             case TrackType::Subtitle: *out_type = 2; break;
-            case TrackType::Effect: *out_type = 3; break;
+            case TrackType::Adjustment: *out_type = 3; break;
         }
     }
     if (out_locked != nullptr) *out_locked = track.locked ? 1 : 0;

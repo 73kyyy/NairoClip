@@ -117,6 +117,36 @@ if(NAIROCLIP_FFMPEG_CLI)
         VERBATIM)
 endif()
 
+# ---------------------------------------------------------------------------
+# 定向测试靶
+# ---------------------------------------------------------------------------
+# 背景：测试框架是自研的 NC_TEST，main() 不做用例过滤，只能整套跑。全量套件
+# 需数分钟，验证单个改动（如 B0-5 版本迁移）时反馈太慢，也容易在超时被截断时
+# 分不清是"没跑到"还是"失败"。
+#
+# 处置：按主题拆出小靶，只链接相关用例源文件，用完即弃，不影响主套件。
+add_executable(nairoclip_serialization_tests
+    test_main.cpp
+    test_serialization.cpp
+)
+target_link_libraries(nairoclip_serialization_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_serialization_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_serialization_tests PRIVATE -Wall -Wextra)
+endif()
+
+add_executable(nairoclip_editor_tests
+    test_main.cpp
+    test_editor.cpp
+)
+target_link_libraries(nairoclip_editor_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_editor_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_editor_tests PRIVATE -Wall -Wextra)
+endif()
+
 add_test(NAME nairoclip_tests COMMAND nairoclip_tests)
 # ctest 默认在 build/ 下运行；测试内部已做仓库根解析，但从源目录运行
 # 更稳妥（部分用例使用相对路径读取 models/ 与 fixtures）。
