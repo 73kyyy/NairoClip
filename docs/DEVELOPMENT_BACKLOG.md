@@ -147,16 +147,43 @@ C ABI 侧更严重：286 个返回 `int32_t` 的函数里只有 47 个能给出�
 
 ---
 
-### B0-4 ⬜ C ABI 所有权标注补齐（P1）
+### B0-4 ✅ C ABI 所有权标注补齐（P1）
 
-**问题**：`capi.h` 中 **75 个出参**（`char**` / `uint8_t**`）未标注由谁释放。
+**问题**：`capi.h` 出参未标注由谁释放，平台层（Kotlin/Swift）容易内存泄漏
+或 double-free。
 
-**后果**：平台层（Kotlin/Swift）最容易在这里内存泄漏或 double-free。
+**实测修正文档估算**：文档说「75 个出参未标注」，实际盘点后：
+68 个声明带 `**` 出参，其中 **原先只有 14 个真的缺标注**——其余 54 个已在
+签名行或上方注释里写了「需 nc_free_string」，只是格式不统一，用简单
+grep 统计会误判。这 14 个逐个补齐（`nc_project_load` 的 detail、
+各 `*_load` 的 out_error、`nc_chapter_*`、`nc_heartbeat_network_error` 等）。
 
-**方案**：逐个补 `/// 需 nc_free_string` / `nc_free_buffer` 注释，
-并在头文件顶部加「内存所有权约定」总述。
+**头文件顶部新增「内存所有权约定」总述**（7 条），覆盖：
+- 出参三分类：需 `nc_free_string` / 需 `nc_free_buffer` / **库持有（勿释放）**；
+- 入参：库不接管所有权，返回后即可释放；
+- 字符串数组：用 `nc_free_string_array(items, count)` 一次性释放，
+  **不要逐个 free**（double-free）；
+- 失败时：出参要么未写入、要么置 NULL，调用方**都不需要释放**。
 
-**交付**：75 处全部标注；新增 ABI 必须有标注（写进 CI 检查）。
+**自动化检查**：新增 `tools/check_abi_ownership.py`，扫描每个带 `**` 的声明，
+要求签名或上方连续注释中出现 `nc_free_string`/`nc_free_buffer`/`库持有`/`勿释放`。
+接入 CMake（`make check_abi_ownership`）。
+**检查脚本本身做了变异验证**：插入一个无标注的测试声明
+`nc_ownership_probe(..., char** out_x, uint8_t** out_y)` → 脚本报错退出 1
+并指出行号；移除后恢复通过。否则「检查永远是绿的」等于没检查。
+
+**行为级测试**（`tests/test_capi_ownership.cpp`，4 用例）：
+标注写错比不写更危险——注释说「需释放」而实现返回静态指针，调用方照样炸。
+- `ErrorStringIsHeapAllocated` — 真的 free 掉 `out_error`，证明是堆分配；
+- `NullOutParamIsAccepted` — 「可 NULL」的约定要真的不崩；
+- `FailureLeavesOutParamUsable` — 失败时出参可直接 free（未写垃圾指针）；
+- `LastErrorNeedsNoFree` — `nc_last_error` 两次调用**返回同一地址**，
+  证明是库持有存储，调用方绝不能 free（B0-3 引入的接口，语义与
+  `nc_free_string` 相反，最容易误用）。
+
+**未完成**：`uint8_t**` 缓冲区类的标注目前只覆盖 `nc_free_buffer` 语义，
+`nc_export_*` 系列的 `_size` 出参与 buffer 生命周期未与该检查联动
+（需在导出路径上补断言，属渲染侧工作）。
 
 ---
 

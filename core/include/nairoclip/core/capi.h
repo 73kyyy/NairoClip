@@ -11,6 +11,32 @@
 //  5. 内存约束：nc_* 返回的字符串由库分配，调用方必须用 nc_free_string
 //     释放；传入指针在调用返回后即可失效（库内部不长期持有）。
 //
+// ---------------------------------------------------------------------------
+// 内存所有权约定（B0-4）
+// ---------------------------------------------------------------------------
+// 这是跨语言绑定（JNI / Swift / Qt）最容易出错的地方，因此统一约定如下。
+//
+// **出参（`char**` / `uint8_t**`）**
+//   - 标注「需 nc_free_string」→ 库分配，调用方负责用 `nc_free_string` 释放；
+//   - 标注「需 nc_free_buffer」→ 库分配，调用方负责用 `nc_free_buffer` 释放
+//     （配合 `*_size` 出参使用，见 `nc_export_*`）；
+//   - 标注「库持有（勿释放）」→ 指针指向库内部存储，调用方**不得**释放，
+//     且在下一次修改同一对象的调用后可能失效；
+//   - 标注「可 NULL」→ 允许传 `nullptr` 表示不需要该信息；此时库不分配。
+//
+// **入参（`const char*` / `const uint8_t*`）**
+//   - 库**不接管**所有权，不长期持有；调用返回后调用方可立即释放。
+//
+// **字符串数组（`char**` + `count`）**
+//   - 用 `nc_free_string_array(items, count)` 一次性释放；不要再逐个
+//     `nc_free_string`（重复释放 = double-free）。
+//
+// **失败时**
+//   - 若函数返回错误码，所有出参要么未被写入（保持调用方原值），
+//     要么已被置为 `NULL`；两种情况下调用方都**不需要**释放。
+//
+// 例外与遗漏请以各函数自身的 `///` 注释为准。
+//
 // 版本策略：
 //  - NC_ABI_VERSION 随不兼容变更递增；
 //  - nc_abi_version() 供平台层启动时校验。
@@ -54,6 +80,7 @@ void nc_editor_destroy(NcEditor* editor);
 /// 保存工程为 .nclip 文本；返回字符串需 nc_free_string 释放。
 char* nc_project_save(const NcEditor* editor);
 /// 从 .nclip 文本载入工程。失败返回错误码，detail 出参（可 NULL）接收错误信息。
+/// - detail：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail);
 
 // ---- 查询 ----
@@ -579,6 +606,7 @@ int32_t nc_ai_task_status(const NcEditor* editor, int32_t* out_feature, int32_t*
 
 /// 开始 AI 任务（要求当前无运行中任务；返回 NC_OK 或错误码）。
 /// - feature：功能类型；target_id：关联对象 ID（片段/素材；可 0）。
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_ai_task_begin(NcEditor* editor, int32_t feature, uint64_t target_id,
                          char** out_error);
 /// 回填进度（平台层在推理过程中调用；单调不减；stage_note 可空）。
@@ -647,6 +675,7 @@ int32_t nc_depth_apply_effect(uint8_t* rgba, const uint8_t* depth, int32_t width
 
 /// 加载超分模型（.onnx）。
 /// 返回 NC_OK 或错误码（引擎不可用/文件缺失/模型解析失败）。
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_superres_load(NcEditor* editor, const char* model_path, char** out_error);
 /// 卸载超分模型。
 int32_t nc_superres_unload(NcEditor* editor);
@@ -672,6 +701,7 @@ int32_t nc_superres_upscale(NcEditor* editor, const uint8_t* rgba, int32_t width
 /// 加载翻译模型（分体导出四件产物）。
 /// - encoder_path / decoder_path / decoder_with_past_path：三个 .onnx；
 /// - tokenizer_json_path：tokenizer.json；
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 /// 说明：必须使用**分体导出**（decoder_model + decoder_with_past_model）。
 ///       merged 导出在 cache 分支下 encoder KV 会收缩，导致译文退化。
 int32_t nc_translate_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
@@ -695,6 +725,7 @@ int32_t nc_translate_text(NcEditor* editor, const char* text, char** out_text, c
 int32_t nc_translate_subtitles(NcEditor* editor, char** out_json, char** out_error);
 
 /// 加载人像抠像模型（MODNet ONNX）。
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_matting_load(NcEditor* editor, const char* model_path, char** out_error);
 /// 卸载人像抠像模型。
 int32_t nc_matting_unload(NcEditor* editor);
@@ -719,7 +750,8 @@ int32_t nc_person_effect_apply(uint8_t* rgba, const uint8_t* alpha, int32_t widt
                                int32_t effect, double intensity);
 
 /// 加载语音识别模型（Whisper encoder + decoder + BPE 词表）。
-/// - tokenizer_path：词表 JSON 路径（可空 = 不加载词表，解码返回 token 占位）。
+/// - tokenizer_path：词表 JSON 路径（可空 = 不加载词表，解码返回 token 占位）；
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
                        const char* tokenizer_path, char** out_error);
 /// 卸载语音识别模型。
@@ -937,6 +969,7 @@ int32_t nc_proxy_set_record(NcEditor* editor, uint64_t asset_id, const char* pat
 
 /// 读取代理记录（多个出参可空）。
 /// 返回：1 = 有记录（*out_status 有效），0 = 无记录，-1 = 错误。
+/// - out_path / out_note：出参（可 NULL）**需 nc_free_string**。
 int32_t nc_proxy_get_record(const NcEditor* editor, uint64_t asset_id, int32_t* out_status,
                             int32_t* out_width, int32_t* out_height, int64_t* out_size_bytes,
                             char** out_path, char** out_note);
@@ -1002,7 +1035,8 @@ int32_t nc_speech_analyze(NcEditor* editor, uint64_t asset_id, int64_t* out_spee
 
 /// 落盘口播精剪（真实删静音；一次调用整体可撤销）。
 /// - track_index：目标轨道（主序列内）；track_index < 0 时使用首个音频轨；
-/// - 返回：>=0 = 插入的片段数；-1 = 错误（见 out_error）。
+/// - 返回：>=0 = 插入的片段数；-1 = 错误（见 out_error）；
+/// - out_error：出参（可 NULL）错误说明（**需 nc_free_string**）。
 int32_t nc_speech_cut_apply(NcEditor* editor, int32_t track_index, char** out_error);
 
 // ---- 蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）----
@@ -1184,9 +1218,10 @@ void nc_free_buffer(uint8_t* buffer);
 ///   use_scene_detect / use_silence_detect 传 -1 表示默认（都启用）；
 ///   max_chapters 传 0 表示不限制；
 /// - 检测结果缓存在 editor 内，供 nc_chapter_apply 落盘（可先预览再决定）；
-/// - out_summary：出参（可空）结论（如「检测到 5 个章节（场景 3 / 静音 1 / 硬切 1…）」）；
-/// - out_note：出参（可空）无结果时的原因说明；
-/// - out_error：出参（可空）错误说明。
+/// - out_summary：出参（可空）结论（如「检测到 5 个章节（场景 3 / 静音 1 / 硬切 1…）」），
+///   **需 nc_free_string**；
+/// - out_note：出参（可空）无结果时的原因说明，**需 nc_free_string**；
+/// - out_error：出参（可空）错误说明，**需 nc_free_string**。
 /// 返回：检测到的章节数（>= 0；0 = 未检测到）；-1 = 参数错误。
 int32_t nc_chapter_detect(NcEditor* editor, double min_chapter_seconds,
                           double max_chapter_seconds, double silence_boundary_seconds,
@@ -1196,6 +1231,7 @@ int32_t nc_chapter_detect(NcEditor* editor, double min_chapter_seconds,
 
 /// 落盘缓存的检测结果（一条撤销事务；重复调用按幂等语义更新既有标记）。
 /// 返回：写入的标记数（新增 + 更新）；-1 = 无缓存结果/失败。
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_chapter_apply(NcEditor* editor, char** out_error);
 
 /// 已落盘章节数（由序列章节标记重建）。
@@ -1206,6 +1242,7 @@ int32_t nc_chapter_get(const NcEditor* editor, int32_t index, int64_t* out_start
                        int64_t* out_end_us, char** out_title);
 
 /// 手动编辑章节标题（更新既有章节标记；可撤销）。
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_chapter_rename(NcEditor* editor, int32_t index, const char* new_title,
                           char** out_error);
 
@@ -1260,6 +1297,7 @@ int32_t nc_regeneration_clear(NcEditor* editor, int32_t scope, char** out_cleare
                               char** out_error);
 
 /// 清除全部章节标记（一条撤销事务）。
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_chapter_clear(NcEditor* editor, char** out_error);
 
 // ---- 导出队列（文档第 6 部分「二、导出队列管理」+ 第 4 部分「后台导出」）----
@@ -1349,6 +1387,7 @@ int32_t nc_media_relink_batch(NcEditor* editor, const char* mappings_json,
                               int32_t* out_relinked, char** out_report_json, char** out_error);
 
 /// 记录素材内容摘要（平台层在导入后计算写入；hex 为 64 位十六进制或空）。
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_media_set_digest(NcEditor* editor, uint64_t asset_id, const char* sha256_hex,
                             char** out_error);
 
@@ -1394,6 +1433,7 @@ int32_t nc_heartbeat_handle(NcEditor* editor, int64_t server_time_unix, int32_t 
                             const char* message, int32_t* out_verdict, char** out_message);
 
 /// 网络失败时的心跳处理（保持权益不变、不累计异常）。
+/// - out_message：出参（可 NULL）提示信息（**需 nc_free_string**）。
 int32_t nc_heartbeat_network_error(NcEditor* editor, char** out_message);
 
 /// 查询心跳状态：锁定标志 / 连续异常计数 / 上次校验时间。

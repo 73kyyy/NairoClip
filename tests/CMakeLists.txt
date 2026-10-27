@@ -96,6 +96,7 @@ add_executable(nairoclip_tests
     test_light_effects.cpp
     test_motion_blur_directional.cpp
     test_capi_errors.cpp
+    test_capi_ownership.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

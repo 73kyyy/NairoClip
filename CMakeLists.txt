@@ -31,3 +31,14 @@ if(NAIROCLIP_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# B0-4：C ABI 所有权标注检查（新增 ABI 必须带标注）。
+# 手动运行：cmake --build . --target check_abi_ownership
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_custom_target(check_abi_ownership
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_abi_ownership.py
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "检查 capi.h 出参所有权标注"
+    )
+endif()
