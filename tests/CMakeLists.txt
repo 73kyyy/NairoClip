@@ -100,6 +100,7 @@ add_executable(nairoclip_tests
     test_bounds_audit.cpp
     test_edit_template.cpp
     test_template_fill.cpp
+    test_template_apply.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
@@ -266,4 +267,5 @@ add_test(NAME nairoclip_tests COMMAND nairoclip_tests)
 # 更稳妥（部分用例使用相对路径读取 models/ 与 fixtures）。
 set_tests_properties(nairoclip_tests PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
 

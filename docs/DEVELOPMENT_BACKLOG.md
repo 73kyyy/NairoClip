@@ -709,16 +709,62 @@ POST_BUILD 步骤幂等生成，`touch` 源码触发重编译后自动恢复，�
 
 ---
 
-### B2-3 ⬜ 模板应用管线
+### B2-3 ✅ 模板应用管线
 
-`applyTemplate(editor, template, materialMap) → ApplyResult`：
+**已实施（2026-10-28）**：`core/include/nairoclip/core/template_apply.h` +
+`core/src/template_apply.cpp`。
 
-- 按槽位插入片段
-- 应用转场 / 特效 / 摇晃
-- 生成撤销事务（**必须可一键撤销**）
-- 返回"插入 N 段，加了 M 个特效"
+**接口**：`applyTemplate(editor, sequenceId, tmpl, assignments, out) → Result`，
+配合 `assignmentsFromFill(fill, candidates)` 从 B2-2 的结果直接转换。
 
-**交付**：应用后可完整撤销（断言撤销前后 Project 一致）。
+**与 B2-2 的分工**：B2-2 只决定「哪个素材进哪个槽位」，不碰编辑器；
+本模块负责落盘。分开的好处是填充算法可脱离编辑器单测，应用管线也能接受
+用户手工指定的素材映射（用户拖素材覆盖自动填充）。
+
+**排布规则**：
+- 槽位**首尾相接**排在一条新建的「模板·主轴」轨道上；
+- 前景角色（`Foreground2/3`）放到独立的「模板·前景 N」轨道，时间区间与
+  对应槽位对齐——这样才能形成画中画；
+- 素材入点从 0 开始；片段时长 = 槽位时长（素材更长则只取前段）。
+
+**撤销**：整个过程包在一条 `beginTransaction`/`endTransaction` 里，
+用户点一次套用 = 一条撤销记录。**任何一步失败都会回滚**并返回错误。
+
+**撤销验证方式（这条是关键）**：没有只断言「片段数回到原值」——
+特效没删干净、轨道多建了一条、ID 分配器前进过，都算不一致。
+测试用 **序列化文本逐字符全等** 作为判据（`saveProjectToNclip` 前后比较），
+能抓住所有残留。
+
+**测试**（`tests/test_template_apply.cpp`，16 用例）：
+- `UndoRestoresProjectExactly` — 核心验收，序列化文本全等；
+- `SingleUndoStepForWholeTemplate` — 套用 4 段模板只产生 **1** 条历史；
+- `RedoReappliesTemplate` — 重做后与套用后完全一致；
+- `SlotsAreLaidOutBackToBack` — 逐段验证 start/duration 的精确值；
+- `ForegroundSlotsGetOwnTrack` / `EffectsAreAdded` / `TransitionsBetweenAdjacentClips`；
+- `MissingAssignmentIsSkippedWithWarning` — 未指定素材的槽位跳过并**说明是第几个**；
+- `UnknownAssetIsRejected`（且**不留下半成品**）/ `InvalidSlotIndexIsRejected`
+  / `DuplicateSlotAssignmentIsRejected` / `InvalidTemplateIsRejected`；
+- `WorksWithBuiltinTemplate` — 用真实内置模板跑通并撤销。
+
+**变异验证**：
+1. 「不包事务」→ `UndoRestoresProjectExactly`、`SingleUndoStepForWholeTemplate`、
+   `WorksWithBuiltinTemplate` 三个同时报警 ✅
+2. 「去掉素材预校验」→ `UnknownAssetIsRejected` 报警（后半句
+   `CHECK(seq->tracks.empty())` 抓住了「留下半成品轨道」）✅
+   这条证明「失败后不留痕」的断言不是摆设。
+
+**已知局限（如实记录）**：
+- **摇晃参数未落盘**：`TemplateSlot::shakeAmplitude/Frequency` 在应用时
+  只统计进 `shakesApplied`，并在 warnings 里明确提示「片段层无对应字段」。
+  原因是 `Clip` 没有摇晃字段，摇晃目前是 `EffectType::Shake` 的运行时参数
+  （见 B1-5），需要渲染侧接线才能真正生效。**没有假装应用了**。
+- 转场依赖引擎的「相邻片段」判定，失败时记入 warnings 而不中断整个模板
+  （硬切情形下「相邻」本来就无意义）。
+- 模板应用**不调整已有片段**：如果目标轨道已有内容会直接叠加，
+  不做自动避让。这符合「模板通常用在空时间线」的实际用法，但如果用户
+  在有内容的时间线套用，可能出现重叠——需要 B2-4 的 UI 做前置提示。
+
+**未完成**：C ABI 与 UI（B2-4）。
 
 ---
 

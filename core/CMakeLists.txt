@@ -76,6 +76,7 @@ add_library(nairoclip_core STATIC
     src/light_effects.cpp
     src/edit_template.cpp
     src/template_fill.cpp
+    src/template_apply.cpp
     src/motion_blur_directional.cpp
     src/ai_engine.cpp
     src/codec_policy.cpp
