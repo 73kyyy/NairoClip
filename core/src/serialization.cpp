@@ -993,6 +993,25 @@ JsonValue writeSequence(const Sequence& s) {
     for (const auto& m : s.markers) {
         markers.push(writeMarker(m));
     }
+    // 轨道组（B2-7；仅非空时写入，保持 diff 稳定）
+    if (!s.trackGroups.empty()) {
+        JsonValue groups = JsonValue::array();
+        for (const auto& g : s.trackGroups) {
+            JsonValue go = JsonValue::object();
+            go.set("id", JsonValue::integer(static_cast<std::int64_t>(g.id.value)));
+            go.set("name", JsonValue::string(g.name));
+            if (g.collapsed) {
+                go.set("collapsed", JsonValue::boolean(true));
+            }
+            JsonValue members = JsonValue::array();
+            for (TrackId t : g.tracks) {
+                members.push(JsonValue::integer(static_cast<std::int64_t>(t.value)));
+            }
+            go.set("tracks", std::move(members));
+            groups.push(std::move(go));
+        }
+        o.set("trackGroups", std::move(groups));
+    }
     o.set("markers", std::move(markers));
     if (!s.subtitles.empty()) {
         o.set("subtitles", writeSubtitleTrack(s.subtitles));
@@ -1063,6 +1082,40 @@ bool readSequence(const JsonValue& v, Sequence& out, std::string& err) {
         if (!readTrack(tracks.at(i), t, err)) return false;
         out.tracks.push_back(std::move(t));
     }
+    // 轨道组（缺省 = 无组）。成员不存在的组整体丢弃：
+    // 保留一个引用幽灵轨道的组会让后续联动操作失败且无从修复。
+    out.trackGroups.clear();
+    if (v.has("trackGroups")) {
+        const JsonValue& groups = v.get("trackGroups");
+        if (groups.isArray()) {
+            for (std::size_t i = 0; i < groups.size(); ++i) {
+                const JsonValue& go = groups.at(i);
+                if (!go.isObject()) continue;
+                TrackGroup g;
+                g.id = TrackGroupId{static_cast<std::uint64_t>(go.get("id").asInteger())};
+                g.name = go.get("name").asString();
+                g.collapsed = go.get("collapsed").asBool(false);
+                const JsonValue& members = go.get("tracks");
+                bool allPresent = true;
+                if (members.isArray()) {
+                    for (std::size_t j = 0; j < members.size(); ++j) {
+                        const TrackId tid{
+                            static_cast<std::uint64_t>(members.at(j).asInteger())};
+                        if (out.findTrack(tid) == nullptr) {
+                            allPresent = false;
+                            break;
+                        }
+                        g.tracks.push_back(tid);
+                    }
+                } else {
+                    allPresent = false;
+                }
+                if (allPresent && g.valid()) {
+                    out.trackGroups.push_back(std::move(g));
+                }
+            }
+        }
+    }
     const JsonValue& markers = v.get("markers");
     out.markers.clear();
     if (markers.isArray()) {
@@ -1132,6 +1185,10 @@ uint64_t maxIdOf(const Project& project) {
             for (const auto& tr : t.transitions) {
                 if (tr.id.value > maxId) maxId = tr.id.value;
             }
+        }
+        // 轨道组 ID
+        for (const auto& g : s.trackGroups) {
+            if (g.id.value > maxId) maxId = g.id.value;
         }
         // 标记 ID
         for (const auto& m : s.markers) {

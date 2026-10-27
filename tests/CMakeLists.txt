@@ -90,6 +90,7 @@ add_executable(nairoclip_tests
     test_blend_modes.cpp
     test_shake_effect.cpp
     test_lut.cpp
+    test_track_groups.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
@@ -179,6 +180,17 @@ if(MSVC)
 else()
     target_compile_options(nairoclip_lut_tests PRIVATE -Wall -Wextra)
 endif()
+add_executable(nairoclip_track_groups_tests
+    test_main.cpp
+    test_track_groups.cpp
+)
+target_link_libraries(nairoclip_track_groups_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_track_groups_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_track_groups_tests PRIVATE -Wall -Wextra)
+endif()
+
 
 
 

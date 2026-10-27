@@ -57,6 +57,20 @@ public:
     Result setTrackHeight(SequenceId sequenceId, TrackId trackId, int heightPx,
                           bool collapsed = false);
 
+    // ---- 轨道组（B2-7）----
+    /// 创建轨道组。成员必须存在，且不能已属于其它组。可撤销。
+    /// outGroupId 返回新组 ID（由本方法分配）。
+    Result createTrackGroup(SequenceId sequenceId, const std::vector<TrackId>& tracks,
+                            const std::string& name, TrackGroupId* outGroupId = nullptr);
+    /// 解散轨道组。可撤销。
+    Result removeTrackGroup(SequenceId sequenceId, TrackGroupId groupId);
+    /// 组内联动静音。可撤销（一次撤销还原全部成员）。
+    Result setGroupMuted(SequenceId sequenceId, TrackGroupId groupId, bool muted);
+    /// 组内联动隐藏。
+    Result setGroupHidden(SequenceId sequenceId, TrackGroupId groupId, bool hidden);
+    /// 组内联动锁定。
+    Result setGroupLocked(SequenceId sequenceId, TrackGroupId groupId, bool locked);
+
     /// 重命名轨道。
     Result renameTrack(SequenceId sequenceId, TrackId trackId, const std::string& newName);
     /// 设置轨道锁定（锁定后所有编辑被拒绝）。

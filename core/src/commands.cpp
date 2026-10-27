@@ -344,6 +344,183 @@ Result SetTrackHeightCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------- 轨道组命令（B2-7） ----------------
+
+CreateTrackGroupCommand::CreateTrackGroupCommand(SequenceId sequenceId, TrackGroup group)
+    : sequenceId_(sequenceId), group_(std::move(group)) {}
+
+Result CreateTrackGroupCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    if (group_.tracks.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, "轨道组成员不能为空");
+    }
+    for (TrackId member : group_.tracks) {
+        if (seq->findTrack(member) == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "轨道组成员不存在");
+        }
+        if (seq->groupOf(member) != nullptr) {
+            // 一条轨道只能属于一个组：两个组同时管一条轨会让联动语义歧义
+            return Result::fail(ErrorCode::InvalidArgument,
+                                "轨道 " + std::to_string(member.value) +
+                                    " 已属于其它轨道组，请先解组");
+        }
+    }
+    // 组 ID 已存在（重放场景）时直接拒绝，避免出现两个同 ID 的组
+    for (const auto& g : seq->trackGroups) {
+        if (g.id == group_.id) {
+            return Result::fail(ErrorCode::InvalidArgument, "轨道组 ID 已存在");
+        }
+    }
+    seq->trackGroups.push_back(group_);
+    return Result::ok();
+}
+
+Result CreateTrackGroupCommand::revert(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const auto it = std::find_if(seq->trackGroups.begin(), seq->trackGroups.end(),
+                                 [this](const TrackGroup& g) { return g.id == group_.id; });
+    if (it == seq->trackGroups.end()) {
+        return Result::fail(ErrorCode::NotFound, "轨道组不存在");
+    }
+    seq->trackGroups.erase(it);
+    return Result::ok();
+}
+
+RemoveTrackGroupCommand::RemoveTrackGroupCommand(SequenceId sequenceId, TrackGroupId groupId)
+    : sequenceId_(sequenceId), groupId_(groupId) {}
+
+Result RemoveTrackGroupCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const auto it = std::find_if(seq->trackGroups.begin(), seq->trackGroups.end(),
+                                 [this](const TrackGroup& g) { return g.id == groupId_; });
+    if (it == seq->trackGroups.end()) {
+        return Result::fail(ErrorCode::NotFound, "轨道组不存在");
+    }
+    removed_ = *it;
+    removedIndex_ = static_cast<std::size_t>(std::distance(seq->trackGroups.begin(), it));
+    seq->trackGroups.erase(it);
+    return Result::ok();
+}
+
+Result RemoveTrackGroupCommand::revert(Project& project) {
+    if (!removed_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少轨道组快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const std::size_t index =
+        std::min(removedIndex_.value_or(seq->trackGroups.size()), seq->trackGroups.size());
+    seq->trackGroups.insert(seq->trackGroups.begin() + static_cast<std::ptrdiff_t>(index),
+                            *removed_);
+    return Result::ok();
+}
+
+SetTrackGroupFlagCommand::SetTrackGroupFlagCommand(SequenceId sequenceId, TrackGroupId groupId,
+                                                   Flag flag, bool value)
+    : sequenceId_(sequenceId), groupId_(groupId), flag_(flag), value_(value) {}
+
+Result SetTrackGroupFlagCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    TrackGroup* group = nullptr;
+    for (auto& g : seq->trackGroups) {
+        if (g.id == groupId_) {
+            group = &g;
+            break;
+        }
+    }
+    if (group == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道组不存在");
+    }
+    if (!oldValues_.has_value()) {
+        std::vector<bool> olds;
+        olds.reserve(group->tracks.size());
+        for (TrackId member : group->tracks) {
+            const Track* t = seq->findTrack(member);
+            if (t == nullptr) {
+                return Result::fail(ErrorCode::NotFound, "轨道组成员不存在");
+            }
+            switch (flag_) {
+                case Flag::Muted: olds.push_back(t->muted); break;
+                case Flag::Hidden: olds.push_back(t->hidden); break;
+                case Flag::Locked: olds.push_back(t->locked); break;
+            }
+        }
+        oldValues_ = std::move(olds);
+    }
+    for (TrackId member : group->tracks) {
+        Track* t = seq->findTrack(member);
+        if (t == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "轨道组成员不存在");
+        }
+        switch (flag_) {
+            case Flag::Muted: t->muted = value_; break;
+            case Flag::Hidden: t->hidden = value_; break;
+            case Flag::Locked: t->locked = value_; break;
+        }
+    }
+    return Result::ok();
+}
+
+Result SetTrackGroupFlagCommand::revert(Project& project) {
+    if (!oldValues_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少组成员快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const TrackGroup* group = nullptr;
+    for (const auto& g : seq->trackGroups) {
+        if (g.id == groupId_) {
+            group = &g;
+            break;
+        }
+    }
+    if (group == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道组不存在");
+    }
+    if (group->tracks.size() != oldValues_->size()) {
+        // 组成员在命令执行后变了（不应发生）：拒绝静默错配
+        return Result::fail(ErrorCode::InvalidArgument, "轨道组成员已变更，无法还原");
+    }
+    for (std::size_t i = 0; i < group->tracks.size(); ++i) {
+        Track* t = seq->findTrack(group->tracks[i]);
+        if (t == nullptr) {
+            return Result::fail(ErrorCode::NotFound, "轨道组成员不存在");
+        }
+        const bool v = (*oldValues_)[i];
+        switch (flag_) {
+            case Flag::Muted: t->muted = v; break;
+            case Flag::Hidden: t->hidden = v; break;
+            case Flag::Locked: t->locked = v; break;
+        }
+    }
+    return Result::ok();
+}
+
+std::string SetTrackGroupFlagCommand::nameImpl() const {
+    switch (flag_) {
+        case Flag::Muted: return value_ ? "组内静音" : "组内取消静音";
+        case Flag::Hidden: return value_ ? "组内隐藏" : "组内显示";
+        case Flag::Locked: return value_ ? "组内锁定" : "组内解锁";
+    }
+    return "轨道组联动";
+}
+
 // ---------------- InsertClipCommand ----------------
 
 InsertClipCommand::InsertClipCommand(SequenceId sequenceId, TrackId trackId, Clip clip)

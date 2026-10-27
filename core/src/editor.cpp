@@ -57,6 +57,40 @@ Result TimelineEditor::addTrack(SequenceId sequenceId, TrackType type, const std
     return r;
 }
 
+Result TimelineEditor::createTrackGroup(SequenceId sequenceId,
+                                        const std::vector<TrackId>& tracks,
+                                        const std::string& name, TrackGroupId* outGroupId) {
+    TrackGroup group;
+    group.id = TrackGroupId{project_.ids.next()};
+    group.name = name;
+    group.tracks = tracks;
+    const Result r =
+        commit(std::make_unique<CreateTrackGroupCommand>(sequenceId, std::move(group)));
+    if (r.isOk() && outGroupId != nullptr) {
+        *outGroupId = TrackGroupId{group.id.value};
+    }
+    return r;
+}
+
+Result TimelineEditor::removeTrackGroup(SequenceId sequenceId, TrackGroupId groupId) {
+    return commit(std::make_unique<RemoveTrackGroupCommand>(sequenceId, groupId));
+}
+
+Result TimelineEditor::setGroupMuted(SequenceId sequenceId, TrackGroupId groupId, bool muted) {
+    return commit(std::make_unique<SetTrackGroupFlagCommand>(
+        sequenceId, groupId, SetTrackGroupFlagCommand::Flag::Muted, muted));
+}
+
+Result TimelineEditor::setGroupHidden(SequenceId sequenceId, TrackGroupId groupId, bool hidden) {
+    return commit(std::make_unique<SetTrackGroupFlagCommand>(
+        sequenceId, groupId, SetTrackGroupFlagCommand::Flag::Hidden, hidden));
+}
+
+Result TimelineEditor::setGroupLocked(SequenceId sequenceId, TrackGroupId groupId, bool locked) {
+    return commit(std::make_unique<SetTrackGroupFlagCommand>(
+        sequenceId, groupId, SetTrackGroupFlagCommand::Flag::Locked, locked));
+}
+
 Result TimelineEditor::moveTrack(SequenceId sequenceId, TrackId trackId, int newIndex) {
     return commit(std::make_unique<MoveTrackCommand>(sequenceId, trackId, newIndex));
 }

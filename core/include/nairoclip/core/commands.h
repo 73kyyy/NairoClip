@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace nairoclip {
 namespace core {
@@ -97,6 +98,63 @@ private:
     bool collapsed_;
     std::optional<int> oldHeight_;
     std::optional<bool> oldCollapsed_;
+};
+
+/// 创建轨道组（B2-7）。
+///
+/// 校验：group 必须非空、成员都存在、且成员不能已属于其它组
+/// （一条轨道只能属于一个组，否则静音联动会有两个组抢同一条轨）。
+class CreateTrackGroupCommand : public Command {
+public:
+    CreateTrackGroupCommand(SequenceId sequenceId, TrackGroup group);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "创建轨道组"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackGroup group_;
+};
+
+/// 解散轨道组（B2-7）。快照保存，可撤销还原成组。
+class RemoveTrackGroupCommand : public Command {
+public:
+    RemoveTrackGroupCommand(SequenceId sequenceId, TrackGroupId groupId);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "解散轨道组"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackGroupId groupId_;
+    std::optional<TrackGroup> removed_;
+    std::optional<std::size_t> removedIndex_;
+};
+
+/// 组内联动静音/隐藏/锁定（B2-7）。
+///
+/// 为什么是「联动」而不是逐条设置：组的存在意义就是一次操作多条轨。
+/// 逐条调用会让撤销栈出现 N 条记录，用户按一次「撤销」只还原一条，
+/// 观感是「撤销坏了」。
+class SetTrackGroupFlagCommand : public Command {
+public:
+    /// 可联动的标志位。
+    enum class Flag { Muted, Hidden, Locked };
+    SetTrackGroupFlagCommand(SequenceId sequenceId, TrackGroupId groupId, Flag flag, bool value);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override;
+
+private:
+    SequenceId sequenceId_;
+    TrackGroupId groupId_;
+    Flag flag_;
+    bool value_;
+    /// 每个成员的原值（按 group.tracks 顺序），用于精确还原。
+    std::optional<std::vector<bool>> oldValues_;
 };
 
 /// 插入片段。

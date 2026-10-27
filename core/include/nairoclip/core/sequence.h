@@ -5,6 +5,8 @@
 #include "nairoclip/core/subtitle.h"
 #include "nairoclip/core/track.h"
 
+#include <algorithm>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -21,6 +23,27 @@ struct Marker {
 };
 
 /// 序列（一条独立时间线）。
+/// 轨道组（B2-7）：把跨类型的多条轨道绑在一起联动操作。
+///
+/// 产品场景：主画面 = 视频轨 + 其分离出的音频轨 + 字幕轨。用户希望
+/// 「一起隐藏」「一起静音」「一起上下挪」，而不必逐条点。
+///
+/// 约束：一条轨道**只能属于一个组**。允许同一条轨出现在两个组里会让
+/// 「静音联动」产生歧义（A 组要静音、B 组要取消），且没有自然的解法。
+struct TrackGroup {
+    TrackGroupId id;
+    std::string name;
+    /// 成员轨道（允许跨类型；顺序仅用于显示，不改变 tracks 的实际顺序）。
+    std::vector<TrackId> tracks;
+    /// UI 折叠状态（B2-7 与 B2-10 的折叠语义不同：这里指「组在面板里收起」）。
+    bool collapsed = false;
+
+    bool contains(TrackId t) const {
+        return std::find(tracks.begin(), tracks.end(), t) != tracks.end();
+    }
+    bool valid() const { return id.isValid() && !tracks.empty(); }
+};
+
 struct Sequence {
     SequenceId id;
     std::string name = "主序列";
@@ -41,6 +64,26 @@ struct Sequence {
     std::vector<Marker> markers;
     /// 序列级字幕轨道（独立于普通轨道，字幕事件集合）。
     SubtitleTrack subtitles;
+    /// 轨道组（B2-7）。成员必须是本序列中存在的轨道。
+    std::vector<TrackGroup> trackGroups;
+
+    /// 查找包含指定轨道的组（无则返回 nullptr）。
+    const TrackGroup* groupOf(TrackId trackId) const {
+        for (const auto& g : trackGroups) {
+            if (g.contains(trackId)) {
+                return &g;
+            }
+        }
+        return nullptr;
+    }
+    TrackGroup* groupOf(TrackId trackId) {
+        for (auto& g : trackGroups) {
+            if (g.contains(trackId)) {
+                return &g;
+            }
+        }
+        return nullptr;
+    }
 
     Track* findTrack(TrackId trackId);
     const Track* findTrack(TrackId trackId) const;

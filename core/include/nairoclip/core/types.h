@@ -28,6 +28,7 @@ struct MarkerTag {};
 struct TransitionTag {};
 struct SubtitleTag {};
 struct EffectTag {};
+struct TrackGroupTag {};
 
 using ProjectId = Id<ProjectTag>;
 using SequenceId = Id<SequenceTag>;
@@ -38,6 +39,7 @@ using MarkerId = Id<MarkerTag>;
 using TransitionId = Id<TransitionTag>;
 using SubtitleId = Id<SubtitleTag>;
 using EffectId = Id<EffectTag>;
+using TrackGroupId = Id<TrackGroupTag>;
 
 /// 单调递增 ID 分配器。
 class IdAllocator {
