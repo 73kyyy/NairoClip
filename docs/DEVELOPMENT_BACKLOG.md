@@ -242,7 +242,23 @@ serialization.cpp:76  "effect" → Effect
 
 > 跳过粒子引擎（你已明确不做）。
 
-### B1-1 ⬜ 混合模式 5 → 16
+### B1-1 ✅ 混合模式 5 → 16
+
+**已实施（2026-10-27）**：新增 11 种（Multiply / Lighten / ColorDodge / ColorBurn /
+LinearBurn / LinearDodge / SoftLight / LinearLight / PinLight / Difference / Exclusion），
+`kBlendModeCount = 16`。
+
+- **数值契约**：0..4 为历史值永不改变（C ABI 整数入口按值映射），新模式从 5 起追加；
+- 公式采用 W3C Compositing Level 1 / Photoshop 标准式；
+- SoftLight 完整实现双分支（含 A ≤ 0.25 的多项式 D(A) 与 sqrt 分支）；
+- ColorDodge / ColorBurn 有除零保护（B=1 / B=0）；
+- 名称与解析双向覆盖 16 种（中英文别名），越界整数拒绝；
+- **验证方式**：另写一份独立 Python 实现，与 C++ 逐点比对 4851 个点
+  （11 种 × 21×21 网格），全部一致——避免「用自己写的公式验证自己」。
+
+**待完成**：UI 下拉项（`ui/assets/editor.js` 的模式选择器）。
+
+**原始问题**：
 
 **现状**：`blend_modes.cpp` 130 行，`BlendMode` 仅 5 种
 （Normal / Screen / Overlay / Darken / HardLight）。
@@ -258,7 +274,33 @@ LinearDodge、SoftLight、LinearLight、PinLight、Difference、Exclusion、Hue/
 
 ---
 
-### B1-2 ⬜ LUT 调色（重点）
+### B1-2 ✅ LUT 调色（核心层）
+
+**已实施（2026-10-27）**：`core/include/nairoclip/core/lut.h` + `core/src/lut.cpp`。
+
+- `.cube` 解析（Adobe Cube LUT Specification 1.0）：TITLE / LUT_3D_SIZE /
+  DOMAIN_MIN/MAX / 注释 / 空行；
+- 尺寸 2..64（覆盖 17³ 与 33³）；三线性插值；
+- **红色变化最快**的数据顺序（`((b*size+g)*size+r)*3`）——这是 .cube 最易错处，
+  专门用「交换红蓝」的 LUT 测试，identity LUT 对顺序不敏感、测不出来；
+- 强度混合 0..1（0 = 原图，1 = 完整 LUT）；
+- 数据模型：`Clip.lutPath`（存路径不存数据——33³ 是 10 万+ double，
+  塞进每个片段会让工程文件膨胀几十 MB）+ `Clip.lutStrength`；
+- 序列化：仅启用时写入；强度越界截断（与 `gainDb` 同策略）。
+
+**格式校验从严**：畸形文件拒绝并给**行号 + 具体原因**（字段数不对 / 非数值 /
+数据行数不符 / 尺寸越界 / 重复声明 / 1D LUT 明确拒绝）。解析失败时
+不修改调用方已有的 LUT，避免拿到半个表。共 12 个畸形用例。
+
+**开发中发现并修复的真实缺陷**：`lutSample` 最初把输入按「域单位」解释，
+导致 DOMAIN 声明为 0..255 的 LUT 把归一化输入 1.0 映射到起点，
+**整张图会被压黑**。已改为「输入归一化 0..1 → 线性映射到整个 DOMAIN 区间」，
+并保留一个专门的回归用例。
+
+**未完成**（需产品决策/素材）：20 个内置 LUT 预设、C ABI
+（`nc_set_clip_lut` 等）、导出/预览管线接入点。
+
+**原始问题**：
 
 **现状**：全库 `LUT` **0 命中**，无任何 LUT 能力。
 
@@ -314,7 +356,25 @@ LinearDodge、SoftLight、LinearLight、PinLight、Difference、Exclusion、Hue/
 
 ---
 
-### B1-5 ⬜ 震动/摇晃特效（从 depth_ai 抽出）
+### B1-5 ✅ 震动/摇晃特效（从 depth_ai 抽出）
+
+**已实施（2026-10-27）**：`core/include/nairoclip/core/shake_effect.h` +
+`core/src/shake_effect.cpp`，`EffectType::Shake = 36`。
+
+- 4 种轨迹：Horizontal / Vertical / Circular / Random；
+- 参数：振幅（占短边比例 0..0.2）、频率（0..20Hz）、种子、衰减时长（0..10s）、相位；
+- **确定性**（文档标为「关键」）：全部随机性来自 `seed` 的 murmur3 哈希，
+  不用 `rand()`/`random_device`。测试断言同参数同时间点**逐像素一致**
+  （单帧 + 连续 30 帧 + 4 种轨迹全覆盖）；
+- 衰减包络 `exp(-3t/T)`：t=T 时约剩 5%，效果「抖一下就停」；
+- 振幅以**短边**为基准，横竖屏观感一致；
+- 亚像素位移直接跳过；边缘镜像填充避免黑边；alpha 原样保留。
+
+**参数为何不进 `Effect.value`**：`Effect` 是单值字段，塞不下四维参数。
+按项目既有惯例（`person_effects` / `motion_effects` 同做法），
+结构化参数走独立 `ShakeParams`，`Effect.value` 只作强度倍率。
+
+**原始问题**：
 
 **现状**：`depth_ai.cpp:419` 有正弦轨迹（0=静止 / 1=摇摆 / 2=环绕），
 但只服务于深度图视差，不是独立特效。

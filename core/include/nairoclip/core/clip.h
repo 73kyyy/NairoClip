@@ -95,6 +95,19 @@ struct Clip {
     std::uint32_t depthColorRgba = 0xFFFFFFFF;  ///< 雾色/近景色调
     /// 是否启用深度图效果。
     bool hasDepthEffect() const { return depthEffect != DepthEffectMode::None; }
+    /// 3D LUT 文件路径（B1-2）。空 = 不应用 LUT。
+    ///
+    /// 存路径而不是存 LUT 数据：一个 33³ 的表是 107,811 个 double，
+    /// 塞进每个片段会让工程文件膨胀到几十 MB 且无法人工编辑。
+    /// 代价是文件被移动/删除后 LUT 失效——加载时会以「LUT 缺失」告警
+    /// 而不是静默忽略（静默忽略会让用户以为调色丢了）。
+    std::string lutPath;
+    /// LUT 强度 0..1（0 = 原图，1 = 完整 LUT）。
+    double lutStrength = 1.0;
+    /// 是否启用 LUT。
+    bool hasLut() const { return !lutPath.empty(); }
+    /// LUT 参数是否合法。
+    bool lutValid() const { return !hasLut() || (lutStrength >= 0.0 && lutStrength <= 1.0); }
     /// 音频属性是否合法：增益在范围内、淡入淡出不超过片段时长且非负、
     /// 淡入 + 淡出不超过片段时长。
     bool audioValid() const {

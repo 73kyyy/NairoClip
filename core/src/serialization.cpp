@@ -319,7 +319,8 @@ bool readEffects(const JsonValue& v, EffectStack& out, std::string& err) {
         const std::int64_t typeValue = ev.get("type").asInteger();
         // 扩展边界：EffectType 最大枚举值（新增特效时同步更新此处即可；
         // 修复——此前硬编码 12，新增特效后旧值能读、新值会被拒）。
-        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::GlowOutline)) {
+        // 上界跟随最新枚举，新增特效时不必再回来改这里
+        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::Shake)) {
             err = "未知特效类型";
             return false;
         }
@@ -358,6 +359,13 @@ JsonValue writeClip(const Clip& c) {
         filter.set("style", JsonValue::string(filterStyleName(c.filterStyle)));
         filter.set("intensity", JsonValue::number(c.filterIntensity));
         o.set("filter", std::move(filter));
+    }
+    // 3D LUT（B1-2；仅启用时写入）
+    if (c.hasLut()) {
+        JsonValue lut = JsonValue::object();
+        lut.set("path", JsonValue::string(c.lutPath));
+        lut.set("strength", JsonValue::number(c.lutStrength));
+        o.set("lut", std::move(lut));
     }
     // 背景填充（文档 Part 4-C 第 11 节；仅启用时写入）
     if (c.backgroundMode != BackgroundMode::None) {
@@ -463,6 +471,19 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
             if (intensity >= 0.0 && intensity <= 100.0) {
                 out.filterIntensity = intensity;
             }
+        }
+    }
+    // 3D LUT（缺省 = 不应用；强度越界截断，保证工程可打开）
+    out.lutPath.clear();
+    out.lutStrength = 1.0;
+    if (v.has("lut")) {
+        const JsonValue& lut = v.get("lut");
+        if (lut.isObject()) {
+            out.lutPath = lut.get("path").asString();
+            double strength = lut.get("strength").asNumber(1.0);
+            if (strength < 0.0) strength = 0.0;
+            if (strength > 1.0) strength = 1.0;
+            out.lutStrength = strength;
         }
     }
     // 背景填充（缺省 = 未设置；非法值降级为 None，保证工程可打开）

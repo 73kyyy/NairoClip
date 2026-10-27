@@ -30,19 +30,38 @@ namespace nairoclip {
 namespace core {
 
 /// 画中画混合模式（数值稳定，供序列化与 C ABI 映射）。
+///
+/// 数值约定：0..4 是历史值，**永不改变**（老工程文件按名字存，
+/// 但 C ABI 的整数入口按值映射，改值会让历史调用错位）。
+/// 新模式一律追加在末尾，从 5 开始。
 enum class BlendMode {
-    Normal = 0,     ///< 正常（标准 Alpha 混合）
-    Screen = 1,     ///< 滤色
-    Overlay = 2,    ///< 叠加
-    Darken = 3,     ///< 变暗
-    HardLight = 4,  ///< 强光
+    Normal = 0,        ///< 正常（标准 Alpha 混合）
+    Screen = 1,        ///< 滤色
+    Overlay = 2,       ///< 叠加
+    Darken = 3,        ///< 变暗
+    HardLight = 4,     ///< 强光
+    // ---- B1-1 追加（对标 Photoshop / After Effects）----
+    Multiply = 5,      ///< 正片叠底
+    Lighten = 6,       ///< 变亮
+    ColorDodge = 7,    ///< 颜色减淡
+    ColorBurn = 8,     ///< 颜色加深
+    LinearBurn = 9,    ///< 线性加深
+    LinearDodge = 10,  ///< 线性减淡（= 相加）
+    SoftLight = 11,    ///< 柔光
+    LinearLight = 12,  ///< 线性光
+    PinLight = 13,     ///< 点光
+    Difference = 14,   ///< 差值
+    Exclusion = 15,    ///< 排除
 };
+
+/// 支持的混合模式数量（含 Normal）。
+constexpr int kBlendModeCount = 16;
 
 /// 模式名称（"normal" / "screen" / "overlay" / "darken" / "hard_light"）。
 const char* blendModeName(BlendMode mode);
 /// 从字符串解析（大小写不敏感；支持 "hardlight" / "hard-light" 别名）。
 bool blendModeFromString(const char* text, BlendMode& out);
-/// 从整数解析（0..4；非法返回 false）。
+/// 从整数解析（0..15；非法返回 false）。
 bool blendModeFromInt(int value, BlendMode& out);
 
 /// 计算单通道混合值（输入/输出 0..1；行业标准公式）。

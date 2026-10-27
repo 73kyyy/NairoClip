@@ -54,6 +54,7 @@ EffectSpec effectSpec(EffectType type) {
         case EffectType::EdgeDetect: return EffectSpec{0.0, 1.0, 0.0, "边缘检测"};
         case EffectType::Slim: return EffectSpec{0.0, 1.0, 0.0, "瘦身"};
         case EffectType::GlowOutline: return EffectSpec{0.0, 1.0, 0.0, "发光轮廓"};
+        case EffectType::Shake: return EffectSpec{0.0, 1.0, 0.0, "震动"};
     }
     return EffectSpec{};
 }

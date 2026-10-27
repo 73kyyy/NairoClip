@@ -211,11 +211,12 @@ NC_TEST(BlendModes, NamesAndParsing) {
     NC_CHECK(mode == BlendMode::HardLight);
     NC_CHECK(!blendModeFromString("bogus", mode));
     NC_CHECK(!blendModeFromString(nullptr, mode));
-    for (int i = 0; i <= 4; ++i) {
+    // B1-1 后共 16 种（0..15）。上界跟随 kBlendModeCount，避免再次硬编码。
+    for (int i = 0; i < kBlendModeCount; ++i) {
         NC_CHECK(blendModeFromInt(i, mode));
         NC_CHECK_EQ(static_cast<int>(mode), i);
     }
-    NC_CHECK(!blendModeFromInt(5, mode));
+    NC_CHECK(!blendModeFromInt(kBlendModeCount, mode));
     NC_CHECK(!blendModeFromInt(-1, mode));
 }
 
@@ -534,8 +535,15 @@ NC_TEST(ScreenPipeline, CapisBlendModeSetGet) {
         NC_CHECK_EQ(nc_set_clip_blend_mode(editor, 0, clipId, mode), NC_OK);
         NC_CHECK_EQ(nc_get_clip_blend_mode(editor, 0, clipId), mode);
     }
-    // 非法值
-    NC_CHECK_EQ(nc_set_clip_blend_mode(editor, 0, clipId, 9), NC_ERROR_INVALID_ARGUMENT);
+    // B1-1 后新增模式（5..15）也应能往返
+    for (int mode : {5, 10, 15}) {
+        NC_CHECK_EQ(nc_set_clip_blend_mode(editor, 0, clipId, mode), NC_OK);
+        NC_CHECK_EQ(nc_get_clip_blend_mode(editor, 0, clipId), mode);
+    }
+    // 非法值：上界之外
+    NC_CHECK_EQ(nc_set_clip_blend_mode(editor, 0, clipId, kBlendModeCount),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_clip_blend_mode(editor, 0, clipId, 99), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_set_clip_blend_mode(nullptr, 0, clipId, 1), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_get_clip_blend_mode(nullptr, 0, clipId), -1);
     nc_editor_destroy(editor);

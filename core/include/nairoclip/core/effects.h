@@ -59,6 +59,11 @@ enum class EffectType {
     EdgeDetect = 33,   // 边缘检测（Sobel 边缘提取）[0, 1]
     Slim = 34,         // 瘦身（人像区域横向压缩；依赖抠像 Alpha，无 Alpha 时零改动）[0, 1]
     GlowOutline = 35,  // 发光轮廓（抠像 Alpha 边缘高斯模糊 + 发光叠加）[0, 1]
+    // ---- 震动/摇晃（B1-5；实现见 shake_effect.h）----
+    /// 震动：value 为强度（0..1 = 是否启用及倍率）。
+    /// 完整参数（轨迹/振幅/频率/种子/衰减）走 ShakeParams，不进 Effect.value
+    /// ——Effect 是单值字段，塞不进四维参数，硬塞会让序列化变成猜谜。
+    Shake = 36,
 };
 
 /// 特效参数范围描述。

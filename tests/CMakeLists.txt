@@ -87,6 +87,9 @@ add_executable(nairoclip_tests
     test_heartbeat.cpp
     test_media_offline.cpp
     test_model_manager.cpp
+    test_blend_modes.cpp
+    test_shake_effect.cpp
+    test_lut.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
@@ -146,6 +149,39 @@ if(MSVC)
 else()
     target_compile_options(nairoclip_editor_tests PRIVATE -Wall -Wextra)
 endif()
+add_executable(nairoclip_blend_modes_tests
+    test_main.cpp
+    test_blend_modes.cpp
+)
+target_link_libraries(nairoclip_blend_modes_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_blend_modes_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_blend_modes_tests PRIVATE -Wall -Wextra)
+endif()
+add_executable(nairoclip_shake_tests
+    test_main.cpp
+    test_shake_effect.cpp
+)
+target_link_libraries(nairoclip_shake_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_shake_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_shake_tests PRIVATE -Wall -Wextra)
+endif()
+add_executable(nairoclip_lut_tests
+    test_main.cpp
+    test_lut.cpp
+)
+target_link_libraries(nairoclip_lut_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_lut_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_lut_tests PRIVATE -Wall -Wextra)
+endif()
+
+
+
 
 add_test(NAME nairoclip_tests COMMAND nairoclip_tests)
 # ctest 默认在 build/ 下运行；测试内部已做仓库根解析，但从源目录运行
