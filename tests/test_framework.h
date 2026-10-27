@@ -1,6 +1,7 @@
 #pragma once
 // NairoClip 轻量测试框架（零依赖）：用例自动注册、统一执行、失败计数。
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <string>
 #include <utility>
@@ -36,10 +37,32 @@ inline void reportFailure(const char* file, int line, const std::string& msg) {
     ++failureCount();
 }
 
+/// 分段执行支持（NC_TEST_SHARD / NC_TEST_SHARDS 环境变量）。
+///
+/// 为什么需要：全量套件单次运行约 9 分钟，在有回合预算限制的环境里
+/// 很容易在跑完前被截断，导致「跑了一半」既不算通过也不算失败。
+/// 分成两段各跑 ~4.5 分钟可以把结果拿到手。
+///
+/// 按注册顺序取模分片：同一份代码每次分片结果稳定可复现。
 inline int runAll() {
+    int shard = 0;
+    int shards = 1;
+    if (const char* s = std::getenv("NC_TEST_SHARDS")) {
+        const int v = std::atoi(s);
+        if (v > 0) shards = v;
+    }
+    if (const char* s = std::getenv("NC_TEST_SHARD")) {
+        const int v = std::atoi(s);
+        if (v >= 0) shard = v;
+    }
     int failedCases = 0;
     const int total = static_cast<int>(registry().size());
+    int index = -1;
     for (auto& tc : registry()) {
+        ++index;
+        if (shards > 1 && (index % shards) != shard) {
+            continue;
+        }
         const int before = failureCount();
         std::printf("[ RUN  ] %s.%s\n", tc.suite.c_str(), tc.name.c_str());
         tc.fn();
@@ -49,8 +72,13 @@ inline int runAll() {
             ++failedCases;
         }
     }
-    std::printf("\n===== %d cases | %d failed | %d checks failed =====\n", total, failedCases,
-                failureCount());
+    if (shards > 1) {
+        std::printf("\n===== 分片 %d/%d：共 %d cases | %d failed | %d checks failed =====\n",
+                    shard, shards, total, failedCases, failureCount());
+    } else {
+        std::printf("\n===== %d cases | %d failed | %d checks failed =====\n", total, failedCases,
+                    failureCount());
+    }
     return failedCases == 0 ? 0 : 1;
 }
 

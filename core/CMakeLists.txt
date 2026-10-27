@@ -73,6 +73,7 @@ add_library(nairoclip_core STATIC
     src/motion_effects.cpp
     src/shake_effect.cpp
     src/lut.cpp
+    src/light_effects.cpp
     src/ai_engine.cpp
     src/codec_policy.cpp
     src/ai_marking.cpp
