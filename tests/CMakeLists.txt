@@ -98,6 +98,7 @@ add_executable(nairoclip_tests
     test_capi_errors.cpp
     test_capi_ownership.cpp
     test_bounds_audit.cpp
+    test_edit_template.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

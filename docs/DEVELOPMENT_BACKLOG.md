@@ -570,31 +570,74 @@ LinearDodge、SoftLight、LinearLight、PinLight、Difference、Exclusion、Hue/
 > 依据竞品截图分析：其"AI 剪辑"本质是**模板槽位填充**，
 > 界面显示"参考镜头 01-09 / 使用 2 处 / 成片 16.4 秒"即模板参数。
 
-### B2-1 ⬜ 模板数据结构
+### B2-1 ✅ 模板数据结构
 
-```cpp
-struct TemplateSlot {
-    Time duration;                  // 槽位时长
-    LayerRole role;                 // 主轴 / 前景2 / 前景3
-    TransitionType inTransition;    // 入场转场
-    Time transitionDuration;
-    std::vector<EffectSpec> effects;
-    double shakeAmplitude;          // 0 = 无摇晃
-    double shakeFrequency;
-};
+**已实施（2026-10-28）**：`core/include/nairoclip/core/edit_template.h` +
+`core/src/edit_template.cpp`。
 
-struct EditTemplate {
-    std::string id;
-    std::string name;               // "关键帧摇晃特效剪辑"
-    std::string category;           // 卡点 / 汽车 / 动漫 / 旅拍
-    Time totalDuration;
-    std::vector<TemplateSlot> slots;
-    std::string musicHint;
-    std::string coverPath;
-};
-```
+**与文档草案的三处偏差（按实际代码库修正，不是随意改动）**：
 
-**交付**：序列化往返 + 内置 10 个模板（JSON 资源）。
+| 文档写法 | 实际采用 | 原因 |
+|---|---|---|
+| `Time duration` | `core::Time`（= `Rational`） | 本库 `Time` 就是 `Rational`，没有独立 Time 结构体 |
+| `std::vector<EffectSpec> effects` | `std::vector<TemplateEffect>` | **`EffectSpec` 是静态规格**（min/max/default/name，描述"某类特效的取值范围"），不是特效实例。要表达"这个槽位加 0.7 强度的 ZoomPunch"，必须用 `{EffectType, double}` |
+| `double shakeAmplitude` | 同名字段，口径对齐 B1-5 | B1-5 已有 `ShakeParams`，沿用"振幅=画幅短边占比、频率 Hz"，避免两套语义 |
+
+**新增类型**：
+- `LayerRole{Main, Foreground2, Foreground3}` + `layerRoleName`（中文）/
+  `layerRoleKey`（"main"/"fg2"/"fg3"）/ `layerRoleFromKey`；
+- `TemplateEffect{EffectType type; double value}`；
+- `TemplateSlot{duration, role, inTransition, transitionDuration, effects,
+  shakeAmplitude, shakeFrequency}` + `hasShake()`；
+- `EditTemplate{id, name, category, totalDuration, slots, musicHint, coverPath}`
+  + `slotsDuration()` / `slotCount()`。
+
+**校验用 `Result` 而非 `bool`**（B0-3 同一原则）：模板来自用户可编辑的 JSON，
+失败必须说清"第 3 个槽位时长非法"，不能只给"模板无效"。校验项：
+- id/name 非空、id ≤ 64 字符、至少一个槽位；
+- 每槽位时长 > 0；摇晃振幅 0~0.2、频率 0~20Hz；
+- 非 `Cut` 转场必须有时长且不超过槽位时长；
+- 特效强度落在该特效 `effectSpec()` 的合法区间；
+- **`totalDuration` 与槽位之和相差 ≤ 1 微秒**（冗余字段的价值在于能被校验）。
+
+**序列化**：时间一律用**微秒整数**（`durationUs` / `totalDurationUs` /
+`transitionDurationUs`），避免秒制浮点在 JSON 里的精度漂移。
+默认值不写入（`shakeAmplitude == 0` 时省略、空的 `musicHint`/`coverPath` 省略），
+保持 diff 稳定（与 B2-10 同策略）。
+
+**内置 10 个模板**（`builtinTemplates()` + `findBuiltinTemplate(id)`）：
+`keyframe_shake`（关键帧摇晃，文档点名示例）、`triple_hit_beat`、
+`car_showcase`、`car_engine_cut`、`anime_flash`、`anime_impact`、
+`travel_open`、`travel_dissolve_chain`、`pip_commentary`、`ending_hold`。
+覆盖 卡点/汽车/动漫/旅拍 四个品类，用到 FlashWhite/WhipPan/Zoom/CrossDissolve
+以及 ZoomPunch/RgbSplit/Glitch/Brightness 等特效。
+
+**测试**（`tests/test_edit_template.cpp`，19 用例）：
+- `BuiltinTemplatesAreValid` / `BuiltinIdsAreUnique` — 10 个内置模板逐个完整校验；
+- `TotalDurationEqualsSlotSum` / `RejectsInconsistentTotalDuration`
+  — 冗余字段必须真能被校验；
+- `RejectsZeroDurationSlot` / `RejectsTransitionLongerThanSlot` /
+  `RejectsOutOfRangeShake` / `RejectsNegativeShake` / `RejectsInvalidEffectValue`
+  — 各类非法输入，且**报错要指出第几个槽位**；
+- `SerializationRoundtrip` / `BuiltinTemplatesRoundtrip` — 全部内置模板
+  序列化→反序列化仍合法；
+- `FailedParseDoesNotModifyOutput` — 解析失败不污染调用方数据；
+- `OmitsDefaultFieldsInJson` — 默认值不写入。
+
+**变异验证**：
+1. 「跳过 `totalDuration` 自洽校验」→ `RejectsInconsistentTotalDuration`
+   报警。⚠️ 第一次只跑了分片 0 就断言"未捕获"，**判断错误**——该用例恰好在
+   分片 1。教训：**变异验证必须跑完全部分片**，否则会把"没跑到"误判成"没抓到"。
+2. 「内置模板总时长硬编码成错值」→ `BuiltinTemplatesRoundtrip` 报警 ✅
+
+**环境踩坑（如实记录）**：中途出现 6 个 FFmpeg 用例大面积失败
+（`h264_nvenc Undefined constant missing`）。排查确认**与代码无关**：
+`/tmp` 被系统清理，导致 `/tmp/media_gen/` 测试夹具丢失。
+这些夹具由 `tests/fixtures/generate_media.sh` 在 `nairoclip_tests` 的
+POST_BUILD 步骤幂等生成，`touch` 源码触发重编译后自动恢复，重跑即全绿。
+**注意**：这类失败看起来像"代码改坏了"，实际是环境漂移，不要浪费时间去查代码。
+
+**未完成**：模板的 C ABI（`nc_template_*`）与 UI 模板选择器——属 B2-4。
 
 ---
 
