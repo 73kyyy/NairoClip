@@ -1417,6 +1417,20 @@ void nc_free_string_array(char** items, int32_t count);
 /// 释放库返回的字符串。
 void nc_free_string(char* text);
 
+/// 取上一次调用失败的原因（UTF-8，可能为空字符串）。
+///
+/// 约定：
+///  - **无需释放**，指针在下次失败调用或线程结束前有效；
+///  - 返回 NULL 仅当从未失败过；
+///  - 成功调用**不清空**该值——只有失败时才覆写，因此读到的总是
+///    「最近一次失败」的原因，不会因中途插入成功调用而丢失；
+///  - 线程局部：每个线程有独立槽位（与「单 editor 不并发」的约定一致，
+///    同时保证多线程调用不同 editor 时互不串扰）。
+///
+/// 用法：`int32_t rc = nc_set_project_name(e, name);`
+///       `if (rc != NC_OK) { const char* why = nc_last_error(); ... }`
+const char* nc_last_error(void);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

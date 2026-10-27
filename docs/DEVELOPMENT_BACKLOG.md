@@ -89,18 +89,61 @@ using Wide = std::int64_t;   // ← Windows 上溢出无声
 
 ---
 
-### B0-3 ⬜ 错误路径统一（P1）
+### B0-3 ✅ 错误路径统一（C ABI 层）
 
 **问题**：`Result`（247 处）与裸 `bool`（465 处）混用。
 `bool` 失败时不带原因，上层只能给用户"操作失败"。
+C ABI 侧更严重：286 个返回 `int32_t` 的函数里只有 47 个能给出原因。
 
-**方案**：
+**方案选择（与原方案不同，理由如实记录）**：
+原计划是「所有 `int32_t` 函数都能给出 `out_error`」。实测后改为
+**线程局部 `nc_last_error()`**：
 
-- 新接口一律 `Result`；
-- 存量 `bool` 逐个评估：涉及用户可见操作的改 `Result`；
-- 纯内部判定（如 `valid()`）保留 `bool`。
+1. 给 286 个函数加 `char** out_error` 会改变全部签名 → 破坏已发布的
+   `NC_ABI_VERSION 1`，平台层（Kotlin/Swift/Qt）与全部测试都要改；
+2. 343 个字面返回点里 **259 个只是「句柄/参数为空」**。为这类错误强制每个
+   getter 多一个出参，调用方负担远大于收益；
+3. 头文件已约定「单个 editor 句柄不允许多线程并发调用，由平台层串行化」，
+   因此线程局部的错误槽位在既有契约内是安全的。
 
-**交付**：`capi.h` 中所有返回 `int32_t` 的函数必须能给出 `out_error`。
+**实施**：
+- `thread_local std::string g_lastError` + `failNc(code, msg)` 两个重载；
+- **337 个字面 `return NC_ERROR_X;` 全部改写为 `failNc(...)`**，原因按上下文
+  自动生成（空指针 → 指出参数名；范围检查 → 说明越界；`NotFound` → 目标不存在）；
+- `toNcError(Result)` 只取 `code` 丢掉 `message` 是根因之一 → 新增
+  `failResult(const Result&)`，**61 个调用点改为保留 `Result::message`**；
+- 15 处合并的 `if (a == nullptr || b == nullptr)` 拆成独立判断，
+  让原因精确到具体参数（剩余 19 处是跨行条件/深层嵌套，原因仍并列列出候选，
+  属可接受的表述，不影响可用性）。
+
+**新增 API**：`const char* nc_last_error(void)`——无需释放，成功调用**不清空**
+（只有失败时覆写），保证调用方先记账后取原因不会丢信息。
+
+**测试**（`tests/test_capi_errors.cpp`，8 用例）：
+- `NullEditorGivesReadableReason` / `NullStringArgIsDistinguishedFromNullHandle`
+  —— 原因必须点出参数名，不能是空泛的「失败」；
+- `ReasonMentionsSpecificInvalidValue` / `ResultMessageIsPropagated`
+  —— 走 `Result` 路径的失败，`message` 能到达 `last_error`；
+- `SuccessDoesNotClearPreviousError` —— 验证「不清空」的约定（这是设计选择，
+  不是副作用）；
+- `EveryFailurePathSetsReason` —— 抽样 4 类失败全部有原因，行为级守门人；
+- `LastErrorIsThreadLocal` / `NoFailureMeansEmptyOrNull` —— 线程隔离。
+
+**变异验证（第一次是无效变异，如实记录）**：
+1. 只变异 `failNc(const std::string&)` 重载 → **8/8 仍通过**。
+   原因：自动生成的原因全是 C 字符串字面量，走的是
+   `failNc(const char*)` 重载，**变异根本没被触发**。这不是测试漏了，
+   是变异无效。教训：变异必须覆盖被测代码的**实际执行路径**。
+2. 两个重载都变异（丢弃原因）→ **7 个用例 / 16 个检查点全部报警** ✅
+   还原后 8/8 通过，`grep -c MUTANT` = 0。
+
+**未完成（已知局限，不是遗漏）**：
+- **`nc_clip_count` 这类「返回计数」的函数无法报错**：参数非法时只能返回 0，
+  与「该轨道确实没有片段」不可区分。这是 ABI 语义层面的设计缺陷，
+  修它需要新增 `nc_clip_count_ex(..., int32_t* out_count)` 之类的接口，
+  会改变调用方语义（现有代码靠 0 判断空轨道），故本轮不动。
+- 内部 C++ 层 465 处裸 `bool` 未动——本轮聚焦 C ABI 交付标准。
+- 剩余 19 处并列的原因为表述优化项，非正确性问题。
 
 ---
 

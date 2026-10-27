@@ -123,6 +123,35 @@ char* dupString(const std::string& text) {
     return out;
 }
 
+// =============================================================================
+// 失败原因记录（B0-3）
+// =============================================================================
+// 为什么不给 286 个 `int32_t` 函数都加 `char** out_error`：
+//   1. 会改变全部函数签名 → 破坏已发布的 NC_ABI_VERSION 1，所有平台层与
+//      测试都要改；而其中 259 个返回点只是「句柄/参数为空」，为这类错误
+//      强制每个 getter 多一个出参，调用方负担远大于收益；
+//   2. 头文件已约定「单个 editor 句柄不允许多线程并发调用，由平台层串行化」，
+//      因此一个**线程局部**的失败原因槽位在契约内是安全的。
+//
+// 用法：调用返回非 NC_OK 后，调 `nc_last_error()` 取原因（指针在下次失败或
+// 线程结束前有效，**无需释放**，与 nc_free_string 的语义不同）。
+//
+// 覆盖范围：所有走 `fail(...)` 或 `failNc(...)` 的返回路径。
+// 仍有少数函数直接 `return NC_ERROR_X;`，它们会保留上一次的原因——因此
+// 每次进入失败路径都会覆写，不会读到更早的陈旧信息（见 failNc 的清空逻辑）。
+thread_local std::string g_lastError;
+
+int32_t failNc(int32_t code, const std::string& message) {
+    g_lastError = message;
+    return code;
+}
+
+int32_t failNc(int32_t code, const char* message) {
+    g_lastError = (message != nullptr) ? message : "";
+    return code;
+}
+
+
 int32_t toNcError(ErrorCode code) {
     switch (code) {
         case ErrorCode::Ok: return NC_OK;
@@ -136,6 +165,13 @@ int32_t toNcError(ErrorCode code) {
         case ErrorCode::Cancelled: return NC_ERROR_CANCELLED;
     }
     return NC_ERROR_INTERNAL;
+}
+
+/// 转发 core::Result 并保留其 message（B0-3）。
+/// 原 `toNcError(code)` 只取错误码，把 `Result::message` 丢了——上层只能看到
+/// 一个整数，用户看到的是「操作失败」。
+int32_t failResult(const Result& result) {
+    return failNc(toNcError(result.code), result.message);
 }
 
 void setDetail(char** detail, const std::string& message) {
@@ -189,13 +225,13 @@ char* nc_project_save(const NcEditor* editor) {
 int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail) {
     if (editor == nullptr || nclip_text == nullptr) {
         setDetail(detail, "参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数或状态非法");
     }
     Project loaded;
     const NclipLoadResult result = loadProjectFromNclip(nclip_text, loaded);
     if (!result.result.isOk()) {
         setDetail(detail, result.result.message);
-        return toNcError(result.result.code);
+        return failResult(result.result);
     }
     // 替换工程后必须重建编辑器（引用失效）。
     editor->project = std::move(loaded);
@@ -203,7 +239,7 @@ int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail)
     editor->editor = new (std::nothrow) TimelineEditor(editor->project);
     if (editor->editor == nullptr) {
         setDetail(detail, "内存分配失败");
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     return NC_OK;
 }
@@ -229,13 +265,16 @@ char* nc_project_name(const NcEditor* editor) {
 }
 
 int32_t nc_set_project_name(NcEditor* editor, const char* name) {
-    if (editor == nullptr || name == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (name == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "name 为空");
     }
     // 名称长度防御（避免超长标题破坏 UI 与文件）
     const std::string text(name);
     if (text.size() > 200) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
     editor->project.name = text;
     return NC_OK;
@@ -243,11 +282,11 @@ int32_t nc_set_project_name(NcEditor* editor, const char* name) {
 
 int32_t nc_project_canvas(const NcEditor* editor, int32_t* out_width, int32_t* out_height) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (out_width != nullptr) *out_width = main->width;
     if (out_height != nullptr) *out_height = main->height;
@@ -258,11 +297,11 @@ int32_t nc_set_project_canvas(NcEditor* editor, int32_t width, int32_t height) {
     // 文档 Part 3-C「比例」：项目级全局设置；边界校验防极端尺寸。
     // 下限 16（保证可编码），上限 16384（常规编码上限量级）。
     if (editor == nullptr || width < 16 || height < 16 || width > 16384 || height > 16384) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     main->width = width;
     main->height = height;
@@ -271,11 +310,11 @@ int32_t nc_set_project_canvas(NcEditor* editor, int32_t width, int32_t height) {
 
 int32_t nc_project_frame_rate(const NcEditor* editor, int64_t* out_num, int64_t* out_den) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (out_num != nullptr) *out_num = main->frameRate.value.num;
     if (out_den != nullptr) *out_den = main->frameRate.value.den;
@@ -284,11 +323,11 @@ int32_t nc_project_frame_rate(const NcEditor* editor, int64_t* out_num, int64_t*
 
 int32_t nc_set_project_frame_rate(NcEditor* editor, int64_t num, int64_t den) {
     if (editor == nullptr || num <= 0 || den <= 0 || num > 1000 || den > 1000) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     main->frameRate = FrameRate::of(num, den);
     return NC_OK;
@@ -337,7 +376,7 @@ char* nc_undo_history_name(const NcEditor* editor, int32_t index) {
 
 int32_t nc_clear_undo_history(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     editor->editor->clearUndoHistory();
     return NC_OK;
@@ -345,7 +384,7 @@ int32_t nc_clear_undo_history(NcEditor* editor) {
 
 int32_t nc_set_undo_depth_limit(NcEditor* editor, int32_t max_steps) {
     if (editor == nullptr || max_steps < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     editor->editor->setUndoDepthLimit(static_cast<std::size_t>(max_steps));
     return NC_OK;
@@ -364,10 +403,10 @@ int32_t nc_asset_get(const NcEditor* editor, int32_t index, uint64_t* out_asset_
                      char** out_name, char** out_path, int32_t* out_type,
                      int64_t* out_duration_us) {
     if (editor == nullptr || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (static_cast<std::size_t>(index) >= editor->project.assets.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "editor 为空");
     }
     const MediaAsset& asset = editor->project.assets[static_cast<std::size_t>(index)];
     if (out_asset_id != nullptr) *out_asset_id = asset.id.value;
@@ -387,9 +426,9 @@ int32_t nc_asset_get(const NcEditor* editor, int32_t index, uint64_t* out_asset_
 
 int32_t nc_remove_asset(NcEditor* editor, uint64_t asset_id) {
     if (editor == nullptr || asset_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(editor->editor->removeAsset(AssetId{asset_id}).code);
+    return failResult(editor->editor->removeAsset(AssetId{asset_id}));
 }
 
 int32_t nc_asset_is_referenced(const NcEditor* editor, uint64_t asset_id) {
@@ -488,16 +527,16 @@ uint64_t nc_insert_clip(NcEditor* editor, int32_t track_index, uint64_t asset_id
 
 int32_t nc_undo(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(editor->editor->undo().code);
+    return failResult(editor->editor->undo());
 }
 
 int32_t nc_redo(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(editor->editor->redo().code);
+    return failResult(editor->editor->redo());
 }
 
 // ---- 轨道管理（文档 Part 2-B 第8节「轨道控制列」+ 第28节「新增轨道」）----
@@ -507,14 +546,14 @@ int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_
                      int32_t* out_muted, int32_t* out_hidden, int32_t* out_solo,
                      double* out_gain_db) {
     if (editor == nullptr || track_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     if (out_track_id != nullptr) *out_track_id = track.id.value;
@@ -537,77 +576,77 @@ int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_
 
 int32_t nc_remove_track(NcEditor* editor, int32_t track_index) {
     if (editor == nullptr || track_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor->removeTrack(main->id, trackId).code);
+    return failResult(editor->editor->removeTrack(main->id, trackId));
 }
 
 int32_t nc_rename_track(NcEditor* editor, int32_t track_index, const char* new_name) {
     if (editor == nullptr || track_index < 0 || new_name == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、new_name 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor->renameTrack(main->id, trackId, new_name).code);
+    return failResult(editor->editor->renameTrack(main->id, trackId, new_name));
 }
 
 int32_t nc_set_track_locked(NcEditor* editor, int32_t track_index, int32_t locked) {
     if (editor == nullptr || track_index < 0 || (locked != 0 && locked != 1)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor->setTrackLocked(main->id, trackId, locked != 0).code);
+    return failResult(editor->editor->setTrackLocked(main->id, trackId, locked != 0));
 }
 
 int32_t nc_set_track_muted(NcEditor* editor, int32_t track_index, int32_t muted) {
     if (editor == nullptr || track_index < 0 || (muted != 0 && muted != 1)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor->setTrackMuted(main->id, trackId, muted != 0).code);
+    return failResult(editor->editor->setTrackMuted(main->id, trackId, muted != 0));
 }
 
 int32_t nc_set_track_hidden(NcEditor* editor, int32_t track_index, int32_t hidden) {
     if (editor == nullptr || track_index < 0 || (hidden != 0 && hidden != 1)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor->setTrackHidden(main->id, trackId, hidden != 0).code);
+    return failResult(editor->editor->setTrackHidden(main->id, trackId, hidden != 0));
 }
 
 // ---- 片段编辑（文档 Part 3-A 第12节「剪辑」基础操作）----
@@ -645,9 +684,9 @@ int32_t nc_remove_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) 
         return code;
     }
     if (clip_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
-    return toNcError(editor->editor->removeClip(seqId, trackId, ClipId{clip_id}).code);
+    return failResult(editor->editor->removeClip(seqId, trackId, ClipId{clip_id}));
 }
 
 int32_t nc_split_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id, int64_t at_us) {
@@ -658,10 +697,9 @@ int32_t nc_split_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id, i
         return code;
     }
     if (clip_id == 0 || at_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
-    return toNcError(
-        editor->editor->splitClip(seqId, trackId, ClipId{clip_id}, fromMicroseconds(at_us)).code);
+    return failResult(editor->editor->splitClip(seqId, trackId, ClipId{clip_id}, fromMicroseconds(at_us)));
 }
 
 int32_t nc_move_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -673,34 +711,32 @@ int32_t nc_move_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id,
         return code;
     }
     if (clip_id == 0 || new_start_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->moveClip(seqId, trackId, ClipId{clip_id},
-                                    fromMicroseconds(new_start_us))
-                         .code);
+                                    fromMicroseconds(new_start_us)));
 }
 
 int32_t nc_move_clip_to_track(NcEditor* editor, int32_t from_track, int32_t to_track,
                               uint64_t clip_id, int64_t new_start_us) {
     if (editor == nullptr || from_track < 0 || to_track < 0 || clip_id == 0 ||
         new_start_us < 0 || from_track == to_track) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(from_track) >= main->tracks.size() ||
         static_cast<std::size_t>(to_track) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
     }
     const TrackId fromId = main->tracks[static_cast<std::size_t>(from_track)].id;
     const TrackId toId = main->tracks[static_cast<std::size_t>(to_track)].id;
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->moveClipToTrack(main->id, fromId, toId, ClipId{clip_id},
-                                           fromMicroseconds(new_start_us))
-                         .code);
+                                           fromMicroseconds(new_start_us)));
 }
 
 int32_t nc_trim_clip_start(NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -712,12 +748,11 @@ int32_t nc_trim_clip_start(NcEditor* editor, int32_t track_index, uint64_t clip_
         return code;
     }
     if (clip_id == 0 || new_start_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->trimClipStart(seqId, trackId, ClipId{clip_id},
-                                         fromMicroseconds(new_start_us))
-                         .code);
+                                         fromMicroseconds(new_start_us)));
 }
 
 int32_t nc_trim_clip_end(NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -729,12 +764,11 @@ int32_t nc_trim_clip_end(NcEditor* editor, int32_t track_index, uint64_t clip_id
         return code;
     }
     if (clip_id == 0 || new_end_us <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->trimClipEnd(seqId, trackId, ClipId{clip_id},
-                                       fromMicroseconds(new_end_us))
-                         .code);
+                                       fromMicroseconds(new_end_us)));
 }
 
 int32_t nc_set_clip_speed(NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -746,12 +780,11 @@ int32_t nc_set_clip_speed(NcEditor* editor, int32_t track_index, uint64_t clip_i
         return code;
     }
     if (clip_id == 0 || speed_num <= 0 || speed_den <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->setClipSpeed(seqId, trackId, ClipId{clip_id},
-                                        Rational::make(speed_num, speed_den))
-                         .code);
+                                        Rational::make(speed_num, speed_den)));
 }
 
 int32_t nc_ripple_delete(NcEditor* editor, int32_t track_index, const uint64_t* clip_ids,
@@ -763,14 +796,14 @@ int32_t nc_ripple_delete(NcEditor* editor, int32_t track_index, const uint64_t* 
         return code;
     }
     if (clip_ids == nullptr || clip_count <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "clip_ids 为空");
     }
     std::vector<ClipId> ids;
     ids.reserve(static_cast<std::size_t>(clip_count));
     for (int32_t i = 0; i < clip_count; ++i) {
         ids.push_back(ClipId{clip_ids[i]});
     }
-    return toNcError(editor->editor->rippleDelete(seqId, trackId, std::move(ids)).code);
+    return failResult(editor->editor->rippleDelete(seqId, trackId, std::move(ids)));
 }
 
 uint64_t nc_duplicate_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
@@ -862,8 +895,7 @@ int32_t nc_reverse_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id)
     if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
         return code;
     }
-    return toNcError(
-        editor->editor->setClipReversed(seqId, trackId, ClipId{clip_id}, true).code);
+    return failResult(editor->editor->setClipReversed(seqId, trackId, ClipId{clip_id}, true));
 }
 
 int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_index,
@@ -871,18 +903,18 @@ int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_
                      uint64_t* out_asset_id, int64_t* out_speed_num, int64_t* out_speed_den,
                      int32_t* out_enabled) {
     if (editor == nullptr || track_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     if (static_cast<std::size_t>(clip_index) >= track.clips.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
     }
     const Clip& clip = track.clips[static_cast<std::size_t>(clip_index)];
     if (out_clip_id != nullptr) *out_clip_id = clip.id.value;
@@ -904,26 +936,25 @@ int32_t nc_set_clip_enabled(NcEditor* editor, int32_t track_index, uint64_t clip
         return code;
     }
     if (clip_id == 0 || (enabled != 0 && enabled != 1)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
-    return toNcError(editor->editor
-                         ->setClipEnabled(seqId, trackId, ClipId{clip_id}, enabled != 0)
-                         .code);
+    return failResult(editor->editor
+                         ->setClipEnabled(seqId, trackId, ClipId{clip_id}, enabled != 0));
 }
 
 int32_t nc_get_clip_opacity(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             double* out_opacity) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     const Clip* clip = track.findClip(ClipId{clip_id});
     if (clip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "clip 为空");
     }
     if (out_opacity != nullptr) {
         *out_opacity = clip->animation.sample(ClipProperty::Opacity, Time{});
@@ -940,11 +971,10 @@ int32_t nc_set_clip_opacity(NcEditor* editor, int32_t track_index, uint64_t clip
         return code;
     }
     if (clip_id == 0 || opacity < 0.0 || opacity > 1.0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
-    return toNcError(editor->editor
-                         ->setClipOpacity(seqId, trackId, ClipId{clip_id}, opacity)
-                         .code);
+    return failResult(editor->editor
+                         ->setClipOpacity(seqId, trackId, ClipId{clip_id}, opacity));
 }
 
 // ---- 滤镜（文档 Part 4-B 第 7 节「滤镜」）----
@@ -959,14 +989,13 @@ int32_t nc_set_clip_filter(NcEditor* editor, int32_t track_index, uint64_t clip_
     }
     FilterStyle filterStyle;
     if (clip_id == 0 || !filterStyleFromInt(style, filterStyle)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     if (intensity < 0.0 || intensity > 100.0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
-    return toNcError(editor->editor
-                         ->setClipFilter(seqId, trackId, ClipId{clip_id}, filterStyle, intensity)
-                         .code);
+    return failResult(editor->editor
+                         ->setClipFilter(seqId, trackId, ClipId{clip_id}, filterStyle, intensity));
 }
 
 int32_t nc_get_clip_filter(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -1008,12 +1037,11 @@ int32_t nc_set_clip_background(NcEditor* editor, int32_t track_index, uint64_t c
     }
     BackgroundMode backgroundMode;
     if (clip_id == 0 || !backgroundModeFromInt(mode, backgroundMode)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->setClipBackground(seqId, trackId, ClipId{clip_id}, backgroundMode,
-                                             rgba, intensity)
-                         .code);
+                                             rgba, intensity));
 }
 
 int32_t nc_get_clip_background(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -1064,7 +1092,7 @@ int32_t nc_apply_speed_curve_preset(NcEditor* editor, int32_t track_index, uint6
     }
     SpeedCurvePreset presetValue;
     if (clip_id == 0 || !speedCurvePresetFromInt(preset, presetValue)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     // 源区间：调用方指定或按片段实际（sourceIn..sourceOut）
     Time sourceDuration = fromMicroseconds(source_duration_us > 0 ? source_duration_us : 0);
@@ -1072,14 +1100,12 @@ int32_t nc_apply_speed_curve_preset(NcEditor* editor, int32_t track_index, uint6
         const Track* track = findTrack(editor->project, seqId, trackId);
         const Clip* clip = track != nullptr ? track->findClip(ClipId{clip_id}) : nullptr;
         if (clip == nullptr) {
-            return NC_ERROR_NOT_FOUND;
+            return failNc(NC_ERROR_NOT_FOUND, "clip 为空");
         }
         sourceDuration = clip->sourceOut() - clip->sourceIn;
     }
     SpeedCurve curve = buildSpeedCurvePreset(presetValue, sourceDuration);
-    return toNcError(
-        editor->editor->setClipSpeedCurve(seqId, trackId, ClipId{clip_id}, std::move(curve))
-            .code);
+    return failResult(editor->editor->setClipSpeedCurve(seqId, trackId, ClipId{clip_id}, std::move(curve)));
 }
 
 // ---- 镜头追踪（文档 Part 4-A 3.3）----
@@ -1110,17 +1136,17 @@ int32_t nc_set_camera_tracking(NcEditor* editor, uint64_t subtitle_id, const dou
                                int32_t point_count, int32_t apply_mode) {
     if (editor == nullptr || subtitle_id == 0 || point_count <= 0 || point_count > 4096 ||
         times_us == nullptr || center_x == nullptr || center_y == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、times_us、center_x、center_y 为空");
     }
     SubtitleCue* cue = findSubtitleCue(editor, subtitle_id);
     if (cue == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "cue 为空");
     }
     std::vector<SubtitleCue::TrackingPoint> points;
     points.reserve(static_cast<std::size_t>(point_count));
     for (int32_t i = 0; i < point_count; ++i) {
         if (times_us[i] < 0.0) {
-            return NC_ERROR_INVALID_ARGUMENT;
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
         }
         SubtitleCue::TrackingPoint point;
         point.time = fromMicroseconds(static_cast<std::int64_t>(times_us[i] + 0.5));
@@ -1144,17 +1170,17 @@ int32_t nc_set_camera_tracking_scaled(NcEditor* editor, uint64_t subtitle_id,
                                       int32_t point_count, int32_t apply_mode) {
     if (editor == nullptr || subtitle_id == 0 || point_count <= 0 || point_count > 4096 ||
         times_us == nullptr || center_x == nullptr || center_y == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、times_us、center_x、center_y 为空");
     }
     SubtitleCue* cue = findSubtitleCue(editor, subtitle_id);
     if (cue == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "cue 为空");
     }
     std::vector<SubtitleCue::TrackingPoint> points;
     points.reserve(static_cast<std::size_t>(point_count));
     for (int32_t i = 0; i < point_count; ++i) {
         if (times_us[i] < 0.0) {
-            return NC_ERROR_INVALID_ARGUMENT;
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
         }
         SubtitleCue::TrackingPoint point;
         point.time = fromMicroseconds(static_cast<std::int64_t>(times_us[i] + 0.5));
@@ -1177,14 +1203,14 @@ int32_t nc_tracking_point_get_scaled(const NcEditor* editor, uint64_t subtitle_i
                                      double* out_time_us, double* out_center_x,
                                      double* out_center_y, double* out_scale) {
     if (editor == nullptr || subtitle_id == 0 || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const SubtitleCue* cue = findSubtitleCueConst(editor, subtitle_id);
     if (cue == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "cue 为空");
     }
     if (static_cast<std::size_t>(index) >= cue->tracking.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "cue 为空");
     }
     const auto& point = cue->tracking[static_cast<std::size_t>(index)];
     if (out_time_us != nullptr) *out_time_us = static_cast<double>(toMicroseconds(point.time));
@@ -1208,14 +1234,14 @@ int32_t nc_tracking_point_count(const NcEditor* editor, uint64_t subtitle_id) {
 int32_t nc_tracking_point_get(const NcEditor* editor, uint64_t subtitle_id, int32_t index,
                               double* out_time_us, double* out_center_x, double* out_center_y) {
     if (editor == nullptr || subtitle_id == 0 || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const SubtitleCue* cue = findSubtitleCueConst(editor, subtitle_id);
     if (cue == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "cue 为空");
     }
     if (static_cast<std::size_t>(index) >= cue->tracking.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "cue 为空");
     }
     const auto& point = cue->tracking[static_cast<std::size_t>(index)];
     if (out_time_us != nullptr) *out_time_us = static_cast<double>(toMicroseconds(point.time));
@@ -1226,11 +1252,11 @@ int32_t nc_tracking_point_get(const NcEditor* editor, uint64_t subtitle_id, int3
 
 int32_t nc_clear_camera_tracking(NcEditor* editor, uint64_t subtitle_id) {
     if (editor == nullptr || subtitle_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     SubtitleCue* cue = findSubtitleCue(editor, subtitle_id);
     if (cue == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "cue 为空");
     }
     cue->tracking.clear();
     cue->trackingMode = 0;
@@ -1250,25 +1276,25 @@ int32_t nc_set_depth_effect(NcEditor* editor, int32_t track_index, uint64_t clip
     }
     DepthEffectMode depthMode;
     if (clip_id == 0 || !depthEffectModeFromInt(mode, depthMode)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     // 参数范围校验（文档 13.2）
     if (focus_distance < 0.0 || focus_distance > 1.0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
     if (aperture < 1.0 || aperture > 22.0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
     if (intensity < 0.0 || intensity > 100.0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
     const Track* track = findTrack(editor->project, seqId, trackId);
     if (track == nullptr || track->locked) {
-        return NC_ERROR_LOCKED;
+        return failNc(NC_ERROR_LOCKED, "track 为空");
     }
     Clip* clip = findClip(editor->project, seqId, trackId, ClipId{clip_id});
     if (clip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "clip 为空");
     }
     clip->depthEffect = depthMode;
     clip->depthFocusDistance = focus_distance;
@@ -1341,11 +1367,11 @@ int32_t nc_add_transition_keyframe(NcEditor* editor, int32_t track_index,
                                    double value, int32_t easing) {
     if (editor == nullptr || track_index < 0 || transition_id == 0 || property < 0 ||
         property > 5 || offset_us < 0 || easing < 0 || easing > 4) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
     if (tr == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "tr 为空");
     }
     if (offset_us > toMicroseconds(tr->duration)) {
         return NC_ERROR_OUT_OF_RANGE;  // 超出转场区间（文档附录二：仅区间内）
@@ -1353,19 +1379,19 @@ int32_t nc_add_transition_keyframe(NcEditor* editor, int32_t track_index,
     // 位置 → from 片段的本地时间：转场起点在 from 片段尾部
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     const Clip* fromClip = track.findClip(tr->fromClip);
     if (fromClip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "fromClip 为空");
     }
     // 转场区间起点 = from 片段终点（与导出计划编译一致：compiled.start = from->end()）
     const Time transitionStart = fromClip->end();
     const Time keyframeTime = transitionStart + fromMicroseconds(offset_us);
     const Time localTime = keyframeTime - fromClip->start;
     if (localTime.isNegative()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "调用失败");
     }
     Keyframe keyframe;
     keyframe.time = localTime;
@@ -1378,10 +1404,9 @@ int32_t nc_add_transition_keyframe(NcEditor* editor, int32_t track_index,
         case 4: keyframe.easing = Easing::stepped(); break;
         default: keyframe.easing = Easing::linear(); break;
     }
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->insertKeyframe(main->id, track.id, fromClip->id,
-                                          static_cast<ClipProperty>(property), keyframe)
-                         .code);
+                                          static_cast<ClipProperty>(property), keyframe));
 }
 
 int32_t nc_transition_keyframe_count(const NcEditor* editor, int32_t track_index,
@@ -1426,25 +1451,25 @@ int32_t nc_transition_keyframe_get(const NcEditor* editor, int32_t track_index,
                                    int32_t* out_easing) {
     if (editor == nullptr || track_index < 0 || transition_id == 0 || property < 0 ||
         property > 5 || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
     if (tr == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "tr 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     const Clip* fromClip = track.findClip(tr->fromClip);
     if (fromClip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "fromClip 为空");
     }
     const KeyframeTrack* curve =
         fromClip->animation.findCurve(static_cast<ClipProperty>(property));
     if (curve == nullptr) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "curve 为空");
     }
     const Time rangeStart = fromClip->end() - fromClip->start;  // = from 片段时长
     const Time rangeEnd = rangeStart + tr->duration;
@@ -1471,7 +1496,7 @@ int32_t nc_transition_keyframe_get(const NcEditor* editor, int32_t track_index,
             ++seen;
         }
     }
-    return NC_ERROR_OUT_OF_RANGE;
+    return failNc(NC_ERROR_OUT_OF_RANGE, "调用失败");
 }
 
 int32_t nc_remove_transition_keyframe(NcEditor* editor, int32_t track_index,
@@ -1479,27 +1504,26 @@ int32_t nc_remove_transition_keyframe(NcEditor* editor, int32_t track_index,
                                       int64_t offset_us) {
     if (editor == nullptr || track_index < 0 || transition_id == 0 || property < 0 ||
         property > 5 || offset_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Transition* tr = findTransitionInTrack(editor, track_index, transition_id);
     if (tr == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "tr 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     const Clip* fromClip = track.findClip(tr->fromClip);
     if (fromClip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "fromClip 为空");
     }
     const Time keyframeLocal =
         (fromClip->end() - fromClip->start) + fromMicroseconds(offset_us);
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->removeKeyframe(main->id, track.id, fromClip->id,
-                                          static_cast<ClipProperty>(property), keyframeLocal)
-                         .code);
+                                          static_cast<ClipProperty>(property), keyframeLocal));
 }
 
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
@@ -1533,13 +1557,13 @@ uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration
 
 int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id) {
     if (editor == nullptr || subtitle_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
-    return toNcError(editor->editor->removeSubtitle(main->id, SubtitleId{subtitle_id}).code);
+    return failResult(editor->editor->removeSubtitle(main->id, SubtitleId{subtitle_id}));
 }
 
 int32_t nc_subtitle_count(const NcEditor* editor) {
@@ -1553,11 +1577,11 @@ int32_t nc_subtitle_count(const NcEditor* editor) {
 int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us,
                         int64_t* duration_us, char** out_text) {
     if (editor == nullptr || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(index) >= main->subtitles.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const SubtitleCue& cue = main->subtitles.cues()[static_cast<std::size_t>(index)];
     if (start_us != nullptr) *start_us = toMicroseconds(cue.start);
@@ -1595,15 +1619,14 @@ uint64_t nc_add_transition(NcEditor* editor, int32_t track_index, int32_t transi
 
 int32_t nc_remove_transition(NcEditor* editor, int32_t track_index, uint64_t transition_id) {
     if (editor == nullptr || track_index < 0 || transition_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(
-        editor->editor->removeTransition(main->id, trackId, TransitionId{transition_id}).code);
+    return failResult(editor->editor->removeTransition(main->id, trackId, TransitionId{transition_id}));
 }
 
 int32_t nc_transition_count(const NcEditor* editor, int32_t track_index) {
@@ -1622,15 +1645,15 @@ int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t i
                           int32_t* out_type, int64_t* out_duration_us, uint64_t* out_from_clip,
                           uint64_t* out_to_clip, char** out_name) {
     if (editor == nullptr || track_index < 0 || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     if (static_cast<std::size_t>(index) >= track.transitions.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
     }
     const Transition& tr = track.transitions[static_cast<std::size_t>(index)];
     if (out_type != nullptr) *out_type = static_cast<int32_t>(tr.type);
@@ -1671,15 +1694,15 @@ int32_t nc_transition_supports_direction(int32_t type) {
 int32_t nc_clip_get(const NcEditor* editor, int32_t track_index, int32_t clip_index,
                     int64_t* out_start_us, int64_t* out_duration_us, uint64_t* out_asset_id) {
     if (editor == nullptr || track_index < 0 || clip_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     if (static_cast<std::size_t>(clip_index) >= track.clips.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
     }
     const Clip& clip = track.clips[static_cast<std::size_t>(clip_index)];
     if (out_start_us != nullptr) *out_start_us = toMicroseconds(clip.start);
@@ -1712,15 +1735,14 @@ uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, 
 int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                          uint64_t effect_id) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(
-        editor->editor->removeEffect(main->id, trackId, ClipId{clip_id}, EffectId{effect_id}).code);
+    return failResult(editor->editor->removeEffect(main->id, trackId, ClipId{clip_id}, EffectId{effect_id}));
 }
 
 int32_t nc_effect_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
@@ -1740,19 +1762,19 @@ int32_t nc_effect_get(const NcEditor* editor, int32_t track_index, uint64_t clip
                       int32_t index, int32_t* out_type, double* out_value,
                       int32_t* out_enabled) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     const Clip* clip = track.findClip(ClipId{clip_id});
     if (clip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "clip 为空");
     }
     if (static_cast<std::size_t>(index) >= clip->effects.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "clip 为空");
     }
     const Effect& e = clip->effects.effects()[static_cast<std::size_t>(index)];
     if (out_type != nullptr) *out_type = static_cast<int32_t>(e.type);
@@ -1764,79 +1786,75 @@ int32_t nc_effect_get(const NcEditor* editor, int32_t track_index, uint64_t clip
 int32_t nc_insert_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                            int32_t property, int64_t time_us, double value) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || time_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (property < 0 || property > 5) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
     Keyframe k;
     k.time = fromMicroseconds(time_us);
     k.value = value;
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->insertKeyframe(main->id, trackId, ClipId{clip_id},
-                                          static_cast<ClipProperty>(property), k)
-                         .code);
+                                          static_cast<ClipProperty>(property), k));
 }
 
 int32_t nc_remove_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                            int32_t property, int64_t time_us) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || time_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (property < 0 || property > 5) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->removeKeyframe(main->id, trackId, ClipId{clip_id},
                                           static_cast<ClipProperty>(property),
-                                          fromMicroseconds(time_us))
-                         .code);
+                                          fromMicroseconds(time_us)));
 }
 
 int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_id, double gain_db,
                           int64_t fade_in_us, int64_t fade_out_us) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || fade_in_us < 0 ||
         fade_out_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor
+    return failResult(editor->editor
                          ->setClipAudio(main->id, trackId, ClipId{clip_id}, gain_db,
                                         fromMicroseconds(fade_in_us),
-                                        fromMicroseconds(fade_out_us))
-                         .code);
+                                        fromMicroseconds(fade_out_us)));
 }
 
 int32_t nc_set_clip_denoise(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             int32_t strength) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     DenoiseStrength denoiseStrength;
     if (!denoiseStrengthFromInt(strength, denoiseStrength)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(
-        editor->editor->setClipDenoise(main->id, trackId, ClipId{clip_id}, denoiseStrength).code);
+    return failResult(editor->editor->setClipDenoise(main->id, trackId, ClipId{clip_id}, denoiseStrength));
 }
 
 int32_t nc_get_clip_denoise(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
@@ -1857,15 +1875,15 @@ int32_t nc_get_clip_denoise(const NcEditor* editor, int32_t track_index, uint64_
 
 int32_t nc_set_frame_fit(NcEditor* editor, int32_t mode) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     FrameFit fit;
     if (!frameFitFromInt(mode, fit)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     main->frameFit = fit;
     return NC_OK;
@@ -1884,11 +1902,11 @@ int32_t nc_get_frame_fit(const NcEditor* editor) {
 
 int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     main->backgroundRgba = rgba;
     return NC_OK;
@@ -1899,11 +1917,11 @@ int32_t nc_set_track_auto_duck(NcEditor* editor, int32_t track_index, int32_t en
                                int64_t release_us, int64_t hold_us) {
     if (editor == nullptr || track_index < 0 || attack_us < 0 || release_us < 0 ||
         hold_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
     AutoDuckSettings settings;
@@ -1913,17 +1931,17 @@ int32_t nc_set_track_auto_duck(NcEditor* editor, int32_t track_index, int32_t en
     settings.attackSeconds = static_cast<double>(attack_us) / 1000000.0;
     settings.releaseSeconds = static_cast<double>(release_us) / 1000000.0;
     settings.holdSeconds = static_cast<double>(hold_us) / 1000000.0;
-    return toNcError(editor->editor->setTrackAutoDuck(main->id, trackId, settings).code);
+    return failResult(editor->editor->setTrackAutoDuck(main->id, trackId, settings));
 }
 
 int32_t nc_get_track_auto_duck(const NcEditor* editor, int32_t track_index, int32_t* out_enabled,
                                double* out_sensitivity, double* out_duck_amount_db) {
     if (editor == nullptr || track_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     if (out_enabled != nullptr) *out_enabled = track.autoDuck.enabled ? 1 : 0;
@@ -1936,11 +1954,11 @@ int32_t nc_create_compound_clip(NcEditor* editor, int32_t track_index, const uin
                                 int32_t count, const char* name, uint64_t* out_sequence_id,
                                 uint64_t* out_clip_id) {
     if (editor == nullptr || clip_ids == nullptr || count <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、clip_ids 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
     std::vector<ClipId> ids;
@@ -1957,7 +1975,7 @@ int32_t nc_create_compound_clip(NcEditor* editor, int32_t track_index, const uin
         editor->editor->createCompoundClip(main->id, trackId, std::move(ids), compoundName,
                                            &outSeq, &outClip);
     if (!r.isOk()) {
-        return toNcError(r.code);
+        return failResult(r);
     }
     if (out_sequence_id != nullptr) *out_sequence_id = outSeq.value;
     if (out_clip_id != nullptr) *out_clip_id = outClip.value;
@@ -1966,15 +1984,14 @@ int32_t nc_create_compound_clip(NcEditor* editor, int32_t track_index, const uin
 
 int32_t nc_unwrap_compound_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(
-        editor->editor->unwrapCompoundClip(main->id, trackId, ClipId{clip_id}).code);
+    return failResult(editor->editor->unwrapCompoundClip(main->id, trackId, ClipId{clip_id}));
 }
 
 int32_t nc_clip_is_compound(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
@@ -1995,36 +2012,36 @@ int32_t nc_clip_is_compound(const NcEditor* editor, int32_t track_index, uint64_
 
 int32_t nc_set_track_solo(NcEditor* editor, int32_t track_index, int32_t solo) {
     if (editor == nullptr || track_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor->setTrackSolo(main->id, trackId, solo != 0).code);
+    return failResult(editor->editor->setTrackSolo(main->id, trackId, solo != 0));
 }
 
 int32_t nc_set_track_gain(NcEditor* editor, int32_t track_index, double gain_db) {
     if (editor == nullptr || track_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(editor->editor->setTrackGain(main->id, trackId, gain_db).code);
+    return failResult(editor->editor->setTrackGain(main->id, trackId, gain_db));
 }
 
 int32_t nc_get_track_mixer(const NcEditor* editor, int32_t track_index, int32_t* out_muted,
                            int32_t* out_solo, double* out_gain_db) {
     if (editor == nullptr || track_index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     if (out_muted != nullptr) *out_muted = track.muted ? 1 : 0;
@@ -2035,22 +2052,22 @@ int32_t nc_get_track_mixer(const NcEditor* editor, int32_t track_index, int32_t*
 
 int32_t nc_set_master_gain(NcEditor* editor, double gain_db) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
-    return toNcError(editor->editor->setMasterGain(main->id, gain_db).code);
+    return failResult(editor->editor->setMasterGain(main->id, gain_db));
 }
 
 int32_t nc_get_master_gain(const NcEditor* editor, double* out_gain_db) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (out_gain_db != nullptr) *out_gain_db = main->masterGainDb;
     return NC_OK;
@@ -2059,7 +2076,7 @@ int32_t nc_get_master_gain(const NcEditor* editor, double* out_gain_db) {
 int32_t nc_set_entitlement(NcEditor* editor, int32_t tier, int32_t lifetime,
                            int64_t expires_at_unix) {
     if (editor == nullptr || (tier != 0 && tier != 1)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     editor->entitlement.tier =
         tier == 1 ? MembershipTier::Pro : MembershipTier::Free;
@@ -2213,15 +2230,15 @@ int32_t nc_proxy_set_record(NcEditor* editor, uint64_t asset_id, const char* pat
                             int32_t status, int32_t width, int32_t height,
                             int64_t size_bytes, const char* note) {
     if (editor == nullptr || asset_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     ProxyStatus proxyStatus;
     if (status < 0 || status > 3) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
     proxyStatus = static_cast<ProxyStatus>(status);
     if (editor->project.findAsset(AssetId{asset_id}) == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "参数 为空");
     }
     ProxyRecord record;
     record.asset = AssetId{asset_id};
@@ -2262,7 +2279,7 @@ int32_t nc_proxy_get_record(const NcEditor* editor, uint64_t asset_id, int32_t* 
 int32_t nc_proxy_usage(const NcEditor* editor, int32_t* out_ready_count,
                        int32_t* out_generating_count, int64_t* out_total_bytes) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (out_ready_count != nullptr) {
         *out_ready_count =
@@ -2308,7 +2325,7 @@ int32_t nc_export_presets(int32_t* out_ids, int32_t capacity, int32_t* out_count
 int32_t nc_export_preset_info(int32_t preset_id, int32_t* out_width, int32_t* out_height,
                               int32_t* out_fps, int32_t* out_requires_pro, char** out_label) {
     if (preset_id < 0 || preset_id > 5) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
     const ExportPreset& preset = exportPreset(static_cast<ExportPresetId>(preset_id));
     if (out_width != nullptr) *out_width = preset.width;
@@ -2338,11 +2355,11 @@ int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id, int32_t mode
                                int32_t* out_height, int32_t* out_fps, int32_t* out_downgraded,
                                char** out_preset_name, char** out_warning) {
     if (editor == nullptr || preset_id < 0 || preset_id > 5 || mode < 0 || mode > 2) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     PerformanceMode performanceMode;
     if (!performanceModeFromInt(mode, performanceMode)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const PresetExportSetup setup = setupPresetExport(
         static_cast<ExportPresetId>(preset_id), editor->entitlement,
@@ -2474,15 +2491,15 @@ int32_t nc_set_clip_mask(NcEditor* editor, int32_t track_index, uint64_t clip_id
                          double center_x, double center_y, double rotation_degrees, double width,
                          double height, double feather, double corner_radius, int32_t invert) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     MaskShape maskShape;
     if (!maskShapeFromInt(shape, maskShape)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
     Mask mask;
@@ -2495,8 +2512,7 @@ int32_t nc_set_clip_mask(NcEditor* editor, int32_t track_index, uint64_t clip_id
     mask.feather = feather;
     mask.cornerRadius = corner_radius;
     mask.invert = invert != 0;
-    return toNcError(
-        editor->editor->setClipMask(main->id, trackId, ClipId{clip_id}, mask).code);
+    return failResult(editor->editor->setClipMask(main->id, trackId, ClipId{clip_id}, mask));
 }
 
 int32_t nc_get_clip_mask(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -2536,11 +2552,11 @@ int32_t nc_get_clip_mask(const NcEditor* editor, int32_t track_index, uint64_t c
 int32_t nc_matting_access(const NcEditor* editor, int32_t quality, int32_t* out_quality,
                           char** out_reason) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     MattingQuality requested;
     if (!mattingQualityFromInt(quality, requested)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const bool proActive = editor->entitlement.proActiveAt(
         static_cast<std::int64_t>(std::time(nullptr)));
@@ -2555,29 +2571,27 @@ int32_t nc_set_clip_chroma_key(NcEditor* editor, int32_t track_index, uint64_t c
                                double outer_threshold, double spill_suppression,
                                int32_t quality, int32_t enabled) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
     MattingQuality requested;
     if (!mattingQualityFromInt(quality, requested)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     if (enabled == 0) {
-        return toNcError(
-            editor->editor->setClipChromaKey(main->id, trackId, ClipId{clip_id}, ChromaKey{},
-                                             false)
-                .code);
+        return failResult(editor->editor->setClipChromaKey(main->id, trackId, ClipId{clip_id}, ChromaKey{},
+                                             false));
     }
     // Pro 门控（fail-closed：非 Pro 不允许色度抠像；文档权益矩阵 Pro 专属）
     const bool proActive = editor->entitlement.proActiveAt(
         static_cast<std::int64_t>(std::time(nullptr)));
     const MattingAccess access = mattingAccessFor(proActive, requested);
     if (!access.allowed) {
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
     }
     ChromaKey key;
     key.keyColorRgb = 0x00FF00;
@@ -2593,11 +2607,10 @@ int32_t nc_set_clip_chroma_key(NcEditor* editor, int32_t track_index, uint64_t c
     key.spillSuppression =
         spill_suppression >= 0.0 ? spill_suppression : key.spillSuppression;
     if (!key.valid()) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
     }
     key = chromaKeyForQuality(key, access.quality);
-    return toNcError(
-        editor->editor->setClipChromaKey(main->id, trackId, ClipId{clip_id}, key, true).code);
+    return failResult(editor->editor->setClipChromaKey(main->id, trackId, ClipId{clip_id}, key, true));
 }
 
 int32_t nc_get_clip_chroma_key(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -2660,19 +2673,18 @@ double nc_chroma_key_estimate(const uint8_t* rgba, int32_t width, int32_t height
 int32_t nc_set_clip_blend_mode(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                                int32_t mode) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     BlendMode blendMode;
     if (!blendModeFromInt(mode, blendMode)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
-    return toNcError(
-        editor->editor->setClipBlendMode(main->id, trackId, ClipId{clip_id}, blendMode).code);
+    return failResult(editor->editor->setClipBlendMode(main->id, trackId, ClipId{clip_id}, blendMode));
 }
 
 int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
@@ -2869,7 +2881,7 @@ int32_t nc_model_catalog(char*** out_ids, int32_t capacity, int32_t* out_count) 
     char** items = new (std::nothrow) char*[static_cast<std::size_t>(count)];
     if (items == nullptr) {
         *out_ids = nullptr;
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "items 为空");
     }
     for (int32_t i = 0; i < count; ++i) {
         items[i] = dupString(catalog[static_cast<std::size_t>(i)].id);
@@ -2882,11 +2894,11 @@ int32_t nc_model_info(const char* model_id, char** out_name, char** out_descript
                       int32_t* out_size_bytes, char** out_version, int32_t* out_requires_pro,
                       int32_t* out_capability) {
     if (model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
     }
     const ModelInfo* info = findBuiltinModel(model_id);
     if (info == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "info 为空");
     }
     if (out_name != nullptr) *out_name = dupString(info->name);
     if (out_description != nullptr) *out_description = dupString(info->description);
@@ -2930,58 +2942,79 @@ int32_t nc_model_access_allowed(const NcEditor* editor, const char* model_id) {
 
 int32_t nc_model_download_begin(NcEditor* editor, const char* model_id, int64_t total_bytes,
                                 int64_t now_unix) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
     }
     if (findBuiltinModel(model_id) == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "editor、model_id 为空");
     }
-    return toNcError(modelDownloads().begin(model_id, total_bytes, now_unix).code);
+    return failResult(modelDownloads().begin(model_id, total_bytes, now_unix));
 }
 
 int32_t nc_model_download_progress(NcEditor* editor, const char* model_id,
                                    int64_t downloaded_bytes, int64_t now_unix) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(modelDownloads().markProgress(model_id, downloaded_bytes, now_unix).code);
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
+    }
+    return failResult(modelDownloads().markProgress(model_id, downloaded_bytes, now_unix));
 }
 
 int32_t nc_model_download_pause(NcEditor* editor, const char* model_id, int64_t now_unix) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(modelDownloads().pause(model_id, now_unix).code);
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
+    }
+    return failResult(modelDownloads().pause(model_id, now_unix));
 }
 
 int32_t nc_model_download_resume(NcEditor* editor, const char* model_id, int64_t now_unix) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(modelDownloads().resume(model_id, now_unix).code);
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
+    }
+    return failResult(modelDownloads().resume(model_id, now_unix));
 }
 
 int32_t nc_model_download_cancel(NcEditor* editor, const char* model_id, int64_t now_unix) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(modelDownloads().cancel(model_id, now_unix).code);
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
+    }
+    return failResult(modelDownloads().cancel(model_id, now_unix));
 }
 
 int32_t nc_model_download_finish(NcEditor* editor, const char* model_id, int64_t now_unix) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    return toNcError(modelDownloads().finishDownload(model_id, now_unix).code);
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
+    }
+    return failResult(modelDownloads().finishDownload(model_id, now_unix));
 }
 
 int32_t nc_model_download_fail(NcEditor* editor, const char* model_id, const char* reason,
                                int64_t now_unix) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
     }
     const std::string text = reason != nullptr ? reason : "下载失败";
-    return toNcError(modelDownloads().fail(model_id, text, now_unix).code);
+    return failResult(modelDownloads().fail(model_id, text, now_unix));
 }
 
 int32_t nc_model_download_state(const NcEditor* editor, const char* model_id, int32_t* out_phase,
@@ -3004,17 +3037,20 @@ int32_t nc_model_download_state(const NcEditor* editor, const char* model_id, in
 int32_t nc_model_resume_plan(const NcEditor* editor, const char* model_id,
                              int64_t downloaded_bytes, int64_t* out_offset_bytes,
                              uint8_t* out_counter, int32_t* out_intra_block_skip) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
     }
     const ModelInfo* info = findBuiltinModel(model_id);
     if (info == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "info 为空");
     }
     const DownloadResumePlan plan =
         planDownloadResume(info->id, info->version, downloaded_bytes);
     if (!plan.valid) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     if (out_offset_bytes != nullptr) *out_offset_bytes = plan.offsetBytes;
     if (out_counter != nullptr) {
@@ -3031,11 +3067,11 @@ int32_t nc_model_install(NcEditor* editor, const char* model_id, const uint8_t* 
                          int64_t now_unix, int32_t* out_installed, char** out_message) {
     if (editor == nullptr || model_id == nullptr || size < 0 ||
         (size > 0 && ciphertext == nullptr)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、model_id、ciphertext 为空");
     }
     const ModelInfo* info = findBuiltinModel(model_id);
     if (info == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "info 为空");
     }
     std::vector<std::uint8_t> payload;
     if (size > 0) {
@@ -3074,8 +3110,11 @@ int32_t nc_model_install(NcEditor* editor, const char* model_id, const uint8_t* 
 }
 
 int32_t nc_model_remove(NcEditor* editor, const char* model_id) {
-    if (editor == nullptr || model_id == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (model_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id 为空");
     }
     modelStore().remove(model_id);
     modelDownloads().remove(model_id);
@@ -3087,7 +3126,7 @@ int32_t nc_model_storage_stats(const NcEditor* editor, int64_t device_total_byte
                                int32_t* out_installed_count, int32_t* out_corrupt_count,
                                char** out_usage_text, char** out_model_text) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const ModelStorageStats stats =
         computeModelStorage(modelStore(), device_total_bytes, device_free_bytes);
@@ -3104,7 +3143,7 @@ int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_
                          uint8_t** out_plaintext, int64_t* out_size) {
     if (model_id == nullptr || version == nullptr || key == nullptr || size < 0 || offset < 0 ||
         (size > 0 && ciphertext == nullptr)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_id、version、key、ciphertext 为空");
     }
     std::vector<std::uint8_t> payload;
     if (size > 0) {
@@ -3113,7 +3152,7 @@ int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_
     std::vector<std::uint8_t> plain = decryptModelPayloadAt(
         key, model_id, version, static_cast<std::uint64_t>(offset), payload);
     if (plain.size() != payload.size()) {
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "调用失败");
     }
     if (out_size != nullptr) *out_size = static_cast<int64_t>(plain.size());
     if (out_plaintext != nullptr) {
@@ -3122,7 +3161,7 @@ int32_t nc_model_decrypt(const char* model_id, const char* version, const uint8_
         } else {
             std::uint8_t* buffer = new (std::nothrow) std::uint8_t[plain.size()];
             if (buffer == nullptr) {
-                return NC_ERROR_INTERNAL;
+                return failNc(NC_ERROR_INTERNAL, "buffer 为空");
             }
             std::memcpy(buffer, plain.data(), plain.size());
             *out_plaintext = buffer;
@@ -3179,12 +3218,12 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
                           double* out_pos_y, double* out_rotation,
                           int32_t* out_transition_type, double* out_transition_progress) {
     if (editor == nullptr || time_us < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
     PreviewRenderer* renderer = ensurePreviewRenderer(editor);
     if (renderer == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
     }
     const PreviewFrame frame = renderer->renderAt(fromMicroseconds(time_us));
     if (out_width != nullptr) *out_width = frame.width;
@@ -3205,7 +3244,7 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
             // 无画面时刻：返回画布尺寸的纯黑帧（UI 显示黑场更直观）
             std::uint8_t* buffer = new (std::nothrow) std::uint8_t[bytes];
             if (buffer == nullptr) {
-                return NC_ERROR_INTERNAL;
+                return failNc(NC_ERROR_INTERNAL, "buffer 为空");
             }
             std::memcpy(buffer, frame.rgba.data(), bytes);
             *out_rgba = buffer;
@@ -3217,7 +3256,7 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
     (void)out_width; (void)out_height; (void)out_rgba; (void)out_clip_id;
     (void)out_opacity; (void)out_scale; (void)out_pos_x; (void)out_pos_y;
     (void)out_rotation; (void)out_transition_type; (void)out_transition_progress;
-    return NC_ERROR_UNSUPPORTED;
+    return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
 #endif
 }
 
@@ -3258,12 +3297,12 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
                               uint8_t** out_images, int64_t* out_times_us,
                               int32_t* out_count) {
     if (editor == nullptr || asset_id == 0 || count < 0 || count > 64) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
     const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
     if (asset == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "asset 为空");
     }
     ThumbnailConfig config;
     config.count = count > 0 ? count : 8;
@@ -3287,7 +3326,7 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
                                          static_cast<std::size_t>(thumbs.front().height) * 4;
             std::uint8_t* buffer = new (std::nothrow) std::uint8_t[perImage * thumbs.size()];
             if (buffer == nullptr) {
-                return NC_ERROR_INTERNAL;
+                return failNc(NC_ERROR_INTERNAL, "buffer 为空");
             }
             for (std::size_t i = 0; i < thumbs.size(); ++i) {
                 std::memcpy(buffer + perImage * i, thumbs[i].rgba.data(),
@@ -3304,13 +3343,13 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
     return NC_OK;
 #else
     (void)max_width; (void)max_height; (void)out_images; (void)out_times_us; (void)out_count;
-    return NC_ERROR_UNSUPPORTED;
+    return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
 #endif
 }
 
 int32_t nc_thumbnail_size(const NcEditor* editor, int32_t* out_width, int32_t* out_height) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (out_width != nullptr) *out_width = editor->thumbnailWidth;
     if (out_height != nullptr) *out_height = editor->thumbnailHeight;
@@ -3323,16 +3362,16 @@ int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket
                              double* out_peak, int32_t* out_sample_rate,
                              int32_t* out_channels) {
     if (editor == nullptr || asset_id == 0 || bucket_count < 0 || bucket_count > 100000) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
     const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
     if (asset == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "asset 为空");
     }
     FFmpegMediaReader reader;
     if (!reader.open(asset->path).isOk()) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
     }
     // 上限保护：只解码前 120s 音频（波形显示无需全片；避免长素材 OOM/耗时）
     constexpr double kMaxSeconds = 120.0;
@@ -3354,7 +3393,7 @@ int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket
     return NC_OK;
 #else
     (void)bucket_count; (void)out_peak; (void)out_sample_rate; (void)out_channels;
-    return NC_ERROR_UNSUPPORTED;
+    return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
 #endif
 }
 
@@ -3368,11 +3407,11 @@ int32_t nc_waveform_bucket_count(const NcEditor* editor) {
 int32_t nc_waveform_bucket_get(const NcEditor* editor, int32_t index, double* out_min,
                                double* out_max, double* out_rms) {
     if (editor == nullptr || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const auto& buckets = editor->waveformCache.buckets;
     if (static_cast<std::size_t>(index) >= buckets.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
     }
     const WaveformBucket& bucket = buckets[static_cast<std::size_t>(index)];
     if (out_min != nullptr) *out_min = bucket.minValue;
@@ -3386,12 +3425,12 @@ int32_t nc_waveform_bucket_get(const NcEditor* editor, int32_t index, double* ou
 int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_samples,
                         int32_t* out_boundary_count, double** out_boundaries) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
     }
     // 采集帧特征（真实解码；复用章节检测的采样约定）
     std::vector<FrameFeature> features;
@@ -3511,7 +3550,7 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
         }
     }
     if (features.empty()) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
     }
     const std::vector<ShotBoundary> shots =
         detectShots(features, seq->duration(), SceneDetectConfig{});
@@ -3522,7 +3561,7 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
         } else {
             double* buffer = new (std::nothrow) double[shots.size() * 2];
             if (buffer == nullptr) {
-                return NC_ERROR_INTERNAL;
+                return failNc(NC_ERROR_INTERNAL, "buffer 为空");
             }
             for (std::size_t i = 0; i < shots.size(); ++i) {
                 buffer[i * 2] = shots[i].start.toDouble();
@@ -3534,7 +3573,7 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
     return NC_OK;
 #else
     (void)step_seconds; (void)max_samples; (void)out_boundary_count; (void)out_boundaries;
-    return NC_ERROR_UNSUPPORTED;
+    return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
 #endif
 }
 
@@ -3543,22 +3582,22 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
 int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
                        double* out_confidence, int32_t* out_beat_count, double** out_beats) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
     }
     // 选择音频轨（track_index < 0 = 首个音频轨）
     const Track* target = nullptr;
     if (track_index >= 0) {
         if (static_cast<std::size_t>(track_index) >= seq->tracks.size()) {
-            return NC_ERROR_OUT_OF_RANGE;
+            return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
         }
         target = &seq->tracks[static_cast<std::size_t>(track_index)];
         if (target->type != TrackType::Audio) {
-            return NC_ERROR_INVALID_ARGUMENT;
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
         }
     } else {
         for (const auto& track : seq->tracks) {
@@ -3569,7 +3608,7 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
         }
     }
     if (target == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "target 为空");
     }
     // 采集音频块（映射到时间轴坐标）
     std::vector<AudioBlock> blocks;
@@ -3604,7 +3643,7 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
         reader.close();
     }
     if (blocks.empty()) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
     }
     const BeatAnalysis analysis = analyzeBeats(blocks, BeatDetectConfig{});
     if (out_bpm != nullptr) *out_bpm = analysis.bpm;
@@ -3616,7 +3655,7 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
         } else {
             double* buffer = new (std::nothrow) double[analysis.beats.size()];
             if (buffer == nullptr) {
-                return NC_ERROR_INTERNAL;
+                return failNc(NC_ERROR_INTERNAL, "buffer 为空");
             }
             for (std::size_t i = 0; i < analysis.beats.size(); ++i) {
                 buffer[i] = analysis.beats[i].time.toDouble();
@@ -3627,7 +3666,7 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
     return NC_OK;
 #else
     (void)track_index; (void)out_bpm; (void)out_confidence; (void)out_beat_count; (void)out_beats;
-    return NC_ERROR_UNSUPPORTED;
+    return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
 #endif
 }
 
@@ -3662,14 +3701,14 @@ int32_t nc_set_clip_speed_curve(NcEditor* editor, int32_t track_index, uint64_t 
                                 const int32_t* easings, int32_t point_count) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || point_count < 0 ||
         point_count > 256) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (point_count > 0 && (source_times == nullptr || speeds == nullptr)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "source_times、speeds 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
     // 构造曲线（点按源时间升序；同时刻后者替换）
@@ -3685,12 +3724,10 @@ int32_t nc_set_clip_speed_curve(NcEditor* editor, int32_t track_index, uint64_t 
         point.easing = easings != nullptr ? easingFromInt(easings[i]) : Easing::linear();
         const Result added = curve.addPoint(point);
         if (!added.isOk()) {
-            return toNcError(added.code);
+            return failResult(added);
         }
     }
-    return toNcError(
-        editor->editor->setClipSpeedCurve(main->id, trackId, ClipId{clip_id}, std::move(curve))
-            .code);
+    return failResult(editor->editor->setClipSpeedCurve(main->id, trackId, ClipId{clip_id}, std::move(curve)));
 }
 
 int32_t nc_clip_speed_curve_count(const NcEditor* editor, int32_t track_index,
@@ -3714,19 +3751,19 @@ int32_t nc_clip_speed_curve_get(const NcEditor* editor, int32_t track_index, uin
                                 int32_t index, double* out_source_seconds, double* out_speed,
                                 int32_t* out_easing) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     const Clip* clip = track.findClip(ClipId{clip_id});
     if (clip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "clip 为空");
     }
     if (static_cast<std::size_t>(index) >= clip->speedCurve.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "clip 为空");
     }
     const SpeedPoint& point = clip->speedCurve.points()[static_cast<std::size_t>(index)];
     if (out_source_seconds != nullptr) *out_source_seconds = point.sourceTime.toDouble();
@@ -3789,20 +3826,20 @@ int32_t nc_keyframe_get(const NcEditor* editor, int32_t track_index, uint64_t cl
                         double* out_value, int32_t* out_easing) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || property < 0 ||
         property >= kClipPropertyCount || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
     const Clip* clip = track.findClip(ClipId{clip_id});
     if (clip == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "clip 为空");
     }
     const KeyframeTrack* curve = clip->animation.findCurve(clipPropertyFromInt(property));
     if (curve == nullptr || static_cast<std::size_t>(index) >= curve->size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "curve 为空");
     }
     const Keyframe& keyframe = curve->keyframes()[static_cast<std::size_t>(index)];
     if (out_time_us != nullptr) *out_time_us = toMicroseconds(keyframe.time);
@@ -3838,13 +3875,13 @@ uint64_t nc_add_marker(NcEditor* editor, int64_t time_us, const char* name, cons
 
 int32_t nc_remove_marker(NcEditor* editor, uint64_t marker_id) {
     if (editor == nullptr || marker_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
-    return toNcError(editor->editor->removeMarker(main->id, MarkerId{marker_id}).code);
+    return failResult(editor->editor->removeMarker(main->id, MarkerId{marker_id}));
 }
 
 int32_t nc_marker_count(const NcEditor* editor) {
@@ -3861,14 +3898,14 @@ int32_t nc_marker_count(const NcEditor* editor) {
 int32_t nc_marker_get(const NcEditor* editor, int32_t index, uint64_t* out_marker_id,
                       int64_t* out_time_us, char** out_name, char** out_color) {
     if (editor == nullptr || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
     if (static_cast<std::size_t>(index) >= main->markers.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
     }
     const Marker& marker = main->markers[static_cast<std::size_t>(index)];
     if (out_marker_id != nullptr) *out_marker_id = marker.id.value;
@@ -3977,7 +4014,7 @@ int32_t nc_ai_task_status(const NcEditor* editor, int32_t* out_feature, int32_t*
                           char** out_failure_reason, int32_t* out_retryable,
                           char** out_result_payload) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const AiTask& task = editor->aiTask.task();
     if (out_feature != nullptr) *out_feature = static_cast<int32_t>(task.feature);
@@ -3993,12 +4030,12 @@ int32_t nc_ai_task_status(const NcEditor* editor, int32_t* out_feature, int32_t*
 int32_t nc_ai_task_begin(NcEditor* editor, int32_t feature, uint64_t target_id,
                          char** out_error) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     AiFeatureType featureType;
     if (!aiFeatureFromInt(feature, featureType) || featureType == AiFeatureType::None) {
         if (out_error != nullptr) *out_error = dupString("未指定 AI 功能类型");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     std::string failure;
     if (!editor->aiTask.begin(featureType, target_id, &failure)) {
@@ -4010,7 +4047,7 @@ int32_t nc_ai_task_begin(NcEditor* editor, int32_t feature, uint64_t target_id,
 
 int32_t nc_ai_task_progress(NcEditor* editor, double progress, const char* stage_note) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const std::string note = stage_note != nullptr ? stage_note : std::string();
     if (!editor->aiTask.setProgress(progress, note)) {
@@ -4021,39 +4058,39 @@ int32_t nc_ai_task_progress(NcEditor* editor, double progress, const char* stage
 
 int32_t nc_ai_task_succeed(NcEditor* editor, const char* result_payload) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const std::string payload = result_payload != nullptr ? result_payload : std::string();
     if (!editor->aiTask.succeed(payload)) {
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
     }
     return NC_OK;
 }
 
 int32_t nc_ai_task_fail(NcEditor* editor, const char* reason, int32_t retryable) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const std::string text = reason != nullptr ? reason : std::string();
     if (!editor->aiTask.fail(text, retryable != 0)) {
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
     }
     return NC_OK;
 }
 
 int32_t nc_ai_task_cancel(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (!editor->aiTask.cancel()) {
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "editor 为空");
     }
     return NC_OK;
 }
 
 int32_t nc_ai_task_reset(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     editor->aiTask.reset();
     return NC_OK;
@@ -4069,7 +4106,7 @@ char* nc_ai_task_failure_text(const NcEditor* editor) {
 int32_t nc_ai_engine_info(const NcEditor* editor, int32_t* out_available, char** out_version,
                           char** out_note) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const AiEngineInfo info = aiEngineInfo();
     if (out_available != nullptr) *out_available = info.available ? 1 : 0;
@@ -4087,8 +4124,11 @@ int32_t nc_ai_engine_info(const NcEditor* editor, int32_t* out_available, char**
 // =============================================================================
 
 int32_t nc_superres_load(NcEditor* editor, const char* model_path, char** out_error) {
-    if (editor == nullptr || model_path == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (model_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_path 为空");
     }
     std::string failure;
     if (editor->superResEstimator == nullptr) {
@@ -4096,19 +4136,19 @@ int32_t nc_superres_load(NcEditor* editor, const char* model_path, char** out_er
     }
     if (editor->superResEstimator == nullptr) {
         setDetail(out_error, "内存分配失败");
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (!editor->superResEstimator->load(model_path, &failure)) {
         setDetail(out_error, failure);
         editor->superResEstimator.reset();
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     return NC_OK;
 }
 
 int32_t nc_superres_unload(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (editor->superResEstimator != nullptr) {
         editor->superResEstimator->unload();
@@ -4130,11 +4170,11 @@ int32_t nc_superres_upscale(NcEditor* editor, const uint8_t* rgba, int32_t width
                             char** out_error) {
     if (editor == nullptr || rgba == nullptr || width <= 0 || height <= 0 ||
         (scale != 2 && scale != 4)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、rgba 为空");
     }
     if (editor->superResEstimator == nullptr || !editor->superResEstimator->loaded()) {
         setDetail(out_error, "超分模型未加载（先调用 nc_superres_load）");
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     std::vector<std::uint8_t> out;
     SuperResStats stats;
@@ -4144,12 +4184,12 @@ int32_t nc_superres_upscale(NcEditor* editor, const uint8_t* rgba, int32_t width
     if (!editor->superResEstimator->upscale(rgba, width, height, sc, tiling, out, &stats,
                                             &failure)) {
         setDetail(out_error, failure);
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (out_rgba != nullptr) {
         std::uint8_t* buffer = new (std::nothrow) std::uint8_t[out.size()];
         if (buffer == nullptr) {
-            return NC_ERROR_INTERNAL;
+            return failNc(NC_ERROR_INTERNAL, "buffer 为空");
         }
         std::memcpy(buffer, out.data(), out.size());
         *out_rgba = buffer;
@@ -4170,7 +4210,7 @@ int32_t nc_translate_load(NcEditor* editor, const char* encoder_path, const char
                           char** out_error) {
     if (editor == nullptr || encoder_path == nullptr || decoder_path == nullptr ||
         decoder_with_past_path == nullptr || tokenizer_json_path == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、encoder_path、decoder_path、decoder_with_past_path、tokenizer_json_path 为空");
     }
     std::string failure;
     if (editor->translator == nullptr) {
@@ -4178,20 +4218,20 @@ int32_t nc_translate_load(NcEditor* editor, const char* encoder_path, const char
     }
     if (editor->translator == nullptr) {
         setDetail(out_error, "内存分配失败");
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (!editor->translator->load(encoder_path, decoder_path, decoder_with_past_path,
                                   tokenizer_json_path, &failure)) {
         setDetail(out_error, failure);
         editor->translator.reset();
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     return NC_OK;
 }
 
 int32_t nc_translate_unload(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (editor->translator != nullptr) {
         editor->translator->unload();
@@ -4208,18 +4248,21 @@ int32_t nc_translate_loaded(const NcEditor* editor) {
 }
 
 int32_t nc_translate_text(NcEditor* editor, const char* text, char** out_text, char** out_error) {
-    if (editor == nullptr || text == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (text == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "text 为空");
     }
     if (editor->translator == nullptr || !editor->translator->loaded()) {
         setDetail(out_error, "翻译模型未加载（先调用 nc_translate_load）");
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     std::string translated;
     std::string failure;
     if (!editor->translator->translate(text, translated, 0, &failure)) {
         setDetail(out_error, failure);
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (out_text != nullptr) {
         *out_text = dupString(translated);
@@ -4229,16 +4272,16 @@ int32_t nc_translate_text(NcEditor* editor, const char* text, char** out_text, c
 
 int32_t nc_translate_subtitles(NcEditor* editor, char** out_json, char** out_error) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (editor->translator == nullptr || !editor->translator->loaded()) {
         setDetail(out_error, "翻译模型未加载（先调用 nc_translate_load）");
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     const auto& project = editor->project;
     if (project.sequences.empty()) {
         setDetail(out_error, "工程无序列");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数或状态非法");
     }
     const Sequence& seq = project.sequences.front();
     const auto& cues = seq.subtitles.cues();
@@ -4280,8 +4323,11 @@ int32_t nc_translate_subtitles(NcEditor* editor, char** out_json, char** out_err
 }
 
 int32_t nc_depth_load(NcEditor* editor, const char* model_path, char** out_error) {
-    if (editor == nullptr || model_path == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (model_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_path 为空");
     }
     std::string failure;
     // 复用 editor 上的推理器（会话复用；避免每帧重建）
@@ -4290,19 +4336,19 @@ int32_t nc_depth_load(NcEditor* editor, const char* model_path, char** out_error
     }
     if (editor->depthEstimator == nullptr) {
         setDetail(out_error, "内存分配失败");
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (!editor->depthEstimator->load(model_path, &failure)) {
         setDetail(out_error, failure);
         editor->depthEstimator.reset();
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     return NC_OK;
 }
 
 int32_t nc_depth_unload(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (editor->depthEstimator != nullptr) {
         editor->depthEstimator->unload();
@@ -4322,22 +4368,22 @@ int32_t nc_depth_estimate(NcEditor* editor, const uint8_t* rgba, int32_t width, 
                           uint8_t** out_depth, int32_t* out_width, int32_t* out_height,
                           char** out_error) {
     if (editor == nullptr || rgba == nullptr || width <= 0 || height <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、rgba 为空");
     }
     if (editor->depthEstimator == nullptr || !editor->depthEstimator->loaded()) {
         setDetail(out_error, "深度模型未加载（先调用 nc_depth_load）");
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     std::vector<std::uint8_t> depth;
     std::string failure;
     if (!editor->depthEstimator->estimate(rgba, width, height, depth, &failure)) {
         setDetail(out_error, failure);
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (out_depth != nullptr) {
         std::uint8_t* buffer = new (std::nothrow) std::uint8_t[depth.size()];
         if (buffer == nullptr) {
-            return NC_ERROR_INTERNAL;
+            return failNc(NC_ERROR_INTERNAL, "buffer 为空");
         }
         std::memcpy(buffer, depth.data(), depth.size());
         *out_depth = buffer;
@@ -4351,7 +4397,7 @@ int32_t nc_depth_apply_effect(uint8_t* rgba, const uint8_t* depth, int32_t width
                               int32_t mode, double focus_distance, double aperture,
                               double intensity, uint32_t color_rgba, double frame_time) {
     if (rgba == nullptr || depth == nullptr || width <= 0 || height <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "rgba、depth 为空");
     }
     const std::size_t count = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
     std::vector<std::uint8_t> depthVec(depth, depth + count);
@@ -4389,14 +4435,17 @@ int32_t nc_depth_apply_effect(uint8_t* rgba, const uint8_t* depth, int32_t width
             break;
         }
         default:
-            return NC_ERROR_INVALID_ARGUMENT;
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     return ok ? NC_OK : NC_ERROR_INTERNAL;
 }
 
 int32_t nc_matting_load(NcEditor* editor, const char* model_path, char** out_error) {
-    if (editor == nullptr || model_path == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (model_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "model_path 为空");
     }
     std::string failure;
     if (editor->mattingEstimator == nullptr) {
@@ -4404,19 +4453,19 @@ int32_t nc_matting_load(NcEditor* editor, const char* model_path, char** out_err
     }
     if (editor->mattingEstimator == nullptr) {
         setDetail(out_error, "内存分配失败");
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (!editor->mattingEstimator->load(model_path, &failure)) {
         setDetail(out_error, failure);
         editor->mattingEstimator.reset();
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     return NC_OK;
 }
 
 int32_t nc_matting_unload(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (editor->mattingEstimator != nullptr) {
         editor->mattingEstimator->unload();
@@ -4436,27 +4485,27 @@ int32_t nc_matting_estimate(NcEditor* editor, const uint8_t* rgba, int32_t width
                             int32_t quality, double feather, uint8_t** out_alpha,
                             char** out_error) {
     if (editor == nullptr || rgba == nullptr || width <= 0 || height <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、rgba 为空");
     }
     if (editor->mattingEstimator == nullptr || !editor->mattingEstimator->loaded()) {
         setDetail(out_error, "抠像模型未加载（先调用 nc_matting_load）");
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     MattingQuality mattingQuality;
     if (!mattingQualityFromInt(quality, mattingQuality)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     std::vector<std::uint8_t> alpha;
     std::string failure;
     if (!editor->mattingEstimator->estimate(rgba, width, height, mattingQuality, feather, alpha,
                                             &failure)) {
         setDetail(out_error, failure);
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (out_alpha != nullptr) {
         std::uint8_t* buffer = new (std::nothrow) std::uint8_t[alpha.size()];
         if (buffer == nullptr) {
-            return NC_ERROR_INTERNAL;
+            return failNc(NC_ERROR_INTERNAL, "buffer 为空");
         }
         std::memcpy(buffer, alpha.data(), alpha.size());
         *out_alpha = buffer;
@@ -4467,7 +4516,7 @@ int32_t nc_matting_estimate(NcEditor* editor, const uint8_t* rgba, int32_t width
 int32_t nc_person_effect_apply(uint8_t* rgba, const uint8_t* alpha, int32_t width, int32_t height,
                                int32_t effect, double intensity) {
     if (rgba == nullptr || width <= 0 || height <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "rgba 为空");
     }
     const bool ok = applyPersonEffectToRgba(rgba, width, height, effect, intensity, 0.0, alpha,
                                             RenderQuality::exportQuality());
@@ -4476,8 +4525,14 @@ int32_t nc_person_effect_apply(uint8_t* rgba, const uint8_t* alpha, int32_t widt
 
 int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
                        const char* tokenizer_path, char** out_error) {
-    if (editor == nullptr || encoder_path == nullptr || decoder_path == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (encoder_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "encoder_path 为空");
+    }
+    if (decoder_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "decoder_path 为空");
     }
     std::string failure;
     if (editor->speechRecognizer == nullptr) {
@@ -4485,12 +4540,12 @@ int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* d
     }
     if (editor->speechRecognizer == nullptr) {
         setDetail(out_error, "内存分配失败");
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     if (!editor->speechRecognizer->load(encoder_path, decoder_path, &failure)) {
         setDetail(out_error, failure);
         editor->speechRecognizer.reset();
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     // 词表（可选；失败不影响模型加载，但解码输出为空——明确告知）
     if (tokenizer_path != nullptr && tokenizer_path[0] != '\0') {
@@ -4505,7 +4560,7 @@ int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* d
 
 int32_t nc_speech_unload(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (editor->speechRecognizer != nullptr) {
         editor->speechRecognizer->unload();
@@ -4525,15 +4580,15 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
                              int32_t sample_rate, int32_t language, char** out_segments_json,
                              char** out_error) {
     if (editor == nullptr || samples == nullptr || frame_count <= 0 || sample_rate <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、samples 为空");
     }
     if (editor->speechRecognizer == nullptr || !editor->speechRecognizer->loaded()) {
         setDetail(out_error, "语音识别模型未加载（先调用 nc_speech_load）");
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
     SpeechLanguage speechLanguage;
     if (!speechLanguageFromInt(language, speechLanguage)) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     std::vector<SpeechSegment> segments;
     std::string failure;
@@ -4541,7 +4596,7 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
                                               sample_rate, speechLanguage, segments, nullptr,
                                               &failure)) {
         setDetail(out_error, failure);
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
     // 分段 JSON 序列化
     JsonValue array = JsonValue::array();
@@ -4561,17 +4616,17 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
 int32_t nc_speech_mel(const float* samples, int64_t frame_count, int32_t sample_rate,
                       int32_t frames, float** out_mel) {
     if (samples == nullptr || frame_count <= 0 || sample_rate <= 0 || frames <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "samples 为空");
     }
     std::vector<float> mel;
     if (!SpeechRecognizer::computeMelSpectrogram(samples, static_cast<std::size_t>(frame_count),
                                                  sample_rate, frames, mel)) {
-        return NC_ERROR_INTERNAL;
+        return failNc(NC_ERROR_INTERNAL, "调用失败");
     }
     if (out_mel != nullptr) {
         float* buffer = new (std::nothrow) float[mel.size()];
         if (buffer == nullptr) {
-            return NC_ERROR_INTERNAL;
+            return failNc(NC_ERROR_INTERNAL, "buffer 为空");
         }
         std::memcpy(buffer, mel.data(), mel.size() * sizeof(float));
         *out_mel = buffer;
@@ -4690,15 +4745,15 @@ int32_t nc_chapter_count(const NcEditor* editor) {
 int32_t nc_chapter_get(const NcEditor* editor, int32_t index, int64_t* out_start_us,
                        int64_t* out_end_us, char** out_title) {
     if (editor == nullptr || index < 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
     }
     const std::vector<Chapter> chapters = readChaptersFromSequence(*seq);
     if (static_cast<std::size_t>(index) >= chapters.size()) {
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
     }
     const Chapter& chapter = chapters[static_cast<std::size_t>(index)];
     if (out_start_us != nullptr) *out_start_us = toMicroseconds(chapter.start);
@@ -4711,24 +4766,24 @@ int32_t nc_chapter_rename(NcEditor* editor, int32_t index, const char* new_title
                           char** out_error) {
     if (editor == nullptr || new_title == nullptr || index < 0) {
         if (out_error != nullptr) *out_error = dupString("参数非法");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、new_title 为空");
     }
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
         if (out_error != nullptr) *out_error = dupString("工程没有主序列");
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
     }
     const std::vector<Chapter> chapters = readChaptersFromSequence(*seq);
     if (static_cast<std::size_t>(index) >= chapters.size()) {
         if (out_error != nullptr) *out_error = dupString("章节下标越界");
-        return NC_ERROR_OUT_OF_RANGE;
+        return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
     }
     std::string title = new_title;
     const std::size_t begin = title.find_first_not_of(" \t\r\n");
     const std::size_t end = title.find_last_not_of(" \t\r\n");
     if (begin == std::string::npos) {
         if (out_error != nullptr) *out_error = dupString("标题不能为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     title = title.substr(begin, end - begin + 1);
     const Chapter& chapter = chapters[static_cast<std::size_t>(index)];
@@ -4740,7 +4795,7 @@ int32_t nc_chapter_rename(NcEditor* editor, int32_t index, const char* new_title
     const Result r = editor->editor->upsertMarker(seq->id, std::move(marker));
     if (!r.isOk()) {
         if (out_error != nullptr) *out_error = dupString(r.message);
-        return toNcError(r.code);
+        return failResult(r);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
@@ -4783,7 +4838,7 @@ int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_pa
                           uint64_t* out_job_id, char** out_error) {
     if (editor == nullptr || name == nullptr || out_path == nullptr) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、name、out_path 为空");
     }
     ExportPresetId preset = ExportPresetId::Custom;
     if (preset_id > 0) {
@@ -4804,7 +4859,7 @@ int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_pa
     PerformanceMode performanceMode = PerformanceMode::Balanced;
     if (!performanceModeFromInt(mode, performanceMode)) {
         if (out_error != nullptr) *out_error = dupString("性能模式非法（0/1/2）");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     const ExportQueueResult r = editor->exportQueue.enqueue(
@@ -4816,7 +4871,7 @@ int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_pa
     }
     if (!r.result.isOk()) {
         if (out_error != nullptr) *out_error = dupString(r.result.message);
-        return toNcError(r.result.code);
+        return failResult(r.result);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
@@ -4827,7 +4882,7 @@ int32_t nc_export_poll_next(NcEditor* editor, uint64_t* out_job_id, char** out_o
                             int32_t* out_include_audio, int32_t* out_attach_ai_label,
                             char** out_ai_label_text) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     // 调度策略按「队列中最早等待任务」的性能模式推导（平台层切换模式时重新拉取）
     ExportQueuePolicy policy = exportQueuePolicy(PerformanceMode::Balanced, 4);
@@ -4861,7 +4916,7 @@ int32_t nc_export_poll_next(NcEditor* editor, uint64_t* out_job_id, char** out_o
 int32_t nc_export_job_state(const NcEditor* editor, uint64_t job_id, int32_t* out_state,
                             double* out_progress, int64_t* out_frames_written, char** out_note) {
     if (editor == nullptr || job_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const ExportJob* job = editor->exportQueue.find(job_id);
     if (job == nullptr) {
@@ -4876,10 +4931,10 @@ int32_t nc_export_job_state(const NcEditor* editor, uint64_t job_id, int32_t* ou
 
 int32_t nc_export_job_progress(NcEditor* editor, uint64_t job_id, double progress) {
     if (editor == nullptr || job_id == 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const ExportQueueResult r = editor->exportQueue.updateProgress(job_id, progress);
-    return toNcError(r.result.code);
+    return failResult(r.result);
 }
 
 int32_t nc_export_job_update(NcEditor* editor, uint64_t job_id, int32_t action,
@@ -4887,7 +4942,7 @@ int32_t nc_export_job_update(NcEditor* editor, uint64_t job_id, int32_t action,
                              char** out_error) {
     if (editor == nullptr || job_id == 0) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     ExportQueueResult r;
     switch (action) {
@@ -4912,11 +4967,11 @@ int32_t nc_export_job_update(NcEditor* editor, uint64_t job_id, int32_t action,
             break;
         default:
             if (out_error != nullptr) *out_error = dupString("未知动作（0-5）");
-            return NC_ERROR_INVALID_ARGUMENT;
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     if (!r.result.isOk()) {
         if (out_error != nullptr) *out_error = dupString(r.result.message);
-        return toNcError(r.result.code);
+        return failResult(r.result);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
@@ -4925,7 +4980,7 @@ int32_t nc_export_job_update(NcEditor* editor, uint64_t job_id, int32_t action,
 int32_t nc_export_queue_summary(const NcEditor* editor, int32_t* out_queued,
                                 int32_t* out_running, int32_t* out_active) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (out_queued != nullptr) {
         *out_queued = static_cast<int32_t>(editor->exportQueue.queuedCount());
@@ -5019,7 +5074,7 @@ int32_t nc_media_scan_offline(NcEditor* editor, int32_t probe_kind, char** out_r
                               char** out_error) {
     if (editor == nullptr) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     OfflineProbe* probe = nullptr;
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -5030,7 +5085,7 @@ int32_t nc_media_scan_offline(NcEditor* editor, int32_t probe_kind, char** out_r
 #else
     if (probe_kind == 1) {
         if (out_error != nullptr) *out_error = dupString("此构建未包含 FFmpeg，无法使用探测器");
-        return NC_ERROR_UNSUPPORTED;
+        return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
     }
 #endif
     (void)probe_kind;
@@ -5062,7 +5117,7 @@ int32_t nc_media_scan_offline(NcEditor* editor, int32_t probe_kind, char** out_r
 
 int32_t nc_media_apply_offline_flags(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     return static_cast<int32_t>(applyOfflineFlags(editor->project, editor->offlineReport));
 }
@@ -5071,7 +5126,7 @@ int32_t nc_media_relink(NcEditor* editor, uint64_t asset_id, const char* new_pat
                         int32_t verify_digest, char** out_warning, char** out_error) {
     if (editor == nullptr || new_path == nullptr || asset_id == 0) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、new_path 为空");
     }
     OfflineProbe* probe = nullptr;
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -5081,7 +5136,7 @@ int32_t nc_media_relink(NcEditor* editor, uint64_t asset_id, const char* new_pat
     const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
     if (asset == nullptr) {
         if (out_error != nullptr) *out_error = dupString("素材不存在");
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "asset 为空");
     }
     const std::string expectedDigest = verify_digest != 0 ? asset->contentSha256 : std::string();
     const RelinkResult r = relinkAsset(*editor->editor, editor->project, AssetId{asset_id},
@@ -5092,7 +5147,7 @@ int32_t nc_media_relink(NcEditor* editor, uint64_t asset_id, const char* new_pat
     }
     if (!r.result.isOk()) {
         if (out_error != nullptr) *out_error = dupString(r.result.message);
-        return toNcError(r.result.code);
+        return failResult(r.result);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
@@ -5102,7 +5157,7 @@ int32_t nc_media_find_relink_candidates(NcEditor* editor, const char* search_dir
                                         char** out_candidates_json, char** out_error) {
     if (editor == nullptr || search_dirs_json == nullptr) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、search_dirs_json 为空");
     }
     // 极简 JSON 数组解析（["a","b"]；容忍空白）
     std::vector<std::string> dirs;
@@ -5133,7 +5188,7 @@ int32_t nc_media_find_relink_candidates(NcEditor* editor, const char* search_dir
     }
     if (dirs.empty()) {
         if (out_error != nullptr) *out_error = dupString("目录列表为空或格式非法");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     OfflineProbe* probe = nullptr;
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -5170,7 +5225,7 @@ int32_t nc_media_relink_batch(NcEditor* editor, const char* mappings_json,
                               int32_t* out_relinked, char** out_report_json, char** out_error) {
     if (editor == nullptr || mappings_json == nullptr) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、mappings_json 为空");
     }
     // 极简解析：[{"asset":1,"path":"..."},...]（容忍键序与空白）
     std::vector<std::pair<AssetId, std::string>> mappings;
@@ -5220,7 +5275,7 @@ int32_t nc_media_relink_batch(NcEditor* editor, const char* mappings_json,
     }
     if (mappings.empty()) {
         if (out_error != nullptr) *out_error = dupString("重链列表为空或格式非法");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     OfflineProbe* probe = nullptr;
 #ifdef NAIROCLIP_HAS_FFMPEG
@@ -5240,7 +5295,7 @@ int32_t nc_media_relink_batch(NcEditor* editor, const char* mappings_json,
     }
     if (!r.result.isOk()) {
         if (out_error != nullptr) *out_error = dupString(r.result.message);
-        return toNcError(r.result.code);
+        return failResult(r.result);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
@@ -5250,13 +5305,13 @@ int32_t nc_media_set_digest(NcEditor* editor, uint64_t asset_id, const char* sha
                             char** out_error) {
     if (editor == nullptr || asset_id == 0) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Result r = setAssetDigest(editor->project, AssetId{asset_id},
                                     sha256_hex != nullptr ? sha256_hex : "");
     if (!r.isOk()) {
         if (out_error != nullptr) *out_error = dupString(r.message);
-        return toNcError(r.code);
+        return failResult(r);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
@@ -5322,7 +5377,7 @@ RegenerationImpactReport& regenerationCache() {
 
 int32_t nc_reference_style_access(const NcEditor* editor, char** out_reason) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const ReferenceStyleAccess access = referenceStyleAccess(
         editor->entitlement, static_cast<std::int64_t>(std::time(nullptr)));
@@ -5333,7 +5388,7 @@ int32_t nc_reference_style_access(const NcEditor* editor, char** out_reason) {
 int32_t nc_movie_version_access(const NcEditor* editor, int32_t requested,
                                 int32_t* out_allowed_count, char** out_reason) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const VersionCountAccess access = versionCountAccess(
         editor->entitlement, static_cast<std::int64_t>(std::time(nullptr)), requested);
@@ -5348,7 +5403,7 @@ int32_t nc_smart_movie_plan(NcEditor* editor, int32_t version_count, double pace
                             int32_t material_count, char** out_summary) {
     if (editor == nullptr || material_count <= 0 || material_ids == nullptr ||
         material_seconds == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、material_ids、material_seconds 为空");
     }
     bool styleOk = false;
     const StyleProfile profile = styleProfileFromJson(style_json, &styleOk);
@@ -5388,19 +5443,19 @@ int32_t nc_smart_movie_apply(NcEditor* editor, const int32_t* track_indexes, int
                              int32_t* out_applied, char** out_failed_json, char** out_error) {
     if (editor == nullptr) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const SmartMoviePlan& plan = smartMovieCache();
     if (plan.versions.empty()) {
         if (out_error != nullptr) {
             *out_error = dupString("没有已计划的版本，请先调用 nc_smart_movie_plan");
         }
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
         if (out_error != nullptr) *out_error = dupString("工程没有主序列");
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
     }
     std::vector<TrackId> trackIds;
     std::vector<std::string> preFailures;
@@ -5439,7 +5494,7 @@ int32_t nc_smart_movie_apply(NcEditor* editor, const int32_t* track_indexes, int
     }
     if (!batch.result.isOk()) {
         if (out_error != nullptr) *out_error = dupString(batch.result.message);
-        return toNcError(batch.result.code);
+        return failResult(batch.result);
     }
     if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
@@ -5447,11 +5502,11 @@ int32_t nc_smart_movie_apply(NcEditor* editor, const int32_t* track_indexes, int
 
 int32_t nc_regeneration_impact(const NcEditor* editor, int32_t scope, char** out_report_json) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
     }
     const RegenerationScope regenScope =
         scope == 1 ? RegenerationScope::Sequence : RegenerationScope::WholeProject;
@@ -5485,12 +5540,12 @@ int32_t nc_regeneration_clear(NcEditor* editor, int32_t scope, char** out_cleare
                               char** out_error) {
     if (editor == nullptr) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
         if (out_error != nullptr) *out_error = dupString("工程没有主序列");
-        return NC_ERROR_NOT_FOUND;
+        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
     }
     const RegenerationScope regenScope =
         scope == 1 ? RegenerationScope::Sequence : RegenerationScope::WholeProject;
@@ -5501,7 +5556,7 @@ int32_t nc_regeneration_clear(NcEditor* editor, int32_t scope, char** out_cleare
         clearForRegeneration(*editor->editor, editor->project, seq->id, regenerationCache());
     if (!cleared.result.isOk()) {
         if (out_error != nullptr) *out_error = dupString(cleared.result.message);
-        return toNcError(cleared.result.code);
+        return failResult(cleared.result);
     }
     if (out_cleared_json != nullptr) {
         std::string json = "{\"tracksCleared\":" + std::to_string(cleared.tracksCleared) +
@@ -5524,7 +5579,7 @@ uint32_t nc_watermark_account_hash(const char* account_id) {
 int32_t nc_watermark_set_export(NcEditor* editor, int32_t enabled, const char* account_id,
                                 int32_t export_sequence) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     InvisibleWatermarkSpec spec;
     spec.enabled = enabled != 0;
@@ -5542,7 +5597,7 @@ int32_t nc_watermark_detect(const uint8_t* rgba, int32_t width, int32_t height,
                             uint32_t* out_account_hash, int32_t* out_export_sequence,
                             double* out_agreement, char** out_note) {
     if (rgba == nullptr || width <= 0 || height <= 0) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "rgba 为空");
     }
     const InvisibleDetectResult detected = detectInvisibleWatermark(rgba, width, height);
     if (out_account_hash != nullptr) *out_account_hash = detected.payload.accountHash;
@@ -5561,7 +5616,7 @@ int32_t nc_heartbeat_handle(NcEditor* editor, int64_t server_time_unix, int32_t 
                             int32_t device_limit, int32_t signature_valid, int32_t server_locked,
                             const char* message, int32_t* out_verdict, char** out_message) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     HeartbeatResponse response;
     response.transportOk = true;
@@ -5587,7 +5642,7 @@ int32_t nc_heartbeat_handle(NcEditor* editor, int64_t server_time_unix, int32_t 
 
 int32_t nc_heartbeat_network_error(NcEditor* editor, char** out_message) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     HeartbeatResponse response;
     response.transportOk = false;
@@ -5602,7 +5657,7 @@ int32_t nc_heartbeat_network_error(NcEditor* editor, char** out_message) {
 int32_t nc_heartbeat_status(const NcEditor* editor, int32_t* out_locked,
                             int32_t* out_warning_count, int64_t* out_last_checked_unix) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     if (out_locked != nullptr) *out_locked = editor->heartbeat.locked() ? 1 : 0;
     if (out_warning_count != nullptr) *out_warning_count = editor->heartbeat.warningCount();
@@ -5615,7 +5670,7 @@ int32_t nc_heartbeat_status(const NcEditor* editor, int32_t* out_locked,
 int32_t nc_heartbeat_periodic_due(const NcEditor* editor, int64_t now_unix,
                                   int64_t interval_seconds) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     const std::int64_t interval = interval_seconds > 0 ? interval_seconds : 1800;
     return editor->heartbeat.periodicDue(now_unix, interval) ? 1 : 0;
@@ -5623,7 +5678,7 @@ int32_t nc_heartbeat_periodic_due(const NcEditor* editor, int64_t now_unix,
 
 int32_t nc_heartbeat_clear_lock(NcEditor* editor) {
     if (editor == nullptr) {
-        return NC_ERROR_INVALID_ARGUMENT;
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
     editor->heartbeat.clearLock();
     return NC_OK;
@@ -5640,5 +5695,7 @@ void nc_free_string_array(char** items, int32_t count) {
 }
 
 void nc_free_string(char* text) { delete[] text; }
+
+const char* nc_last_error(void) { return g_lastError.c_str(); }
 
 }  // extern "C"

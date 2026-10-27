@@ -95,6 +95,7 @@ add_executable(nairoclip_tests
     test_freeze_frame.cpp
     test_light_effects.cpp
     test_motion_blur_directional.cpp
+    test_capi_errors.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
@@ -236,6 +237,17 @@ if(MSVC)
 else()
     target_compile_options(nairoclip_motionblur_tests PRIVATE -Wall -Wextra)
 endif()
+add_executable(nairoclip_capi_errors_tests
+    test_main.cpp
+    test_capi_errors.cpp
+)
+target_link_libraries(nairoclip_capi_errors_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_capi_errors_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_capi_errors_tests PRIVATE -Wall -Wextra)
+endif()
+
 
 
 
