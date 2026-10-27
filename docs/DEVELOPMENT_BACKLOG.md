@@ -370,19 +370,55 @@ LinearDodge、SoftLight、LinearLight、PinLight、Difference、Exclusion、Hue/
 
 ---
 
-### B1-4 ⬜ 动态模糊重构
+### B1-4 ✅ 动态模糊重构（方向性模糊）
 
-**现状**：`MotionBlur` 是多帧叠加，粗糙。
+**已实施（2026-10-27）**：新增 `core/include/nairoclip/core/motion_blur_directional.h`
++ `core/src/motion_blur_directional.cpp`。
 
-**方案**：基于速度矢量的方向性模糊。
+**为什么重构**：原 `MotionBlur` 是「相邻多帧三角加权叠加」。物理上正确，但两个硬伤：
+1. **需要帧序列**——单帧渲染（预览拖拽、缩略图、`applyMotionEffectToRgba`）拿不到
+   相邻帧，`motion_effects.cpp:327` 只能写「返回 true 不改动」的占位；
+2. **与运动方向无关**——水平甩镜和垂直运动得到完全相同的模糊，没有方向感。
 
-- 从关键帧速度差算方向
-- 快门角度可调（180°/360°）
-- 与速度曲线联动
+**新方案**：单帧内沿运动矢量多点采样。
+- 方向来自位移动画（`ClipProperty::PositionX/Y`）求导，用户不必额外调角度；
+  也支持直接给 `velocityX/Y`（甩镜等场景）。
+- 采样点权重三角分布（中心 1.0 → 端点 0.1，不归零），模拟真实快门积分形状；
+- 模糊半长 = `|位移| × (快门角度/360) / 2`，快门角度 0..360 可调；
+- `maxLength` 钳制（0..0.5 画幅）防止极快运动糊成一团。
 
-**交付**：给定速度曲线，断言模糊方向与强度。
+**单位约定（易错点，已在 header 写明）**：`velocityX/Y` 是**本帧内位移**
+（归一化画幅），不是「画幅/秒」。因为函数不接收帧率，用帧位移才能自洽。
+手上是速度时先用 `velocityFromPositions(..., dt, frameDuration, ...)` 换算。
+开发中一度出现 header 写「每秒」而实现按「每帧」——已统一为「每帧」。
 
-**预估**：3 天。
+**与原实现的关系**：`applyMotionBlurFrames`（多帧叠加）**保留不动**——它在导出管线
+帧序列层面仍是物理更准的方案。本模块补充的是单帧路径 + 方向感知，
+两者不是替代关系。这一点与文档原表述「重构」有出入，如实记录。
+
+**验证（12 用例）**：
+- `ZeroVelocityIsNoOp` / `ZeroShutterIsNoOp` — 静止与快门 0° 零改动
+- `HorizontalMotionBlursHorizontally` — 竖条纹 + 水平运动 → 行方差下降
+- **`HorizontalMotionDoesNotBlurVertically`** — 水平运动不该让**水平**条纹变糊
+  （这条是方向性的守门人，各向同性实现会红）
+- `VerticalMotionBlursVertically` — 反向对照
+- `LongerShutterBlursMore` / `MaxLengthClampsExtremeMotion`
+- `AlphaPreserved` / `Deterministic` / `InvalidParamsRejected`
+- `VelocityFromPositionsConvertsUnits` — 10 画幅/秒 × 1/30 秒 = 0.333 画幅/帧
+- `NegativeVelocityBlursOtherDirection` — 模糊量对方向是偶函数
+
+**变异验证（两次，第二次发现真问题）**：
+1. 「忽略方向恒用水平」→ `VerticalMotionBlursVertically` 报警 ✅
+2. 「删除 maxLength 钳制」→ **首版断言未捕获** ❌
+
+第 2 次暴露了假断言：`MaxLengthClampsExtremeMotion` 原本写「方差 < 1.0 才报警」，
+而钳制失效时采样点被推到画布边界、互相混合后的方差仍远大于 1.0。
+**阈值型断言在极值处不可靠**。改为「同一速度下 maxLength=0.02 vs 0.5 互相比，
+短的那次方差必须显著更大」，重跑变异版立即报警（tight=441 vs loose=44）。
+还原后 12/12 通过，`grep -c MUTANT` = 0。
+
+**未完成**：`EffectType` 接入（当前 `EffectType::MotionBlur` 仍走多帧路径）、
+导出管线里从关键帧自动求速度的接线、UI 快门角度控件。
 
 ---
 
