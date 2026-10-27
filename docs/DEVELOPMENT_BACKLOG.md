@@ -807,13 +807,38 @@ UI：拖轨道下边缘调整；双击标题栏折叠。
 
 ---
 
-### B3-2 ⬜ 抽帧/冻帧接入导出
+### B3-2 ✅ 抽帧/冻帧接入导出
 
-**现状**：`FreezeFrame` 命令存在（M0.x），需核实导出路径是否生效。
+**核实结论（先纠正文档的过时描述）**：`FreezeFrame` **命令存在**（`nc_freeze_frame`），
+但它此前**没有显式语义**——实现是把 `speed` 设成 `1/1000000` 来"骗取"几乎不动
+的效果，因为 `Clip::valid()` 要求 `speed.isPositive()`，写不了 `speed = 0`。
 
-**方案**：导出时对冻帧片段复制同一帧 N 次；预览同步。
+**已实施（2026-10-27）**：
 
-**交付**：导出后逐帧比对，冻帧段像素完全一致。
+- 新增 `Clip::freeze`（显式语义）+ `RenderClip::freeze`；
+- `Clip::sourceTimeAt()` 与导出器的 `mapSourceTime()` 都优先判 `freeze`，
+  返回恒定的 `sourceIn`；
+- `nc_freeze_frame` 改用 `freeze = true`（`speed` 保持 1，避免 `sourceOut` 越界）；
+- 序列化：仅启用时写 `"freeze": true`；
+- 三端一致：导出、预览、C ABI 走同一判定（`sourceTimeAt` 是内联实现）。
+
+**为什么要改掉旧实现**（不是洁癖）：`speed = 1e-6` 在 1 秒定格下源时间只漂
+1 微秒、10 秒也只漂 10 微秒，看似无害；但它的正确性**依赖取样方式的巧合**。
+一旦速度下限被放宽、或 reader 改成"按毫秒取整再换算帧号"，定格就会静默失效，
+而测试仍会通过（因为旧测试只断言 `sn > 0 && sd >= sn`）。
+
+**交付验证**（文档要求"冻帧段像素完全一致"）：
+
+| 断言 | 内容 |
+|---|---|
+| `FrozenSegmentHasIdenticalPixels` | 30 帧逐帧比对，全部等于首帧 |
+| `EmptyFreezeLongSegmentStaysFrozen` | 10 秒定格（300 帧）仍完全静止 |
+| `NonFrozenClipDoesVaryAcrossFrames` | **反向对照**：不冻帧的片段必须逐帧变化 |
+| `FreezeUsesSourceIn` | 不同 `sourceIn` 的定格片段像素不同 |
+| `FreezeOverridesReverseAndCurve` | 定格优先级高于倒放/曲线 |
+
+变异验证：删掉 `sourceTimeAt` 与 `mapSourceTime` 里的 `freeze` 判断 →
+4 个用例立即报警（含两个导出路径的）。
 
 ---
 

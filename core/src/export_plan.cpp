@@ -21,6 +21,8 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.sourceOut = clip.sourceOut();
     rc.speed = clip.speed;
     rc.reversed = clip.reversed;
+
+    rc.freeze = clip.freeze;
     rc.hasAnimation = !clip.animation.empty();
     rc.effects = clip.effects;
     rc.hasMask = clip.hasMask;

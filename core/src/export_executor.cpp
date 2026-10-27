@@ -148,6 +148,10 @@ const RenderClip* clipAt(const RenderTrack& track, const Time& t) {
 /// - 有速度曲线：数值积分 d(source) = speed(source) * d(t)（固定 64 步，跨平台确定性）。
 Time mapSourceTime(const RenderClip& clip, const Time& t) {
     const Time localTime = t - clip.timelineStart;
+    // 定格（B3-2）：整段复用同一源时刻的帧。放在最前，语义优先于倒放/曲线。
+    if (clip.freeze) {
+        return clip.sourceIn;
+    }
     if (clip.reversed) {
         const Time total = clip.timelineEnd - clip.timelineStart;
         const Time remain = total - localTime;

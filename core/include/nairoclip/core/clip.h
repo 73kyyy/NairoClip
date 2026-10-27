@@ -66,6 +66,14 @@ struct Clip {
     DenoiseStrength denoise = DenoiseStrength::Off;
     /// 是否启用降噪。
     bool hasDenoise() const { return denoise != DenoiseStrength::Off; }
+    /// 定格（B3-2）：为 true 时源时间**固定在 sourceIn**，不随播放推进。
+    ///
+    /// 为什么需要独立字段：`Clip::valid()` 要求 `speed.isPositive()`，
+    /// 所以不能用 `speed = 0` 表达定格。此前 `nc_freeze_frame` 用
+    /// `speed = 1/1000000` 骗取"几乎不动"的效果——它能跑，但语义是
+    /// 巧合：一旦有人把速度下限放宽、或换成按帧取整的 reader，
+    /// 定格就会悄悄失效。显式字段让语义可读、可测、可序列化。
+    bool freeze = false;
     /// 倒放（文档「✂️剪辑 → 倒放」）。
     /// true 时画面播放顺序反转：时间轴时刻 t（片段本地时间 u）对应源时间
     ///   sourceIn + (duration - u) * speed  （实现见 sourceTimeAt）。
@@ -142,6 +150,11 @@ struct Clip {
     /// 说明：速度曲线（speedCurve）非空时映射由渲染器按曲线积分，本函数仅
     /// 覆盖恒速路径（预览/导出在无曲线时优先调用本函数，保证倒放一致）。
     Time sourceTimeAt(const Time& localTime) const {
+        // 定格（B3-2）：源时间恒定在入点，不随播放推进。
+        // 放在最前面：定格与倒放/速度曲线互斥，先判可避免被其它分支覆盖。
+        if (freeze) {
+            return sourceIn;
+        }
         if (!reversed) {
             return sourceIn + Time{localTime * speed};
         }

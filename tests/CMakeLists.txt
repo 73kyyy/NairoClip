@@ -92,6 +92,7 @@ add_executable(nairoclip_tests
     test_lut.cpp
     test_track_groups.cpp
     test_render_baseline.cpp
+    test_freeze_frame.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
@@ -202,6 +203,18 @@ if(MSVC)
 else()
     target_compile_options(nairoclip_render_baseline_tests PRIVATE -Wall -Wextra)
 endif()
+add_executable(nairoclip_freeze_tests
+    test_main.cpp
+    test_freeze_frame.cpp
+)
+target_link_libraries(nairoclip_freeze_tests PRIVATE nairoclip_core)
+target_include_directories(nairoclip_freeze_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(MSVC)
+    target_compile_options(nairoclip_freeze_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_freeze_tests PRIVATE -Wall -Wextra)
+endif()
+
 
 
 

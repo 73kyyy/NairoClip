@@ -807,11 +807,13 @@ uint64_t nc_duplicate_clip(NcEditor* editor, int32_t track_index, uint64_t clip_
 uint64_t nc_freeze_frame(NcEditor* editor, int32_t track_index, uint64_t clip_id, int64_t at_us,
                          int64_t duration_us) {
     // 文档「剪辑 → 定格」：在播放头位置生成一帧静止画面并插入时间轴（默认 2s）。
-    // 实现：以源素材该时刻为入点、时长 = duration 的静态片段（速度为 0 的静止帧
-    // 在渲染层等价于入点后固定帧；导出器读取同一源时刻的帧）。
-    // 说明：本工程用「极慢速映射」不适用，故以 sourceIn 固定 + speed 保持 1、
-    //       并把时长设为定格时长映射同一帧的方式：sourceIn 指向定格帧，
-    //       duration 为定格时长，speed 设为极小值使源时间近似不动。
+    //
+    // 实现（B3-2 起）：Clip::freeze = true。
+    // 旧实现用 speed = 1/1000000 骗取「几乎不动」——因为 Clip::valid() 要求
+    // speed 为正，无法直接写 speed = 0。那个做法能跑，但语义是巧合：
+    // 一旦速度下限放宽、或换成按帧取整的 reader，定格就会悄悄失效。
+    // 现在语义显式（sourceTimeAt 直接返回 sourceIn），且导出/预览/C ABI
+    // 三条路径共用同一判定。
     SequenceId seqId;
     TrackId trackId;
     int32_t code = NC_OK;
@@ -838,8 +840,9 @@ uint64_t nc_freeze_frame(NcEditor* editor, int32_t track_index, uint64_t clip_id
     frozen.sourceIn = sourceAt;
     frozen.start = at;
     frozen.duration = fromMicroseconds(duration_us);
-    // 定格：源时间不随播放推进（speed → 极小正数，避免 sourceOut 越过素材范围）
-    frozen.speed = Rational::make(1, 1000000);
+    // 定格：源时间恒为 sourceIn（显式语义，见 Clip::freeze 注释）
+    frozen.freeze = true;
+    frozen.speed = Rational::make(1);  // 保持 1：sourceOut 不会越过素材范围
     frozen.reversed = false;
     frozen.speedCurve.clear();
     ClipId outId;
