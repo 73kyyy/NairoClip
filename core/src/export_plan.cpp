@@ -115,6 +115,10 @@ ExportPlan compileExportPlan(const Project& project, const Sequence& sequence) {
         rt.type = track.type;
         rt.muted = track.muted;
         rt.hidden = track.hidden;
+        // 调整图层（B2-6）：把轨道级效果带进计划，供导出器在合成时应用
+        rt.adjustmentEffects = track.adjustmentEffects;
+        rt.adjustmentLutPath = track.adjustmentLutPath;
+        rt.adjustmentLutStrength = track.adjustmentLutStrength;
         // 隐藏视频轨 / 静音音频轨：仍保留轨道（渲染器决定处理策略），
         // 但记录警告便于 UI 提示。
         if (track.hidden && track.type == TrackType::Video) {

@@ -1,4 +1,5 @@
 #include "nairoclip/core/export_executor.h"
+#include "nairoclip/core/lut.h"
 
 #include <cstring>
 
@@ -209,6 +210,37 @@ ExportStats executeExport(
             audioTrack = &track;
         }
     }
+    // 调整图层（B2-6）：按轨道顺序收集，合成完成后再依次应用。
+    // 只收「有实际效果」的（effects 或 LUT 非空）——空调整图层不参与运算，
+    // 因此在没有调整图层的工程里，下面的循环一次都不会执行，
+    // 输出与改动前逐像素一致（这是 B2-6 的验收条件）。
+    std::vector<const RenderTrack*> adjustmentLayers;
+    for (const auto& track : plan.tracks) {
+        if (track.type != TrackType::Adjustment || track.hidden) {
+            continue;
+        }
+        const bool hasEffects = !track.adjustmentEffects.empty();
+        const bool hasLut = !track.adjustmentLutPath.empty();
+        if (hasEffects || hasLut) {
+            adjustmentLayers.push_back(&track);
+        }
+    }
+    // LUT 只加载一次（每帧加载会带来大量重复 IO）
+    Lut3D adjustmentLut;
+    bool adjustmentLutLoaded = false;
+    std::string adjustmentLutError;
+    for (const RenderTrack* layer : adjustmentLayers) {
+        if (!layer->adjustmentLutPath.empty()) {
+            if (!loadCubeLutFile(layer->adjustmentLutPath, adjustmentLut,
+                                 adjustmentLutError)) {
+                stats.warnings.push_back("调整图层 LUT 加载失败：" + adjustmentLutError);
+            } else {
+                adjustmentLutLoaded = true;
+            }
+            break;  // 目前只支持一个 LUT（多调整图层的 LUT 叠加留待后续）
+        }
+    }
+
     // 主视频轨（保留变量兼容旧代码路径：转场/解码逻辑使用第一个视频轨）
     const RenderTrack* videoTrack = videoTracks.empty() ? nullptr : videoTracks.front();
 
@@ -224,6 +256,30 @@ ExportStats executeExport(
     auto finalizeFrame = [&](OutputVideoFrame& frame) {
         if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) {
             return;
+        }
+        // 调整图层（B2-6）：作用于「下方所有轨道合成后的画面」。
+        // 放在水印之前：调整图层是画面调色/特效，水印属于最终叠加物，
+        // 不应被调整图层的调色改变（否则水印颜色会随 LUT 变化）。
+        // 注意：这里处理的是**已合成好的整帧**，因此不需要知道图层数量，
+        // 也不会影响既有的逐层混合逻辑（无调整图层时本循环不执行）。
+        // 帧索引由时间戳换算（finalizeFrame 定义在 frameIndex 声明之前，
+        // 直接引用会编译失败）。时间戳是整数微秒，换算稳定且可复现。
+        const std::int64_t adjFrameIndex =
+            fps.value.isPositive()
+                ? static_cast<std::int64_t>(frame.timestamp.toDouble() *
+                                            fps.value.toDouble() + 0.5)
+                : 0;
+        for (const RenderTrack* layer : adjustmentLayers) {
+            if (!layer->adjustmentEffects.empty()) {
+                applyEffectStackToFrame(frame.rgba.data(), frame.width, frame.height,
+                                       layer->adjustmentEffects, adjFrameIndex,
+                                       RenderQuality::exportQuality(),
+                                       frame.timestamp.toDouble());
+            }
+            if (adjustmentLutLoaded && !layer->adjustmentLutPath.empty()) {
+                applyLutToRgba(frame.rgba.data(), frame.width, frame.height, adjustmentLut,
+                               layer->adjustmentLutStrength);
+            }
         }
         if (options.watermark.enabled) {
             applyWatermark(frame.rgba.data(), frame.width, frame.height, options.watermark,

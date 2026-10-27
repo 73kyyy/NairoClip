@@ -81,6 +81,12 @@ struct RenderTrack {
     std::vector<RenderClip> clips;
     /// 转场列表（视频轨有效；已按 start 升序）。
     std::vector<RenderTransition> transitions;
+    /// 调整图层特效（B2-6）：仅 type == Adjustment 且非空时生效。
+    /// 语义：把下方已合成的画面作为输入应用这些特效。
+    EffectStack adjustmentEffects;
+    /// 调整图层 LUT（B2-6；空 = 不应用）。
+    std::string adjustmentLutPath;
+    double adjustmentLutStrength = 1.0;
 };
 
 /// 完整导出计划。

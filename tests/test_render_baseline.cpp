@@ -6,6 +6,8 @@
 #include "nairoclip/core/media_io.h"
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -304,4 +306,200 @@ NC_TEST(RenderBaseline, FilterChangesOutputPixels) {
     NC_CHECK_EQ(plain.size(), std::size_t(30));
     NC_CHECK_EQ(plain.size(), filtered.size());
     NC_CHECK(nairoclip::test::diffDigests(plain, filtered) != std::string());
+}
+
+// =============================================================================
+// 调整图层（B2-6）
+// =============================================================================
+//
+// 验收要求（文档）：
+//   1. 单条调整图层 + 单个 LUT 生效，影响下方轨道；
+//   2. **无调整图层时，输出与改动前逐像素一致**；
+//   3. 可撤销（增删调整图层走命令）。
+//
+// 第 2 条是本组最重要的断言——它证明"新功能没有偷偷改变既有渲染"。
+
+namespace {
+
+/// 建一个「视频轨 + 调整图层」的工程。
+struct AdjustmentFixture {
+    Project project;
+    TimelineEditor editor{project};
+    SequenceId seqId;
+    TrackId v1;
+    TrackId adj;
+    AssetId assetId;
+    explicit AdjustmentFixture(bool withAdjustmentTrack) {
+        Sequence seq;
+        seq.id = SequenceId{project.ids.next()};
+        seq.width = 64;
+        seq.height = 64;
+        project.sequences.push_back(seq);
+        seqId = project.sequences.front().id;
+        MediaAsset a;
+        a.id = AssetId{project.ids.next()};
+        a.path = "/video/a.mp4";
+        a.type = MediaType::Video;
+        a.duration = Rational::make(60);
+        project.assets.push_back(a);
+        assetId = a.id;
+        NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &v1).isOk());
+        if (withAdjustmentTrack) {
+            NC_CHECK(editor.addTrack(seqId, TrackType::Adjustment, "调整", &adj).isOk());
+        }
+        Clip c;
+        c.asset = assetId;
+        c.start = Rational::make(0);
+        c.duration = Rational::make(1);
+        NC_CHECK(editor.insertClip(seqId, v1, c).isOk());
+    }
+};
+
+}  // namespace
+
+NC_TEST(AdjustmentLayer, AllFrameDigestsMatchPreFeatureBaseline) {
+    // B2-6 的真正验收断言：**全部 30 帧**的指纹都必须等于「引入调整图层
+    // 功能之前」记录的基线值。
+    //
+    // 期望值来自 git 提交 303cec4（像素基线设施那次提交）的实测输出，
+    // 逐帧记录后用程序自动生成到下面这张表。若任何一帧不符，
+    // 说明调整图层功能改变了既有渲染路径——那是不允许的。
+    static const std::uint64_t kBaseline[30] = {
+        0xfe495ad5c6bd0003ull, 0xe6a1016309d39183ull, 0x469417d76128fc83ull,
+        0xce98670c9de67f03ull, 0xb9201f7d87424203ull, 0x54663c41531ab483ull,
+        0xe45a7bbd72eeb183ull, 0x53696876744e4003ull, 0x9a020bad65018d03ull,
+        0xafa2360f8ee6e583ull, 0x899a3079bdb83f83ull, 0xd3df33059a3e8f03ull,
+        0xeca993a0ce8f8403ull, 0x92e224a8b55a5a83ull, 0x57511568180cd883ull,
+        0x807edd6c9ef51303ull, 0xd21b51b80885d103ull, 0x51e534b6942b3d83ull,
+        0xef105fb605569983ull, 0x809b470eb31d1b03ull, 0x2c6838e2c3f05d03ull,
+        0x7440de1b7d87a683ull, 0xd1817c5f84d11e83ull, 0xe15c23b9c63d1103ull,
+        0x2ca34cf5c3cbdc03ull, 0xa9d2c9e2b7f66983ull, 0x45e3b3b96ebba783ull,
+        0x8f00cb37bb474f03ull, 0x4280c9a0078e5c03ull, 0x1d7283881d404b83ull,
+    };
+    AdjustmentFixture f(false);
+    const std::vector<FrameDigest> frames = renderDigests(f.project, 64, 64);
+    NC_CHECK_EQ(frames.size(), std::size_t(30));
+    for (std::size_t i = 0; i < frames.size() && i < 30; ++i) {
+        if (frames[i].hash != kBaseline[i]) {
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          "第 %zu 帧与 B2-6 之前不一致: %016llx != %016llx", i,
+                          static_cast<unsigned long long>(frames[i].hash),
+                          static_cast<unsigned long long>(kBaseline[i]));
+            ::nairoclip::test::reportFailure(__FILE__, __LINE__, buf);
+            break;  // 只报第一处，避免刷屏
+        }
+    }
+}
+
+NC_TEST(AdjustmentLayer, NoAdjustmentKeepsOutputIdentical) {
+    // 注意这条断言**能证明什么、不能证明什么**：
+    //   ✅ 能证明：两次渲染完全确定（无隐藏随机/顺序依赖）；
+    //   ❌ 不能证明：输出与「引入本功能之前」一致。
+    //      因为两次运行用的是同一份代码——若代码整体偏移了一个像素，
+    //      两次仍然彼此一致。这个洞是变异测试发现的：向渲染尾部注入
+    //      「无条件改一个像素」后，本断言依然通过。
+    //
+    // 真正守住「未改变既有输出」的是 SpecificKnownRegionIsStable
+    // （钉死具体像素值）。两条一起看才有意义。
+    AdjustmentFixture f(false);
+    const std::vector<FrameDigest> frames = renderDigests(f.project, 64, 64);
+    NC_CHECK_EQ(frames.size(), std::size_t(30));
+    AdjustmentFixture g(false);
+    const std::vector<FrameDigest> again = renderDigests(g.project, 64, 64);
+    NC_CHECK(nairoclip::test::diffDigests(frames, again).empty());
+}
+
+NC_TEST(AdjustmentLayer, EmptyAdjustmentTrackChangesNothing) {
+    // 有调整图层但没设任何效果 → 必须零影响。
+    // 这条防止「把空调整图层当成不透明黑层盖上」这类错误实现。
+    AdjustmentFixture with(false);
+    const std::vector<FrameDigest> plain = renderDigests(with.project, 64, 64);
+
+    AdjustmentFixture withAdj(true);
+    const std::vector<FrameDigest> withEmpty = renderDigests(withAdj.project, 64, 64);
+
+    NC_CHECK_EQ(plain.size(), withEmpty.size());
+    const std::string diff = nairoclip::test::diffDigests(plain, withEmpty);
+    if (!diff.empty()) {
+        ::nairoclip::test::reportFailure(__FILE__, __LINE__,
+                                         "空调整图层改变了输出: " + diff);
+    }
+}
+
+NC_TEST(AdjustmentLayer, EffectsApplyToLowerTracks) {
+    // 给调整图层加「黑白」特效 → 输出必须变化
+    AdjustmentFixture f(true);
+    const std::vector<FrameDigest> before = renderDigests(f.project, 64, 64);
+
+    Sequence* seq = f.project.findSequence(f.seqId);
+    Track* track = seq->findTrack(f.adj);
+    NC_CHECK(track != nullptr);
+    Effect e;
+    e.id = EffectId{f.project.ids.next()};
+    e.type = EffectType::Grayscale;
+    e.value = 1.0;
+    NC_CHECK(track->adjustmentEffects.add(e).isOk());
+
+    const std::vector<FrameDigest> after = renderDigests(f.project, 64, 64);
+    NC_CHECK_EQ(before.size(), after.size());
+    NC_CHECK(!nairoclip::test::diffDigests(before, after).empty());
+}
+
+NC_TEST(AdjustmentLayer, GrayscaleActuallyRemovesColor) {
+    // 不只断言"变了"，还要断言"变成了什么样"：
+    // 灰度 1.0 后 R=G=B（在同一帧上逐像素检查）。
+    AdjustmentFixture f(true);
+    Sequence* seq = f.project.findSequence(f.seqId);
+    Track* track = seq->findTrack(f.adj);
+    Effect e;
+    e.id = EffectId{f.project.ids.next()};
+    e.type = EffectType::Grayscale;
+    e.value = 1.0;
+    NC_CHECK(track->adjustmentEffects.add(e).isOk());
+
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    PatternFactory factory(64, 64);
+    bool checked = false;
+    executeExport(
+        plan, factory,
+        [&](const OutputVideoFrame& fr) {
+            if (checked || fr.rgba.empty()) {
+                return;
+            }
+            // 抽样检查若干像素：灰度后各通道应相等（±1 容差，防舍入）
+            for (int idx : {0, 40, 400, 4000}) {
+                const int r = fr.rgba[static_cast<std::size_t>(idx) * 4 + 0];
+                const int g = fr.rgba[static_cast<std::size_t>(idx) * 4 + 1];
+                const int b = fr.rgba[static_cast<std::size_t>(idx) * 4 + 2];
+                if (std::abs(r - g) > 1 || std::abs(g - b) > 1) {
+                    ::nairoclip::test::reportFailure(
+                        __FILE__, __LINE__,
+                        "灰度后像素仍有色彩: rgb=" + std::to_string(r) + "," +
+                            std::to_string(g) + "," + std::to_string(b));
+                }
+            }
+            checked = true;
+        },
+        [](const OutputAudioBlock&) {}, nullptr, ExportExecutorOptions{}, &f.project);
+    NC_CHECK(checked);
+}
+
+NC_TEST(AdjustmentLayer, HiddenAdjustmentIsSkipped) {
+    // 隐藏的调整图层不应生效（与视频轨隐藏语义一致）
+    AdjustmentFixture f(true);
+    Sequence* seq = f.project.findSequence(f.seqId);
+    Track* track = seq->findTrack(f.adj);
+    Effect e;
+    e.id = EffectId{f.project.ids.next()};
+    e.type = EffectType::Grayscale;
+    e.value = 1.0;
+    NC_CHECK(track->adjustmentEffects.add(e).isOk());
+    track->hidden = true;
+
+    AdjustmentFixture plain(false);
+    const std::vector<FrameDigest> withHidden = renderDigests(f.project, 64, 64);
+    const std::vector<FrameDigest> baseline = renderDigests(plain.project, 64, 64);
+    // 隐藏后应与无调整图层时一致
+    NC_CHECK(nairoclip::test::diffDigests(baseline, withHidden).empty());
 }

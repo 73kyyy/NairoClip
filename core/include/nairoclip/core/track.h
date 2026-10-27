@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/clip.h"
+#include "nairoclip/core/effects.h"
 #include "nairoclip/core/transition_types.h"
 
 #include <string>
@@ -87,6 +88,24 @@ struct Track {
     std::vector<Transition> transitions;
     /// 音频自动闪避设置（仅音频轨有效；默认关闭）。
     AutoDuckSettings autoDuck;
+    /// 调整图层的特效栈（B2-6）。
+    ///
+    /// 语义：仅 `type == TrackType::Adjustment` 时有意义。合成时把**下方已
+    /// 合成好的画面**当作输入应用这些特效，再继续向上叠加。
+    /// 空 = 无效果（此时调整图层完全不影响输出，可安全存在）。
+    ///
+    /// 为什么不复用 `Clip::effects`：调整图层没有片段——它作用于「下方所有
+    /// 轨道」，而不是某一帧素材。挂在轨道上才符合它的作用域。
+    EffectStack adjustmentEffects;
+    /// 调整图层的 LUT 路径与强度（B2-6；空 = 不应用）。
+    std::string adjustmentLutPath;
+    double adjustmentLutStrength = 1.0;
+
+    /// 是否为「有实际效果的」调整图层。
+    bool hasAdjustment() const {
+        return type == TrackType::Adjustment &&
+               (!adjustmentEffects.empty() || !adjustmentLutPath.empty());
+    }
     /// 轨道在时间轴上的显示高度（像素，B2-10）。
     ///
     /// 为什么放核心层：用户调好的布局要跨会话保留，必须跟随工程序列化。

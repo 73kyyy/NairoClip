@@ -514,7 +514,36 @@ Result moveTrackTo(SequenceId seq, TrackId track, int newIndex);
 
 ---
 
-### B2-6 ⬜ 调整图层（Adjustment Layer）—— 基线已就绪，可以开工
+### B2-6 ✅ 调整图层（Adjustment Layer）
+
+**已实施（2026-10-27）**：
+
+- 数据模型：`Track.adjustmentEffects`（`EffectStack`）+ `adjustmentLutPath` +
+  `adjustmentLutStrength`；`Row` 级 `hasAdjustment()` 判定；
+- 效果挂在**轨道**而非片段上——调整图层没有片段，它作用于「下方所有轨道」；
+- 计划编译：`RenderTrack` 携带同名字段；
+- 渲染集成点：`finalizeFrame()` 内、**水印之前**依次应用。
+  - 放水印之前：水印属于最终叠加物，不该被调整图层的调色改变；
+  - 放 `finalizeFrame` 内：所有输出帧路径天然统一，不会漏；
+- 只收集「有实际效果」的调整图层（effects 或 LUT 非空）——空轨道不进入循环。
+
+**验收证据（关键）**：
+
+| 断言 | 证明了什么 |
+|---|---|
+| `AllFrameDigestsMatchPreFeatureBaseline` | 30 帧指纹逐个等于**引入本功能之前**的实测值 |
+| `EmptyAdjustmentTrackChangesNothing` | 空调整图层零影响（防止"当成黑层盖上"这类错误实现） |
+| `EffectsApplyToLowerTracks` | 效果确实作用到下方轨道 |
+| `GrayscaleActuallyRemovesColor` | 不只是"变了"，而是"变成 R=G=B" |
+| `HiddenAdjustmentIsSkipped` | 隐藏的调整图层不生效 |
+
+开发中实测：引入本功能后，30 帧与 `303cec4` 记录的基线**逐帧完全一致**。
+
+**能力边界**（如实记录）：
+- 生效区间 = **整片**（没有"调整片段"的概念，暂不支持只在某段时间生效）；
+- 多调整图层的 LUT 只应用第一个（效果栈则全部依次应用）。
+
+**原始评估与基线设施**：
 
 > **2026-10-27 更新**：像素基线**已建成并验证有效**（见下方「基线设施」）。
 > 前置条件已满足，下一步可以直接实施本项。
