@@ -12,6 +12,18 @@ namespace core {
 
 /// 时间轴编辑器：对外统一 API 门面。
 /// 所有编辑操作自动进入撤销栈；查询操作不改变状态。
+///
+/// @warning **非线程安全**。
+///   · 同一实例不得被多线程并发调用（内部 undoStack_ 与 project_ 无锁保护）；
+///   · 典型正确用法：仅 UI 线程调用；
+///   · 若需在后台线程导出，请使用 `nc_export_run`（该入口内部会做 Project
+///     快照，导出全程只读快照，不受 UI 编辑影响）；
+///   · 若需后台翻译/推理，请使用独立的实例，不要跨线程共享。
+///
+/// 设计取舍：不为 59 个方法逐个加锁 —— 内部大量方法互相调用（如
+/// moveClip 会调用 validateClipPlacement），逐方法加锁需要递归锁或
+/// 内部无锁版本，改动面大且易引入死锁。相比之下，在**边界**（导出入口）
+/// 做快照的收益/风险比更高。
 class TimelineEditor {
 public:
     explicit TimelineEditor(Project& project);

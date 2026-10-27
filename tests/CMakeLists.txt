@@ -4,6 +4,7 @@ add_executable(nairoclip_tests
     test_time.cpp
     test_model.cpp
     test_model_invariants.cpp
+    test_thread_safety.cpp
     test_editor.cpp
     test_keyframe.cpp
     test_transition.cpp

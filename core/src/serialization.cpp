@@ -1149,6 +1149,41 @@ std::string saveProjectToNclip(const Project& project) {
     return toJsonString(root, true);
 }
 
+// =============================================================================
+// 版本迁移（B0-5）
+// =============================================================================
+//
+// 问题：原实现只拒绝**高版本**文件，低版本直接按当前结构读取 ——
+// 能否成功取决于"新字段是否恰好有默认值"，属于碰运气。
+//
+// 方案：显式迁移。每个版本升级时，在此处补一条 `migrateVNtoVN1`，
+// 把旧 JSON **在解析前**补齐到当前结构。这样：
+//   · 读取代码永远只面向当前版本，无需到处 if (version >= N)；
+//   · 迁移逻辑集中可测；
+//   · 新增字段时只需加一条迁移 + 默认值，不会遗漏。
+//
+// 约定：迁移函数只补字段，不改已有值；不得删除字段（旧客户端可能还有用）。
+
+namespace {
+
+/// v1 → v2 预留（当前无 v2）。
+/// 说明：v1 即初始版本，无需迁移；此函数作为后续升级的挂载点。
+/// 新增字段时的写法示例：
+///   if (!node.has("newField")) node.set("newField", JsonValue::integer(0));
+void migrateV1toV2(JsonValue& root) {
+    (void)root;  // 目前无 v2 字段
+}
+
+/// 按版本链依次迁移，直到当前版本。
+void migrateToCurrent(int fromVersion, JsonValue& root) {
+    if (fromVersion < 2) {
+        migrateV1toV2(root);
+    }
+    // 后续版本在此追加：if (fromVersion < 3) migrateV2toV3(root);
+}
+
+}  // namespace
+
 NclipLoadResult loadProjectFromNclip(const std::string& text, Project& out) {
     NclipLoadResult result;
     JsonValue root;
@@ -1172,8 +1207,16 @@ NclipLoadResult loadProjectFromNclip(const std::string& text, Project& out) {
         return result;
     }
     if (version > kNclipFormatVersion) {
-        result.result = Result::fail(ErrorCode::Unsupported, "文件版本高于当前程序支持的版本");
+        result.result = Result::fail(ErrorCode::Unsupported,
+                                     "文件版本高于当前程序支持的版本（文件 v" +
+                                         std::to_string(version) + "，当前支持 v" +
+                                         std::to_string(kNclipFormatVersion) +
+                                         "）。请升级应用后再打开。");
         return result;
+    }
+    // 低版本：显式迁移到当前结构，而不是依赖字段默认值碰运气。
+    if (version < kNclipFormatVersion) {
+        migrateToCurrent(version, root);
     }
     Project loaded;
     loaded.name = root.get("project").get("name").asString();

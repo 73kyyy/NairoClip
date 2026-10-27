@@ -53,6 +53,11 @@ struct TranslateStats {
 };
 
 /// 中英翻译器（会话复用；单实例单线程）。
+/// @warning **非线程安全**。
+///   内部 lastDegenerate_ 为共享可变状态，且 ONNX 会话的包装层无锁保护。
+///   多线程翻译请各自持有独立 Translator 实例（每个实例加载一份模型，
+///   内存代价约为模型大小；如需共享权重，需额外实现会话池，当前未做）。
+///   批量翻译 `translateLines()` 在单线程内顺序执行，本身是安全的。
 class Translator {
 public:
     Translator();

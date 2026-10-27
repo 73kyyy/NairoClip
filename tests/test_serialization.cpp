@@ -408,3 +408,79 @@ NC_TEST(Serialization, RoundTripsAnimationAndSpeedCurve) {
     NC_CHECK(lc.effects.effects()[0].type == EffectType::Brightness);
     NC_CHECK(std::abs(lc.effects.effects()[0].value - 0.3) < 1e-9);
 }
+
+// =============================================================================
+// 版本迁移（B0-5）
+// =============================================================================
+//
+// 背景：原实现只拒绝高版本，低版本按当前结构直接读 —— 能否成功取决于
+// "新字段是否恰好有默认值"。一旦某次升级忘了给默认值，用户的老工程就打不开，
+// 而且是发版后才暴露。
+//
+// 本组用例验证：缺失字段的旧文件能被加载，且缺失项取合理默认值。
+
+NC_TEST(Serialization, MinimalV1FileLoadsWithDefaults) {
+    // 只保留必需字段，其余全部缺失 —— 模拟极早期版本的输出
+    const std::string minimal =
+        "{\"format\":\"nclip\",\"version\":1,"
+        "\"project\":{\"name\":\"老工程\"},"
+        "\"assets\":[],"
+        "\"sequences\":[]}";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(minimal, out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK_EQ(r.fileVersion, 1);
+    NC_CHECK(out.name == "老工程");
+    NC_CHECK(out.assets.empty());
+    NC_CHECK(out.sequences.empty());
+}
+
+NC_TEST(Serialization, V1FileWithoutProxiesLoads) {
+    // proxies 是后加的字段（仅在有记录时写入）——缺失必须能正常加载
+    const std::string text =
+        "{\"format\":\"nclip\",\"version\":1,"
+        "\"project\":{\"name\":\"无代理工程\"},"
+        "\"assets\":[],"
+        "\"sequences\":[]}";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK(out.proxies.records.empty());
+}
+
+NC_TEST(Serialization, V1MissingProjectNameGetsDefault) {
+    // project.name 缺失时应给「未命名项目」，而不是空串
+    const std::string text =
+        "{\"format\":\"nclip\",\"version\":1,"
+        "\"project\":{},"
+        "\"assets\":[],"
+        "\"sequences\":[]}";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(r.result.isOk());
+    NC_CHECK(!out.name.empty());
+}
+
+NC_TEST(Serialization, FutureVersionMessageIsActionable) {
+    // 高版本拒绝时，提示必须告诉用户"升级应用"，而不是只说"不支持"
+    Project out;
+    const NclipLoadResult r =
+        loadProjectFromNclip("{\"format\":\"nclip\",\"version\":999}", out);
+    NC_CHECK(!r.result.isOk());
+    NC_CHECK(r.result.code == ErrorCode::Unsupported);
+    // 消息中应包含版本号信息，便于用户与客服判断
+    NC_CHECK(r.result.message.find("999") != std::string::npos);
+}
+
+NC_TEST(Serialization, ZeroAndNegativeVersionRejected) {
+    Project out;
+    const NclipLoadResult zero =
+        loadProjectFromNclip("{\"format\":\"nclip\",\"version\":0}", out);
+    NC_CHECK(!zero.result.isOk());
+    NC_CHECK(zero.result.code == ErrorCode::InvalidArgument);
+
+    Project out2;
+    const NclipLoadResult neg =
+        loadProjectFromNclip("{\"format\":\"nclip\",\"version\":-1}", out2);
+    NC_CHECK(!neg.result.isOk());
+}

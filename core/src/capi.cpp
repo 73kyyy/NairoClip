@@ -2792,13 +2792,28 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
     // 使用系统时钟做到期判定；tier 由平台层经服务端心跳维护（文档第 8 部分）。
     config.policy = makeExportPolicy(editor->entitlement,
                                      static_cast<std::int64_t>(std::time(nullptr)));
+    // ---------------------------------------------------------------------
+    // 线程安全：导出使用 Project **快照**，不直接读 editor->project。
+    // ---------------------------------------------------------------------
+    // 背景：runExport 会对 project 做只读访问（subtitlesAt + AudioMixer::prepare），
+    // 但它在调用线程中持续整个导出过程（可能数分钟）。期间若用户在 UI 线程
+    // 继续编辑（移动/删除片段），会与导出线程的遍历并发 —— 迭代器失效、
+    // 读到已释放内存，表现为随机崩溃。
+    //
+    // 方案：在**调用线程**（此处）做一次深拷贝，导出全程只读快照。
+    // 语义清晰：用户点下「导出」那一刻的画面状态即最终成片，
+    // 之后的编辑不影响本次导出（与专业软件一致）。
+    //
+    // 代价：一次 Project 深拷贝（含 assets/sequences/tracks/clips 的 vector），
+    // 典型工程 < 1MB，耗时远小于导出本身。
+    const Project exportSnapshot = editor->project;
     const ExportRunResult result = runExport(
         plan, readerFactory, writerFactory, config,
         [progress_cb](double p) {
             if (progress_cb == nullptr) return true;
             return progress_cb(p) != 0;
         },
-        &editor->project);
+        &exportSnapshot);
     if (!result.result.isOk()) {
         if (out_error != nullptr) *out_error = dupString(result.result.message);
         return -1;
