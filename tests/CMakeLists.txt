@@ -91,6 +91,7 @@ add_executable(nairoclip_tests
     test_shake_effect.cpp
     test_lut.cpp
     test_track_groups.cpp
+    test_render_baseline.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
@@ -190,6 +191,18 @@ if(MSVC)
 else()
     target_compile_options(nairoclip_track_groups_tests PRIVATE -Wall -Wextra)
 endif()
+add_executable(nairoclip_render_baseline_tests
+    test_main.cpp
+    test_render_baseline.cpp
+)
+target_link_libraries(nairoclip_render_baseline_tests PRIVATE nairoclip_core)
+target_include_directories(nairoclip_render_baseline_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(MSVC)
+    target_compile_options(nairoclip_render_baseline_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_render_baseline_tests PRIVATE -Wall -Wextra)
+endif()
+
 
 
 
