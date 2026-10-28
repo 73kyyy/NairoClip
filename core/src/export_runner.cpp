@@ -1,7 +1,50 @@
 #include "nairoclip/core/export_runner.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 namespace nairoclip {
 namespace core {
+
+namespace {
+
+/// 导出流程内的堆检查钩子（仅诊断用，默认关闭）。
+///
+/// 为什么放在这里：已确证 nc_export_run **返回时**堆已经坏了，
+/// 但外层探针无法区分是 open / executeExport / finish 哪一步。
+/// 由环境变量 NC_EXPORT_HEAP_PROBE=1 打开；打开后每个阶段之间
+/// malloc/free 一批覆盖各尺寸档位的块，迫使 glibc 复核 chunk header。
+///
+/// 生产路径下这个函数只做一次 getenv（静态缓存），开销可忽略。
+bool probeEnabled() {
+    static const bool enabled = [] {
+        const char* v = std::getenv("NC_EXPORT_HEAP_PROBE");
+        return v != nullptr && v[0] != '0';
+    }();
+    return enabled;
+}
+
+void exportHeapCheck(const char* where) {
+    if (!probeEnabled()) return;
+    constexpr int kN = 122;
+    void* blocks[kN];
+    std::size_t sizes[kN];
+    int n = 0;
+    for (int i = 0; i < 96; ++i, ++n) sizes[n] = 16 + static_cast<std::size_t>(i) * 21;
+    for (int i = 0; i < 24; ++i, ++n) sizes[n] = 2048 + static_cast<std::size_t>(i) * 2600;
+    sizes[n++] = 1048;
+    sizes[n++] = 2048;
+    for (int i = 0; i < n; ++i) {
+        blocks[i] = std::malloc(sizes[i]);
+        if (blocks[i] != nullptr) std::memset(blocks[i], 0xCD, sizes[i]);
+    }
+    for (int i = 0; i < n; ++i) std::free(blocks[i]);
+    std::printf("[诊断] runExport: %s 后堆 OK\n", where);
+    std::fflush(stdout);
+}
+
+}  // namespace
 
 ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFactory,
                           MediaWriterFactory& writerFactory, const ExportRunConfig& config,
@@ -50,12 +93,14 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
     if (writerConfig.frameRate.toDouble() <= 0.0) {
         writerConfig.frameRate = renderPlan->frameRate;
     }
+    exportHeapCheck("writer 创建后/未 open");
     const Result openResult = writer->open(config.outputPath, writerConfig);
     if (!openResult.isOk()) {
         result.result = openResult;
         return result;
     }
 
+    exportHeapCheck("writer.open 之后");
     // 2) 驱动导出执行器
     bool sinkFailed = false;
     Result sinkError;
@@ -79,6 +124,7 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
         },
         progress, executorOptions, project);
 
+    exportHeapCheck("executeExport 之后");
     // 2a) 门控说明（供 UI 提示；如「免费版已降级 1080p 并附加水印」）
     if (resolutionClamped) {
         result.stats.warnings.push_back("会员门控：导出分辨率已降级为 " +
@@ -100,7 +146,9 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
         result.result = sinkError;
         return result;
     }
+    exportHeapCheck("finish 之前");
     const Result finishResult = writer->finish();
+    exportHeapCheck("finish 之后");
     if (!finishResult.isOk()) {
         writer->abort();
         result.result = finishResult;
@@ -108,6 +156,7 @@ ExportRunResult runExport(const ExportPlan& plan, MediaReaderFactory& readerFact
     }
     result.fileWritten = true;
     result.result = Result::ok();
+    exportHeapCheck("runExport 返回前");
     return result;
 }
 
