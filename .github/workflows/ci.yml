@@ -407,3 +407,77 @@ jobs:
           STK=$(grep -A12 -m1 -E 'Invalid write of size' /tmp/vg.txt | tr '\n' '~' | cut -c1-1400)
           echo "::error title=VG_STACK::${STK:-none}"
           exit 0
+
+  # ---------------------------------------------------------------
+  # 未初始化变量 / UB 诊断
+  #
+  # 为什么：ONLY_267 崩，而 ONLY_267_EXPORT / ONLY_267_DETECT（执行路径
+  # 与它完全相同，只是多了一次 getenv）都过。同样的代码、同样的输入，
+  # 只因栈/堆布局微变就换结果 —— 典型的未定义行为（读未初始化内存、
+  # 或依赖布局的越界）。ASAN/valgrind 都看不到，因为它们会重排布局。
+  #
+  # -ftrivial-auto-var-init=pattern 把未初始化的自动变量填成
+  # 0xAA..AA（而不是碰巧为 0），读完立刻进入未定义路径，行为稳定可现。
+  # -fsanitize=undefined 抓整数溢出/空指针/对齐等 UB。
+  # ---------------------------------------------------------------
+  ub-diagnose:
+    name: UB 诊断
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 FFmpeg 开发库
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
+            libswscale-dev libswresample-dev pkg-config
+
+      - name: 缓存 ONNX Runtime
+        id: cache-ort
+        uses: actions/cache@v4
+        with:
+          path: ort
+          key: ort-linux-x64-1.22.0
+
+      - name: 下载 ONNX Runtime
+        if: steps.cache-ort.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          mkdir -p ort
+          tar -xzf ort.tgz -C ort --strip-components=1
+
+      - name: Configure (Release + UBSan + auto-var-init)
+        run: |
+          cmake -S . -B build_ub \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNAIROCLIP_ORT_ROOT="$GITHUB_WORKSPACE/ort" \
+            -DCMAKE_CXX_FLAGS="-g -fsanitize=undefined -fno-sanitize-recover=undefined -ftrivial-auto-var-init=pattern" \
+            -DCMAKE_C_FLAGS="-g -fsanitize=undefined -fno-sanitize-recover=undefined -ftrivial-auto-var-init=pattern" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined"
+
+      - name: Build
+        run: cmake --build build_ub -j$(nproc)
+
+      - name: 只跑崩溃用例（UB 检测）
+        run: |
+          set +e
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/ort/lib:$LD_LIBRARY_PATH"
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          ./build_ub/tests/nairoclip_tests > /tmp/ub_out.txt 2>&1
+          rc=$?
+          echo "exit=$rc"
+          echo "---------------- UBSan 报告 ----------------"
+          grep -n -B2 -A12 'runtime error' /tmp/ub_out.txt | head -60
+          echo "---------------- 崩溃点 ----------------"
+          grep -E '^\[ RUN  \]' /tmp/ub_out.txt | tail -2
+          FIRST=$(grep -m1 'runtime error' /tmp/ub_out.txt | tr '~' ' ' | cut -c1-400)
+          echo "::error title=UB_RC::exit=$rc"
+          echo "::error title=UB_FIRST::${FIRST:-none}"
+          echo "::error title=UB_LAST_RUN::$(grep -E '^\[ RUN  \]' /tmp/ub_out.txt | tail -1)"
+          SUM=$(grep -E '^=====' /tmp/ub_out.txt | tail -1)
+          echo "::error title=UB_SUMMARY::${SUM:-none}"
+          exit 0
