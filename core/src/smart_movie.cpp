@@ -609,8 +609,35 @@ RegenerationResult clearForRegeneration(TimelineEditor& editor, Project& project
 
     editor.beginTransaction(transactionName);
     // 1) 清空片段（逐轨道；锁定轨道跳过）
-    for (std::size_t t = 0; t < seq->tracks.size(); ++t) {
-        const TrackId trackId = seq->tracks[t].id;
+    //
+    // 注意：**不能**在循环条件里用 `seq->tracks.size()`。
+    // `editor.removeClip(...)` 会走 commit() → UndoStack 保存/恢复
+    // Project 快照，`seq`（以及它内部的 tracks vector）可能被重建，
+    // 之后每次读 `seq->tracks` 都是悬垂内存。
+    //
+    // 症状：CI（x64 glibc）上表现为 `malloc(): invalid size (unsorted)`
+    // 直接 Abort，位置在 Capi.RegenerationImpactAndClear；本地 aarch64
+    // 恰好没崩，所以只在 CI 暴露。
+    //
+    // 处置：先把 TrackId 列表拷出来，之后每轮都用 findTrack 重新定位。
+    std::vector<TrackId> trackIds;
+    {
+        const Sequence* current = project.findSequence(sequenceId);
+        if (current == nullptr) {
+            editor.endTransaction();
+            result.result = Result::fail(ErrorCode::NotFound, "序列不存在");
+            return result;
+        }
+        trackIds.reserve(current->tracks.size());
+        for (const auto& track : current->tracks) {
+            trackIds.push_back(track.id);
+        }
+    }
+    for (const TrackId trackId : trackIds) {
+        seq = project.findSequence(sequenceId);  // 每轮重新取，避免悬垂
+        if (seq == nullptr) {
+            break;
+        }
         const Track* track = seq->findTrack(trackId);
         if (track == nullptr || track->locked) {
             continue;
@@ -629,7 +656,9 @@ RegenerationResult clearForRegeneration(TimelineEditor& editor, Project& project
         }
         // 2) 清空转场（removeClip 不自动删转场；转场引用片段已消失）
         {
-            const Track* current = seq->findTrack(trackId);
+            // 同样必须先重新取 seq：上面 removeClip 已可能重建 project。
+            const Sequence* seqNow = project.findSequence(sequenceId);
+            const Track* current = (seqNow != nullptr) ? seqNow->findTrack(trackId) : nullptr;
             if (current != nullptr) {
                 std::vector<TransitionId> transitionIds;
                 transitionIds.reserve(current->transitions.size());
