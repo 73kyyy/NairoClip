@@ -100,11 +100,21 @@ inline int runAll() {
         const int v = std::atoi(s);
         if (v > 0) skip = v;
     }
+    // NC_TEST_MAX=N：只跑注册顺序前 N 个用例（配合 NC_TEST_SKIP 表示区间）。
+    // 用途：valgrind 下跑全量太慢，只跑到出问题的位置即可拿到报告。
+    int maxIndex = -1;
+    if (const char* s = std::getenv("NC_TEST_MAX")) {
+        const int v = std::atoi(s);
+        if (v > 0) maxIndex = v;
+    }
     int index = -1;
     for (auto& tc : registry()) {
         ++index;
         if (index < skip) {
             continue;
+        }
+        if (maxIndex >= 0 && index >= maxIndex) {
+            break;
         }
         if (shards > 1 && (index % shards) != shard) {
             continue;

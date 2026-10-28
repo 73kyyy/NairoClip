@@ -255,3 +255,61 @@ jobs:
             echo "::error title=ASAN_LOGFILE::$(head -6 /tmp/asan_log.* | tr '\n' '~' | cut -c1-1200)"
           fi
           exit 0
+
+  # ---------------------------------------------------------------
+  # valgrind memcheck 诊断 job
+  #
+  # 为什么还要这个：ASAN 用自己的分配器，看不到 glibc chunk header 被
+  # 写坏（实测 ASAN 全量 1444 用例 0 报错，原生构建仍崩）。堆探针也只能
+  # 在用例外结束后检查，抓不到「在用例内部写坏仍存活的块」。
+  # valgrind 逐条指令检查每一次写，能给出「Invalid write of size N」
+  # 和确切栈帧 —— 这是唯一能指出真凶行的手段。
+  # ---------------------------------------------------------------
+  valgrind-memcheck:
+    name: valgrind 诊断
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 FFmpeg 开发库 + valgrind
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
+            libswscale-dev libswresample-dev pkg-config valgrind
+
+      - name: Configure (Debug)
+        run: |
+          cmake -S . -B build_vg -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-g -O0" -DCMAKE_C_FLAGS="-g -O0"
+
+      - name: Build
+        run: cmake --build build_vg -j$(nproc)
+
+      - name: valgrind 跑到 Capi.WatermarkRealExportEndToEnd
+        run: |
+          set +e
+          # 限制阈值：只跑到崩溃点附近，valgrind 下全量太慢。
+          # 索引由上一次 CI 的 LAST_RUN 给出（死在该用例）。
+          valgrind --tool=memcheck --error-exitcode=99 \
+            --track-origins=yes --num-callers=25 \
+            --log-file=/tmp/vg.txt \
+            ./build_vg/tests/nairoclip_tests > /tmp/vg_stdout.txt 2>&1
+          rc=$?
+          echo "valgrind exit=$rc"
+          echo "---------------- Invalid write/read 摘要 ----------------"
+          grep -n -E 'Invalid (write|read) of size|Address 0x|at 0x' /tmp/vg.txt | head -40
+          echo "---------------- 首个错误块 ----------------"
+          awk '/Invalid (write|read)/{p=1} p{print; n++} n>45{exit}' /tmp/vg.txt
+          FIRST=$(grep -m1 -A1 -E 'Invalid (write|read) of size' /tmp/vg.txt | tr '\n' '~' | cut -c1-300)
+          echo "::error title=VG_RC::exit=$rc"
+          echo "::error title=VG_FIRST::${FIRST:-none}"
+          LAST=$(grep -E '^\[ RUN  \]' /tmp/vg_stdout.txt | tail -1)
+          echo "::error title=VG_LAST_RUN::${LAST:-none}"
+          # 堆对象被判越界的调用栈（前 3 个）
+          STK=$(grep -A12 -m1 -E 'Invalid write of size' /tmp/vg.txt | tr '\n' '~' | cut -c1-1400)
+          echo "::error title=VG_STACK::${STK:-none}"
+          exit 0
