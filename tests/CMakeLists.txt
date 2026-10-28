@@ -276,7 +276,9 @@ set_tests_properties(nairoclip_tests PROPERTIES
 
 
 
-# 诊断靶：只跑 Capi 系列，用于在 CI 上二分定位内存问题
+# 分主题小靶：单独编译某个子集，便于快速定位问题
+# （主套件 1444 用例约 9 分钟，分片也要 4.5 分钟；
+#  出问题时用这些靶能先排除「该主题自身」的可能性）
 add_executable(nairoclip_capi_only_tests
     test_main.cpp
     test_capi.cpp
@@ -287,3 +289,9 @@ if(MSVC)
 else()
     target_compile_options(nairoclip_capi_only_tests PRIVATE -Wall -Wextra)
 endif()
+
+add_executable(nairoclip_writer_tests
+    test_main.cpp
+    test_media_writer.cpp
+)
+target_link_libraries(nairoclip_writer_tests PRIVATE nairoclip_core)

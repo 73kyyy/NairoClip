@@ -57,9 +57,20 @@ inline int runAll() {
     }
     int failedCases = 0;
     const int total = static_cast<int>(registry().size());
+    // NC_TEST_SKIP=N：跳过注册顺序前 N 个用例。
+    // 用途：CI 上出现「跨用例堆污染」时二分定位污染源 ——
+    // 从中间开始跑仍然崩，说明污染源在后半段；不崩则在前半段。
+    int skip = 0;
+    if (const char* s = std::getenv("NC_TEST_SKIP")) {
+        const int v = std::atoi(s);
+        if (v > 0) skip = v;
+    }
     int index = -1;
     for (auto& tc : registry()) {
         ++index;
+        if (index < skip) {
+            continue;
+        }
         if (shards > 1 && (index % shards) != shard) {
             continue;
         }

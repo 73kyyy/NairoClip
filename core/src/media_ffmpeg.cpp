@@ -348,10 +348,14 @@ bool FFmpegMediaReader::readAudioBlock(AudioBlock& out) {
                 av_frame_unref(impl.frame);
                 return false;
             }
+            // 容量算式：输出率放分子、输入率放分母（N * out / in）。
+            // ⚠️ 原来写反成 N * in / out：升采样时会算小，
+            // swr_convert 直接写过 out.samples 的缓冲区。
+            // 与 media_ffmpeg_writer 里同类错误同源，一并修正。
             const int maxOutSamples = static_cast<int>(
                 av_rescale_rnd(swr_get_delay(impl.swr, impl.audioCodec->sample_rate) +
                                    impl.frame->nb_samples,
-                               impl.audioCodec->sample_rate, outSampleRate, AV_ROUND_UP));
+                               outSampleRate, impl.audioCodec->sample_rate, AV_ROUND_UP));
             out.sampleRate = outSampleRate;
             out.channels = outChannels;
             out.samples.resize(static_cast<std::size_t>(maxOutSamples) *
@@ -360,6 +364,11 @@ bool FFmpegMediaReader::readAudioBlock(AudioBlock& out) {
             const int converted = swr_convert(impl.swr, outData, maxOutSamples,
                                               const_cast<const std::uint8_t**>(impl.frame->data),
                                               impl.frame->nb_samples);
+            // 兜底：即使容量算式将来再出错，也不让越界结果往下传。
+            if (converted > maxOutSamples) {
+                av_frame_unref(impl.frame);
+                return false;
+            }
             if (converted < 0) {
                 av_frame_unref(impl.frame);
                 return false;

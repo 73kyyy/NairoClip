@@ -179,4 +179,85 @@ NC_TEST(MediaWriter, FFmpegAbortLeavesNoTrailer) {
     // 核心断言：abort 后 isOpen 为 false 且资源释放（无崩溃）
     NC_CHECK(true);
 }
+
+// 回归：AAC 编码器只支持 FLTP（平面），重采样输出必须给**每个声道**一个指针。
+//
+// 原实现写的是：
+//     std::uint8_t* outData[1] = { fifo.data() + fifoStart };
+//     swr_convert(swr, outData, maxOut, inData, inSamples);
+// 而 swr 的输出格式取的是 impl.audioCodec->sample_fmt = 第一个受支持格式
+// = AV_SAMPLE_FMT_FLTP（平面）。平面格式要求 outData[0..channels-1] 全部
+// 有效，代码只给了 outData[0] —— swr_convert 会把 outData[1] 当成第二个
+// 声道的写入地址，读到的是栈上的未初始化值。
+//
+// 实测（x64 CI）：ASAN 报
+//   SEGV on unknown address 0x000000000000, WRITE, libswresample
+// 随后堆被写坏，下一个 malloc 报 "malloc(): invalid size (unsorted)"，
+// 崩溃点落在 Capi.WatermarkRealExportEndToEnd —— 与真凶相隔上百个用例。
+//
+// 单声道（channels==1）时越界读不到，所以既有用例一直是绿的；
+// 这个用例必须用**双声道**才具备证伪能力。
+NC_TEST(MediaWriter, ResamplesPlanarPerChannelPointers) {
+    const char* outPath = "/tmp/media_gen/writer_upsample.mp4";
+    FFmpegMediaWriter writer;
+    WriterConfig config;
+    config.width = 64;
+    config.height = 64;
+    config.frameRate = fps30();
+    config.crf = 30;
+    config.includeAudio = true;
+    config.audioSampleRate = 48000;  // 输出 48k
+    config.audioChannels = 2;        // 双声道：平面格式必须给 2 个指针
+    config.audioBitrate = 128000;
+    if (!writer.open(outPath, config).isOk()) return;  // 无编码器环境：跳过
+
+    // 输入 44.1k —— 升采样，正是原实现少算容量的方向
+    const int inRate = 44100;
+    const int blockFrames = 1024;
+    for (int b = 0; b < 40; ++b) {
+        OutputAudioBlock audio;
+        audio.sampleRate = inRate;
+        audio.channels = 2;
+        audio.start = Rational::make(b * blockFrames, inRate);
+        audio.samples.resize(static_cast<std::size_t>(blockFrames) * 2);
+        for (int i = 0; i < blockFrames; ++i) {
+            const double t = static_cast<double>(b * blockFrames + i) / inRate;
+            // 两个声道用不同频率，便于检查平面拆/合是否串道
+            audio.samples[static_cast<std::size_t>(i) * 2] =
+                static_cast<float>(0.3 * std::sin(2.0 * 3.14159265358979 * 440.0 * t));
+            audio.samples[static_cast<std::size_t>(i) * 2 + 1] =
+                static_cast<float>(0.2 * std::sin(2.0 * 3.14159265358979 * 880.0 * t));
+        }
+        NC_CHECK(writer.writeAudioBlock(audio).isOk());
+    }
+    for (int f = 0; f < 40; ++f) {
+        OutputVideoFrame frame;
+        frame.timestamp = Rational::make(f, 30);
+        frame.width = 64;
+        frame.height = 64;
+        frame.rgba.assign(static_cast<std::size_t>(64) * 64 * 4, 128);
+        for (std::size_t i = 3; i < frame.rgba.size(); i += 4) frame.rgba[i] = 255;
+        NC_CHECK(writer.writeVideoFrame(frame).isOk());
+    }
+    NC_CHECK(writer.finish().isOk());
+
+    // 写出来的文件必须能被读回，且音频时长与输入相符（升采样没丢样本）
+    FFmpegMediaReader reader;
+    if (!reader.open(outPath).isOk()) return;
+    NC_CHECK_EQ(reader.probe().sampleRate, 48000);
+    NC_CHECK_EQ(reader.probe().channels, 2);
+    long long total = 0;
+    AudioBlock block;
+    int guard = 0;
+    while (reader.readAudioBlock(block) && guard++ < 10000) {
+        total += static_cast<long long>(block.samples.size()) /
+                 (block.channels > 0 ? block.channels : 1);
+    }
+    reader.close();
+    // 40 * 1024 样本 @44.1k ≈ 0.929s → @48k 约 44578 样本，留 5% 容差
+    const long long expected = static_cast<long long>(40.0 * blockFrames * 48000.0 / 44100.0);
+    NC_CHECK(total > expected * 95 / 100);
+    NC_CHECK(total < expected * 105 / 100);
+}
+
 #endif

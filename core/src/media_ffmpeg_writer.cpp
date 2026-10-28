@@ -410,13 +410,21 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
     // 惰性创建重采样器与音频帧
     if (impl.audioFrame == nullptr) {
         impl.audioFrame = av_frame_alloc();
+        if (impl.audioFrame == nullptr) {
+            return Result::fail(ErrorCode::Internal, "音频帧分配失败");
+        }
         impl.audioFrame->format = impl.audioCodec->sample_fmt;
         impl.audioFrame->ch_layout = impl.audioCodec->ch_layout;
         impl.audioFrame->sample_rate = impl.audioCodec->sample_rate;
         impl.audioFrame->nb_samples = impl.audioCodec->frame_size > 0
                                           ? impl.audioCodec->frame_size
                                           : 1024;
-        av_frame_get_buffer(impl.audioFrame, 0);
+        const int abufErr = av_frame_get_buffer(impl.audioFrame, 0);
+        if (abufErr < 0) {
+            av_frame_free(&impl.audioFrame);
+            return Result::fail(ErrorCode::Internal,
+                                "音频帧缓冲区分配失败: " + avErr(abufErr));
+        }
     }
     if (impl.swr == nullptr) {
         AVChannelLayout inLayout;
@@ -437,21 +445,70 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
         static_cast<int>(block.samples.size() / static_cast<std::size_t>(block.channels));
 
     // resample 整个输入块 → 追加到 FIFO（交错 float 保持交错，编码时再拆平面）
-    // 注：重采样率可能与输入不同，先计算输出容量
+    //
+    // 容量算式：av_rescale_rnd(a, b, c) == a * b / c。
+    // 要得到「N 个输入样本换算成输出采样率下的样本数」，分母必须是输入率、
+    // 分子必须是输出率：N * out / in。
+    //
+    // ⚠️ 这里原来是 N * in / out（分子分母写反）。降采样（48000→44100）时
+    // 算出来偏大，问题被掩盖；升采样（44100→48000）时偏小 ——
+    // 1024 样本的 AAC 帧只分配 941 个位置却要写 1115 个，每帧越界 174 个
+    // float（1392 字节），直接写坏 audioFifo 之后的堆元数据。
+    // 表现是后续某次 malloc 报 "malloc(): invalid size (unsorted)"，
+    // 或被 ASAN 抓到 libswresample 写空指针 —— 崩溃点与真凶相隔很远。
     const int maxOut = static_cast<int>(av_rescale_rnd(
-        swr_get_delay(impl.swr, block.sampleRate) + inSamples, block.sampleRate,
-        impl.audioCodec->sample_rate, AV_ROUND_UP));
+        swr_get_delay(impl.swr, block.sampleRate) + inSamples,
+        impl.audioCodec->sample_rate, block.sampleRate, AV_ROUND_UP));
+    // ⚠️ 输出格式是编码器的 sample_fmt，AAC 只有 FLTP（平面）。
+    // 平面格式要求 outData 提供 **每个声道一个指针**，而这里原来只给了
+    // outData[1]{...} 一个元素 —— swr_convert 会把 outData[1] 当成
+    // 第二个声道的写入地址，读到的是栈上的未初始化值。
+    // ASAN 报的正是这个：
+    //   SEGV on unknown address 0x000000000000, WRITE, libswresample
+    // 单声道时 channels==1，越界读不到（看似正常）；双声道必炸。
+    //
+    // 分配策略：按平面布局，每个声道 maxOut 个 float 连续存放，
+    // 转换后按 [ch0 frames][ch1 frames]... 摊平进 audioFifo，
+    // 再在下面按平面格式逐声道拷进编码帧。
     const std::size_t fifoStart = impl.audioFifo.size();
-    impl.audioFifo.resize(fifoStart +
-                          static_cast<std::size_t>(maxOut) * static_cast<std::size_t>(channels));
-    std::uint8_t* outData[1] = {
-        reinterpret_cast<std::uint8_t*>(impl.audioFifo.data() + fifoStart)};
-    const std::uint8_t* inData[1] = {
+    impl.audioFifo.resize(fifoStart + static_cast<std::size_t>(maxOut) *
+                                         static_cast<std::size_t>(channels));
+    std::uint8_t* outData[AV_NUM_DATA_POINTERS] = {nullptr};
+    if (av_sample_fmt_is_planar(impl.audioCodec->sample_fmt)) {
+        // 平面：每个声道必须有自己的指针，且不能为 nullptr
+        for (int ch = 0; ch < channels && ch < AV_NUM_DATA_POINTERS; ++ch) {
+            outData[ch] = reinterpret_cast<std::uint8_t*>(
+                impl.audioFifo.data() + fifoStart +
+                static_cast<std::size_t>(ch) * static_cast<std::size_t>(maxOut));
+        }
+    } else {
+        outData[0] = reinterpret_cast<std::uint8_t*>(impl.audioFifo.data() + fifoStart);
+    }
+    // 输入恒为 AV_SAMPLE_FMT_FLT（交错），一个指针即可
+    const std::uint8_t* inData[AV_NUM_DATA_POINTERS] = {
         reinterpret_cast<const std::uint8_t*>(block.samples.data())};
     const int converted = swr_convert(impl.swr, outData, maxOut, inData, inSamples);
     if (converted < 0) {
         impl.audioFifo.resize(fifoStart);
         return Result::fail(ErrorCode::Internal, "重采样失败");
+    }
+    if (converted > maxOut) {
+        // 容量算式若再出错，宁可报错也不让越界数据继续往下走
+        impl.audioFifo.resize(fifoStart);
+        return Result::fail(ErrorCode::Internal, "重采样输出超出预期容量");
+    }
+    // 按实际产出截断。平面布局下每个声道 converted 个 float，
+    // 声道之间留着 maxOut-converted 的空洞 —— 必须压紧，
+    // 否则下面按 [ch0][ch1] 顺序取帧会读到未初始化区间。
+    if (av_sample_fmt_is_planar(impl.audioCodec->sample_fmt) && channels > 1 &&
+        converted < maxOut) {
+        for (int ch = 1; ch < channels; ++ch) {
+            std::memmove(impl.audioFifo.data() + fifoStart +
+                             static_cast<std::size_t>(ch) * static_cast<std::size_t>(converted),
+                         impl.audioFifo.data() + fifoStart +
+                             static_cast<std::size_t>(ch) * static_cast<std::size_t>(maxOut),
+                         static_cast<std::size_t>(converted) * sizeof(float));
+        }
     }
     impl.audioFifo.resize(fifoStart +
                           static_cast<std::size_t>(converted) * static_cast<std::size_t>(channels));
@@ -460,21 +517,26 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
     std::size_t consumedFrames = 0;
     const std::size_t available = impl.audioFifo.size() / static_cast<std::size_t>(channels);
     while (available - consumedFrames >= static_cast<std::size_t>(frameSize)) {
-        av_frame_make_writable(impl.audioFrame);
-        const float* src = impl.audioFifo.data() +
-                           consumedFrames * static_cast<std::size_t>(channels);
-        // 交错 float → 编码器格式（通常 planar）
-        if (impl.audioCodec->sample_fmt == AV_SAMPLE_FMT_FLTP) {
+        const int awErr = av_frame_make_writable(impl.audioFrame);
+        if (awErr < 0) {
+            return Result::fail(ErrorCode::Internal,
+                                "音频帧不可写: " + avErr(awErr));
+        }
+        // FIFO 布局与编码器格式一致：
+        //   平面（FLTP）：[ch0 全部帧][ch1 全部帧]...
+        //   交错（FLT） ：[f0ch0 f0ch1 f1ch0 f1ch1 ...]
+        // 取第 consumedFrames 起的 frameSize 帧。
+        if (av_sample_fmt_is_planar(impl.audioCodec->sample_fmt)) {
             for (int ch = 0; ch < channels; ++ch) {
+                const float* srcCh = impl.audioFifo.data() +
+                                     static_cast<std::size_t>(ch) * available +
+                                     consumedFrames;
                 float* dst = reinterpret_cast<float*>(impl.audioFrame->data[ch]);
-                for (int i = 0; i < frameSize; ++i) {
-                    dst[i] = src[static_cast<std::size_t>(i) *
-                                 static_cast<std::size_t>(channels) +
-                                 static_cast<std::size_t>(ch)];
-                }
+                std::memcpy(dst, srcCh, static_cast<std::size_t>(frameSize) * sizeof(float));
             }
         } else {
-            // 交错格式：直接拷贝
+            const float* src = impl.audioFifo.data() +
+                               consumedFrames * static_cast<std::size_t>(channels);
             std::memcpy(impl.audioFrame->data[0], src,
                         static_cast<std::size_t>(frameSize) *
                             static_cast<std::size_t>(channels) * sizeof(float));
