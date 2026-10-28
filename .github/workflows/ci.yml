@@ -7,30 +7,112 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# 阶段 1：最小可运行验证。
-# 目的：先确认真实管线能跑通，再逐步加步骤定位失败点。
-# 之前一次性写满 12 步，失败时既没日志也没 annotation（5 秒内结束），
-# 无法定位——这种"黑盒失败"只能靠二分。
+# 全量测试由 CI 承担，本地不再跑（本地是 aarch64 手机环境，一次约 9 分钟
+# 且容易过热；CI 是 x64 且免费不限量）。
+#
+# 关键设计：CI 环境必须与开发环境**覆盖同一份代码**。
+# 本地有 ONNX Runtime，若 CI 没有，AI 推理用例会走降级路径，
+# 「本地绿 + CI 绿」就不代表同一件事。因此这里显式安装 ORT 并断言其生效。
 
 jobs:
-  smoke:
-    name: smoke
+  build-and-test:
+    name: build-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 全量测试在 x64 上通常 3-6 分钟；30 分钟足够，超时说明卡死。
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 打印环境
+      - name: 环境信息
         run: |
-          echo "workspace: $GITHUB_WORKSPACE"
-          echo "sha: $GITHUB_SHA"
-          uname -a
-          nproc
-          ls -la
+          echo "== CPU =="; nproc
+          echo "== 编译器 =="; g++ --version | head -1
+          echo "== CMake =="; cmake --version | head -1
 
-      - name: 编译工具链
+      - name: 安装 FFmpeg
         run: |
-          cmake --version | head -1
-          g++ --version | head -1
-          (ffmpeg -version | head -1) || echo "ffmpeg 缺失"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+
+      - name: 缓存 ONNX Runtime
+        id: cache-ort
+        uses: actions/cache@v4
+        with:
+          path: ort
+          key: ort-linux-x64-1.22.0
+
+      - name: 下载 ONNX Runtime
+        if: steps.cache-ort.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          mkdir -p ort
+          tar -xzf ort.tgz -C ort --strip-components=1
+          test -f ort/include/onnxruntime_cxx_api.h && echo "ORT 头文件就绪"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+                -DNAIROCLIP_ORT_ROOT="$GITHUB_WORKSPACE/ort"
+
+      - name: 确认 ORT 已启用
+        # 若 ORT 未生效，AI 用例会静默走降级分支，CI 覆盖的代码与本地不同。
+        run: |
+          if grep -q 'NAIROCLIP_HAS_ONNX_RUNTIME=1' \
+               build/core/CMakeFiles/nairoclip_core.dir/flags.make; then
+            echo "ONNX Runtime 已启用"
+          else
+            echo "ERROR: ONNX Runtime 未启用"
+            exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: 确认测试素材
+        # 素材由 nairoclip_tests 的 POST_BUILD 步骤生成（幂等）。
+        # 缺失时 FFmpeg 用例会大批失败，看起来像代码坏了——提前检查。
+        run: |
+          ls /tmp/media_gen/ || true
+          test -f /tmp/media_gen/test_av.mp4
+
+      - name: 运行全量测试
+        # 不加 set -o pipefail：测试失败时也要继续跑到「对账」步骤，
+        # 把失败数打出来；否则只剩一个红叉，看不到原因。
+        # 真正的判定在下一步。
+        run: |
+          ./build/tests/nairoclip_tests 2>&1 | tee /tmp/test_output.txt || true
+          echo "---------------- 末尾 30 行 ----------------"
+          tail -30 /tmp/test_output.txt
+
+      - name: 对账用例总数
+        # 踩过的坑：新测试文件没编进主套件，全量仍全绿。
+        # 用例数只增不减，设下限可以抓住「漏编」。
+        run: |
+          SUMMARY=$(grep -E '^=====.*cases' /tmp/test_output.txt || true)
+          if [ -z "$SUMMARY" ]; then
+            echo "ERROR: 没有汇总行，测试可能崩溃"
+            exit 1
+          fi
+          CASES=$(echo "$SUMMARY" | sed -E 's/^===== ([0-9]+) cases.*/\1/')
+          FAILED=$(echo "$SUMMARY" | sed -E 's/.*\| ([0-9]+) failed.*/\1/')
+          echo "用例数=$CASES 失败数=$FAILED"
+          if [ "$CASES" -lt 1443 ]; then
+            echo "ERROR: 用例数 $CASES 低于下限 1443，可能有测试文件未编入"
+            exit 1
+          fi
+          if [ "$FAILED" -ne 0 ]; then
+            echo "ERROR: $FAILED 个用例失败"
+            exit 1
+          fi
+          echo "全部通过"
+
+      - name: 上传测试输出
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: /tmp/test_output.txt
+          retention-days: 7
