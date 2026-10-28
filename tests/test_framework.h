@@ -51,20 +51,36 @@ struct HeapProbe {
     }
     void probe() const {
         if (!enabled) return;
-        // 尺寸刻意错开，避免全部命中同一个 bin（那样检查不到相邻 chunk）
-        constexpr int kCount = 128;
-        void* blocks[kCount];
-        for (int i = 0; i < kCount; ++i) {
-            blocks[i] = std::malloc(static_cast<std::size_t>(16 + i * 24));
-            if (blocks[i] != nullptr) {
-                std::memset(blocks[i], 0xCD, static_cast<std::size_t>(16 + i * 24));
-            }
+        // 覆盖足够多的尺寸档位。
+        //
+        // 早先只用了 16 + i*24 这一条等差序列（128 个块，最大 ~3KB），
+        // 结果「导出后探针通过」却仍在后面崩 —— 因为被写坏的那个 chunk
+        // 尺寸可能不在序列里，探针根本没复用到它，等于没检查。
+        //
+        // 现在三档齐上：
+        //   1) 小尺寸密集（16..2KB，覆盖 tcache 与 smallbin）
+        //   2) 中尺寸（2KB..64KB，覆盖 large bin 起点）
+        //   3) 精确复刻 malloc_printerr 报过的请求量（1048 / 2048），
+        //      这两处是实测 glibc 报错时报出的 bytes 值
+        constexpr int kSmall = 96;
+        constexpr int kMid = 24;
+        constexpr int kExact = 2;
+        void* blocks[kSmall + kMid + kExact];
+        std::size_t sizes[kSmall + kMid + kExact];
+        int n = 0;
+        for (int i = 0; i < kSmall; ++i, ++n) sizes[n] = 16 + static_cast<std::size_t>(i) * 21;
+        for (int i = 0; i < kMid; ++i, ++n) {
+            sizes[n] = 2048 + static_cast<std::size_t>(i) * 2600;
         }
-        // 全部写满后再释放：此时 glibc 会把它们合并进 unsorted bin，
+        sizes[n++] = 1048;
+        sizes[n++] = 2048;
+        for (int i = 0; i < n; ++i) {
+            blocks[i] = std::malloc(sizes[i]);
+            if (blocks[i] != nullptr) std::memset(blocks[i], 0xCD, sizes[i]);
+        }
+        // 全部写满后再释放：glibc 会把它们并入 unsorted bin，
         // 并复核每个 chunk 的 header 是否与本该的一致。
-        for (int i = 0; i < kCount; ++i) {
-            std::free(blocks[i]);
-        }
+        for (int i = 0; i < n; ++i) std::free(blocks[i]);
     }
 };
 inline HeapProbe& heapProbe() {

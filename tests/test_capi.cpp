@@ -1719,41 +1719,38 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
     const bool doExport = (stage != "detect") && (stage != "noexport");
     const bool doDetect = (stage != "export");
 
+    // ---- 强制启用的堆检查点（诊断用）----
+    // 每个点都会 malloc/free 一批覆盖各尺寸档位的块（含 glibc 实报过的
+    // 1048 / 2048），迫使 glibc 复核 chunk header。写坏时在这里 abort，
+    // 就把「破坏发生的位置」从几百次分配之后收敛到相邻两个检查点之间。
+    auto heapOk = [](const char* where) {
+        ::nairoclip::test::HeapProbe probe;
+        probe.enabled = true;
+        probe.probe();
+        std::printf("[诊断] %s 后堆 OK\n", where);
+        std::fflush(stdout);
+    };
+    heapOk("用例入口");
+
     char* err = nullptr;
     if (doExport) {
+        heapOk("nc_export_run 之前");
         const int64_t frames = nc_export_run(editor, "/tmp/media_gen/capi_wm_export.mp4", 18, 0,
                                              0, nullptr, nullptr, &err);
         NC_CHECK(frames > 0);
         if (err != nullptr) nc_free_string(err);
+        heapOk("nc_export_run 之后");
     }
     if (!doDetect) {
         nc_editor_destroy(editor);
         std::printf("[诊断] 只做导出，已跳过解码/检测\n");
         return;
     }
-    // gdb 栈显示崩溃发生在 detectInvisibleWatermark 里 makeBlockOrder 的
-    // 第一次 vector 分配（2048 字节）—— 那是「发现点」不是「原因」，
-    // 堆在更早处已被写坏。这里在导出后立刻做一次堆一致性检查，
-    // 若此处就 abort，说明破坏来自 nc_export_run；
-    // 若通过，破坏发生在解码/检测阶段。
-    // 这里显式构造一个 enabled 的探针，不依赖 NC_TEST_CHECK_HEAP 环境变量
-    // （诊断步骤默认没设该变量，靠环境变量会静默跳过）。
-    {
-        ::nairoclip::test::HeapProbe forceProbe;
-        forceProbe.enabled = true;
-        forceProbe.probe();
-        std::printf("[诊断] 导出后堆检查通过\n");
-    }
-    // ---- 分段堆检查：定位破坏发生在哪一步 ----
-    auto heapOk = [](const char* where) {
-        ::nairoclip::test::HeapProbe probe;
-        probe.enabled = true;
-        probe.probe();
-        std::printf("[诊断] %s 后堆检查通过\n", where);
-    };
     // 解码输出帧 → 水印检测（逐帧独立可检出）
+    heapOk("解码前");
     FFmpegMediaReader reader;
-    NC_CHECK(reader.open("/tmp/media_gen/capi_wm_export.mp4").isOk());
+    const bool opened = reader.open("/tmp/media_gen/capi_wm_export.mp4").isOk();
+    NC_CHECK(opened);
     heapOk("reader.open");
     VideoFrame frame;
     int checked = 0;
@@ -1776,6 +1773,7 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
         ++checked;
     }
     reader.close();
+    heapOk("reader.close");
     std::printf("[实测] C ABI 导出水印：%d/%d 帧检出（agreement 阈值 0.9）\n", matched, checked);
     NC_CHECK(checked > 0);
     NC_CHECK_EQ(matched, checked);  // 修复前该断言失败（0/10）
