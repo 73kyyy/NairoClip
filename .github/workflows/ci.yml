@@ -482,6 +482,16 @@ jobs:
           echo "::error title=UB_RC::exit=$rc"
           echo "::error title=UB_FIRST::${FIRST:-none}"
           echo "::error title=UB_LAST_RUN::$(grep -E '^\[ RUN  \]' /tmp/ub_out.txt | tail -1)"
+          # 失败用例名单：auto-var-init=pattern 把未初始化内存填 0xAA 后
+          # 露出来的用例，最可能就是依赖「默认恰为 0」的那批。
+          # 框架输出的是 "    [FAIL] 文件:行  信息"，带上下文才知道属哪个用例
+          grep -E '^\[ RUN  \]|\[FAIL\]' /tmp/ub_out.txt \
+            | grep -B1 '\[FAIL\]' | grep -v '^--$' | tr '\n' '~' | cut -c1-1200 \
+            > /tmp/ub_failed.txt
+          echo "::error title=UB_FAILED::$(cat /tmp/ub_failed.txt | sed 's/^~//')"
+          # check 失败的详细信息（ASSERT 行）
+          DETAIL=$(grep -E 'CHECK|FAILED|assert' /tmp/ub_out.txt | grep -v '^\[ RUN' | tail -12 | tr '\n' '~' | cut -c1-1200)
+          echo "::error title=UB_DETAIL::${DETAIL:-none}"
           SUM=$(grep -E '^=====' /tmp/ub_out.txt | tail -1)
           echo "::error title=UB_SUMMARY::${SUM:-none}"
           exit 0
