@@ -2788,6 +2788,13 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
     config.writer.frameRate = plan.frameRate;
     config.writer.crf = crf > 0 ? crf : 23;
     config.writer.includeAudio = include_audio != 0;
+    // 必须同步 executor 侧：ExportExecutorOptions::outputAudio 默认是 true，
+    // 不跟着 include_audio 走的话，include_audio=0 时会出现
+    // 「executor 照样解码并混合整条音轨 → 回调 writeAudioBlock →
+    //    writer 因 audioCodec==nullptr 静默丢弃」。
+    // 结果是对的（输出无音轨），但白做一遍全音频解码 + 重采样，
+    // 导出耗时和内存都翻倍；也让「按需关音频」这个参数形同虚设。
+    config.executor.outputAudio = include_audio != 0;
     config.executor.attachAiLabel = attach_ai_label != 0;
     if (ai_label_text != nullptr && ai_label_text[0] != '\0') {
         config.executor.aiLabelText = ai_label_text;

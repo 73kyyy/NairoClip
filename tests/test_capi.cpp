@@ -1731,6 +1731,19 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
         std::printf("[诊断] 只做导出，已跳过解码/检测\n");
         return;
     }
+    // gdb 栈显示崩溃发生在 detectInvisibleWatermark 里 makeBlockOrder 的
+    // 第一次 vector 分配（2048 字节）—— 那是「发现点」不是「原因」，
+    // 堆在更早处已被写坏。这里在导出后立刻做一次堆一致性检查，
+    // 若此处就 abort，说明破坏来自 nc_export_run；
+    // 若通过，破坏发生在解码/检测阶段。
+    // 这里显式构造一个 enabled 的探针，不依赖 NC_TEST_CHECK_HEAP 环境变量
+    // （诊断步骤默认没设该变量，靠环境变量会静默跳过）。
+    {
+        ::nairoclip::test::HeapProbe forceProbe;
+        forceProbe.enabled = true;
+        forceProbe.probe();
+        std::printf("[诊断] 导出后堆检查通过\n");
+    }
     // 解码输出帧 → 水印检测（逐帧独立可检出）
     FFmpegMediaReader reader;
     NC_CHECK(reader.open("/tmp/media_gen/capi_wm_export.mp4").isOk());
