@@ -41,6 +41,8 @@
 #include "nairoclip/core/super_res_ai.h"
 #include "nairoclip/core/translate_ai.h"
 #include "nairoclip/core/person_effects.h"
+#include "nairoclip/core/template_apply.h"
+#include "nairoclip/core/template_fill.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/export_plan.h"
@@ -5699,3 +5701,180 @@ void nc_free_string(char* text) { delete[] text; }
 const char* nc_last_error(void) { return g_lastError.c_str(); }
 
 }  // extern "C"
+
+// =============================================================================
+// 剪辑模板（B2-1 ~ B2-4）
+// =============================================================================
+
+namespace {
+
+/// 把单个模板序列化为 UI 列表项。
+JsonValue templateSummaryJson(const EditTemplate& t) {
+    JsonValue item = JsonValue::object();
+    item.set("id", JsonValue::string(t.id));
+    item.set("name", JsonValue::string(t.name));
+    item.set("category", JsonValue::string(t.category));
+    item.set("slotCount", JsonValue::integer(static_cast<std::int64_t>(t.slots.size())));
+    item.set("totalDurationUs", JsonValue::integer(toMicroseconds(t.totalDuration)));
+    if (!t.musicHint.empty()) item.set("musicHint", JsonValue::string(t.musicHint));
+    if (!t.coverPath.empty()) item.set("coverPath", JsonValue::string(t.coverPath));
+    return item;
+}
+
+/// 把候选素材数组转成 FillCandidate（无特征数据时的路径）。
+std::vector<FillCandidate> candidatesFromIds(const Project& project, const uint64_t* ids,
+                                            int32_t count) {
+    std::vector<FillCandidate> out;
+    for (int32_t i = 0; i < count; ++i) {
+        const MediaAsset* asset = project.findAsset(AssetId{ids[i]});
+        if (asset == nullptr) continue;  // 不存在的素材直接跳过（摘要里会体现）
+        FillCandidate c;
+        c.asset = *asset;
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+}  // namespace
+
+int32_t nc_template_list(char** out_json, char** out_error) {
+    JsonValue arr = JsonValue::array();
+    for (const auto& t : builtinTemplates()) {
+        arr.push(templateSummaryJson(t));
+    }
+    if (out_json != nullptr) {
+        *out_json = dupString(toJsonString(arr));
+    }
+    return NC_OK;
+}
+
+int32_t nc_template_slot_count(const char* template_id) {
+    if (template_id == nullptr) {
+        return -1;
+    }
+    const EditTemplate* t = findBuiltinTemplate(template_id);
+    if (t == nullptr) {
+        return -1;
+    }
+    return static_cast<int32_t>(t->slots.size());
+}
+
+int32_t nc_template_apply(NcEditor* editor, const char* template_id,
+                          const uint64_t* material_ids, int32_t count, char** out_summary,
+                          char** out_error) {
+    if (editor == nullptr) {
+        setDetail(out_error, "editor 为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (template_id == nullptr) {
+        setDetail(out_error, "template_id 为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "template_id 为空");
+    }
+    if (material_ids == nullptr || count <= 0) {
+        setDetail(out_error, "material_ids 为空或 count <= 0");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "material_ids 为空或 count <= 0");
+    }
+    const EditTemplate* tmpl = findBuiltinTemplate(template_id);
+    if (tmpl == nullptr) {
+        setDetail(out_error, std::string("模板不存在: ") + template_id);
+        return failNc(NC_ERROR_NOT_FOUND, std::string("模板不存在: ") + template_id);
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        setDetail(out_error, "工程没有主序列");
+        return failNc(NC_ERROR_NOT_FOUND, "工程没有主序列");
+    }
+
+    const std::vector<FillCandidate> candidates = candidatesFromIds(editor->project, material_ids, count);
+    if (candidates.empty()) {
+        setDetail(out_error, "给定的素材 ID 都不在工程素材表中");
+        return failNc(NC_ERROR_NOT_FOUND, "候选素材都不在工程素材表中");
+    }
+
+    // 自动填充
+    const FillResult fill = fillTemplateSlots(*tmpl, candidates);
+    std::vector<MaterialAssignment> assigns = assignmentsFromFill(fill, candidates);
+    if (assigns.empty()) {
+        setDetail(out_error, "没有素材能覆盖任何槽位（可能时长都不够）");
+        return failNc(NC_ERROR_OUT_OF_RANGE, "没有素材能覆盖任何槽位（可能时长都不够）");
+    }
+
+    TemplateApplyResult result;
+    const Result applied = applyTemplate(*editor->editor, main->id, *tmpl, assigns, result);
+    if (!applied.isOk()) {
+        setDetail(out_error, applied.message);
+        return failNc(toNcError(applied.code), applied.message);
+    }
+
+    std::string summary = describeApplyResult(result);
+    if (!result.warnings.empty()) {
+        summary += "；提示：";
+        for (std::size_t i = 0; i < result.warnings.size(); ++i) {
+            if (i > 0) summary += "；";
+            summary += result.warnings[i];
+        }
+    }
+    if (out_summary != nullptr) {
+        *out_summary = dupString(summary);
+    }
+    return NC_OK;
+}
+
+int32_t nc_template_apply_slots(NcEditor* editor, const char* template_id,
+                                const int32_t* slot_indices, const uint64_t* material_ids,
+                                int32_t count, char** out_summary, char** out_error) {
+    if (editor == nullptr) {
+        setDetail(out_error, "editor 为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (template_id == nullptr) {
+        setDetail(out_error, "template_id 为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "template_id 为空");
+    }
+    if (slot_indices == nullptr || material_ids == nullptr || count <= 0) {
+        setDetail(out_error, "slot_indices/material_ids 为空或 count <= 0");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "slot_indices/material_ids 为空或 count <= 0");
+    }
+    const EditTemplate* tmpl = findBuiltinTemplate(template_id);
+    if (tmpl == nullptr) {
+        setDetail(out_error, std::string("模板不存在: ") + template_id);
+        return failNc(NC_ERROR_NOT_FOUND, std::string("模板不存在: ") + template_id);
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        setDetail(out_error, "工程没有主序列");
+        return failNc(NC_ERROR_NOT_FOUND, "工程没有主序列");
+    }
+
+    std::vector<MaterialAssignment> assigns;
+    for (int32_t i = 0; i < count; ++i) {
+        if (slot_indices[i] < 0) {
+            setDetail(out_error, "slot_index 不能为负");
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "slot_index 不能为负");
+        }
+        MaterialAssignment m;
+        m.slotIndex = static_cast<std::size_t>(slot_indices[i]);
+        m.asset = AssetId{material_ids[i]};
+        assigns.push_back(m);
+    }
+
+    TemplateApplyResult result;
+    const Result applied = applyTemplate(*editor->editor, main->id, *tmpl, assigns, result);
+    if (!applied.isOk()) {
+        setDetail(out_error, applied.message);
+        return failNc(toNcError(applied.code), applied.message);
+    }
+
+    std::string summary = describeApplyResult(result);
+    if (!result.warnings.empty()) {
+        summary += "；提示：";
+        for (std::size_t i = 0; i < result.warnings.size(); ++i) {
+            if (i > 0) summary += "；";
+            summary += result.warnings[i];
+        }
+    }
+    if (out_summary != nullptr) {
+        *out_summary = dupString(summary);
+    }
+    return NC_OK;
+}

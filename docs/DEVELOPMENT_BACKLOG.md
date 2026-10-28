@@ -768,16 +768,62 @@ POST_BUILD 步骤幂等生成，`touch` 源码触发重编译后自动恢复，�
 
 ---
 
-### B2-4 ⬜ 模板 C ABI + UI
+### B2-4 ✅ 模板 C ABI（UI 未做）
+
+**已实施（2026-10-28）**：`capi.h` / `capi.cpp` 新增 4 个函数。
 
 ```c
 int32_t nc_template_list(char** out_json, char** out_error);
+int32_t nc_template_slot_count(const char* template_id);          // 新增
 int32_t nc_template_apply(NcEditor*, const char* template_id,
                           const uint64_t* material_ids, int32_t count,
                           char** out_summary, char** out_error);
+int32_t nc_template_apply_slots(NcEditor*, const char* template_id,
+                                const int32_t* slot_indices,
+                                const uint64_t* material_ids,
+                                int32_t count, char** out_summary, char** out_error);
 ```
 
-UI：模板选择页（见 `docs/UI_BACKLOG.md` P-06）。
+**比原方案多两个函数，理由**：
+- `nc_template_slot_count`：UI 要在套用**之前**告诉用户「这个模板需要 5 段
+  素材」。让平台层去解析 `nc_template_list` 的 JSON 数组也能做到，
+  但那是把简单查询变成 JSON 解析负担（Kotlin/Swift 侧都要写一遍）。
+- `nc_template_apply_slots`：原方案只有自动填充。但用户很可能想手动指定
+  「第 2 段用这个镜头」。没有这个入口，平台层只能自己调一堆
+  `nc_insert_clip`，绕过模板的排布/转场/事务逻辑。
+
+**行为**：
+- `nc_template_apply` 自动填充（走 B2-2 打分），摘要里包含插入数/转场数/
+  特效数/轨道数与全部 warnings；
+- `nc_template_apply_slots` 手工映射，未指定的槽位跳过并在摘要里说明；
+- 两者都**整次调用一条撤销记录**；
+- 失败原因同时通过 `out_error`（需 `nc_free_string`）与 `nc_last_error()`
+  两条路径给出，与 B0-3/B0-4 的约定一致。
+
+**测试**（`tests/test_capi_template.cpp`，12 用例）：
+- `ListReturnsJsonWithAllTemplates` / `SlotCountMatchesTemplate`；
+- `ApplyFillsAndReturnsSummary` / `ApplySlotsWithExplicitMapping`；
+- `ApplyIsUndoableInOneStep` — 用 `nc_project_save` 取文本比对，
+  套用→撤销后**逐字符相同**；
+- `UnknownTemplateGivesReason` / `NullArgsGivesReason` /
+  `UnknownMaterialIdsAreRejected` / `ApplySlotsRejectsNegativeIndex`
+  — 各类失败都必须有可读原因；
+- `OutputStringsAreHeapAllocated` / `NullOutParamsAccepted`
+  — 所有权与「可 NULL」约定（B0-4 的落地验证）；
+- `LastErrorSetOnTemplateFailure` — 新接口也要覆盖 last_error。
+
+**变异验证**：「不写 `out_summary`」→ `ApplyFillsAndReturnsSummary` 报警 ✅
+
+**开发中自己发现并修正的问题**：
+1. 头文件注释里写了 `nc_template_preview(tmpl_id, ...)`，但**这个函数我并没有
+   实现**——典型的"注释里画饼"。已改为实际存在的 `nc_template_slot_count`。
+   虚假引用比没注释更糟：平台层会照着写代码然后链接失败。
+2. `setDetail` 的一句错误文案写成了病句
+   （「给定的素材都存在于工程中之外的素材不存在」），已改为
+   「给定的素材 ID 都不在工程素材表中」。
+
+**未完成**：UI 模板选择页（`docs/UI_BACKLOG.md` P-06）——
+需要设计稿与前端，属独立工作项。C ABI 已就绪，UI 可直接对接。
 
 ---
 

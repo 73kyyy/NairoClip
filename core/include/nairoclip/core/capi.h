@@ -1471,6 +1471,45 @@ void nc_free_string(char* text);
 ///       `if (rc != NC_OK) { const char* why = nc_last_error(); ... }`
 const char* nc_last_error(void);
 
+// ---- 剪辑模板（B2-1 ~ B2-4）----
+//
+// 典型调用顺序：
+//   1. nc_template_list(&json, &err)               → UI 显示模板列表
+//   2. nc_template_slot_count(tmpl_id)             → 提示"需要几段素材"
+//   3. nc_template_apply(editor, tmpl_id, ids, n, &summary, &err)
+//
+// 素材分配由内核按 B2-2 的打分算法自动决定；若想手工指定，用
+// nc_template_apply_slots（slot_index 与 material_id 一一对应）。
+
+/// 列出所有内置模板（JSON 数组）。
+/// - out_json：出参（**需 nc_free_string**）每个元素含 id/name/category/
+///   slotCount/totalDurationUs/musicHint/coverPath；
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_template_list(char** out_json, char** out_error);
+
+/// 查询模板的槽位数量（用于 UI 提示"此模板需要 5 段素材"）。
+/// 返回槽位数；模板不存在返回 -1。
+int32_t nc_template_slot_count(const char* template_id);
+
+/// 套用模板（自动填充）。
+/// - material_ids / count：候选素材（至少 1 个；内核按打分算法分配到槽位）；
+/// - out_summary：出参（可 NULL）结果摘要（**需 nc_free_string**），
+///   形如「插入 5 段，添加 2 个转场、3 个特效（使用 2 条轨道）」；
+/// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
+/// 返回 NC_OK 或错误码。**整次调用可一次撤销。**
+int32_t nc_template_apply(NcEditor* editor, const char* template_id,
+                          const uint64_t* material_ids, int32_t count, char** out_summary,
+                          char** out_error);
+
+/// 套用模板（手工指定槽位 → 素材）。
+/// - slot_indices / material_ids / count：三者等长且一一对应；
+/// - 未指定的槽位会被跳过（结果摘要里说明）；
+/// - out_summary / out_error：同上（**需 nc_free_string**）。
+int32_t nc_template_apply_slots(NcEditor* editor, const char* template_id,
+                                const int32_t* slot_indices, const uint64_t* material_ids,
+                                int32_t count, char** out_summary, char** out_error);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
