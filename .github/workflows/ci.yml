@@ -138,6 +138,13 @@ jobs:
           run "ONLY_267" NC_TEST_SKIP=267 NC_TEST_MAX=268
           # 索引 203..266 的 Capi 段整体（不含崩溃用例）：确认这段是干净的
           run "CAPISEQ" NC_TEST_SKIP=203 NC_TEST_MAX=267
+          # 只跑崩溃用例，再按阶段切开：
+          #   ONLY_267_EXPORT → 只导出（不碰解码/检测）
+          #   ONLY_267_DETECT → 导出 + 解码 + 检测
+          # 两者一比就知道写坏堆的是「导出」还是「解码/检测」。
+          # 注意 run() 用 env 传参，NC_WM_STAGE 需经 env 显式传入。
+          run "ONLY_267_EXPORT" NC_TEST_SKIP=267 NC_TEST_MAX=268 NC_WM_STAGE=export
+          run "ONLY_267_DETECT" NC_TEST_SKIP=267 NC_TEST_MAX=268 NC_WM_STAGE=detect
           # MAX=N 只跑前 N 个：若 MAX_266 通过而全量崩，说明崩溃需要
           # 「索引 266 之后的用例」参与，或需要更长的运行上下文。
           # SKIP=50 仍包含崩溃用例：崩 → 前 50 个里没有必要的触发条件。

@@ -1,4 +1,5 @@
 #include "test_framework.h"
+#include <cstdlib>
 #include "nairoclip/core/capi.h"
 #include "nairoclip/core/heartbeat.h"
 #include "nairoclip/core/invisible_watermark.h"
@@ -1708,13 +1709,28 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
     const uint32_t expectedHash = nc_watermark_account_hash("user_e2e@nairoclip");
     NC_CHECK(expectedHash != 0);
     NC_CHECK_EQ(nc_watermark_set_export(editor, 1, "user_e2e@nairoclip", 99), NC_OK);
-    // 真实导出（横屏素材进竖屏画布 → 信箱黑边；黑边曾令水印全灭）
+    // ---- 阶段开关（诊断用；正常运行为空/未设，行为不变）----
+    // NC_WM_STAGE=export   只做导出，跳过解码+检测
+    // NC_WM_STAGE=detect   只做解码+检测（用上次导出的文件）
+    // NC_WM_STAGE=noexport 跳过导出，只做解码+检测
+    // 用途：把「导出写坏堆」与「解码/检测写坏堆」分开。
+    const char* stageEnv = std::getenv("NC_WM_STAGE");
+    const std::string stage = stageEnv != nullptr ? stageEnv : "";
+    const bool doExport = (stage != "detect") && (stage != "noexport");
+    const bool doDetect = (stage != "export");
+
     char* err = nullptr;
-    const int64_t frames =
-        nc_export_run(editor, "/tmp/media_gen/capi_wm_export.mp4", 18, 0, 0, nullptr, nullptr,
-                      &err);
-    NC_CHECK(frames > 0);
-    if (err != nullptr) nc_free_string(err);
+    if (doExport) {
+        const int64_t frames = nc_export_run(editor, "/tmp/media_gen/capi_wm_export.mp4", 18, 0,
+                                             0, nullptr, nullptr, &err);
+        NC_CHECK(frames > 0);
+        if (err != nullptr) nc_free_string(err);
+    }
+    if (!doDetect) {
+        nc_editor_destroy(editor);
+        std::printf("[诊断] 只做导出，已跳过解码/检测\n");
+        return;
+    }
     // 解码输出帧 → 水印检测（逐帧独立可检出）
     FFmpegMediaReader reader;
     NC_CHECK(reader.open("/tmp/media_gen/capi_wm_export.mp4").isOk());
