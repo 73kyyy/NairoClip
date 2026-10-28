@@ -108,17 +108,27 @@ jobs:
         run: |
           sudo apt-get install -y -qq gdb || true
           set +e
+          # 关键：glibc 的新版 malloc 有 MALLOC_PERTURB_ / MALLOC_CHECK_，
+          # 但它们只在「读写已释放块」时显形。这里是「块还活着但 header
+          # 被写坏」，需要让 glibc 每次 malloc/free 都校验。
+          # MALLOC_CHECK_=3 会启用一个**独立的检查分配器**（仍基于 glibc，
+          # 但每次操作都复核 chunk 一致性），能在写坏的瞬间就 abort，
+          # 而不是等到复用该 chunk。
+          export MALLOC_CHECK_=3
+          export MALLOC_PERTURB_=165
           gdb -q -batch \
             -ex "set pagination off" \
             -ex "set print thread-events off" \
+            -ex "set environment MALLOC_CHECK_ 3" \
+            -ex "set environment MALLOC_PERTURB_ 165" \
             -ex "catch signal SIGABRT" \
             -ex "run" \
             -ex "echo \\n===== BACKTRACE (abort 现场) =====\\n" \
             -ex "bt 40" \
             -ex "echo \\n===== 所有线程 =====\\n" \
             -ex "thread apply all bt 15" \
-            -ex "echo \\n===== 寄存器/当前帧 =====\\n" \
-            -ex "frame 1" \
+            -ex "echo \\n===== 第 9 帧（operator new 的调用者）=====\\n" \
+            -ex "frame 10" \
             -ex "info args" \
             -ex "info locals" \
             --args ./build/tests/nairoclip_tests \
