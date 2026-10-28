@@ -115,11 +115,24 @@ jobs:
         # FFREPORT/AV_LOG：把 FFmpeg 自身日志降到 warning，
         # 否则 x264 的统计会淹没测试输出（CI 日志里 80% 是这类噪音）。
         run: |
-          stdbuf -oL -eL ./build/tests/nairoclip_tests > /tmp/test_output.txt 2>&1 || true
+          stdbuf -oL -eL ./build/tests/nairoclip_tests > /tmp/test_output.txt 2>&1
+          rc=$?
+          echo "exit_code=$rc (137=SIGKILL 134=SIGABRT 139=SIGSEGV)"
+          echo "output_bytes=$(stat -c%s /tmp/test_output.txt)"
           echo "---------------- 末尾 40 行 ----------------"
           tail -40 /tmp/test_output.txt
           echo "---------------- 崩溃点定位 ----------------"
           grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -3
+          echo "---------------- 汇总行 ----------------"
+          grep -E '^=====' /tmp/test_output.txt || echo "无汇总行"
+          # 走 annotation 通道：public 仓库的日志/artifact 需要认证，
+          # 但 check-run annotation 可匿名读取，是唯一能带出细节的出口。
+          echo "::error title=TEST_EXIT::exit=$rc bytes=$(stat -c%s /tmp/test_output.txt)"
+          LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1)
+          SUM=$(grep -E '^=====' /tmp/test_output.txt | tail -1)
+          echo "::error title=LAST_RUN::${LAST:-none}"
+          echo "::error title=SUMMARY::${SUM:-none}"
+          exit $rc
 
       - name: 对账用例总数
         # 踩过的坑：新测试文件没编进主套件，全量仍全绿。
@@ -150,3 +163,59 @@ jobs:
           name: test-output
           path: /tmp/test_output.txt
           retention-days: 7
+
+  # ---------------------------------------------------------------
+  # ASAN 诊断 job
+  #
+  # 为什么单独一个 job：本地开发容器（aarch64）里 ASAN 初始化失败
+  # （sanitizer_allocator_primary64 地址空间冲突），拿不到栈。
+  # x64 runner 上可用，是定位「malloc(): invalid size」这类堆破坏
+  # 唯一可靠的手段 —— 只有它能指出「谁写坏了哪块内存」。
+  #
+  # 不设 required：它是诊断通道，失败不阻塞主流程。
+  # ---------------------------------------------------------------
+  asan-diagnose:
+    name: ASAN 诊断
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 FFmpeg 开发库
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
+            libswscale-dev libswresample-dev pkg-config
+
+      - name: Configure (ASAN)
+        run: |
+          cmake -S . -B build_asan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
+            -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address"
+
+      - name: Build (ASAN)
+        run: cmake --build build_asan -j$(nproc)
+
+      - name: 运行测试 (ASAN)
+        run: |
+          export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:symbolize=1:print_stacktrace=1
+          set +e
+          stdbuf -oL -eL ./build_asan/tests/nairoclip_tests > /tmp/asan_output.txt 2>&1
+          rc=$?
+          echo "exit_code=$rc"
+          echo "---------------- ASAN 报告 ----------------"
+          grep -n -A40 -E 'ERROR: AddressSanitizer|SUMMARY: AddressSanitizer' /tmp/asan_output.txt | head -80
+          echo "---------------- 崩溃点 ----------------"
+          grep -E '^\[ RUN  \]' /tmp/asan_output.txt | tail -3
+          echo "::error title=ASAN_EXIT::exit=$rc"
+          LAST=$(grep -E '^\[ RUN  \]' /tmp/asan_output.txt | tail -1)
+          echo "::error title=ASAN_LAST_RUN::${LAST:-none}"
+          ERR=$(grep -m1 -E 'ERROR: AddressSanitizer' /tmp/asan_output.txt)
+          echo "::error title=ASAN_ERROR::${ERR:-none}"
+          exit 0
