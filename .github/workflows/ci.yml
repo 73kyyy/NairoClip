@@ -250,6 +250,9 @@ jobs:
           echo "::error title=SUMMARY::${SUM:-none}"
           TAIL=$(tail -12 /tmp/test_output.txt | tr '\n' '~' | cut -c1-1500)
           echo "::error title=TAIL::${TAIL:-none}"
+          # 诊断行单独走一条 annotation，避免被 TAIL 截断
+          DIAG=$(grep '诊断' /tmp/test_output.txt | tr '\n' '~' | cut -c1-1800)
+          echo "::error title=DIAG_LINES::${DIAG:-none}"
           exit $rc
 
       - name: 对账用例总数
