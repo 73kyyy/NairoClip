@@ -728,6 +728,30 @@ private:
     bool hadSnapshot_ = false;
 };
 
+/// 重排素材顺序（B2-9 素材区拖动排序）。
+///
+/// 为什么用命令而不是直接改 vector：素材顺序是**持久化**的（assets 数组顺序
+/// 即显示顺序，序列化按数组顺序写），用户整理过的顺序属于工程内容，
+/// 必须能撤销。拖动排序时误放一格却无法撤销，是很糟的体验。
+///
+/// 语义：把 fromIndex 处的素材移动到 toIndex（**移动后**的位置）。
+/// 负索引/越界一律拒绝，不静默截断 —— 静默截断会让 UI 的落点提示与实际
+/// 结果不一致。
+class ReorderAssetsCommand : public Command {
+public:
+    ReorderAssetsCommand(int fromIndex, int toIndex);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "调整素材顺序"; }
+
+private:
+    int fromIndex_;
+    int toIndex_;
+    /// 首次 apply 时记录，供 revert 精确还原（不做逆运算，避免边界推导出错）。
+    std::optional<AssetId> movedId_;
+};
+
 /// 删除素材（排除被引用？由编辑器层校验；本命令只负责数据结构）。
 class RemoveAssetCommand : public Command {
 public:

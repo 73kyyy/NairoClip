@@ -2020,6 +2020,56 @@ ImportAssetCommand::ImportAssetCommand(AssetId assetId, MediaAsset asset)
     asset_.id = assetId_;
 }
 
+// ---------------- ReorderAssetsCommand（B2-9 素材拖动排序）----------------
+
+ReorderAssetsCommand::ReorderAssetsCommand(int fromIndex, int toIndex)
+    : fromIndex_(fromIndex), toIndex_(toIndex) {}
+
+Result ReorderAssetsCommand::apply(Project& project) {
+    const int count = static_cast<int>(project.assets.size());
+    if (fromIndex_ < 0 || fromIndex_ >= count) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "源位置超出范围（有效范围 0~" + std::to_string(count - 1) + "）");
+    }
+    if (toIndex_ < 0 || toIndex_ >= count) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "目标位置超出范围（有效范围 0~" + std::to_string(count - 1) + "）");
+    }
+    if (fromIndex_ == toIndex_) {
+        return Result::ok();  // 位置没变：不改动 assets（也就不需要快照）
+    }
+    // 首次 apply 记录被移动素材的 id：revert 时按 id 找回它当前所在位置再挪回去，
+    // 比「对 toIndex/fromIndex 做逆运算」更不容易出错（中间可能被其它命令改动过）。
+    if (!movedId_.has_value()) {
+        movedId_ = project.assets[static_cast<std::size_t>(fromIndex_)].id;
+    }
+    MediaAsset moved = project.assets[static_cast<std::size_t>(fromIndex_)];
+    project.assets.erase(project.assets.begin() + fromIndex_);
+    // 取出后再插入：erase 之后 toIndex 的语义就是「插入到该下标之前」，
+    // 与 UI 的「拖到第 N 格」一致（不需要再 adjust）。
+    project.assets.insert(project.assets.begin() + toIndex_, std::move(moved));
+    return Result::ok();
+}
+
+Result ReorderAssetsCommand::revert(Project& project) {
+    if (!movedId_.has_value()) {
+        return Result::ok();  // 从未生效过（no-op 或 apply 失败）
+    }
+    const auto it = std::find_if(project.assets.begin(), project.assets.end(),
+                                 [this](const MediaAsset& a) { return a.id == *movedId_; });
+    if (it == project.assets.end()) {
+        return Result::fail(ErrorCode::NotFound, "撤销失败：被移动的素材已不存在");
+    }
+    const int current = static_cast<int>(std::distance(project.assets.begin(), it));
+    if (current == fromIndex_) {
+        return Result::ok();  // 已在原位
+    }
+    MediaAsset moved = *it;
+    project.assets.erase(project.assets.begin() + current);
+    project.assets.insert(project.assets.begin() + fromIndex_, std::move(moved));
+    return Result::ok();
+}
+
 Result ImportAssetCommand::apply(Project& project) {
     if (project.findAsset(assetId_) != nullptr) {
         return Result::fail(ErrorCode::InvalidArgument, "素材 ID 已存在");

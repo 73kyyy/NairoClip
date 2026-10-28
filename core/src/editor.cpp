@@ -265,6 +265,10 @@ Result TimelineEditor::removeTrack(SequenceId sequenceId, TrackId trackId) {
     return commit(std::make_unique<RemoveTrackCommand>(sequenceId, trackId));
 }
 
+Result TimelineEditor::reorderAssets(int fromIndex, int toIndex) {
+    return commit(std::make_unique<ReorderAssetsCommand>(fromIndex, toIndex));
+}
+
 Result TimelineEditor::insertClip(SequenceId sequenceId, TrackId trackId, Clip clip,
                                   ClipId* outId) {
     if (!clip.id.isValid()) {

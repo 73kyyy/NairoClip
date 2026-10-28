@@ -100,6 +100,10 @@ public:
     Result setTrackGain(SequenceId sequenceId, TrackId trackId, double gainDb);
     /// 设置序列主输出增益（dB；-60..+12）。
     Result setMasterGain(SequenceId sequenceId, double gainDb);
+    // ---- 素材池（B2-9 拖动排序）----
+    /// 把素材从 fromIndex 移到 toIndex（移动后的位置）；可撤销。
+    Result reorderAssets(int fromIndex, int toIndex);
+
     // ---- 片段 ----
     Result insertClip(SequenceId sequenceId, TrackId trackId, Clip clip, ClipId* outId = nullptr);
     Result removeClip(SequenceId sequenceId, TrackId trackId, ClipId clipId);
