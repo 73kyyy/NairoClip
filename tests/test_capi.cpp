@@ -1744,19 +1744,29 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
         forceProbe.probe();
         std::printf("[诊断] 导出后堆检查通过\n");
     }
+    // ---- 分段堆检查：定位破坏发生在哪一步 ----
+    auto heapOk = [](const char* where) {
+        ::nairoclip::test::HeapProbe probe;
+        probe.enabled = true;
+        probe.probe();
+        std::printf("[诊断] %s 后堆检查通过\n", where);
+    };
     // 解码输出帧 → 水印检测（逐帧独立可检出）
     FFmpegMediaReader reader;
     NC_CHECK(reader.open("/tmp/media_gen/capi_wm_export.mp4").isOk());
+    heapOk("reader.open");
     VideoFrame frame;
     int checked = 0;
     int matched = 0;
     while (reader.readVideoFrame(frame) && checked < 5) {
+        heapOk("readVideoFrame");
         uint32_t outHash = 0;
         int32_t outSeq = -1;
         double agreement = 0.0;
         const int32_t rc =
             nc_watermark_detect(frame.pixels.data(), frame.width, frame.height, &outHash, &outSeq,
                                 &agreement, nullptr);
+        heapOk("nc_watermark_detect");
         if (rc == 1) {
             NC_CHECK_EQ(outHash, expectedHash);
             NC_CHECK_EQ(outSeq, 99);
