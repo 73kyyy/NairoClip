@@ -231,6 +231,8 @@ jobs:
           tail -40 /tmp/test_output.txt
           echo "---------------- 崩溃点定位 ----------------"
           grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -3
+          echo "---------------- 诊断行（堆检查点，原文）----------------"
+          grep -n '诊断' /tmp/test_output.txt | tail -40 || echo "无诊断行"
           echo "---------------- 汇总行 ----------------"
           grep -E '^=====' /tmp/test_output.txt || echo "无汇总行"
           echo "---------------- 行数 / 前 30 行 ----------------"
