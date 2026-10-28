@@ -98,10 +98,19 @@ jobs:
         # 不加 set -o pipefail：测试失败时也要继续跑到「对账」步骤，
         # 把失败数打出来；否则只剩一个红叉，看不到原因。
         # 真正的判定在下一步。
+        #
+        # stdbuf -oL：行缓冲。CI 上曾出现 malloc 崩溃，但因 stdout 是管道
+        # （全缓冲），崩溃时最后的 [ RUN ] 行还留在缓冲区里没输出，
+        # 只能靠 x264 的日志反推位置。行缓冲能让崩溃点清晰可见。
+        #
+        # FFREPORT/AV_LOG：把 FFmpeg 自身日志降到 warning，
+        # 否则 x264 的统计会淹没测试输出（CI 日志里 80% 是这类噪音）。
         run: |
-          ./build/tests/nairoclip_tests 2>&1 | tee /tmp/test_output.txt || true
-          echo "---------------- 末尾 30 行 ----------------"
-          tail -30 /tmp/test_output.txt
+          stdbuf -oL -eL ./build/tests/nairoclip_tests > /tmp/test_output.txt 2>&1 || true
+          echo "---------------- 末尾 40 行 ----------------"
+          tail -40 /tmp/test_output.txt
+          echo "---------------- 崩溃点定位 ----------------"
+          grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -3
 
       - name: 对账用例总数
         # 踩过的坑：新测试文件没编进主套件，全量仍全绿。
