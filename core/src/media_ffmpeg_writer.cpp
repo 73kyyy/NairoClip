@@ -600,7 +600,9 @@ Result FFmpegMediaWriter::finish() {
         const std::size_t remaining = impl.audioFifo.size() / static_cast<std::size_t>(channels);
         const int tailSamples = static_cast<int>(std::min(
             remaining, static_cast<std::size_t>(frameSize)));
-        av_frame_make_writable(impl.audioFrame);
+        if (av_frame_make_writable(impl.audioFrame) < 0) {
+            return Result::fail(ErrorCode::Internal, "末帧不可写");
+        }
         // 清零帧缓冲，避免填充垃圾数据
         if (impl.audioCodec->sample_fmt == AV_SAMPLE_FMT_FLTP) {
             for (int ch = 0; ch < channels; ++ch) {
@@ -612,19 +614,20 @@ Result FFmpegMediaWriter::finish() {
                         static_cast<std::size_t>(frameSize) *
                             static_cast<std::size_t>(channels) * sizeof(float));
         }
-        // 拷贝剩余样本
-        const float* src = impl.audioFifo.data();
-        if (impl.audioCodec->sample_fmt == AV_SAMPLE_FMT_FLTP) {
+        // 拷贝剩余样本。FIFO 布局与编码器格式一致（与 writeAudioBlock 相同）：
+        //   平面：src[ch * remaining + i]
+        //   交错：src[i * channels + ch]
+        // 原来这里对平面格式仍按 i*channels+ch 读 —— 那是交错的索引方式，
+        // 会串声道，并且当 tailSamples 接近 remaining 时读到错误区域。
+        if (av_sample_fmt_is_planar(impl.audioCodec->sample_fmt)) {
             for (int ch = 0; ch < channels; ++ch) {
+                const float* srcCh =
+                    impl.audioFifo.data() + static_cast<std::size_t>(ch) * remaining;
                 float* dst = reinterpret_cast<float*>(impl.audioFrame->data[ch]);
-                for (int i = 0; i < tailSamples; ++i) {
-                    dst[i] = src[static_cast<std::size_t>(i) *
-                                 static_cast<std::size_t>(channels) +
-                                 static_cast<std::size_t>(ch)];
-                }
+                std::memcpy(dst, srcCh, static_cast<std::size_t>(tailSamples) * sizeof(float));
             }
         } else {
-            std::memcpy(impl.audioFrame->data[0], src,
+            std::memcpy(impl.audioFrame->data[0], impl.audioFifo.data(),
                         static_cast<std::size_t>(tailSamples) *
                             static_cast<std::size_t>(channels) * sizeof(float));
         }

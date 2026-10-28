@@ -119,7 +119,11 @@ jobs:
           # 下面所有诊断都不会执行（上一轮 annotation 只剩 "Process completed
           # with exit code 134"，就是这个原因）。必须先关掉 errexit。
           set +e
-          stdbuf -oL -eL ./build/tests/nairoclip_tests > /tmp/test_output.txt 2>&1
+          # NC_TEST_CHECK_HEAP=1：每个用例后做一次堆一致性检查，把
+          # "malloc(): invalid size" 这类延迟暴露的破坏钉到真凶用例上。
+          # 详见 tests/test_framework.h 里 HeapProbe 的注释。
+          NC_TEST_CHECK_HEAP=1 stdbuf -oL -eL ./build/tests/nairoclip_tests \
+            > /tmp/test_output.txt 2>&1
           rc=$?
           echo "exit_code=$rc (137=SIGKILL 134=SIGABRT 139=SIGSEGV)"
           echo "output_bytes=$(stat -c%s /tmp/test_output.txt)"
