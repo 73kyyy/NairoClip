@@ -141,7 +141,16 @@ Result FFmpegMediaReader::open(const std::string& path) {
             return Result::fail(ErrorCode::Unsupported, "不支持的视频编解码器");
         }
         impl.videoCodec = avcodec_alloc_context3(codec);
-        avcodec_parameters_to_context(impl.videoCodec, stream->codecpar);
+        if (impl.videoCodec == nullptr) {
+            close();
+            return Result::fail(ErrorCode::Internal, "视频解码器上下文分配失败");
+        }
+        // 返回值必须检查：失败时 codecpar 未被拷贝，后面 open2 会用
+        // 一个字段全空的 context，行为依赖布局（正是难查的那类问题）。
+        if (avcodec_parameters_to_context(impl.videoCodec, stream->codecpar) < 0) {
+            close();
+            return Result::fail(ErrorCode::Unsupported, "视频流参数复制失败");
+        }
         impl.videoCodec->pkt_timebase = stream->time_base;
         err = avcodec_open2(impl.videoCodec, codec, nullptr);
         if (err < 0) {
@@ -156,19 +165,27 @@ Result FFmpegMediaReader::open(const std::string& path) {
         impl.probe.codec = avcodec_get_name(codec->id);
     }
 
-    // 打开音频解码器
+    // 打开音频解码器（可选路径：任何一步失败都只是「没有音频」，不致命）
     if (impl.audioStream >= 0) {
         AVStream* stream = impl.format->streams[impl.audioStream];
         const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
         if (codec != nullptr) {
             impl.audioCodec = avcodec_alloc_context3(codec);
-            avcodec_parameters_to_context(impl.audioCodec, stream->codecpar);
-            impl.audioCodec->pkt_timebase = stream->time_base;
-            err = avcodec_open2(impl.audioCodec, codec, nullptr);
-            if (err < 0) {
+            // 返回值必须逐个检查：失败后继续用 nullptr context 是
+            // 未定义行为，且崩不崩取决于布局，极难定位。
+            if (impl.audioCodec != nullptr &&
+                avcodec_parameters_to_context(impl.audioCodec, stream->codecpar) < 0) {
                 avcodec_free_context(&impl.audioCodec);
                 impl.audioCodec = nullptr;
-            } else {
+            }
+            if (impl.audioCodec != nullptr) {
+                impl.audioCodec->pkt_timebase = stream->time_base;
+                if (avcodec_open2(impl.audioCodec, codec, nullptr) < 0) {
+                    avcodec_free_context(&impl.audioCodec);
+                    impl.audioCodec = nullptr;
+                }
+            }
+            if (impl.audioCodec != nullptr) {
                 impl.probe.sampleRate = impl.audioCodec->sample_rate;
                 impl.probe.channels = impl.audioCodec->ch_layout.nb_channels;
                 if (impl.videoStream < 0) {
