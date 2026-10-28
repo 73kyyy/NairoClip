@@ -94,6 +94,42 @@ jobs:
           ls /tmp/media_gen/ || true
           test -f /tmp/media_gen/test_av.mp4
 
+      - name: 诊断：gdb 抓原生崩溃栈
+        # 之前所有诊断都绕开了一点：ASAN/valgrind/UBSan 都会改变内存布局，
+        # 崩溃在它们下面都不复现（UBSan 构建里这个用例是过的）。
+        # 只有原生 Release 会崩。gdb 不改布局，能在 abort 那一刻拿到
+        # 完整调用栈 —— 这是唯一能直说「谁在哪个函数写坏了堆」的手段。
+        #
+        # 用 "catch signal SIGABRT" + "bt"：glibc 的 malloc 检测到
+        # chunk header 被写坏时走的是 abort()，栈上能看到
+        # malloc_printerr ← _int_malloc ← ... ← 真正的分配者。
+        # 再加 "thread apply all bt" 排除其它线程。
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y -qq gdb || true
+          set +e
+          gdb -q -batch \
+            -ex "set pagination off" \
+            -ex "set print thread-events off" \
+            -ex "catch signal SIGABRT" \
+            -ex "run" \
+            -ex "echo \\n===== BACKTRACE (abort 现场) =====\\n" \
+            -ex "bt 40" \
+            -ex "echo \\n===== 所有线程 =====\\n" \
+            -ex "thread apply all bt 15" \
+            -ex "echo \\n===== 寄存器/当前帧 =====\\n" \
+            -ex "frame 1" \
+            -ex "info args" \
+            -ex "info locals" \
+            --args ./build/tests/nairoclip_tests \
+            > /tmp/gdb_out.txt 2>&1
+          echo "gdb exit=$?"
+          grep -n -A45 'BACKTRACE' /tmp/gdb_out.txt | head -55
+          BT=$(grep -A30 'BACKTRACE' /tmp/gdb_out.txt | tr '\n' '~' | cut -c1-1600)
+          echo "::error title=GDB_BT::${BT:-none}"
+          ALL=$(grep -A20 '所有线程' /tmp/gdb_out.txt | tr '\n' '~' | cut -c1-1000)
+          echo "::error title=GDB_THREADS::${ALL:-none}"
+
       - name: 诊断：二分定位（原生 Release + glibc 堆调试）
         # 全量固定死在 Capi.WatermarkRealExportEndToEnd，但「只跑 Capi 靶」
         # 是绿的 —— 说明要么是前面用例污染，要么是该用例在**全量上下文**
