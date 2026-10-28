@@ -195,6 +195,40 @@ jobs:
           # 「索引 266 之后的用例」参与，或需要更长的运行上下文。
           # SKIP=50 仍包含崩溃用例：崩 → 前 50 个里没有必要的触发条件。
 
+      - name: 诊断：mmap 分配器（越界立即 SIGSEGV）
+        # MALLOC_MMAP_THRESHOLD_=1 让 glibc 对每个分配单独 mmap 一整页，
+        # 块尾紧贴不可访问的页边界 —— 任何正向越界写立即 SIGSEGV，
+        # 而不是像 arena/tcache 那样把破坏藏起来等下次 malloc 才报。
+        #
+        # 为什么需要这一步：
+        #   ASAN / valgrind 都报干净，但它们是「越界检测器」——
+        #   对「写进另一个合法分配块」的逻辑错误无效。
+        #   而 glibc 报的是 chunk header 被改（= 前一块正越界写到了本块头部），
+        #   正是 mmap 模式最擅长抓的形态。
+        #
+        # 只跑崩溃用例本身（SKIP=267 MAX=268），避免全量 OOM。
+        continue-on-error: true
+        run: |
+          export MALLOC_MMAP_THRESHOLD_=1
+          export MALLOC_TRIM_THRESHOLD_=1
+          export MALLOC_TOP_PAD_=0
+          export MALLOC_PERTURB_=165
+          for scope in "only" "seq"; do
+            if [ "$scope" = "only" ]; then
+              export NC_TEST_SKIP=267 NC_TEST_MAX=268
+            else
+              export NC_TEST_SKIP=203 NC_TEST_MAX=268
+            fi
+            echo "=== scope=$scope ==="
+            ./build/tests/nairoclip_tests > /tmp/mmap_$scope.txt 2>&1
+            rc=$?
+            echo "exit=$rc"
+            tail -5 /tmp/mmap_$scope.txt
+            echo "::error title=MMAP_${scope}::exit=$rc last=$(grep -E '^\[ RUN  \]' /tmp/mmap_$scope.txt | tail -1)"
+            LASTL=$(grep -n '诊断' /tmp/mmap_$scope.txt | tail -3 | tr '\n' '~' | cut -c1-700)
+            echo "::error title=MMAP_${scope}_DIAG::${LASTL:-none}"
+          done
+
       - name: 运行全量测试
         # 不加 set -o pipefail：测试失败时也要继续跑到「对账」步骤，
         # 把失败数打出来；否则只剩一个红叉，看不到原因。
