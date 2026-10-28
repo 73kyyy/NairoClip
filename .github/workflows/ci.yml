@@ -221,7 +221,7 @@ jobs:
           # 这三个环境变量都不改变分配器实现（仍是 glibc），
           # 所以能复现 ASAN/valgrind（自带的分配器）看不到的问题。
           MALLOC_PERTURB_=165 MALLOC_CHECK_=3 NC_TEST_CHECK_HEAP=1 \
-            NC_EXPORT_HEAP_PROBE=1 \
+            NC_EXPORT_HEAP_PROBE=1 NC_MEDIA_HEAP_PROBE=1 \
             stdbuf -oL -eL ./build/tests/nairoclip_tests \
             > /tmp/test_output.txt 2>&1
           rc=$?

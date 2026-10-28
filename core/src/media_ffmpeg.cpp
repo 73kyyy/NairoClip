@@ -13,6 +13,8 @@ extern "C" {
 
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
+#include <cstdio>
 
 namespace nairoclip {
 namespace core {
@@ -38,6 +40,40 @@ FrameRate frameRateOf(const AVStream* stream) {
         return fps30();
     }
     return FrameRate::of(rate.num, rate.den);
+}
+
+}  // namespace
+
+namespace {
+
+/// 解码路径的堆检查点（诊断用；NC_MEDIA_HEAP_PROBE=1 打开）。
+/// 已确证拆到 readVideoFrame 这一层：reader.open 之后堆还是好的，
+/// readVideoFrame 返回后第一次 malloc 就崩。这里把解码拆成四段。
+bool mediaProbeEnabled() {
+    static const bool enabled = [] {
+        const char* v = std::getenv("NC_MEDIA_HEAP_PROBE");
+        return v != nullptr && v[0] != '0';
+    }();
+    return enabled;
+}
+
+void mediaHeapCheck(const char* where) {
+    if (!mediaProbeEnabled()) return;
+    constexpr int kN = 122;
+    void* blocks[kN];
+    std::size_t sizes[kN];
+    int n = 0;
+    for (int i = 0; i < 96; ++i, ++n) sizes[n] = 16 + static_cast<std::size_t>(i) * 21;
+    for (int i = 0; i < 24; ++i, ++n) sizes[n] = 2048 + static_cast<std::size_t>(i) * 2600;
+    sizes[n++] = 1048;
+    sizes[n++] = 2048;
+    for (int i = 0; i < n; ++i) {
+        blocks[i] = std::malloc(sizes[i]);
+        if (blocks[i] != nullptr) std::memset(blocks[i], 0xCD, sizes[i]);
+    }
+    for (int i = 0; i < n; ++i) std::free(blocks[i]);
+    std::printf("[诊断] readVideoFrame: %s 后堆 OK\n", where);
+    std::fflush(stdout);
 }
 
 }  // namespace
@@ -294,6 +330,7 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
                 continue;
             }
             const AVPixelFormat srcFormat = static_cast<AVPixelFormat>(impl.frame->format);
+            mediaHeapCheck("receive_frame 之后");
             impl.sws = sws_getCachedContext(impl.sws, width, height, srcFormat, width, height,
                                             AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr,
                                             nullptr);
@@ -301,6 +338,7 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
                 av_frame_unref(impl.frame);
                 return false;
             }
+            mediaHeapCheck("sws_getCachedContext 之后");
             out.timestamp = frameTime;
             out.width = width;
             out.height = height;
@@ -310,7 +348,9 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
             std::uint8_t* dst[4] = {out.pixels.data(), nullptr, nullptr, nullptr};
             const int dstStride[4] = {out.stride, 0, 0, 0};
             sws_scale(impl.sws, impl.frame->data, impl.frame->linesize, 0, height, dst, dstStride);
+            mediaHeapCheck("sws_scale 之后");
             av_frame_unref(impl.frame);
+            mediaHeapCheck("av_frame_unref 之后");
             return true;
         }
         if (err == AVERROR(EAGAIN)) {
