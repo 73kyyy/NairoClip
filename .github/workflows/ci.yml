@@ -251,8 +251,18 @@ jobs:
           TAIL=$(tail -12 /tmp/test_output.txt | tr '\n' '~' | cut -c1-1500)
           echo "::error title=TAIL::${TAIL:-none}"
           # 诊断行单独走一条 annotation，避免被 TAIL 截断
-          DIAG=$(grep '诊断' /tmp/test_output.txt | tr '\n' '~' | cut -c1-1800)
-          echo "::error title=DIAG_LINES::${DIAG:-none}"
+          # 按「用例边界」截取：从最后一次出现崩溃用例名处开始，只取该用例内的诊断
+          awk '/^\[ RUN  \] Capi.WatermarkRealExportEndToEnd/{buf=\"\"} {buf=buf $0 \"~\"} END{print buf}' \
+            /tmp/test_output.txt > /tmp/diag_case.txt
+          wc -c /tmp/diag_case.txt
+          # 切成 3 段，避免单条 annotation 过长被截
+          split -b 2400 -d /tmp/diag_case.txt /tmp/diagpart_ 2>/dev/null || true
+          i=0
+          for f in /tmp/diagpart_*; do
+            [ -f "$f" ] || continue
+            echo "::error title=DIAG_P$i::$(cat $f | tr '\n' ' ' | cut -c1-2300)"
+            i=$((i+1))
+          done
           exit $rc
 
       - name: 对账用例总数
