@@ -565,13 +565,33 @@ Result FFmpegMediaWriter::writeAudioBlock(const OutputAudioBlock& block) {
         }
         consumedFrames += static_cast<std::size_t>(frameSize);
     }
-    // 保留未消费的剩余样本
+    // 保留未消费的剩余样本。
+    //
+    // FIFO 是**平面**布局：[ch0 全部帧][ch1 全部帧]...
+    // 不能一句 erase 掉队首 —— 那会削掉 ch0 的开头、却留下 ch1 的旧数据，
+    // 破坏「每声道帧数相同」的不变式；后续按声道跨步读就会读到
+    // 上一批的残留，并把 ch1 的读取位置推出缓冲区（越界读）。
+    // 必须逐声道各删掉 consumedFrames 个。
     if (consumedFrames > 0) {
-        impl.audioFifo.erase(
-            impl.audioFifo.begin(),
-            impl.audioFifo.begin() +
-                static_cast<std::ptrdiff_t>(consumedFrames *
-                                            static_cast<std::size_t>(channels)));
+        const bool planar = av_sample_fmt_is_planar(impl.audioCodec->sample_fmt);
+        if (planar && channels > 1) {
+            const std::size_t perCh = available;  // 每声道当前帧数
+            const std::size_t keep = perCh > consumedFrames ? perCh - consumedFrames : 0;
+            std::vector<float> next;
+            next.reserve(keep * static_cast<std::size_t>(channels));
+            for (int ch = 0; ch < channels; ++ch) {
+                const float* begin =
+                    impl.audioFifo.data() + static_cast<std::size_t>(ch) * perCh;
+                if (keep > 0) next.insert(next.end(), begin + consumedFrames, begin + perCh);
+            }
+            impl.audioFifo.swap(next);
+        } else {
+            impl.audioFifo.erase(
+                impl.audioFifo.begin(),
+                impl.audioFifo.begin() +
+                    static_cast<std::ptrdiff_t>(consumedFrames *
+                                                static_cast<std::size_t>(channels)));
+        }
     }
     return Result::ok();
 }

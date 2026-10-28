@@ -206,10 +206,30 @@ jobs:
           sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
             libswscale-dev libswresample-dev pkg-config
 
+      - name: 缓存 ONNX Runtime
+        # ⚠️ 关键：诊断 job 必须和主 job **覆盖同一份代码**。
+        # 之前 ASAN / valgrind 都没装 ORT，AI 相关路径走的是降级 stub ——
+        # 于是它们「1444 用例 0 报错」并不能说明主 job 也干净。
+        id: cache-ort
+        uses: actions/cache@v4
+        with:
+          path: ort
+          key: ort-linux-x64-1.22.0
+
+      - name: 下载 ONNX Runtime
+        if: steps.cache-ort.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          mkdir -p ort
+          tar -xzf ort.tgz -C ort --strip-components=1
+
       - name: Configure (ASAN)
+        # 与主 job 同样的 Release + ORT，只额外挂 sanitizer：
+        # 只有构建类型/依赖一致，"ASAN 没报" 才能推出 "主 job 也干净"。
         run: |
           cmake -S . -B build_asan \
-            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNAIROCLIP_ORT_ROOT="$GITHUB_WORKSPACE/ort" \
             -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
             -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
@@ -224,8 +244,12 @@ jobs:
           # 之前，ASAN 报 "runtime does not come first in initial library list"
           # 直接 abort —— 上一轮 exit=134 且 0 条 [ RUN ] 就是这个。
           # 改用 ASAN 自己的 symbolizer + 关闭 link-order 校验。
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/ort/lib:$LD_LIBRARY_PATH"
           export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:symbolize=1:print_stacktrace=1:verify_asan_link_order=0:log_path=/tmp/asan_log
           set +e
+          # Release + ASAN 下全量约 10-15 分钟；给足时间。
+          # 不用 NC_TEST_MAX 截断 —— 崩溃点之前可能有多个用例轮番污染，
+          # 截断会漏掉真正写坏堆的那一个。
           script -q -e -c "./build_asan/tests/nairoclip_tests" /dev/null > /tmp/asan_output.txt 2>&1
           rc=$?
           echo "exit_code=$rc"
@@ -281,9 +305,25 @@ jobs:
           sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
             libswscale-dev libswresample-dev pkg-config valgrind
 
-      - name: Configure (Debug)
+      - name: 缓存 ONNX Runtime
+        id: cache-ort
+        uses: actions/cache@v4
+        with:
+          path: ort
+          key: ort-linux-x64-1.22.0
+
+      - name: 下载 ONNX Runtime
+        if: steps.cache-ort.outputs.cache-hit != 'true'
         run: |
-          cmake -S . -B build_vg -DCMAKE_BUILD_TYPE=Debug \
+          curl -fsSL -o ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          mkdir -p ort
+          tar -xzf ort.tgz -C ort --strip-components=1
+
+      - name: Configure (Debug)
+        # 与主 job 同一份代码（含 ORT），只是 -O0 便于 valgrind 给出准确行号
+        run: |
+          cmake -S . -B build_vg -DCMAKE_BUILD_TYPE=Release \
+            -DNAIROCLIP_ORT_ROOT="$GITHUB_WORKSPACE/ort" \
             -DCMAKE_CXX_FLAGS="-g -O0" -DCMAKE_C_FLAGS="-g -O0"
 
       - name: Build
@@ -294,6 +334,7 @@ jobs:
           set +e
           # 限制阈值：只跑到崩溃点附近，valgrind 下全量太慢。
           # 索引由上一次 CI 的 LAST_RUN 给出（死在该用例）。
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/ort/lib:$LD_LIBRARY_PATH"
           valgrind --tool=memcheck --error-exitcode=99 \
             --track-origins=yes --num-callers=25 \
             --log-file=/tmp/vg.txt \
