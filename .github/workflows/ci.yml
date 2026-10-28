@@ -31,11 +31,19 @@ jobs:
           echo "== 编译器 =="; g++ --version | head -1
           echo "== CMake =="; cmake --version | head -1
 
-      - name: 安装 FFmpeg
+      - name: 安装 FFmpeg 开发库
+        # 关键：CI 需要的是 **开发库**（-dev），不是 ffmpeg CLI。
+        # 只装 CLI 时 pkg-config 找不到 libavcodec，CMake 会降级到 Mock 读取器，
+        # 45 个 FFmpeg 用例根本不编进去 —— 表现为「CI 全绿但用例数少了 45」。
+        # 这是 ca. 2026-10 一次真实 CI 失败的原因，靠「用例数下限」检查抓到。
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-          ffmpeg -version | head -1
+          sudo apt-get install -y -qq \
+            ffmpeg \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswscale-dev libswresample-dev
+          echo "== CLI =="; ffmpeg -version | head -1
+          echo "== pkg-config =="; pkg-config --modversion libavcodec
 
       - name: 缓存 ONNX Runtime
         id: cache-ort
@@ -57,16 +65,24 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
                 -DNAIROCLIP_ORT_ROOT="$GITHUB_WORKSPACE/ort"
 
-      - name: 确认 ORT 已启用
-        # 若 ORT 未生效，AI 用例会静默走降级分支，CI 覆盖的代码与本地不同。
+      - name: 确认 FFmpeg 与 ORT 均已启用
+        # 两者都会**静默降级**：FFmpeg 缺失 → Mock 读取器；ORT 缺失 → AI 降级。
+        # 若 CI 上有一条降级，它覆盖的代码就与本地不同，绿也不代表同一件事。
         run: |
+          fail=0
+          if grep -q 'NAIROCLIP_HAS_FFMPEG=1' \
+               build/core/CMakeFiles/nairoclip_core.dir/flags.make; then
+            echo "FFmpeg 已启用"
+          else
+            echo "ERROR: FFmpeg 未启用，将使用 Mock 读取器"; fail=1
+          fi
           if grep -q 'NAIROCLIP_HAS_ONNX_RUNTIME=1' \
                build/core/CMakeFiles/nairoclip_core.dir/flags.make; then
             echo "ONNX Runtime 已启用"
           else
-            echo "ERROR: ONNX Runtime 未启用"
-            exit 1
+            echo "ERROR: ONNX Runtime 未启用"; fail=1
           fi
+          exit $fail
 
       - name: Build
         run: cmake --build build --config Release --parallel
