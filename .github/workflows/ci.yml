@@ -94,14 +94,33 @@ jobs:
           ls /tmp/media_gen/ || true
           test -f /tmp/media_gen/test_av.mp4
 
-      - name: 诊断：只跑 Capi 系列
-        # 全量在 x64 上出现 malloc(): invalid size，已定位到 Capi 区间。
-        # 单独跑这个靶可以确认「是否 Capi 用例自身的问题」，
-        # 排除「前面用例污染了堆」这一可能。
+      - name: 诊断：二分定位（原生 Release + glibc 堆调试）
+        # 全量固定死在 Capi.WatermarkRealExportEndToEnd，但「只跑 Capi 靶」
+        # 是绿的 —— 说明要么是前面用例污染，要么是该用例在**全量上下文**
+        # 里才有差异（例如素材/文件状态、内存布局）。
+        # 这一组对照实验把三种可能分开：
+        #   A. 该用例单独跑 → 崩 = 自身问题
+        #   B. 从中间开始跑（跳过前一半）→ 崩 = 污染源在后半段
+        #   C. 只跑前半段 → 崩 = 污染源在前半段
         continue-on-error: true
         run: |
+          export MALLOC_PERTURB_=165 MALLOC_CHECK_=3
+          run() {
+            label="$1"; shift
+            echo "=== $label ==="
+            env "$@" stdbuf -oL -eL ./build/tests/nairoclip_tests \
+              > /tmp/diag.txt 2>&1
+            rc=$?
+            echo "exit=$rc"
+            grep -E '^\[ RUN  \]' /tmp/diag.txt | tail -1
+            tail -2 /tmp/diag.txt
+            echo "::error title=DIAG_${label}::exit=$rc last=$(grep -E '^\[ RUN  \]' /tmp/diag.txt | tail -1)"
+          }
           echo "=== 先跑 Capi 靶 ==="
-          stdbuf -oL -eL ./build/tests/nairoclip_capi_only_tests 2>&1 | tail -25 || true
+          stdbuf -oL -eL ./build/tests/nairoclip_capi_only_tests 2>&1 | tail -8 || true
+          # 注册总数 1444；Capi 从索引 203 开始，该用例约在 203+60 附近
+          run "MID_1100" NC_TEST_SKIP=1100
+          run "MID_600" NC_TEST_SKIP=600
 
       - name: 运行全量测试
         # 不加 set -o pipefail：测试失败时也要继续跑到「对账」步骤，
@@ -122,7 +141,14 @@ jobs:
           # NC_TEST_CHECK_HEAP=1：每个用例后做一次堆一致性检查，把
           # "malloc(): invalid size" 这类延迟暴露的破坏钉到真凶用例上。
           # 详见 tests/test_framework.h 里 HeapProbe 的注释。
-          NC_TEST_CHECK_HEAP=1 stdbuf -oL -eL ./build/tests/nairoclip_tests \
+          # MALLOC_PERTURB_：free 时用该字节填充、malloc 时用其反码填充，
+          #   让「读了已释放内存」立刻表现为异常值而不是侥幸的旧数据。
+          # MALLOC_CHECK_=3：glibc 在每次 malloc/free 时复核 chunk header，
+          #   发现不一致直接 abort 并打印，比等到下一次 malloc 才报更早。
+          # 这三个环境变量都不改变分配器实现（仍是 glibc），
+          # 所以能复现 ASAN/valgrind（自带的分配器）看不到的问题。
+          MALLOC_PERTURB_=165 MALLOC_CHECK_=3 NC_TEST_CHECK_HEAP=1 \
+            stdbuf -oL -eL ./build/tests/nairoclip_tests \
             > /tmp/test_output.txt 2>&1
           rc=$?
           echo "exit_code=$rc (137=SIGKILL 134=SIGABRT 139=SIGSEGV)"
