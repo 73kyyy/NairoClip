@@ -455,8 +455,8 @@ jobs:
           cmake -S . -B build_ub \
             -DCMAKE_BUILD_TYPE=Release \
             -DNAIROCLIP_ORT_ROOT="$GITHUB_WORKSPACE/ort" \
-            -DCMAKE_CXX_FLAGS="-g -fsanitize=undefined -fno-sanitize-recover=undefined -ftrivial-auto-var-init=pattern" \
-            -DCMAKE_C_FLAGS="-g -fsanitize=undefined -fno-sanitize-recover=undefined -ftrivial-auto-var-init=pattern" \
+            -DCMAKE_CXX_FLAGS="-g -fsanitize=undefined -ftrivial-auto-var-init=pattern" \
+            -DCMAKE_C_FLAGS="-g -fsanitize=undefined -ftrivial-auto-var-init=pattern" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined"
 
       - name: Build
@@ -466,12 +466,16 @@ jobs:
         run: |
           set +e
           export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/ort/lib:$LD_LIBRARY_PATH"
-          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0
           ./build_ub/tests/nairoclip_tests > /tmp/ub_out.txt 2>&1
           rc=$?
           echo "exit=$rc"
-          echo "---------------- UBSan 报告 ----------------"
-          grep -n -B2 -A12 'runtime error' /tmp/ub_out.txt | head -60
+          echo "---------------- UBSan 报告（去重后的位置）----------------"
+          # 按 "文件:行:列" 去重，只留首次出现处 + 计数，避免刷屏
+          grep -oE '/[^ ]+\.(cpp|h):[0-9]+:[0-9]+: runtime error: .*' /tmp/ub_out.txt \
+            | sort | uniq -c | sort -rn | head -30
+          echo "---------------- 首个报告的前 45 行 ----------------"
+          grep -n -B2 -A45 -m1 'runtime error' /tmp/ub_out.txt | head -50
           echo "---------------- 崩溃点 ----------------"
           grep -E '^\[ RUN  \]' /tmp/ub_out.txt | tail -2
           FIRST=$(grep -m1 'runtime error' /tmp/ub_out.txt | tr '~' ' ' | cut -c1-400)

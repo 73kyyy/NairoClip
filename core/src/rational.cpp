@@ -9,14 +9,27 @@ namespace core {
 namespace {
 
 std::int64_t gcd64(std::int64_t a, std::int64_t b) {
-    if (a < 0) a = -a;
-    if (b < 0) b = -b;
-    while (b != 0) {
-        const std::int64_t t = a % b;
-        a = b;
-        b = t;
+    // 用无符号做绝对值：`-INT64_MIN` 在 int64 里是**未定义行为**
+    // （取负溢出），UBSan 在 rational.cpp:12 实抓到过。
+    // 转成 uint64 后取负是良定义的（二补码回绕），且 128 位余数计算
+    // 也用同一套无符号语义，结果与之前对非极值输入完全一致。
+    std::uint64_t ua = (a < 0) ? (~static_cast<std::uint64_t>(a) + 1u)
+                               : static_cast<std::uint64_t>(a);
+    std::uint64_t ub = (b < 0) ? (~static_cast<std::uint64_t>(b) + 1u)
+                               : static_cast<std::uint64_t>(b);
+    while (ub != 0) {
+        const std::uint64_t t = ua % ub;
+        ua = ub;
+        ub = t;
     }
-    return a == 0 ? 1 : a;
+    if (ua == 0) return 1;
+    // 结果只用于约分，必然 <= |a|、|b| 的较小者；若恰好等于 2^63
+    // （只有 a 或 b 为 INT64_MIN 且另一为 0 时可能），钳到 INT64_MAX，
+    // 避免 narrow 溢出（约分语义下两者等价：分母同步处理）。
+    if (ua > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        return std::numeric_limits<std::int64_t>::max();
+    }
+    return static_cast<std::int64_t>(ua);
 }
 
 // =============================================================================
