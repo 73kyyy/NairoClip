@@ -131,6 +131,13 @@ jobs:
           run "MAX_200" NC_TEST_MAX=200
           run "MAX_266" NC_TEST_MAX=266
           run "SKIP_50" NC_TEST_SKIP=50
+          # 只跑崩溃用例本身（SKIP=267 MAX=268）。
+          # 它能区分两种完全不同的原因：
+          #   崩 → 该用例自成一体地触发问题（与前面用例无关）
+          #   绿 → 必须叠加前面某个用例留下的状态（则继续二分 SKIP）
+          run "ONLY_267" NC_TEST_SKIP=267 NC_TEST_MAX=268
+          # 索引 203..266 的 Capi 段整体（不含崩溃用例）：确认这段是干净的
+          run "CAPISEQ" NC_TEST_SKIP=203 NC_TEST_MAX=267
           # MAX=N 只跑前 N 个：若 MAX_266 通过而全量崩，说明崩溃需要
           # 「索引 266 之后的用例」参与，或需要更长的运行上下文。
           # SKIP=50 仍包含崩溃用例：崩 → 前 50 个里没有必要的触发条件。
