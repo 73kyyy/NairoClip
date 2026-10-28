@@ -251,17 +251,26 @@ jobs:
           TAIL=$(tail -12 /tmp/test_output.txt | tr '\n' '~' | cut -c1-1500)
           echo "::error title=TAIL::${TAIL:-none}"
           # 诊断行单独走一条 annotation，避免被 TAIL 截断
-          # 按「用例边界」截取：从最后一次出现崩溃用例名处开始，只取该用例内的诊断
-          awk '/^\[ RUN  \] Capi.WatermarkRealExportEndToEnd/{buf=\"\"} {buf=buf $0 \"~\"} END{print buf}' \
-            /tmp/test_output.txt > /tmp/diag_case.txt
-          wc -c /tmp/diag_case.txt
-          # 切成 3 段，避免单条 annotation 过长被截
-          split -b 2400 -d /tmp/diag_case.txt /tmp/diagpart_ 2>/dev/null || true
+          # 取「最后一个 RUN 行之后」的全部内容：即该用例自己的输出。
+          # 不用 awk（YAML 里的引号转义容易出错，上一版就是这么写坏的），
+          # 改用 tac + awk 找最后一个 RUN 的行号，再 tail 截取。
+          LASTLINE=$(grep -n '^\[ RUN  \]' /tmp/test_output.txt | tail -1 | cut -d: -f1)
+          echo "崩溃用例起始行=$LASTLINE"
+          if [ -n "$LASTLINE" ]; then
+            tail -n +"$LASTLINE" /tmp/test_output.txt > /tmp/case_out.txt
+          else
+            cp /tmp/test_output.txt /tmp/case_out.txt
+          fi
+          wc -c /tmp/case_out.txt
+          # 切成多段，每段 2400 字节，各走一条 annotation
+          rm -f /tmp/diagpart_*
+          split -b 2400 /tmp/case_out.txt /tmp/diagpart_ 2>/dev/null || true
           i=0
           for f in /tmp/diagpart_*; do
             [ -f "$f" ] || continue
-            echo "::error title=DIAG_P$i::$(cat $f | tr '\n' ' ' | cut -c1-2300)"
+            echo "::error title=CASE_P$i::$(tr '\n' '~' < $f | cut -c1-2300)"
             i=$((i+1))
+            [ "$i" -ge 6 ] && break
           done
           exit $rc
 
