@@ -115,6 +115,10 @@ jobs:
         # FFREPORT/AV_LOG：把 FFmpeg 自身日志降到 warning，
         # 否则 x264 的统计会淹没测试输出（CI 日志里 80% 是这类噪音）。
         run: |
+          # Actions 的 run 默认是 bash -e：stdbuf 一返回 134 脚本就退出，
+          # 下面所有诊断都不会执行（上一轮 annotation 只剩 "Process completed
+          # with exit code 134"，就是这个原因）。必须先关掉 errexit。
+          set +e
           stdbuf -oL -eL ./build/tests/nairoclip_tests > /tmp/test_output.txt 2>&1
           rc=$?
           echo "exit_code=$rc (137=SIGKILL 134=SIGABRT 139=SIGSEGV)"
@@ -125,6 +129,12 @@ jobs:
           grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -3
           echo "---------------- 汇总行 ----------------"
           grep -E '^=====' /tmp/test_output.txt || echo "无汇总行"
+          echo "---------------- 行数 / 前 30 行 ----------------"
+          wc -l /tmp/test_output.txt
+          head -30 /tmp/test_output.txt
+          echo "---------------- abort/assert 关键字 ----------------"
+          grep -n -E 'assert|Assertion|terminate|bad_alloc|invalid size|corrupt|malloc|free\(\)' \
+            /tmp/test_output.txt | head -20 || echo "无"
           # 走 annotation 通道：public 仓库的日志/artifact 需要认证，
           # 但 check-run annotation 可匿名读取，是唯一能带出细节的出口。
           echo "::error title=TEST_EXIT::exit=$rc bytes=$(stat -c%s /tmp/test_output.txt)"
@@ -132,6 +142,8 @@ jobs:
           SUM=$(grep -E '^=====' /tmp/test_output.txt | tail -1)
           echo "::error title=LAST_RUN::${LAST:-none}"
           echo "::error title=SUMMARY::${SUM:-none}"
+          TAIL=$(tail -12 /tmp/test_output.txt | tr '\n' '~' | cut -c1-1500)
+          echo "::error title=TAIL::${TAIL:-none}"
           exit $rc
 
       - name: 对账用例总数
@@ -204,18 +216,38 @@ jobs:
 
       - name: 运行测试 (ASAN)
         run: |
-          export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:symbolize=1:print_stacktrace=1
+          # 不用 stdbuf：它靠 LD_PRELOAD 注入 libstdbuf，会排在 ASAN runtime
+          # 之前，ASAN 报 "runtime does not come first in initial library list"
+          # 直接 abort —— 上一轮 exit=134 且 0 条 [ RUN ] 就是这个。
+          # 改用 ASAN 自己的 symbolizer + 关闭 link-order 校验。
+          export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:symbolize=1:print_stacktrace=1:verify_asan_link_order=0:log_path=/tmp/asan_log
           set +e
-          stdbuf -oL -eL ./build_asan/tests/nairoclip_tests > /tmp/asan_output.txt 2>&1
+          script -q -e -c "./build_asan/tests/nairoclip_tests" /dev/null > /tmp/asan_output.txt 2>&1
           rc=$?
           echo "exit_code=$rc"
           echo "---------------- ASAN 报告 ----------------"
           grep -n -A40 -E 'ERROR: AddressSanitizer|SUMMARY: AddressSanitizer' /tmp/asan_output.txt | head -80
           echo "---------------- 崩溃点 ----------------"
           grep -E '^\[ RUN  \]' /tmp/asan_output.txt | tail -3
+          echo "---------------- 行数 ----------------"
+          wc -l /tmp/asan_output.txt
+          echo "---------------- 前 40 行（含静态初始化阶段）----------------"
+          head -40 /tmp/asan_output.txt
+          echo "---------------- 后 40 行 ----------------"
+          tail -40 /tmp/asan_output.txt
           echo "::error title=ASAN_EXIT::exit=$rc"
           LAST=$(grep -E '^\[ RUN  \]' /tmp/asan_output.txt | tail -1)
           echo "::error title=ASAN_LAST_RUN::${LAST:-none}"
           ERR=$(grep -m1 -E 'ERROR: AddressSanitizer' /tmp/asan_output.txt)
           echo "::error title=ASAN_ERROR::${ERR:-none}"
+          # 一行数：用来判断是「main 之前就崩」还是「跑到某用例才崩」
+          echo "::error title=ASAN_RUNCOUNT::$(grep -c -E '^\[ RUN  \]' /tmp/asan_output.txt) run / $(grep -c -E '^\[  OK  \]' /tmp/asan_output.txt) ok"
+          ATAIL=$(tail -12 /tmp/asan_output.txt | tr '\n' '~' | cut -c1-1500)
+          echo "::error title=ASAN_TAIL::${ATAIL:-none}"
+          echo "---------------- asan_log 文件 ----------------"
+          ls -la /tmp/asan_log* 2>/dev/null || echo "无 asan_log"
+          cat /tmp/asan_log* 2>/dev/null | head -60
+          if [ -f /tmp/asan_log.* ]; then
+            echo "::error title=ASAN_LOGFILE::$(head -6 /tmp/asan_log.* | tr '\n' '~' | cut -c1-1200)"
+          fi
           exit 0
