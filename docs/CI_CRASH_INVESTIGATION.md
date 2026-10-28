@@ -87,6 +87,46 @@ CI（x64 / Ubuntu / glibc）上原生 Release 构建跑全量测试时稳定崩�
 两者执行路径一致，唯一差别是多一次 `getenv("NC_WM_STAGE")` 调用。
 **多一次函数调用改变栈布局就换结果** —— 未定义行为的典型特征。
 
+
+## 二·补、最新进展（2026-10-28 晚）
+
+### 导出路径已排除
+
+在 `runExport` 内部插了 6 个堆检查点（`NC_EXPORT_HEAP_PROBE=1`）：
+
+    writer 创建后/未 open -> writer.open 之后 -> executeExport 之后 ->
+    finish 之前 -> finish 之后 -> runExport 返回前
+
+**全部通过。** 这一轮的探针已覆盖 16B..62KB 共 122 档
+（含 glibc 实报过的 1048 / 2048），不是之前那种「只到 3KB」的窄探针。
+所以「导出写坏堆」可以排除 —— 之前几轮对 writer / audioFifo / 编码器
+的怀疑都不成立。
+
+### 破坏点收敛到 readVideoFrame
+
+诊断行原文（不再用字节数反推）显示：
+
+    用例入口 -> nc_export_run 之前 -> [runExport 六点全过] ->
+    nc_export_run 之后 -> 解码前 -> reader.open   都打印了
+    下一条 readVideoFrame                          没有
+
+同时 gdb 栈：`#9 nc_test_Capi_WatermarkRealExportEndToEnd` 直接调
+`malloc(919)`。919 == `16 + 43*21`，正是 HeapProbe 的某档尺寸
+→ 是探针自己在 malloc 时踩到坏块，而不是业务代码在解引用。
+
+结论：破坏发生在 `reader.open` 返回之后、`readVideoFrame` 返回之后。
+
+### 方法论修正
+
+1. **探针尺寸必须覆盖所有 bin。** 旧探针最大 3KB，坏 chunk 在更大档位
+   根本不会被复用，「通过」是假阴性。这次白白多跑了三轮。
+2. **不要用输出字节数反推诊断进度。** 中文多字节 + 同一检查点可能被
+   多次调用，我算错过两次。直接把 `grep 诊断` 的原文打到日志 / annotation。
+3. **检查点要放在循环体外也要放一份。** `heapOk("readVideoFrame")` 写在
+   `while` 体内，`readVideoFrame` 返回 false 时会整段跳过，
+   一度让我误以为「没打印 = 崩在 readVideoFrame 内部」，
+   实际上也可能崩在循环之后的 `reader.close()`。
+
 ## 三、已修的真实缺陷（不一定是本崩溃的根因）
 
 排查过程中确认并修复的独立缺陷，均有独立价值：
