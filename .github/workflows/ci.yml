@@ -94,6 +94,15 @@ jobs:
           ls /tmp/media_gen/ || true
           test -f /tmp/media_gen/test_av.mp4
 
+      - name: 诊断：只跑 Capi 系列
+        # 全量在 x64 上出现 malloc(): invalid size，已定位到 Capi 区间。
+        # 单独跑这个靶可以确认「是否 Capi 用例自身的问题」，
+        # 排除「前面用例污染了堆」这一可能。
+        continue-on-error: true
+        run: |
+          echo "=== 先跑 Capi 靶 ==="
+          stdbuf -oL -eL ./build/tests/nairoclip_capi_only_tests 2>&1 | tail -25 || true
+
       - name: 运行全量测试
         # 不加 set -o pipefail：测试失败时也要继续跑到「对账」步骤，
         # 把失败数打出来；否则只剩一个红叉，看不到原因。

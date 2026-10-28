@@ -275,3 +275,15 @@ set_tests_properties(nairoclip_tests PROPERTIES
 
 
 
+
+# 诊断靶：只跑 Capi 系列，用于在 CI 上二分定位内存问题
+add_executable(nairoclip_capi_only_tests
+    test_main.cpp
+    test_capi.cpp
+)
+target_link_libraries(nairoclip_capi_only_tests PRIVATE nairoclip_core)
+if(MSVC)
+    target_compile_options(nairoclip_capi_only_tests PRIVATE /W4 /utf-8)
+else()
+    target_compile_options(nairoclip_capi_only_tests PRIVATE -Wall -Wextra)
+endif()

@@ -323,12 +323,27 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         return Result::fail(ErrorCode::Internal, "写文件头失败: " + avErr(err));
     }
 
+    // 逐项检查返回值：CI（x64, glibc）上曾出现 malloc(): invalid size 崩溃，
+    // 定位在真实导出路径。这类"内存紧张时分配失败"如果不检查，
+    // 后面 sws_scale 会往 nullptr / 未分配的 data 里写，直接破坏堆。
     impl.videoFrame = av_frame_alloc();
+    if (impl.videoFrame == nullptr) {
+        abort();
+        return Result::fail(ErrorCode::Internal, "视频帧分配失败");
+    }
     impl.videoFrame->format = impl.videoCodec->pix_fmt;
     impl.videoFrame->width = config.width;
     impl.videoFrame->height = config.height;
-    av_frame_get_buffer(impl.videoFrame, 32);
+    const int bufErr = av_frame_get_buffer(impl.videoFrame, 32);
+    if (bufErr < 0) {
+        abort();
+        return Result::fail(ErrorCode::Internal, "视频帧缓冲区分配失败: " + avErr(bufErr));
+    }
     impl.packet = av_packet_alloc();
+    if (impl.packet == nullptr) {
+        abort();
+        return Result::fail(ErrorCode::Internal, "包分配失败");
+    }
     impl.open = true;
     return Result::ok();
 }
@@ -348,7 +363,12 @@ Result FFmpegMediaWriter::writeVideoFrame(const OutputVideoFrame& frame) {
     if (impl.sws == nullptr) {
         return Result::fail(ErrorCode::Internal, "缩放器创建失败");
     }
-    av_frame_make_writable(impl.videoFrame);
+    // av_frame_make_writable 可能因内存不足失败；失败时 videoFrame->data
+    // 仍是旧缓冲或不可写，继续 sws_scale 会写坏堆。
+    const int wrErr = av_frame_make_writable(impl.videoFrame);
+    if (wrErr < 0) {
+        return Result::fail(ErrorCode::Internal, "视频帧不可写: " + avErr(wrErr));
+    }
     const std::uint8_t* src[4] = {frame.rgba.data(), nullptr, nullptr, nullptr};
     const int srcStride[4] = {frame.width * 4, 0, 0, 0};
     sws_scale(impl.sws, src, srcStride, 0, frame.height, impl.videoFrame->data,
