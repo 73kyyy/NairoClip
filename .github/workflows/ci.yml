@@ -116,11 +116,24 @@ jobs:
             tail -2 /tmp/diag.txt
             echo "::error title=DIAG_${label}::exit=$rc last=$(grep -E '^\[ RUN  \]' /tmp/diag.txt | tail -1)"
           }
+          set +e
           echo "=== 先跑 Capi 靶 ==="
           stdbuf -oL -eL ./build/tests/nairoclip_capi_only_tests 2>&1 | tail -8 || true
-          # 注册总数 1444；Capi 从索引 203 开始，该用例约在 203+60 附近
-          run "MID_1100" NC_TEST_SKIP=1100
-          run "MID_600" NC_TEST_SKIP=600
+          # ---- 二分设计 ----
+          # 崩溃用例 Capi.WatermarkRealExportEndToEnd 在 test_capi.cpp 里，
+          # 该文件从注册索引 203 开始；该用例在文件内约第 60 个
+          # → 全量里约在索引 263。
+          #
+          # 注意：NC_TEST_SKIP=N 会跳过前 N 个用例，从第 N 个跑到末尾。
+          # 所以 SKIP 必须落在 [0, 263) 区间才有意义 —— 用 1100 会直接
+          # 跳过崩溃用例本身，跑出来的绿是假阴性（上一轮就是这么错的）。
+          # 崩溃用例在索引 267 附近（test_capi.cpp 从 203 起，文件内约第 64 个）
+          run "MAX_200" NC_TEST_MAX=200
+          run "MAX_266" NC_TEST_MAX=266
+          run "SKIP_50" NC_TEST_SKIP=50
+          # MAX=N 只跑前 N 个：若 MAX_266 通过而全量崩，说明崩溃需要
+          # 「索引 266 之后的用例」参与，或需要更长的运行上下文。
+          # SKIP=50 仍包含崩溃用例：崩 → 前 50 个里没有必要的触发条件。
 
       - name: 运行全量测试
         # 不加 set -o pipefail：测试失败时也要继续跑到「对账」步骤，
