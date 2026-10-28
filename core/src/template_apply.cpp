@@ -166,12 +166,21 @@ Result applyTemplate(TimelineEditor& editor, SequenceId sequenceId, const EditTe
             }
         }
 
-        // 摇晃：记入摘要。真正的像素位移在渲染侧由 shake_effect 完成；
-        // 片段层目前没有「摇晃强度」字段，因此这里只统计不落盘。
+        // 摇晃：写入片段字段（Clip::shake，B1-5 的 ShakeParams）。
+        // 渲染侧 export_executor 会读它并调 applyShakeToRgba。
         if (slot.hasShake()) {
-            ++out.shakesApplied;
-            out.warnings.push_back("槽位 " + std::to_string(i + 1) +
-                                   " 的摇晃参数未落盘（片段层无对应字段，需渲染侧接入）");
+            Clip* placed = findClip(editor.project(), sequenceId, target, inserted);
+            if (placed != nullptr) {
+                placed->shake.trajectory = ShakeTrajectory::Horizontal;
+                placed->shake.amplitude = slot.shakeAmplitude;
+                placed->shake.frequency = slot.shakeFrequency;
+                // 种子按槽位序号固定，保证同一模板多次套用结果一致
+                placed->shake.seed = static_cast<std::uint32_t>(i + 1);
+                ++out.shakesApplied;
+            } else {
+                out.warnings.push_back("槽位 " + std::to_string(i + 1) +
+                                       " 的摇晃写入失败（找不到刚插入的片段）");
+            }
         }
 
         // 转场：只对同一轨道上的相邻片段建立

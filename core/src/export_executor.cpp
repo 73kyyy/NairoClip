@@ -7,6 +7,7 @@
 #include "nairoclip/core/reframe.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/filters.h"
 #include "nairoclip/core/background_fill.h"
 #include "nairoclip/core/mask.h"
@@ -609,6 +610,13 @@ ExportStats executeExport(
                                 plan.width, plan.height, active->backgroundMode,
                                 active->backgroundColorRgba, active->backgroundIntensity,
                                 RenderQuality::exportQuality());
+                        }
+                        // 应用片段摇晃（B1-5 / B2-3）。
+                        // 放在特效栈之前：摇晃改变的是几何位置，随后调色/特效
+                        // 作用在已位移的画面上，与「先抖动再调色」的直觉一致。
+                        if (active->shake.amplitude > 0.0) {
+                            applyShakeToRgba(frame.rgba.data(), plan.width, plan.height,
+                                             active->shake, t.toDouble());
                         }
                         // 应用片段特效栈（颜色变换 + 空间/画面/氛围/动感特效）
                         if (!active->effects.empty()) {

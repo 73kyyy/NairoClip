@@ -23,6 +23,7 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.reversed = clip.reversed;
 
     rc.freeze = clip.freeze;
+    rc.shake = clip.shake;
     rc.hasAnimation = !clip.animation.empty();
     rc.effects = clip.effects;
     rc.hasMask = clip.hasMask;

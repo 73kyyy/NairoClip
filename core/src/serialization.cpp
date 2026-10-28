@@ -371,6 +371,17 @@ JsonValue writeClip(const Clip& c) {
         lut.set("strength", JsonValue::number(c.lutStrength));
         o.set("lut", std::move(lut));
     }
+    // 摇晃（B1-5 / B2-3）：仅启用时写入，保持 diff 稳定。
+    if (c.hasShake()) {
+        JsonValue shake = JsonValue::object();
+        shake.set("trajectory", JsonValue::integer(static_cast<std::int64_t>(c.shake.trajectory)));
+        shake.set("amplitude", JsonValue::number(c.shake.amplitude));
+        shake.set("frequency", JsonValue::number(c.shake.frequency));
+        shake.set("seed", JsonValue::integer(static_cast<std::int64_t>(c.shake.seed)));
+        shake.set("decay", JsonValue::number(c.shake.decaySeconds));
+        shake.set("phase", JsonValue::number(c.shake.phase));
+        o.set("shake", std::move(shake));
+    }
     // 背景填充（文档 Part 4-C 第 11 节；仅启用时写入）
     if (c.backgroundMode != BackgroundMode::None) {
         JsonValue background = JsonValue::object();
@@ -489,6 +500,31 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
             if (strength < 0.0) strength = 0.0;
             if (strength > 1.0) strength = 1.0;
             out.lutStrength = strength;
+        }
+    }
+    // 摇晃（B1-5 / B2-3）。读入后校验范围，越界截断而非拒绝
+    // （与 gainDb / heightPx 同策略：单个字段写坏不该让整份工程打不开）。
+    if (v.has("shake")) {
+        const JsonValue& shake = v.get("shake");
+        if (shake.isObject()) {
+            const std::int64_t traj = shake.get("trajectory").asInteger(0);
+            out.shake.trajectory = (traj >= 0 && traj <= 3)
+                                       ? static_cast<ShakeTrajectory>(traj)
+                                       : ShakeTrajectory::Horizontal;
+            double amp = shake.get("amplitude").asNumber(0.0);
+            if (amp < 0.0) amp = 0.0;
+            if (amp > 0.2) amp = 0.2;
+            out.shake.amplitude = amp;
+            double freq = shake.get("frequency").asNumber(8.0);
+            if (freq < 0.0) freq = 0.0;
+            if (freq > 20.0) freq = 20.0;
+            out.shake.frequency = freq;
+            out.shake.seed = static_cast<std::uint32_t>(shake.get("seed").asInteger(0));
+            double decay = shake.get("decay").asNumber(0.0);
+            if (decay < 0.0) decay = 0.0;
+            if (decay > 10.0) decay = 10.0;
+            out.shake.decaySeconds = decay;
+            out.shake.phase = shake.get("phase").asNumber(0.0);
         }
     }
     // 背景填充（缺省 = 未设置；非法值降级为 None，保证工程可打开）

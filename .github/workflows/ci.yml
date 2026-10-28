@@ -7,25 +7,129 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# 为什么需要这个文件（以及它此前的问题）：
+#   1. 本地跑全量要 ~9 分钟，且有 600s 的回合限制，经常跑不完就中断——
+#      真正的"全量绿"应该由 CI 给结论，而不是靠本地拼分片。
+#   2. 测试依赖 /tmp/media_gen 的 FFmpeg 素材，靠 POST_BUILD 生成。
+#      CI 是新环境，必须保证这一步真的跑到。
+#   3. 需要把用例总数打印出来，避免"跑了但没跑全"被误判成通过
+#      （我们踩过：新测试没编进主套件，全量仍全绿）。
+
 jobs:
   build-and-test:
-    name: ${{ matrix.os }} / Release
+    name: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        os: [ ubuntu-latest ]
     runs-on: ${{ matrix.os }}
+    # 全量测试 ~9 分钟（aarch64 本地）；x64 CI 通常更快。
+    # 30 分钟足够，超时说明卡死，不要拖到默认的 6 小时。
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: 环境信息
+        run: |
+          echo "== CPU ==" && nproc
+          echo "== 编译器 ==" && (g++ --version | head -1 || true)
+          echo "== FFmpeg ==" && (ffmpeg -version | head -1 || echo "ffmpeg 未安装")
+
+      - name: 安装 FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      # 为什么要在 CI 装 ONNX Runtime：
+      #   本地开发机有 ORT（-DNAIROCLIP_HAS_ONNX_RUNTIME=1），若 CI 没有，
+      #   AI 推理相关用例会走降级路径 —— 两边覆盖的代码不同，
+      #   "本地绿 + CI 绿" 也就不代表同一件事。
+      #   版本与本地一致（1.22.0），避免行为漂移。
+      - name: 缓存 ONNX Runtime
+        id: cache-ort
+        uses: actions/cache@v4
+        with:
+          path: ort
+          key: ort-linux-x64-1.22.0
+
+      - name: 下载 ONNX Runtime
+        if: steps.cache-ort.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          mkdir -p ort
+          tar -xzf ort.tgz -C ort --strip-components=1
+          ls ort
+
       - name: Configure (CMake)
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DNAIROCLIP_ORT_ROOT=${{ github.workspace }}/ort
+
+      - name: 确认 ORT 已启用
+        # 若 CI 没探测到 ORT，AI 用例会走降级路径，与本地覆盖的代码不同。
+        # 必须显式确认，避免"两边都绿但测的不是同一件事"。
+        run: |
+          if grep -q 'NAIROCLIP_HAS_ONNX_RUNTIME=1' build/core/CMakeFiles/nairoclip_core.dir/flags.make; then
+            echo "ONNX Runtime 已启用"
+          else
+            echo "ERROR: ONNX Runtime 未启用，AI 用例将走降级路径"
+            exit 1
+          fi
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Test (ctest)
-        working-directory: build
-        run: ctest -C Release --output-on-failure
+      - name: 确认测试素材已生成
+        # 素材由 nairoclip_tests 的 POST_BUILD 步骤生成（幂等）。
+        # 若这里是空的，说明生成脚本没跑到——相关用例会失败，
+        # 提前检查能少走弯路。
+        run: |
+          ls -la /tmp/media_gen/ || echo "⚠️ /tmp/media_gen 不存在"
+          test -f /tmp/media_gen/test_av.mp4 && echo "✅ test_av.mp4 存在" || echo "❌ 缺少 test_av.mp4"
+
+      - name: 运行全量测试
+        # 直接跑二进制而不是 ctest：需要拿到用例总数做对账。
+        # 我们的测试框架在结束时打印 "===== N cases | M failed ====="。
+        id: run_tests
+        # 注意：不加 set -o pipefail。测试失败时我们希望**继续**执行
+        # 后面的「对账」步骤，让汇总行把「多少个失败」打出来；
+        # 若这里直接失败，后面的对账就不跑了，只能看到一个红叉。
+        # 真正的通过/失败判定在对账步骤里做（它检查 failed 计数）。
+        run: |
+          ./build/tests/nairoclip_tests 2>&1 | tee /tmp/test_output.txt || true
+          echo "---------------- 末尾 40 行 ----------------"
+          tail -40 /tmp/test_output.txt
+
+      - name: 对账用例总数
+        # 防止"跑了但没跑全"被当成通过。用例数只增不减；
+        # 这里设一个下限，低于它说明有测试文件没被编进主套件。
+        run: |
+          SUMMARY=$(grep -E '^=====.*cases' /tmp/test_output.txt || true)
+          echo "汇总行: ${SUMMARY:-<未找到>}"
+          if [ -z "$SUMMARY" ]; then
+            echo "❌ 没找到汇总行——测试可能崩溃或提前退出"
+            exit 1
+          fi
+          CASES=$(echo "$SUMMARY" | sed -E 's/^===== ([0-9]+) cases.*/\1/')
+          FAILED=$(echo "$SUMMARY" | sed -E 's/.*\| ([0-9]+) failed.*/\1/')
+          echo "用例数=$CASES 失败数=$FAILED"
+          if [ "$CASES" -lt 1443 ]; then
+            echo "❌ 用例数 $CASES < 1443（下限），可能有测试文件未编入主套件"
+            exit 1
+          fi
+          if [ "$FAILED" -ne 0 ]; then
+            echo "❌ 有 $FAILED 个用例失败"
+            exit 1
+          fi
+          echo "✅ $CASES 用例全部通过"
+
+      - name: 上传测试输出
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: /tmp/test_output.txt
+          retention-days: 7

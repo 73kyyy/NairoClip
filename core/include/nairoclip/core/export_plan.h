@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/reframe.h"
 #include "nairoclip/core/speed_curve.h"
@@ -38,6 +39,9 @@ struct RenderClip {
     bool reversed = false;
     /// 定格（B3-2）：整段复用 sourceIn 处的同一帧。
     bool freeze = false;
+    /// 摇晃快照（B1-5）：`shake.amplitude > 0` 时导出逐帧应用。
+    /// 需要 shake_effect.h（已在 clip.h 中引入）。
+    ShakeParams shake;
     /// 导出用：该片段的动画采样（关键属性，逐帧渲染时重采样）。
     /// 这里仅携带标记；具体采样由渲染器在每帧调用 animation 完成。
     bool hasAnimation = false;

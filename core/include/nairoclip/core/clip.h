@@ -8,6 +8,7 @@
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/filters.h"
 #include "nairoclip/core/mask.h"
+#include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/rational.h"
 #include "nairoclip/core/time.h"
@@ -103,6 +104,27 @@ struct Clip {
     std::uint32_t depthColorRgba = 0xFFFFFFFF;  ///< 雾色/近景色调
     /// 是否启用深度图效果。
     bool hasDepthEffect() const { return depthEffect != DepthEffectMode::None; }
+    /// 摇晃特效（B1-5 的 ShakeParams 直接复用）。
+    ///
+    /// 为什么放在 Clip 而不是 EffectStack：`Effect` 只有一个 `double value`
+    /// 字段，装不下「轨迹+振幅+频率+种子+衰减+相位」六维参数。
+    /// B2-3 套用模板时 `TemplateSlot::shakeAmplitude/Frequency` 就是往这里写，
+    /// 渲染侧（export_executor）读它并调 `applyShakeToRgba`。
+    ///
+    /// 语义：`shake.amplitude <= 0` 视为不摇晃。
+    ///
+    /// **默认必须归零**：`ShakeParams` 的默认 amplitude 是 0.02（B1-5 里
+    /// 「直接调用 shake 函数」时的合理默认），但 Clip 是「默认不摇晃」。
+    /// 若直接沿用 0.02，每个片段都会被摇晃——实测这会让 B2-6 的像素基线
+    /// 立刻漂移（`AdjustmentLayer.AllFrameDigestsMatchPreFeatureBaseline`
+    /// 第 1 帧就红），是个只有跑全量才能发现的坑。
+    ShakeParams shake = [] {
+        ShakeParams p;
+        p.amplitude = 0.0;
+        return p;
+    }();
+    /// 是否启用摇晃（amplitude > 0 才算）。
+    bool hasShake() const { return shake.amplitude > 0.0; }
     /// 3D LUT 文件路径（B1-2）。空 = 不应用 LUT。
     ///
     /// 存路径而不是存 LUT 数据：一个 33³ 的表是 107,811 个 double，

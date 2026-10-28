@@ -103,6 +103,8 @@ add_executable(nairoclip_tests
     test_template_apply.cpp
     test_capi_template.cpp
     test_track_placement_query.cpp
+    test_clip_shake.cpp
+    test_shake_export.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
