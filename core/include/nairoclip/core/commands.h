@@ -14,6 +14,40 @@
 namespace nairoclip {
 namespace core {
 
+/// 片段内容类型与轨道类型的相容性判定（B0-7）。
+///
+/// 为什么必须校验：轨道类型决定**渲染与混音语义**——
+///   · 音频片段进视频轨 → 预览取不到画面帧（黑屏），用户以为「素材坏了」；
+///   · 图片进音频轨 → 混音器拿到静态图，读不出 PCM（静音/未定义）；
+///   · 字幕轨只承载 SubtitleEvent（不走 Clip），任何 Clip 都不合法。
+///
+/// **为什么把它公开（B2-8）**：UI 需要在**拖动过程中**实时显示「可放/禁止」，
+/// 而不是等用户松手才报错。为此必须能在不构造 Clip、不尝试插入的前提下
+/// 查询相容性。`validateClipPlacement` 做不到这点——它要求完整 Clip 且会
+/// 因重叠/锁定等原因失败，无法区分「类型不兼容」与「位置被占」。
+enum class PlacementCompat {
+    Allowed,                 ///< 类型相容
+    AllowedBecauseUnknown,   ///< 素材类型未知（未 probe）→ 宽容放行
+    Rejected,                ///< 类型不兼容
+};
+
+/// 判定 `mediaType` 的片段能否放入 `trackType` 的轨道。
+///
+/// 相容表：
+/// | 轨道类型 | 接受 | 拒绝 |
+/// |---|---|---|
+/// | Video | 视频 / 图片 | 音频（会黑屏）|
+/// | Audio | 音频 / **视频**（取声音） | 图片（无声可读）|
+/// | Subtitle | 无 | 全部（字幕走 SubtitleEvent）|
+/// | Adjustment | 无 | 全部（见 B2-6 渲染限制）|
+PlacementCompat trackAcceptsClipType(TrackType trackType, MediaType mediaType);
+
+/// 轨道类型的中文名（用于错误消息与 UI）。未知返回「轨道」。
+const char* trackTypeLabel(TrackType t);
+
+/// 素材类型的中文名（用于错误消息与 UI）。未知返回「未知类型」。
+const char* mediaTypeLabel(MediaType t);
+
 /// 通用校验：clip 放入 track 是否合法（重叠、锁定、素材范围、参数、轨道类型）。
 /// ignoreClipId 用于「修改自身」场景（忽略与自己的重叠检查）。
 Result validateClipPlacement(const Project& project, const Track& track, const Clip& clip,

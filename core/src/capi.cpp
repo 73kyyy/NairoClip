@@ -5878,3 +5878,80 @@ int32_t nc_template_apply_slots(NcEditor* editor, const char* template_id,
     }
     return NC_OK;
 }
+
+// =============================================================================
+// 拖放相容性查询（B2-8）
+// =============================================================================
+
+namespace {
+
+bool trackTypeFromInt(int32_t v, TrackType& out) {
+    switch (v) {
+        case 0: out = TrackType::Video; return true;
+        case 1: out = TrackType::Audio; return true;
+        case 2: out = TrackType::Subtitle; return true;
+        case 3: out = TrackType::Adjustment; return true;
+        default: return false;
+    }
+}
+
+bool mediaTypeFromInt(int32_t v, MediaType& out) {
+    switch (v) {
+        case 0: out = MediaType::Video; return true;
+        case 1: out = MediaType::Audio; return true;
+        case 2: out = MediaType::Image; return true;
+        case 3: out = MediaType::Unknown; return true;
+        default: return false;
+    }
+}
+
+/// 生成不相容原因（中文，供 UI tooltip）。
+std::string placementRejectReason(TrackType trackType, MediaType mediaType) {
+    switch (trackType) {
+        case TrackType::Video:
+            return std::string(mediaTypeLabel(mediaType)) + "不能放入视频轨（会显示为黑屏）";
+        case TrackType::Audio:
+            return std::string(mediaTypeLabel(mediaType)) +
+                   "不能放入音频轨（读不出声音）";
+        case TrackType::Subtitle:
+            return "字幕轨不接受片段（字幕请用字幕编辑）";
+        case TrackType::Adjustment:
+            return "调整图层不接受片段";
+    }
+    return "不能放入该轨道";
+}
+
+}  // namespace
+
+int32_t nc_track_accepts_media(int32_t track_type, int32_t media_type) {
+    TrackType tt;
+    MediaType mt;
+    if (!trackTypeFromInt(track_type, tt) || !mediaTypeFromInt(media_type, mt)) {
+        failNc(NC_ERROR_INVALID_ARGUMENT, "track_type 或 media_type 超出枚举范围");
+        return -1;
+    }
+    return trackAcceptsClipType(tt, mt) == PlacementCompat::Rejected ? 0 : 1;
+}
+
+int32_t nc_track_placement_reason(int32_t track_type, int32_t media_type, char** out_reason,
+                                  char** out_error) {
+    TrackType tt;
+    MediaType mt;
+    if (!trackTypeFromInt(track_type, tt) || !mediaTypeFromInt(media_type, mt)) {
+        setDetail(out_error, "track_type 或 media_type 超出枚举范围");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "track_type 或 media_type 超出枚举范围");
+    }
+    const PlacementCompat compat = trackAcceptsClipType(tt, mt);
+    if (compat == PlacementCompat::Rejected) {
+        if (out_reason != nullptr) {
+            *out_reason = dupString(placementRejectReason(tt, mt));
+        }
+        return 0;
+    }
+    if (compat == PlacementCompat::AllowedBecauseUnknown) {
+        if (out_reason != nullptr) {
+            *out_reason = dupString("素材类型未知（尚未探测），暂时允许");
+        }
+    }
+    return 1;
+}

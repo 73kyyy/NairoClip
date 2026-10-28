@@ -17,28 +17,39 @@ std::vector<Clip>::iterator insertionPoint(std::vector<Clip>& clips, const Time&
                             [](const Clip& c, const Time& s) { return c.start < s; });
 }
 
-/// 片段内容类型与轨道类型的相容性判定（B0-7）。
-///
-/// 为什么必须校验：轨道类型决定**渲染与混音语义**。
-///   · 音频片段进视频轨 → 预览取不到画面帧（黑屏），用户以为「素材坏了」；
-///   · 图片进音频轨 → 混音器拿到的是静态图，读不出 PCM（静音/未定义）；
-///   · 字幕轨只承载 SubtitleEvent（不走 Clip），任何 Clip 都不合法。
-///
-/// 为什么视频**可以**进音频轨：
-///   带画面的 mp4 通常含音轨，「把视频拖到音频轨取声音」是剪辑软件的标准
-///   操作（音画分离本质就是这个）。混音器只读它的音频流，不读画面。
-///   因此音频轨接受 Audio 与 Video，拒绝 Image。
-///
-/// 宽容原则（避免误伤既有工程与真实流程）：
-///   · MediaType::Unknown（导入后尚未 probe）→ 放行。真实流程里大量存在，
-///     硬拒会让用户「刚导入就拖不进时间轴」。
-///   · 无有效 asset 的片段（占位/生成片段）→ 放行，其语义由上层决定。
-enum class PlacementCompat {
-    Allowed,
-    AllowedBecauseUnknown,
-    Rejected,
-};
+}  // namespace
 
+/// 轨道类型的中文名（面向用户的错误消息与 UI）。声明见 commands.h。
+const char* trackTypeLabel(TrackType t) {
+    switch (t) {
+        case TrackType::Video: return "视频轨";
+        case TrackType::Audio: return "音频轨";
+        case TrackType::Subtitle: return "字幕轨";
+        case TrackType::Adjustment: return "调整图层";
+    }
+    return "轨道";
+}
+
+/// 素材类型的中文名（面向用户的错误消息与 UI）。声明见 commands.h。
+const char* mediaTypeLabel(MediaType t) {
+    switch (t) {
+        case MediaType::Video: return "视频";
+        case MediaType::Audio: return "音频";
+        case MediaType::Image: return "图片";
+        case MediaType::Unknown: return "未知类型";
+    }
+    return "未知类型";
+}
+
+
+// 声明见 commands.h（B2-8：UI 需要在不构造 Clip 的前提下查询相容性）。
+//
+// 为什么视频**可以**进音频轨：带画面的 mp4 通常含音轨，「把视频拖到音频轨
+// 取声音」是剪辑软件的标准操作（音画分离本质就是这个）。混音器只读它的音频
+// 流，不读画面。因此音频轨接受 Audio 与 Video，拒绝 Image。
+//
+// 宽容原则：MediaType::Unknown（导入后尚未 probe）→ 放行。真实流程里大量
+// 存在，硬拒会让用户「刚导入就拖不进时间轴」。
 PlacementCompat trackAcceptsClipType(TrackType trackType, MediaType mediaType) {
     if (mediaType == MediaType::Unknown) {
         return PlacementCompat::AllowedBecauseUnknown;
@@ -64,30 +75,6 @@ PlacementCompat trackAcceptsClipType(TrackType trackType, MediaType mediaType) {
     }
     return PlacementCompat::Rejected;
 }
-
-/// 轨道类型的中文名（面向用户的错误消息）。
-const char* trackTypeLabel(TrackType t) {
-    switch (t) {
-        case TrackType::Video: return "视频轨";
-        case TrackType::Audio: return "音频轨";
-        case TrackType::Subtitle: return "字幕轨";
-        case TrackType::Adjustment: return "调整图层";
-    }
-    return "轨道";
-}
-
-/// 素材类型的中文名（面向用户的错误消息）。
-const char* mediaTypeLabel(MediaType t) {
-    switch (t) {
-        case MediaType::Video: return "视频";
-        case MediaType::Audio: return "音频";
-        case MediaType::Image: return "图片";
-        case MediaType::Unknown: return "未知类型";
-    }
-    return "未知类型";
-}
-
-}  // namespace
 
 Result validateClipPlacement(const Project& project, const Track& track, const Clip& clip,
                              ClipId ignoreClipId) {

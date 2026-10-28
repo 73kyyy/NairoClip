@@ -1059,14 +1059,63 @@ int32_t nc_track_group_list(NcEditor*, int32_t sequence_index, char** out_json, 
 
 ---
 
-### B2-8 ⬜ 片段跨轨拖动的类型校验
+### B2-8 ✅ 片段跨轨拖动的类型校验（核心层 + C ABI）
 
-**说明**：此项与 B0-7 合并实施。B0-7 是核心层校验，B2-8 是 UI 层
-「拖动时就给视觉反馈（可放/不可放）」，不是拖完才报错。
+**B0-7 已做的事**：`validateClipPlacement` 会拒绝不相容的落点。
+**但那不够**——它要求一个完整 `Clip`，且会因重叠/锁定等原因失败，
+**无法区分「类型不兼容」与「位置被占」**。UI 想在拖动过程中显示禁止态，
+需要一个不依赖 Clip、只看类型的查询。
 
-**交付**：拖到不相容轨道时，目标轨道显示红色禁止态。
+**发现的核心缺口**：`trackAcceptsClipType` 和 `PlacementCompat` 原本藏在
+`commands.cpp` 的**匿名 namespace** 里，外部根本调不到。
 
-**预估**：0.5 天。
+**已实施（2026-10-28）**：
+1. 把 `PlacementCompat` / `trackAcceptsClipType` / `trackTypeLabel` /
+   `mediaTypeLabel` 提升为公开 API（声明进 `commands.h`）；
+2. 新增 2 个 C ABI：
+```c
+int32_t nc_track_accepts_media(int32_t track_type, int32_t media_type);
+int32_t nc_track_placement_reason(int32_t track_type, int32_t media_type,
+                                  char** out_reason, char** out_error);
+```
+`nc_track_accepts_media` 返回 1/0/-1（可放/不兼容/参数非法）；
+`nc_track_placement_reason` 额外给出**中文原因**供 UI tooltip 显示。
+
+**相容表**（沿用 B0-7 的结论，含那处有意偏离）：
+
+| 轨道 \ 素材 | 视频 | 音频 | 图片 | 未知 |
+|---|---|---|---|---|
+| Video | ✅ | ❌ 黑屏 | ✅ | ⚠️ 放行 |
+| Audio | ✅ 取声音 | ✅ | ❌ 读不出 PCM | ⚠️ 放行 |
+| Subtitle | ❌ | ❌ | ❌ | ⚠️ 放行 |
+| Adjustment | ❌ | ❌ | ❌ | ⚠️ 放行 |
+
+**测试**（`tests/test_track_placement_query.cpp`，12 用例）：
+- 相容表逐格验证（`VideoTrackAcceptsVideoAndImage` /
+  `AudioTrackAcceptsAudioAndVideo` / `SubtitleAndAdjustmentRejectEverything` /
+  `UnknownMediaIsTolerated`）；
+- `CapiAcceptsMatchesCoreTable` — C ABI 的整数映射与核心层一致；
+- `CapiRejectsInvalidEnums` — 越界枚举返回 -1 并留下原因；
+- `ReasonExplainsWhyRejected` / `ReasonForAllowedIsNull` /
+  `ReasonForUnknownExplainsTolerance` — 原因文本的三种情形；
+- **`ConsistentWithActualInsert`** — 最关键的一条：查询说「不可放」时
+  真的插入也必须失败。否则 UI 显示禁止但实际能放（或反之），
+  用户会彻底失去对拖放反馈的信任。
+
+**变异验证**：
+1. 「音频轨接受一切」→ `AudioTrackAcceptsAudioAndVideo`、
+   `CapiAcceptsMatchesCoreTable`、`ConsistentWithActualInsert` 三个报警 ✅
+2. 「C ABI 的 media_type 映射把 Image/Audio 交换」→ 3 个用例、10 个检查点报警 ✅
+   （这条专门验证「整数映射不能错位」——C ABI 最容易出的错）
+
+**开发中的一次失误（如实记录）**：用脚本移动代码块时，第二次 `replace`
+的锚点没匹配上导致 `AssertionError`，但**第一次删除已经落盘**——
+把 `trackTypeLabel`/`mediaTypeLabel` 的实现删掉了，只留下一条孤立的注释。
+编译期报 `undefined reference` 才发现。教训：**多步文件改写脚本要在
+每步之间做可回滚的备份**，或者用一次性的整体重写而不是多次 `replace`。
+
+**未完成**：UI 层（`editor.js`）接入——需要前端在 `dragstart`/`dragover`
+时调 `nc_track_accepts_media` 并切换 CSS 类。C ABI 已就绪。
 
 ---
 

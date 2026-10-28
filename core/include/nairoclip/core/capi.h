@@ -1492,6 +1492,27 @@ int32_t nc_template_list(char** out_json, char** out_error);
 /// 返回槽位数；模板不存在返回 -1。
 int32_t nc_template_slot_count(const char* template_id);
 
+// ---- 拖放相容性查询（B2-8）----
+//
+// 用途：UI 在**拖动过程中**实时显示「可放 / 禁止」。不能等用户松手才报错——
+// 那时用户已经把素材拖到了错误位置，体验是「操作失败」而不是「不可放」。
+//
+// 与「尝试插入再回滚」的区别：插入会因重叠/锁定等**与类型无关**的原因失败，
+// 无法区分「类型不兼容」和「位置被占」。本查询只看类型。
+
+/// 判定某类素材能否放入某类轨道。
+/// - track_type：0=Video / 1=Audio / 2=Subtitle / 3=Adjustment（同 nc_add_track）；
+/// - media_type：0=Video / 1=Audio / 2=Image / 3=Unknown（同 nc_import_asset）；
+/// 返回：1 = 可放；0 = 类型不兼容；-1 = 参数非法（未知枚举值）。
+int32_t nc_track_accepts_media(int32_t track_type, int32_t media_type);
+
+/// 取不相容时的中文原因（供 UI tooltip 显示）。
+/// - out_reason：出参（可 NULL）原因文本（**需 nc_free_string**）；
+/// - out_error：出参（可 NULL）参数错误原因（**需 nc_free_string**）。
+/// 返回：1 = 可放；0 = 不兼容（out_reason 有值）；-1 = 参数非法。
+int32_t nc_track_placement_reason(int32_t track_type, int32_t media_type, char** out_reason,
+                                  char** out_error);
+
 /// 套用模板（自动填充）。
 /// - material_ids / count：候选素材（至少 1 个；内核按打分算法分配到槽位）；
 /// - out_summary：出参（可 NULL）结果摘要（**需 nc_free_string**），
