@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 单次：起桥 → 截图 → 收桥（避免后台进程跨轮次被杀导致截图空白）
 set -uo pipefail
-PAGE="${1:-/pages/editor.html}"
-OUT="${2:-design/screenshots/editor-desktop.png}"
+PAGE="${1:?用法: shoot.sh <页面路径> [输出png] [宽] [高] [缩放] [等待ms]}"
+OUT="${2:-design/screenshots/page.png}"
 W="${3:-1440}"; H="${4:-900}"; ZOOM="${5:-1}"; WAIT="${6:-4200}"
 PORT="${PORT:-8787}"
 cd "$(dirname "$0")/../.."

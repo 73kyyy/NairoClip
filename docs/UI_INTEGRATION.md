@@ -429,6 +429,8 @@ cmake --build build_noffmpeg --parallel 4
 
 # 设计桥（已纳入 CMake，产物在 build/design/tools/）
 cmake --build build --target nc_design_harness
+# 注意：design/pages 与 design/assets 已于 2026-10-29 移除，
+# 桥本身保留（它只依赖 core，不依赖页面），可用于对接新的 UI 实现。
 ./build/design/tools/nc_design_harness 8777 design
 ```
 
