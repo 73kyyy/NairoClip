@@ -424,6 +424,8 @@ std::string buildStateJson() {
             clip.set("filter_style", JsonValue::integer(hasFilter == 1 ? style : 0));
             clip.set("filter_intensity", JsonValue::number(hasFilter == 1 ? intensity : 0.0));
             clip.set("blend_mode", JsonValue::integer(nc_get_clip_blend_mode(gEditor, t, clipId)));
+            clip.set("reversed", JsonValue::boolean(nc_clip_is_reversed(gEditor, t, clipId) == 1));
+            clip.set("frozen", JsonValue::boolean(nc_clip_is_frozen(gEditor, t, clipId) == 1));
             clip.set("effect_count", JsonValue::integer(nc_effect_count(gEditor, t, clipId)));
             clip.set("is_compound", JsonValue::boolean(nc_clip_is_compound(gEditor, t, clipId) == 1));
             clips.push(std::move(clip));
@@ -741,6 +743,28 @@ int32_t applyEditLocked(const JsonValue& req) {
         if (id == 0) { gLastCode = NC_ERROR_INTERNAL; return gLastCode; }
         return NC_OK;
     }
+    if (op == "freeze") {
+        /* 定格：在播放头处取一帧，作为独立片段插入。
+           内核的 nc_freeze_frame 已按「插入编辑」语义实现：
+           at_us 落在片段内部时会自动分割并把后续内容顺移，
+           因此桥这里不需要预先切分。 */
+        if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
+        const std::uint64_t cid = static_cast<std::uint64_t>(jint(req, "clip", 0));
+        if (!need(cid != 0, "缺少片段 id")) return gLastCode;
+        const int64_t atUs = jint(req, "at_us", 0);
+        const int64_t durUs = jint(req, "duration_us", 2000000);
+        if (!need(durUs > 0, "定格时长必须大于 0")) return gLastCode;
+        const std::uint64_t newId = nc_freeze_frame(gEditor, track, cid, atUs, durUs);
+        if (!need(newId != 0, "定格失败（播放头不在该片段上，或轨道已锁定）")) return gLastCode;
+        return NC_OK;
+    }
+    if (op == "reverse") {
+        // 倒放：内核按「时长等价」实现，时长不变
+        if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
+        const std::uint64_t cid = static_cast<std::uint64_t>(jint(req, "clip", 0));
+        if (!need(cid != 0, "缺少片段 id")) return gLastCode;
+        return check(nc_reverse_clip(gEditor, track, cid)) ? NC_OK : gLastCode;
+    }
     if (op == "blend") {
         // 画中画混合模式（0..15，见 nc_blend_mode_count）
         if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
@@ -972,7 +996,100 @@ std::mutex gRenderMutex;
 std::string renderFramePng(std::int64_t timeUs, int targetWidth, bool bypassCache,
                            const std::string& cacheTag = std::string());
 
+std::string renderFramePngWith(NcEditor* ed, std::int64_t timeUs, int targetWidth);
+
+/* 转场缩略图：
+   用独立 editor 实例搭一个 A|B 迷你序列（两张黏土图），
+   临时插入指定转场，渲染转场中点帧，然后销毁实例。
+
+   为什么不用主实例：临时的片段/转场会进撤销栈、可能被自动保存捕获，
+   用户按一次撤销看到被自己没做过的改动。独立实例彻底隔离。
+
+   底图为什么用黏土图：用户指定 —— 宫格展示统一用这套抠好的黏土表情，
+   与特效/蒙版/滤镜宫格保持同一视觉语汇（参考剪映的宫格预览）。 */
+namespace {
+/// 黏土底图（相对 repo 根）。
+/// 用 1 秒的 mp4 而不是 png：图片素材在 preview.cpp 里没有读帧路径
+/// （media reader 只处理容器/视频流），单帧 PNG 会读出空画面。
+/// 由 tools/gen_clay_previews.sh 从 faces3/*.png 转出，与宫格图同源。
+const char* kClayA = "mobile/static/clay/B_0_0.mp4";   // 最暗（棕）
+const char* kClayB = "mobile/static/clay/B_2_0.mp4";   // 最亮（米黄）
+
+std::string resolveRepoFile(const char* rel) {
+    if (repoRoot.empty()) return {};
+    std::string p = repoRoot + "/" + rel;
+    std::FILE* f = std::fopen(p.c_str(), "rb");
+    if (f == nullptr) return {};
+    std::fclose(f);
+    return p;
+}
+}  // namespace
+
+std::string renderTransitionCard(int type, int width) {
+    const std::string a = resolveRepoFile(kClayA);
+    const std::string b = resolveRepoFile(kClayB);
+    std::fprintf(stderr, "[transcard] repoRoot=%s a=%s b=%s\n", repoRoot.c_str(), a.c_str(), b.c_str());
+    if (a.empty() || b.empty()) {
+        return {};   // 底图缺失就如实返回空，前端显示占位，不造假
+    }
+    NcEditor* mini = nc_editor_create();
+    if (mini == nullptr) {
+        return {};
+    }
+    // 输出画幅：竖屏 9:16，与移动端预览一致
+    nc_set_project_canvas(mini, 1080, 1920);
+
+    const std::uint64_t assetA = nc_import_asset(mini, "clay_a", a.c_str(), 0, 1000000);
+    const std::uint64_t assetB = nc_import_asset(mini, "clay_b", b.c_str(), 0, 1000000);
+    std::fprintf(stderr, "[transcard] assets=%llu/%llu\n",
+                 static_cast<unsigned long long>(assetA), static_cast<unsigned long long>(assetB));
+    if (assetA == 0 || assetB == 0) {
+        nc_editor_destroy(mini);
+        return {};
+    }
+    const std::uint64_t track = nc_add_track(mini, "card", 0);
+    if (track == 0) {
+        nc_editor_destroy(mini);
+        return {};
+    }
+    const std::uint64_t cA = nc_insert_clip(mini, 0, assetA, 0, 1000000);
+    const std::uint64_t cB = nc_insert_clip(mini, 0, assetB, 1000000, 1000000);
+    if (cA == 0 || cB == 0) {
+        nc_editor_destroy(mini);
+        return {};
+    }
+
+    /* 转场区间是 [from->end(), from->end() + duration) —— 从**前一段的结束**
+       才开始，不是从交界前开始。所以中点 = 1s + dur/2。
+       （早前写成 1s - dur/2 落在区间外，渲染出的是纯 B 段，等于没混。） */
+    const std::int64_t kDur = 600000;
+    std::string png;
+    const std::uint64_t trid = nc_add_transition(mini, 0, type, kDur, cA, cB);
+    std::fprintf(stderr, "[transcard] clips=%llu/%llu tr=%llu\n",
+                 static_cast<unsigned long long>(cA), static_cast<unsigned long long>(cB),
+                 static_cast<unsigned long long>(trid));
+    if (trid != 0) {
+        /* 也顺手验证一下：交界前（纯 A）与交界后（纯 B）各渲一张，
+           用来确认两段素材都能出画；三张里若只有一张有内容，
+           就说明某一路 reader 打不开，而不是转场算法的问题。 */
+        const std::string prepng = renderFramePngWith(mini, 500000, 96);
+        const std::string postpng = renderFramePngWith(mini, 1800000, 96);
+        std::fprintf(stderr, "[transcard] pre=%zu post=%zu\n", prepng.size(), postpng.size());
+        png = renderFramePngWith(mini, 1000000 + kDur / 2, width);
+        std::fprintf(stderr, "[transcard] mid=%lld size=%zu\n",
+                     static_cast<long long>(1000000 + kDur / 2), png.size());
+    }
+    nc_editor_destroy(mini);
+    return png;
+}
+
 std::string renderPresetPng(const std::string& kind, int style, std::int64_t timeUs, int width) {
+    /* 转场宫格不依赖主工程：它用独立实例 + 黏土底图现场合成。
+       必须放在「必须有轨道」的检查之前 —— 否则空工程时
+       整个转场库都显示不出预览（而转场的预览本来就与工程内容无关）。 */
+    if (kind == "transition") {
+        return renderTransitionCard(style, width);
+    }
     int trackCount = nc_track_count(gEditor);
     if (trackCount <= 0) return {};
 
@@ -1021,6 +1138,34 @@ std::string renderPresetPng(const std::string& kind, int style, std::int64_t tim
     if (tempEffect != 0) nc_remove_effect(gEditor, ti, cid, tempEffect);
     if (kind == "mask") nc_set_clip_mask(gEditor, ti, cid, 0, .5, .5, 0, 1, 1, 0, 0, 0);
     return png;
+}
+
+/// 用**指定** editor 实例渲染一帧（不查/不写全局缓存）。
+/// 转场宫格用：临时实例画的图不能污染主实例的帧缓存。
+std::string renderFramePngWith(NcEditor* ed, std::int64_t timeUs, int targetWidth) {
+    if (ed == nullptr) {
+        return {};
+    }
+    const std::int64_t bucket = (timeUs / 33333) * 33333;
+    std::uint8_t* rgba = nullptr;
+    int width = 0, height = 0;
+    std::uint64_t clipId = 0;
+    double opacity = 1, scale = 1, px = 0, py = 0, rotation = 0;
+    int32_t trType = -1;
+    double trProgress = 0;
+    const int32_t rc = nc_preview_render(ed, bucket, &width, &height, &rgba, &clipId, &opacity,
+                                         &scale, &px, &py, &rotation, &trType, &trProgress);
+    std::fprintf(stderr, "[framewith] t=%lld rc=%d w=%d h=%d rgba=%p trType=%d prog=%.2f\n",
+                 static_cast<long long>(bucket), rc, width, height, static_cast<void*>(rgba),
+                 trType, trProgress);
+    if (rc != NC_OK || rgba == nullptr) {
+        return {};
+    }
+    const std::vector<std::uint8_t> scaled = resizeRgba(rgba, width, height, targetWidth);
+    nc_free_buffer(rgba);
+    const int sw = (targetWidth > 0 && targetWidth < width) ? targetWidth : width;
+    const int sh = (targetWidth > 0 && targetWidth < width) ? (height * targetWidth) / width : height;
+    return encodePng(scaled.data(), sw, sh);
 }
 
 std::string renderFramePng(std::int64_t timeUs, int targetWidth, bool bypassCache,

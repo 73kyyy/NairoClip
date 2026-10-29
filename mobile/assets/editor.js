@@ -102,7 +102,9 @@ function applyState(st) {
         name: asset ? asset.name : `片段 ${c.id}`,
         start: c.start_us / 1e6, dur: c.duration_us / 1e6,
         enabled: c.enabled, opacity: c.opacity,
-        filterStyle: c.filter_style, filterIntensity: c.filter_intensity
+        filterStyle: c.filter_style, filterIntensity: c.filter_intensity,
+        reversed: !!c.reversed, frozen: !!c.frozen,
+        blendMode: typeof c.blend_mode === 'number' ? c.blend_mode : 0
       };
     }),
     // 转场：交界标记需要（from/to 是片段 id，at 是交界时刻）
@@ -620,6 +622,28 @@ function renderTracks() {
   }
 }
 
+/// 宫格缩略图用的黏土底图。
+///
+/// 静态版（static/*.html）由 make_static.py 把 map.json 与图片内联成
+/// window.NC_THUMB_MAP / NC_THUMB_IMG；**网页版没有这一步**，所以同一套
+/// l3-panel 在网页里只能画占位色块 —— 这是「宫格没有效果图」的真正原因，
+/// 不是没做，是数据没送进来。
+const STATIC_BASE = '../static';
+
+async function loadThumbMap() {
+  try {
+    const r = await fetch(`${STATIC_BASE}/thumb/map.json`);
+    if (!r.ok) {
+      return;
+    }
+    window.NC_THUMB_MAP = await r.json();
+    // 图片按需取：不预加载 60 张，浏览器自己缓存 <img src>
+    window.NC_STATIC_BASE = STATIC_BASE;
+  } catch (err) {
+    /* 映射缺失时 l3-panel 会退回占位色块，不阻塞交互 */
+  }
+}
+
 /// 拉取混合模式库（16 种）。标签用中文，映射表按内核英文名对齐；
 /// 未匹配到的模式直接显示内核名，不猜也不隐藏。
 const BLEND_LABEL = {
@@ -747,7 +771,10 @@ async function openTransitionSheet(tr, junction, existing) {
   }
 
   const body = document.createElement('div');
-  const title = existing ? `${existing.name}` : '添加转场';
+  /* 标题固定为功能名「转场」。当前效果名不放在标题里：
+     一是它只是 34 种里的一种（「信号干扰」「闪白」都是效果名），
+     二是标题栏已经用高亮标出当前选中项。 */
+  const title = '转场';
 
   // 可用时长上限：取两片段较短者的一半（内核据此校验）
   const maxUs = Math.floor(Math.min(junction.from.dur, junction.to.dur) * 1e6 / 2);
@@ -1913,6 +1940,8 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
     return;
   }
   applyState(Engine.state);
+  // 宫格缩略图的黏土底图映射（map.json 由 tools/make_static.py 写入）
+  await loadThumbMap();
   // 混合模式库：名称与顺序来自内核（nc_blend_mode_count/name），不写死
   await loadBlendModes();
   // 首次载入：把整个工程缩放进来（用户手动缩放后不再覆盖）

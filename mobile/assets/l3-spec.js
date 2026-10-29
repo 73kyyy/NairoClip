@@ -29,26 +29,26 @@
   const C = {
     /* —— 可动画通道（ClipProperty 0..5）—— */
     opacity:   { kind: 'slider', name: '不透明度', icon: 'i-opacity', min: 0, max: 1, step: 0.01, def: 1,    unit: '%',  scale: 100, prop: 0 },
-    scale:     { kind: 'slider', name: '缩放',     icon: 'i-expand',  min: 0.01, max: 100, step: 0.01, def: 1, unit: 'x',  prop: 1 },
-    posx:      { kind: 'slider', name: 'X 位移',   icon: 'i-swap',    min: -10, max: 10, step: 0.01, def: 0,   unit: '',   prop: 2 },
-    posy:      { kind: 'slider', name: 'Y 位移',   icon: 'i-swap',    min: -10, max: 10, step: 0.01, def: 0,   unit: '',   prop: 3 },
+    scale:     { kind: 'slider', name: '缩放',     icon: 'i-expand',  min: 0.1, max: 4, step: 0.01, def: 1, unit: 'x',  prop: 1 },
+    posx:      { kind: 'slider', name: 'X 位移',   icon: 'i-swap',    min: -1, max: 1, step: 0.01, def: 0,   unit: '',   prop: 2 },
+    posy:      { kind: 'slider', name: 'Y 位移',   icon: 'i-swap',    min: -1, max: 1, step: 0.01, def: 0,   unit: '',   prop: 3 },
     rotation:  { kind: 'slider', name: '旋转',     icon: 'i-reset',   min: -180, max: 180, step: 1, def: 0,    unit: '°',  prop: 4 },
-    volume:    { kind: 'slider', name: '音量',     icon: 'i-volume',  min: 0, max: 4, step: 0.01, def: 1,     unit: '%',  scale: 100, prop: 5 },
+    volume:    { kind: 'slider', name: '音量',     icon: 'i-volume',  min: 0, max: 2, step: 0.01, def: 1,     unit: '%',  scale: 100, prop: 5 },
 
     /* —— 非动画标量 —— */
-    speed:     { kind: 'slider', name: '速度',     icon: 'i-speed',   min: 0.1, max: 10, step: 0.01, def: 1,   unit: 'x' },
-    filteramt: { kind: 'slider', name: '强度',     icon: 'i-filter',  min: 0, max: 100, step: 1, def: 60,    unit: '' },
+    speed:     { kind: 'slider', name: '速度',     icon: 'i-speed',   min: 0.25, max: 4, step: 0.05, def: 1,   unit: 'x' },
+    filteramt: { kind: 'slider', name: '强度',     icon: 'i-filter',  min: 0, max: 100, step: 1, def: 60,    unit: '%' },
     /* 画中画混合模式：16 种，名称运行时从内核拉取（window.NC_BLEND_MODES） */
     blendmode: { kind: 'blend',  name: '混合模式', icon: 'i-pip', def: 0 },
-    fxamt:     { kind: 'slider', name: '强度',     icon: 'i-fx',      min: 0, max: 100, step: 1, def: 50,    unit: '' },
+    fxamt:     { kind: 'slider', name: '强度',     icon: 'i-fx',      min: 0, max: 100, step: 1, def: 50,    unit: '%' },
     feather:   { kind: 'slider', name: '羽化',     icon: 'i-mask',    min: 0, max: 1, step: 0.01, def: 0.02,  unit: '%', scale: 100 },
-    radius:    { kind: 'slider', name: '圆角',     icon: 'i-crop',    min: 0, max: 0.5, step: 0.01, def: 0,   unit: '%', scale: 100 },
-    maskw:     { kind: 'slider', name: '宽度',     icon: 'i-expand',  min: 0.05, max: 2, step: 0.01, def: 1,  unit: 'x' },
-    maskh:     { kind: 'slider', name: '高度',     icon: 'i-expand',  min: 0.05, max: 2, step: 0.01, def: 1,  unit: 'x' },
+    radius:    { kind: 'slider', name: '圆角',     icon: 'i-crop',    min: 0, max: 1, step: 0.01, def: 0,   unit: '%', scale: 100 },
+    maskw:     { kind: 'slider', name: '宽度',     icon: 'i-expand',  min: 0.05, max: 1, step: 0.01, def: 1,  unit: 'x' },
+    maskh:     { kind: 'slider', name: '高度',     icon: 'i-expand',  min: 0.05, max: 1, step: 0.01, def: 1,  unit: 'x' },
     maskrot:   { kind: 'slider', name: '旋转',     icon: 'i-reset',   min: -180, max: 180, step: 1, def: 0,   unit: '°' },
-    fadein:    { kind: 'slider', name: '淡入',     icon: 'i-fade',    min: 0, max: 5, step: 0.1, def: 0,     unit: 's' },
-    fadeout:   { kind: 'slider', name: '淡出',     icon: 'i-fade',    min: 0, max: 5, step: 0.1, def: 0,     unit: 's' },
-    gain:      { kind: 'slider', name: '增益',     icon: 'i-volume',  min: -24, max: 12, step: 0.5, def: 0,   unit: 'dB' },
+    fadein:    { kind: 'slider', name: '淡入',     icon: 'i-fade',    min: 0, max: 3, step: 0.1, def: 0,     unit: 's' },
+    fadeout:   { kind: 'slider', name: '淡出',     icon: 'i-fade',    min: 0, max: 3, step: 0.1, def: 0,     unit: 's' },
+    gain:      { kind: 'slider', name: '增益',     icon: 'i-volume',  min: -12, max: 6, step: 0.5, def: 0,   unit: 'dB' },
     threshold: { kind: 'slider', name: '阈值',     icon: 'i-adjust',  min: 0, max: 1, step: 0.01, def: 0.35,  unit: '' },
     spill:     { kind: 'slider', name: '溢色抑制', icon: 'i-palette', min: 0, max: 1, step: 0.01, def: 0.3,   unit: '' },
     chromakey: { kind: 'color',  name: '抠像色',   icon: 'i-palette', def: '#00FF00' },
@@ -57,8 +57,8 @@
     chromaq:   { kind: 'seg',    name: '精度',     icon: 'i-bolt', opts: ['快速', '标准', '精细'], def: 1 },
     chromaon:  { kind: 'switch', name: '启用抠像', icon: 'i-mask', def: 1 },
     blur:      { kind: 'slider', name: '模糊',     icon: 'i-bg',      min: 0, max: 100, step: 1, def: 40,    unit: '' },
-    transdur:  { kind: 'slider', name: '时长',     icon: 'i-trans',   min: 0.2, max: 3, step: 0.1, def: 0.6,  unit: 's' },
-    freezedur: { kind: 'slider', name: '定格时长', icon: 'i-freeze',  min: 0.5, max: 5, step: 0.1, def: 2,    unit: 's' },
+    transdur:  { kind: 'slider', name: '时长',     icon: 'i-trans',   min: 0.2, max: 2, step: 0.05, def: 0.5, unit: 's' },
+    freezedur: { kind: 'slider', name: '定格时长', icon: 'i-freeze',  min: 0.5, max: 3, step: 0.1, def: 2,    unit: 's' },
     reverseon: { kind: 'switch', name: '开启倒放', icon: 'i-reverse', def: 0 },
     fontsize:  { kind: 'slider', name: '字号',     icon: 'i-text',    min: 12, max: 120, step: 1, def: 48,   unit: 'px' },
     stroke:    { kind: 'slider', name: '描边',     icon: 'i-text',    min: 0, max: 10, step: 0.5, def: 0,    unit: 'px' },
@@ -237,13 +237,13 @@
     freeze: {
       title: '定格', mode: 'single',
       groups: [['freezedur']],
-      note: '定格为引擎侧静帧插入，需选中片段后使用'
+      note: '在片段当前位置取一帧，插入 2 秒静帧片段'
     },
     reverse: {
       title: '倒放', mode: 'single',
       /* 引擎 nc_set_clip_reverse 只接受开关，无强度参数 */
       groups: [['reverseon']],
-      note: '倒放会重建时间映射表，时长不变'
+      note: '反转画面顺序，时间轴时长不变'
     },
 
     /* ===== 音频 ===== */

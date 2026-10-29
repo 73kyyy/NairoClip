@@ -75,6 +75,18 @@
       return syncJson('POST', '/api/edit', Object.assign({ op: fn }, args));
     },
 
+    /* ---- 宫格缩略帧：返回 data URL ----
+       桥内临时给片段套预设 → 渲染一帧 → 还原。
+       滤镜/特效/蒙版/转场都走这条路，格子里的就是真实画面，
+       不是占位色块，也不是离线烘焙的示意图。 */
+    presetFrame(kind, style, timeUs, width) {
+      const q = `?kind=${encodeURIComponent(kind)}&style=${style}` +
+                `&t=${timeUs || 0}&w=${width || 160}`;
+      const b64 = syncBinary(`/api/preset_frame${q}`);
+      /* 与 frameDataUrl 保持同一契约：返回 data URL */
+      return b64 ? `data:image/png;base64,${b64}` : '';
+    },
+
     /* ---- 预览帧：返回 data URL ---- */
     frameDataUrl(timeUs, width) {
       const t = Math.round(timeUs || 0);

@@ -104,6 +104,19 @@
     ST.spec = spec;
     ST.page = 0;
     ST.values = defaults(spec);
+    /* 用片段当前的真值初始化（否则开关永远从「关」起步，
+       已倒放的片段一点就被设成「关」，看起来像没反应）。 */
+    {
+      const cur = currentSelection();
+      if (cur && cur.clip) {
+        if (spec.groups && spec.groups.flat().includes('reverseon')) {
+          ST.values.reverseon = !!cur.clip.reversed;
+        }
+        if (spec.groups && spec.groups.flat().includes('blendmode')) {
+          ST.values.blendmode = typeof cur.clip.blendMode === 'number' ? cur.clip.blendMode : 0;
+        }
+      }
+    }
     ST.gridPick = null;
     ST.dirty = false;
     ST.curve = spec.curve ? { points: [], presetIdx: 0 } : null;
@@ -253,14 +266,24 @@
     return null;
   }
 
+  /* 数值显示。
+     坑：早期写成 v * (c.scale || 1) * 100 —— 对不透明度（min 0 / max 1）
+     会得到 1*100*100 = 10000%。scale 的语义是「存储值 → 显示值」的倍率，
+     用户看到的百分数已经包含了 ×100，不能重复相乘。 */
   function valText(c, v) {
-    if (c.unit === '%') return `${Math.round(v * (c.scale || 1) * 100)}%`;
+    if (c.unit === '%') {
+      /* 存储值域 0..1 的通道（不透明度/音量/羽化/圆角）统一显示 0..100%；
+         存储值域本身就是百分数的（强度 0..100 等）原样显示。
+         判据用 max <= 1，不靠 scale 标志位 —— scale 只影响内部换算，
+         显示口径由值域决定更不容易再错。 */
+      const isUnitRange = typeof c.max === 'number' && c.max <= 1;
+      return `${Math.round(isUnitRange ? v * 100 : v)}%`;
+    }
     if (c.unit === 'x') return `${Number(v).toFixed(2)}x`;
     if (c.unit === '°') return `${Math.round(v)}°`;
     if (c.unit === 'px') return `${Math.round(v)}px`;
     if (c.unit === 's') return `${Number(v).toFixed(1)}s`;
     if (c.unit === 'dB') return `${v > 0 ? '+' : ''}${Number(v).toFixed(1)}dB`;
-    if (c.scale === 100) return `${Math.round(v * 100)}%`;
     return `${Number(v).toFixed(2)}`;
   }
 
@@ -542,6 +565,21 @@
         await h.edit({ op: 'keyframe', track, clip, property: c.prop, time_us: us, value: v[key] });
         if (c.prop === 0) await h.edit({ op: 'opacity', track, clip, value: v[key] });
       }
+      /* 定格（P-17）：在片段当前位置取一帧，插入一个静帧片段 */
+      if (ST.key === 'freeze') {
+        const dur = typeof v.freezedur === 'number' ? v.freezedur : 2;
+        await h.edit({ op: 'freeze', track, clip,
+                       at_us: Math.round((h.nowUs ? h.nowUs() : 0)),
+                       duration_us: Math.round(dur * 1e6) });
+        await h.reload();
+        return;
+      }
+      /* 倒放（P-17）：内核按时长等价反转，时长不变 */
+      if (ST.key === 'reverse') {
+        await h.edit({ op: 'reverse', track, clip });
+        await h.reload();
+        return;
+      }
       /* 变速 */
       if (ST.key === 'speed' && typeof v.speed === 'number') {
         await h.edit({ op: 'speed', track, clip,
@@ -740,7 +778,11 @@
 
     const kind = ST.spec.gridKind;
     /* 滤镜/特效/蒙版：向引擎要按预设真实渲染的缩略帧（NCEngine.presetFrame） */
-    const canRender = (kind === 'filter' || kind === 'effect' || kind === 'mask');
+    /* 哪些宫格能用引擎真实渲染缩略帧。
+       转场也在内：桥会临时插入该转场、渲染混合帧、再删除，
+       格子里看到的是「这个转场作用在真实画面上」的效果。 */
+    const canRender = (kind === 'filter' || kind === 'effect' || kind === 'mask' ||
+                       kind === 'transition');
     const base = (host().apiBase && host().apiBase()) || '';
 
     (ST.spec.grid || []).forEach((item) => {

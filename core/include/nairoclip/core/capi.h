@@ -235,6 +235,13 @@ uint64_t nc_freeze_frame(NcEditor* editor, int32_t track_index, uint64_t clip_id
 /// 说明：等价于 speed = -1 语义的时长等价实现（保持时间轴时长不变）。
 int32_t nc_reverse_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id);
 
+/// 读取片段是否处于倒放（1/0；-1 = 参数错误）。
+/// 倒放是工程数据，随 .nclip 持久化；UI 需要它来回显开关状态。
+int32_t nc_clip_is_reversed(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
+/// 读取片段是否为定格静帧（1/0；-1 = 参数错误）。
+int32_t nc_clip_is_frozen(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
 /// 读取片段完整信息（时间/素材/速度/启用状态）。
 /// - out_speed_num/out_speed_den：播放速度（如 2/1）；
 /// 返回 NC_OK 或错误码。

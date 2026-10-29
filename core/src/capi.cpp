@@ -920,7 +920,10 @@ uint64_t nc_freeze_frame(NcEditor* editor, int32_t track_index, uint64_t clip_id
         return 0;
     }
     Clip frozen = *source;
-    frozen.id = ClipId{};
+    /* 必须显式分配 id：insertClip 会在 id 无效时补发，
+       但 insertEdit 不会 —— 它直接用传入的 clip.id，
+       留空就会落库成 id=0 的片段（后续无法按 id 定位）。 */
+    frozen.id = ClipId{editor->project.ids.next()};
     // 定格帧的源时间：以 at_us（时间轴微秒）折算到源时间
     const Time at = fromMicroseconds(at_us);
     const Time local = at - source->start;
@@ -933,12 +936,29 @@ uint64_t nc_freeze_frame(NcEditor* editor, int32_t track_index, uint64_t clip_id
     frozen.speed = Rational::make(1);  // 保持 1：sourceOut 不会越过素材范围
     frozen.reversed = false;
     frozen.speedCurve.clear();
-    ClipId outId;
-    const Result r = editor->editor->insertClip(seqId, trackId, std::move(frozen), &outId);
+    /* 用「插入编辑」而不是普通插入：
+       nc_freeze_frame 的语义是「在播放头处定格，原素材后续内容顺移」。
+       普通 insertClip 走 validateClipPlacement，at_us 处若还有片段就会
+       因重叠被拒（这正是本函数长期返回 0 的原因）。
+       InsertEditCommand 会自动：① 分割跨越 at 的片段 ② 把 start>=at 的
+       片段整体后移 clip.duration ③ 在 at 处落位。 */
+    const Time atTime = fromMicroseconds(at_us);
+    const Result r = editor->editor->insertEdit(seqId, trackId, std::move(frozen), atTime);
     if (!r.isOk()) {
         return 0;
     }
-    return outId.value;
+    /* insertEdit 不返回新片段 id，按「起点 == at 且为冻结片段」回查。
+       同一 track 上不可能有两个起点相同且都标 freeze 的片段。 */
+    const Track* after = findTrack(editor->project, seqId, trackId);
+    if (after == nullptr) {
+        return 0;
+    }
+    for (const Clip& c : after->clips) {
+        if (c.freeze && c.start == atTime) {
+            return c.id.value;
+        }
+    }
+    return 0;
 }
 
 int32_t nc_reverse_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
@@ -951,6 +971,30 @@ int32_t nc_reverse_clip(NcEditor* editor, int32_t track_index, uint64_t clip_id)
         return code;
     }
     return failResult(editor->editor->setClipReversed(seqId, trackId, ClipId{clip_id}, true));
+}
+
+namespace {
+/// 按 id 找片段（供 is_reversed / is_frozen 共用）。
+const Clip* findClipById(const NcEditor* editor, int32_t track_index, std::uint64_t clip_id) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return nullptr;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return nullptr;
+    }
+    return main->tracks[static_cast<std::size_t>(track_index)].findClip(ClipId{clip_id});
+}
+}  // namespace
+
+int32_t nc_clip_is_reversed(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    const Clip* c = findClipById(editor, track_index, clip_id);
+    return c == nullptr ? -1 : (c->reversed ? 1 : 0);
+}
+
+int32_t nc_clip_is_frozen(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    const Clip* c = findClipById(editor, track_index, clip_id);
+    return c == nullptr ? -1 : (c->freeze ? 1 : 0);
 }
 
 int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_index,
