@@ -582,8 +582,46 @@ function drawRuler() {
   }
 }
 
+/// 重入保护：renderTracks 会被 25+ 处调用（含 resize / rAF 回调）。
+/// 若两次调用交错（第一次已清空、正在逐行 append 时第二次进来又清空），
+/// 最终会出现「3 条轨道 → 4 个 .trow」的残留行，且该行与相邻行内容重复。
+/// 用「尾随重绘」标志代替直接重入：重入时不并行执行，只标记需要再来一次。
+let renderTracksBusy = false;
+let renderTracksPending = false;
+
+/// 让整段时长恰好铺满可视宽度（播放头在中心，故左右各留半屏）。
+/// 素材比屏幕长时，默认缩放会让片段伸出视口右边 —— 这不是 bug，
+/// 是时间轴应有的行为（可以滚动）。但首次打开工程时用户更希望
+/// 「一眼看到全部」，所以引擎就绪后调用一次；之后用户手缩放即接管。
+function fitToSeq() {
+  const end = seqEnd();
+  if (!end || end <= 0) return;
+  const half = Math.max(60, viewW() / 2 - 24);
+  // 播放头在中心：可见的「未来」是半个屏宽，故用半屏算比例
+  S.pxPerSec = clamp(half / end, 4, 400);
+}
+
 function renderTracks() {
-  [...E.tracks.querySelectorAll('.trow')].forEach((n) => n.remove());
+  if (renderTracksBusy) { renderTracksPending = true; return; }
+  renderTracksBusy = true;
+  try {
+    renderTracksBody();
+  } finally {
+    renderTracksBusy = false;
+  }
+  if (renderTracksPending) {
+    renderTracksPending = false;
+    renderTracks();
+  }
+}
+
+function renderTracksBody() {
+  // 逐个摘除直到清空（不用 querySelectorAll 快照，避免清不干净）
+  let stale = E.tracks.querySelector('.trow');
+  while (stale) {
+    stale.remove();
+    stale = E.tracks.querySelector('.trow');
+  }
   const hasClips = S.tracks.some((t) => t.clips && t.clips.length > 0);
   E.app.classList.toggle('has-clips', hasClips);
   E.hint.hidden = hasClips;
@@ -1666,6 +1704,8 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
     return;
   }
   applyState(Engine.state);
+  // 首次载入：把整个工程缩放进来（用户手动缩放后不再覆盖）
+  if (!/\bzoom=/.test(location.search)) fitToSeq();
   // 预览按 fill 输出（铺满居中裁切）：与 9:16 画布一致，不出现上下黑边
   try { await edit({ op: 'frame_fit', mode: 1 }); } catch (err) { /* 老引擎无此接口时保持默认 */ }
   renderAll();

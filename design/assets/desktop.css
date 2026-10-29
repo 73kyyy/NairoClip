@@ -1,0 +1,451 @@
+/* ============================================================================
+   桌面剪辑台布局（Ae 式三栏）
+   ----------------------------------------------------------------------------
+   复用 mobile/assets 的 token 与图标；本文件只负责「桌面排布」。
+   与移动端的关键差异：
+     · 移动端轨道头是「悬浮列」，默认收起、点按钮才展开；
+       桌面端空间够，直接把轨道头做成**时间轴左侧的固定竖列**（Ae 做法），
+       常驻显示，不随轨道行横向滚动。
+     · 移动端是单列纵向堆叠；桌面端是 左素材 | 中预览+时间轴 | 右检查器。
+     · 移动端没有检查器；桌面端右栏常驻。
+   ========================================================================== */
+
+html, body { height: 100%; margin: 0; overflow: hidden; }
+
+/* 移动端 editor.css 里有 `body{display:flex;justify-content:center}`，
+   它会把 .app-d 当作 flex item 按内容收缩（实测只剩 944px，两侧留黑）。
+   桌面端需要整宽铺满，这里显式复位。 */
+body { display: block; background: #0B0B0C; }
+
+.app-d {
+  width: 100%;
+  height: 100vh; height: 100dvh;
+  display: flex; flex-direction: column;
+  /* 整页底色统一用工具栏色：任何一处没被面板覆盖的缝隙
+     都不该出现比工具栏亮的色带（移动端踩过这个坑）。 */
+  background: var(--bg-dock);
+  color: var(--text-hi);
+  font-family: var(--font);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- ① 顶栏 */
+.d-topbar {
+  flex: none; height: 44px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 12px;
+  background: var(--bg-dock);
+  border-bottom: 1px solid var(--line-1);
+}
+.d-brand { font-weight: 700; font-size: 13px; letter-spacing: .2px; }
+.d-proj {
+  border: 0; background: transparent; color: var(--text-hi);
+  font: inherit; font-size: 12.5px; padding: 3px 6px; border-radius: 3px;
+  cursor: pointer;
+}
+.d-proj:hover { background: var(--bg-toolbar); }
+.d-meta { font: 500 10.5px/1 var(--font-num); color: var(--text-low); }
+.d-spacer { flex: 1 1 auto; }
+.d-group { display: flex; gap: 2px; }
+.d-sep { width: 1px; height: 18px; background: var(--line-1); margin: 0 4px; }
+
+.d-ic {
+  width: 28px; height: 28px; flex: none;
+  border: 0; background: transparent; color: var(--text-mid);
+  border-radius: 3px; display: grid; place-items: center; cursor: pointer;
+  padding: 0;
+}
+.d-ic:hover { background: var(--bg-toolbar); color: var(--text-hi); }
+.d-ic .i { width: 16px; height: 16px; }
+.d-ic.d-sm { width: 24px; height: 24px; }
+.d-ic.d-sm .i { width: 14px; height: 14px; }
+
+.d-btn {
+  height: 26px; padding: 0 12px; flex: none;
+  border: 1px solid var(--line-1); background: var(--bg-toolbar);
+  color: var(--text-mid); border-radius: 3px;
+  font: 500 11.5px/1 var(--font); cursor: pointer;
+}
+.d-btn:hover { color: var(--text-hi); border-color: #4A4E51; }
+.d-primary { background: #EDF1F4; color: #14171A; border-color: #EDF1F4; font-weight: 600; }
+
+/* ------------------------------------------------------------ ② 三栏主体 */
+.d-main {
+  flex: 1 1 auto; min-height: 0;
+  display: flex;                 /* 左 | 中 | 右 */
+  overflow: hidden;
+}
+
+/* ---- 左栏：素材 ---- */
+.d-left {
+  flex: none; width: 232px;
+  display: flex; flex-direction: column;
+  background: var(--bg-dock);
+  border-right: 1px solid var(--line-1);
+  overflow: hidden;
+}
+.d-pane-head {
+  flex: none; height: 32px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line-1);
+  font: 500 11px/1 var(--font);
+  color: var(--text-low); letter-spacing: .06em; text-transform: uppercase;
+}
+.d-pane-head > span:first-child { flex: 1 1 auto; }
+.d-assets { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
+
+.d-asset {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; margin-bottom: 4px;
+  border: 1px solid transparent; border-radius: 3px;
+  background: var(--bg-toolbar); cursor: pointer;
+}
+.d-asset:hover { border-color: #4A4E51; }
+.d-asset.is-sel { border-color: #EDF1F4; }
+.d-asset-kind {
+  flex: none; width: 26px; height: 26px; border-radius: 2px;
+  display: grid; place-items: center; background: #1A1D1F;
+  font: 600 9px/1 var(--font-num); color: var(--text-low);
+}
+.d-asset-name {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 11.5px; color: var(--text-mid);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.d-asset-dur { flex: none; font: 500 10px/1 var(--font-num); color: var(--text-low); }
+
+/* ---- 中栏：预览 + 走带 + 时间轴 ---- */
+.d-center {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg-stage);
+}
+
+.d-stage {
+  flex: 1 1 auto; min-height: 0;      /* 唯一弹性项：吸收剩余高度 */
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px; overflow: hidden;
+  background: var(--bg-stage);
+}
+.d-canvas-wrap {
+  height: 100%; width: 100%;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 0; min-height: 0;
+}
+/* 画布按比例撑开：宽 auto + aspect-ratio 在空内容时会塌成 0 宽
+   （宽度没有可解析的来源）。这里给 width/height 都设 auto，
+   由 aspect-ratio + 父级约束推导，并用 min-width 兜底避免 0 宽。 */
+/* 画布按项目比例撑满可用空间：
+   height:100% 定高度 -> aspect-ratio 推导宽度 -> max-width 兜住宽屏。
+   反过来（width:auto + height:100%）在 flex 里推不出宽度，会塌到 min-width。
+   这里用 min() 让「高度受限」和「宽度受限」两种情形都取较小者。 */
+/* 画布：由 JS 在 resize 时按「容器高宽」与「项目比例」算出像素尺寸，
+   写成内联 width/height。纯 CSS 的 aspect-ratio + auto 在 flex 里
+   推导不出宽度（实测会塌成 0），而项目比例是运行期变量，用 CSS 变量
+   参与 min() 计算也不可靠。JS 计算最直接且可验。 */
+.d-canvas {
+  position: relative;
+  background: #000; overflow: hidden;
+  flex: none;
+}
+.d-still { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.d-empty {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: var(--text-low); font-size: 12px;
+}
+
+/* 走带 */
+.d-transport {
+  flex: none; height: 40px;
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 10px;
+  background: var(--bg-dock);
+  border-top: 1px solid var(--line-1);
+}
+.d-play .i { width: 18px; height: 18px; }
+.d-tc {
+  margin-left: 8px; padding: 3px 8px;
+  font: 600 11.5px/1 var(--font-num); color: var(--text-hi);
+  background: #1A1D1F; border-radius: 3px;
+}
+.d-hint { font-size: 10.5px; color: var(--text-low); padding-right: 4px; }
+
+/* ---- 时间轴（Ae 式：轨道头固定左列）---- */
+.d-timeline {
+  /* AE 的观感：时间轴是主工作区，占下半屏约 42%。
+     预览区用 flex:1 吸收剩余高度（不设 max-height，否则余量会漏成色带）。 */
+  flex: none; height: clamp(240px, 42vh, 520px);
+  display: flex; flex-direction: column;
+  position: relative;                        /* 播放头定位基准 */
+  background: var(--bg-dock);
+  border-top: 1px solid var(--line-1);
+  overflow: hidden;
+  --heads-w: 156px;                          /* 轨道头列宽 */
+}
+
+/* 标尺行：左侧留出轨道头宽度的空位，右侧是刻度 */
+.d-ruler-row { flex: none; height: 26px; display: flex; }
+.d-ruler-pad {
+  flex: none; width: var(--heads-w);
+  border-right: 1px solid var(--line-1);
+  border-bottom: 1px solid var(--line-1);
+  display: flex; align-items: center; padding-left: 4px;
+  background: var(--bg-dock);
+}
+.d-heads-toggle {
+  width: 20px; height: 20px; border: 0; background: transparent;
+  color: var(--text-low); display: grid; place-items: center; cursor: pointer;
+  border-radius: 2px;
+}
+.d-heads-toggle:hover { background: var(--bg-toolbar); color: var(--text-hi); }
+.d-heads-toggle .i { width: 12px; height: 12px; transition: transform .18s var(--ease); }
+.app-d.heads-closed .d-heads-toggle .i { transform: rotate(-90deg); }
+
+.d-ruler {
+  flex: 1 1 auto; min-width: 0; position: relative;
+  border-bottom: 1px solid var(--line-1);
+  overflow: hidden;
+}
+.d-ruler-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* 主体：左固定头列 + 右可滚动轨道行 */
+.d-tl-body { flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
+
+.d-heads {
+  flex: none; width: var(--heads-w);
+  border-right: 1px solid var(--line-1);
+  overflow: hidden;                            /* 与轨道行同步 scrollTop */
+  background: var(--bg-dock);
+}
+.app-d.heads-closed .d-heads { width: 34px; }
+.app-d.heads-closed .d-ruler-pad { width: 34px; }
+
+.d-lanes {
+  flex: 1 1 auto; min-width: 0;
+  overflow: auto;                              /* 横纵都滚 */
+  position: relative;
+}
+
+/* 轨道行 */
+.d-lane {
+  position: relative;
+  height: var(--row-h, 48px);
+  margin-bottom: 3px;
+  background: #14171A;
+  border-bottom: 1px solid #1A1D1F;
+}
+.d-lane.is-active { background: #171B1E; }
+
+/* 轨道头 */
+.d-head {
+  height: var(--row-h, 48px);
+  margin-bottom: 3px;
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 6px;
+  border-bottom: 1px solid #1A1D1F;
+  /* 空白处也要能长按：不允许选中文字，避免长按触发系统菜单 */
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  cursor: default;
+}
+.d-head.is-active { background: #171B1E; }
+.d-head .d-hname {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 11px; color: var(--text-mid);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.d-head .d-hidx {
+  flex: none; width: 16px;
+  font: 600 9px/1 var(--font-num); color: var(--text-low); text-align: center;
+}
+.d-head-btns { flex: none; display: flex; gap: 1px; }
+.d-head-btns button {
+  width: 18px; height: 18px; border: 0; background: transparent;
+  color: var(--text-low); border-radius: 2px;
+  display: grid; place-items: center; cursor: pointer; padding: 0;
+}
+.d-head-btns button:hover { background: var(--bg-toolbar); color: var(--text-hi); }
+.d-head-btns button.on { color: #EDF1F4; }
+.d-head-btns button .i { width: 12px; height: 12px; }
+
+/* 图标收起后，原位置变成空白 —— 仍可长按搬动整条轨道 */
+.app-d.heads-closed .d-head-btns { display: none; }
+.app-d.heads-closed .d-head .d-hname { text-align: center; }
+
+/* 搬运动态 */
+.d-head.is-dragging, .d-lane.is-dragging { opacity: .28; }
+.d-drag-ghost {
+  position: fixed; z-index: 900; pointer-events: none;
+  background: var(--bg-toolbar);
+  border: 1px solid #EDF1F4; border-left: 2px solid #EDF1F4;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6);
+  min-height: 30px; opacity: .95;
+}
+.d-drag-ghost button { pointer-events: none; }
+.d-drop-hint {
+  position: fixed; z-index: 880; pointer-events: none; display: none;
+  border-top: 2px solid #EDF1F4; border-bottom: 2px solid #EDF1F4;
+  background: rgba(237,241,244,.07);
+}
+
+/* 播放头：贯穿标尺与轨道区 */
+.d-playhead {
+  position: absolute; top: 0; bottom: 0;
+  left: calc(var(--heads-w) + var(--phx, 0px));
+  width: 2px; background: #FFFFFF;
+  transform: translateX(-50%);
+  z-index: 40; pointer-events: none;
+}
+.app-d.heads-closed .d-playhead { left: calc(34px + var(--phx, 0px)); }
+.d-ph-read {
+  position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  font: 600 9px/1 var(--font-num); color: #14171A; background: #FFFFFF;
+  padding: 2px 4px; border-radius: 2px; white-space: nowrap;
+}
+
+/* ---- 右栏：检查器 ---- */
+.d-right {
+  flex: none; width: 260px;
+  display: flex; flex-direction: column;
+  background: var(--bg-dock);
+  border-left: 1px solid var(--line-1);
+  overflow: hidden;
+}
+.app-d.insp-closed .d-right { display: none; }
+.d-insp { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 12px; }
+.d-insp-sec { margin-bottom: 14px; }
+.d-insp-sec h4 {
+  margin: 0 0 6px; font: 500 10px/1 var(--font);
+  color: var(--text-low); letter-spacing: .06em; text-transform: uppercase;
+}
+.d-insp-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 0; font-size: 11.5px; color: var(--text-mid);
+}
+.d-insp-row b { font: 500 11.5px/1 var(--font-num); color: var(--text-hi); }
+.d-insp-note { font-size: 10.5px; color: var(--text-low); line-height: 1.5; }
+
+/* ------------------------------------------------------- ③ 底部一级工具条 */
+.d-bar {
+  flex: none; height: 72px;
+  background: var(--bg-dock);
+  border-top: 1px solid var(--line-1);
+  overflow: hidden;
+}
+.d-bar-track { height: 100%; display: flex; align-items: stretch; }
+.d-l1 {
+  flex: 1 1 0; min-width: 56px; max-width: 104px;
+  border: 0; background: transparent; color: var(--text-mid);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 5px; cursor: pointer; padding: 0;
+}
+.d-l1:hover { background: var(--bg-toolbar); color: var(--text-hi); }
+.d-l1 .i { width: 20px; height: 20px; }
+.d-l1 span { font-size: 10px; }
+
+/* ---------------------------------------------------------------- 弹层 */
+.d-mask {
+  position: fixed; inset: 0; z-index: 800;
+  background: rgba(0,0,0,.55);
+  display: grid; place-items: center;
+}
+.d-mask[hidden] { display: none; }
+.d-sheet {
+  width: min(480px, 86vw); max-height: 70vh;
+  background: var(--bg-dock);
+  border: 1px solid var(--line-1); border-radius: 4px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.d-sheet-head {
+  flex: none; height: 40px; display: flex; align-items: center; gap: 8px;
+  padding: 0 8px 0 14px; border-bottom: 1px solid var(--line-1);
+  font-size: 12px;
+}
+.d-sheet-head > span:first-child { flex: 1 1 auto; }
+.d-sheet-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px; }
+.d-sheet-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 10px; margin-bottom: 4px;
+  border: 1px solid var(--line-1); border-radius: 3px;
+  background: var(--bg-toolbar); color: var(--text-mid);
+  font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.d-sheet-row:hover { border-color: #4A4E51; color: var(--text-hi); }
+
+/* ------------------------------------------------------ 左栏工具面板 */
+.d-toolpane { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px; }
+.d-toolpane[hidden] { display: none; }
+
+.d-tool-sec { margin-bottom: 14px; }
+.d-tool-sec h4 {
+  margin: 0 0 7px; font: 500 10px/1 var(--font);
+  color: var(--text-low); letter-spacing: .06em; text-transform: uppercase;
+}
+.d-tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.d-tool {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 9px 4px; border: 1px solid var(--line-1); border-radius: 3px;
+  background: var(--bg-toolbar); color: var(--text-mid);
+  font: inherit; font-size: 10.5px; cursor: pointer;
+}
+.d-tool:hover { border-color: #4A4E51; color: var(--text-hi); }
+.d-tool:disabled { opacity: .38; cursor: default; }
+.d-tool .i { width: 17px; height: 17px; }
+.d-tool.danger { color: #E06C5A; border-color: #4A2E2A; }
+
+/* ------------------------------------------------------ 缩放条 */
+.d-zoom { display: flex; align-items: center; gap: 2px; }
+.d-slider {
+  width: 96px; height: 3px; -webkit-appearance: none; appearance: none;
+  background: #2E3336; border-radius: 2px; outline: none;
+}
+.d-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #EDF1F4; cursor: pointer;
+}
+.d-ic[aria-pressed="true"] { color: #EDF1F4; }
+
+/* ------------------------------------------------------ 三级面板（右侧滑出） */
+.d-mask-right { place-items: stretch; background: rgba(0,0,0,.45); }
+.d-mask-right .d-l3 { margin-left: auto; height: 100%; }
+.d-l3 {
+  width: min(340px, 84vw); height: 100%;
+  background: var(--bg-dock); border-left: 1px solid var(--line-1);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.d-l3-head {
+  flex: none; height: 40px; display: flex; align-items: center; gap: 4px;
+  padding: 0 8px 0 14px; border-bottom: 1px solid var(--line-1);
+  font-size: 12px;
+}
+.d-l3-head > span:first-child { flex: 1 1 auto; }
+.d-l3-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 14px; }
+
+.d-l3-row { margin-bottom: 14px; }
+.d-l3-row label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11.5px; color: var(--text-mid); margin-bottom: 6px;
+}
+.d-l3-row label b { font: 500 11.5px/1 var(--font-num); color: var(--text-hi); }
+.d-l3-row input[type=range] {
+  width: 100%; height: 3px; -webkit-appearance: none; appearance: none;
+  background: #2E3336; border-radius: 2px; outline: none;
+}
+.d-l3-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+  background: #EDF1F4; cursor: pointer;
+}
+.d-l3-note { font-size: 10.5px; color: var(--text-low); line-height: 1.55; }
+
+/* 轨道行交替底色：AE 里相邻轨道用深浅区分，便于对齐 */
+.d-lane:nth-child(odd) { background: #14171A; }
+.d-lane:nth-child(even) { background: #171B1E; }
+.d-head:nth-child(odd) { background: transparent; }
+.d-head:nth-child(even) { background: #121516; }
+
+.d-ruler-label {
+  font: 500 9.5px/1 var(--font); color: var(--text-low);
+  letter-spacing: .06em; margin-left: 4px;
+}

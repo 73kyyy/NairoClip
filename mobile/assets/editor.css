@@ -12,9 +12,13 @@ body { -webkit-text-size-adjust: 100%; }
 .i { width: 20px; height: 20px; display: block; }
 
 .app { position: relative; width: 100%; max-width: 100%; height: 100vh; height: 100dvh;
-       background: var(--bg-stage); display: flex; flex-direction: column;
+       /* 底色直接用工具栏色：整个 .app 的安全区留白都落在这层，
+          写成 bg-stage（亮一档）会在底部露出色带。 */
+       background: var(--bg-dock); display: flex; flex-direction: column;
        overflow: hidden; flex: 1 1 auto; --phx: 50%;
-       /* iOS/Android 安全区：底部 Home 条不遮挡工具栏 */
+       /* iOS/Android 安全区：底部 Home 条不遮挡工具栏。
+          背景用 --bg-dock（与底部工具栏同色）：安全区内不该出现
+          与工具栏不同色的色带。 */
        padding-bottom: env(safe-area-inset-bottom, 0px);
        --u: clamp(2.6px, 0.62vh, 3.1px);
        --bar-h: clamp(84px, 10.6vh, 100px);
@@ -47,7 +51,13 @@ body { -webkit-text-size-adjust: 100%; }
           font-family: var(--font); font-size: 12px; font-weight: 600; letter-spacing: .2px; }
 
 /* ② 预览台：按可用高度等比，永远 9:16 满幅 */
-.stage { position: relative; flex: 1 1 auto; min-height: 0; max-height: 40vh;
+/* 预览区是唯一的弹性项：其余（topbar/toolbar/timeline/transport/bar）
+   都是 flex:none 的固定高度，加起来可能小于视口。
+   若这里再给 max-height 硬封顶，剩余空间就没人吃，
+   会露出 .app 的背景色（#232323，比工具栏 #111413 亮），
+   视觉上就是底部一条「白带」。
+   因此不给 max-height —— 空间富余时由预览区吸收。 */
+.stage { position: relative; flex: 1 1 auto; min-height: 0;
          background: var(--bg-stage);
          display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .canvas { position: relative; height: 100%; width: auto;
@@ -80,7 +90,18 @@ body { -webkit-text-size-adjust: 100%; }
 .cbtn[disabled] { opacity: .35; }
 .c-ai { font-size: 10px; font-weight: 700; letter-spacing: .3px; color: #EDF1F4; }
 .strip { height: 4px; background: #1A1C1C; }
-.strip-done { height: 100%; width: 0; background: #FFFFFF; transition: width .08s linear; }
+/* 播放进度条：渐变蓝（用户指定）。用 linear-gradient 而不是纯色，
+   让「已播放」与「未播放」在视觉上是一段流动的光带而不是硬边色块。
+   渐变端点用 #3B82F6 -> #60A5FA -> #22D3EE，与项目青色强调色呼应。 */
+.strip-done {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, #1D4ED8 0%, #3B82F6 45%, #60A5FA 75%, #22D3EE 100%);
+  background-size: 100vw 100%;
+  background-repeat: no-repeat;
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 6px rgba(59,130,246,.55);
+  transition: width .08s linear;
+}
 
 /* ④ 时间轴区：刻度尺 + 轨道，播放头贯穿 */
 .timeline { flex: 1 1 auto; height: var(--tl-h); min-height: var(--tl-h);
@@ -307,8 +328,12 @@ body { -webkit-text-size-adjust: 100%; }
 .circles, .transport, .bar-track, .page { min-height: 0; }
 .cbtn, .tp { flex: 0 0 auto; }
 
-@media (max-height: 900px) { .stage { max-height: 38vh; } }
-@media (max-height: 760px) { .stage { max-height: 34vh; } .app { --tl-h: clamp(190px, 30vh, 260px); } }
+/* 预览区不再按视口高度封顶 —— 它承担「吸收剩余空间」的职责。
+   早期用 max-height 是为了防止短屏上预览过高挤掉时间轴，
+   但下方时间轴/工具栏都是 flex:none 的固定高度，本身就挤不掉；
+   真正的问题是反过来：固定项总和小视口时，预览区被封顶后
+   剩余空间没人吃，底部会露出色带。 */
+@media (max-height: 760px) { .app { --tl-h: clamp(190px, 30vh, 260px); } }
 
 /* ---------- 片段裁剪把手（选中时两端出现带箭头的胶囊） ---------- */
 .trim-handle {

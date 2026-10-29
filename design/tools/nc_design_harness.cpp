@@ -54,6 +54,8 @@ using nairoclip::core::toJsonString;
 namespace {
 
 std::string rootDir;
+/// 仓库根目录：用于 `/m/...` 这类跨目录静态资源（桌面页引用 mobile/assets）。
+std::string repoRoot;
 
 std::string readFile(const std::string& path, bool& ok) {
     std::ifstream in(path, std::ios::binary);
@@ -1344,7 +1346,10 @@ Response handleApi(const Request& req) {
             for (const std::string& file : files) {
                 nairoclip::core::FFmpegMediaReader reader;
                 const std::string full = dir + "/" + file;
-                if (!reader.open(full).isOk()) continue;
+                const nairoclip::core::Result openRes = reader.open(full);
+                std::fprintf(stderr, "[media] %s open=%d %s\n", full.c_str(),
+                             (int)openRes.isOk(), openRes.message.c_str());
+                if (!openRes.isOk()) continue;
                 const auto& probe = reader.probe();
                 const std::int64_t durationUs = toMicroseconds(probe.duration);
                 if (durationUs <= 0) continue;
@@ -1352,11 +1357,18 @@ Response handleApi(const Request& req) {
                 item.set("name", JsonValue::string(file));
                 item.set("path", JsonValue::string(full));
                 item.set("duration_us", JsonValue::integer(durationUs));
-                item.set("type", JsonValue::integer(probe.hasVideo ? 0 : 1));
+                // MediaProbeResult 没有 hasVideo 字段，类型看 MediaType：
+                // Video=视频，Audio=音频，其余（Unknown）按音频处理并跳过。
+                int mediaType = 1;
+                if (probe.type == nairoclip::core::MediaType::Video) mediaType = 0;
+                else if (probe.type == nairoclip::core::MediaType::Audio) mediaType = 1;
+                else continue;                       // 无法判型：不列给用户
+                item.set("type", JsonValue::integer(mediaType));
                 item.set("width", JsonValue::integer(probe.width));
                 item.set("height", JsonValue::integer(probe.height));
-                item.set("fps_num", JsonValue::integer(probe.frameRate.num));
-                item.set("fps_den", JsonValue::integer(probe.frameRate.den));
+                // FrameRate 内嵌的是 value（Rational），不是裸 num/den
+                item.set("fps_num", JsonValue::integer(probe.frameRate.value.num));
+                item.set("fps_den", JsonValue::integer(probe.frameRate.value.den));
                 items.push(std::move(item));
             }
 #else
@@ -1550,7 +1562,12 @@ Response handleStatic(const std::string& path) {
         return r;
     }
     bool ok = false;
-    const std::string data = readFile(rootDir + relative, ok);
+    std::string data = readFile(rootDir + relative, ok);
+    // `/m/...` 映射到仓库根，供桌面页直接引用 mobile/assets 的
+    // token/图标/编辑逻辑 —— 单一来源，不做物理复制（复制会失去同步）。
+    if (!ok && relative.rfind("/m/", 0) == 0) {
+        data = readFile(repoRoot + "/mobile/" + relative.substr(3), ok);
+    }
     if (!ok) {
         Response r;
         r.status = 404;
@@ -1616,6 +1633,23 @@ void serveClient(int fd) {
 int main(int argc, char** argv) {
     const int port = argc > 1 ? std::atoi(argv[1]) : 8787;
     rootDir = argc > 2 ? argv[2] : "design";
+    // 仓库根 = rootDir 的父目录。注意 rootDir 常是相对路径（默认 "design"），
+    // 此时 find_last_of('/') 会失败，不能直接退化成 "." —— 那会指到
+    // 「design 目录内部」，/m/ 就永远 404。
+    {
+        std::string r = rootDir;
+        while (!r.empty() && r.back() == '/') r.pop_back();
+        const std::size_t slash = r.find_last_of('/');
+        if (slash != std::string::npos) {
+            repoRoot = r.substr(0, slash);
+        } else if (r == "." ) {
+            repoRoot = ".";
+        } else {
+            // 相对路径且无斜杠：父目录就是当前工作目录
+            repoRoot = ".";
+        }
+        if (repoRoot.empty()) repoRoot = ".";
+    }
     bool lanBind = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--lan") == 0) lanBind = true;

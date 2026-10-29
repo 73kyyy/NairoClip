@@ -11,6 +11,15 @@ OUT="design/tools/nc_design_harness"
 FF_LIBS="$(pkg-config --libs libavformat libavcodec libavutil libswscale libswresample 2>/dev/null || true)"
 FF_CFLAGS="$(pkg-config --cflags libavformat libavcodec libavutil libswscale libswresample 2>/dev/null || true)"
 
+# core 用 `target_compile_definitions(... PUBLIC NAIROCLIP_HAS_FFMPEG=1)` 暴露该宏；
+# 本脚本手工调 g++ 绕过了 CMake，不会继承它。不传的话桥里所有
+# `#ifdef NAIROCLIP_HAS_FFMPEG` 分支（素材时长探测、缩略图、波形）
+# 都会静默失效 —— 表现为 /api/media_library 返回空列表。
+FF_DEF=""
+if [ -n "$FF_CFLAGS$FF_LIBS" ]; then
+    FF_DEF="-DNAIROCLIP_HAS_FFMPEG=1"
+fi
+
 EXTRA_LIBS=""
 if [ -f "$ORT_ROOT/lib/libonnxruntime.so" ]; then
     EXTRA_LIBS="$ORT_ROOT/lib/libonnxruntime.so"
@@ -21,7 +30,7 @@ fi
 
 mkdir -p design/out design/screenshots
 g++ -std=c++17 -O2 -g0 -Wall -Wextra \
-    -I core/include $FF_CFLAGS \
+    -I core/include $FF_CFLAGS $FF_DEF \
     design/tools/nc_design_harness.cpp \
     "$BUILD_DIR/core/libnairoclip_core.a" \
     $FF_LIBS $EXTRA_LIBS -lz -lpthread -ldl $ORT_RPATH \
