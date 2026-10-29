@@ -98,6 +98,7 @@ add_executable(nairoclip_tests
     test_capi_errors.cpp
     test_capi_ownership.cpp
     test_asset_reorder.cpp
+    test_track_group_move.cpp
     test_bounds_audit.cpp
     test_edit_template.cpp
     test_template_fill.cpp

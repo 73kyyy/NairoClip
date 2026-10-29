@@ -92,6 +92,15 @@ private:
 ///
 /// 校验：newIndex 必须在 [0, tracks.size()-1]；被移动轨道不得锁定。
 /// 跨类型重排允许——顺序只影响渲染层级，不改变轨道语义。
+///
+/// **轨道组联动（B2-7）**：被移动的轨道若属于某个轨道组，则整组一起搬。
+/// 组内成员的**相对顺序保持不变**，且组在序列中占据的位置以「被拖动的
+/// 那条轨道的新位置」为锚点。这样用户拖组内任意一条，搬的都是整个组，
+/// 不会出现「组被打散」的状态。
+///
+/// 为什么不对组内其他成员做锁定校验：组的语义是「联动」，若因某成员
+/// 被锁就整组拒绝，用户会看到「拖不动但不知道哪条锁了」。这里改为
+/// 只校验被拖动的那一条（与 UI 的落手点一致），组内其它成员随组移动。
 class MoveTrackCommand : public Command {
 public:
     MoveTrackCommand(SequenceId sequenceId, TrackId trackId, int newIndex);
@@ -105,12 +114,21 @@ public:
     bool canMergeWith(const Command& other) const override;
     void mergeFrom(const Command& other) override;
 
+    /// 移到当前所在位置不改动顺序，不该产生历史。
+    bool isNoOp(const Project& project) const override;
+
 private:
     SequenceId sequenceId_;
     TrackId trackId_;
     int newIndex_;
-    std::optional<int> oldIndex_;   // apply 时记录，供 revert 还原
-    std::optional<Track> moved_;    // 被移动轨道的快照
+    /// 首次 apply 前的完整轨道顺序快照（按 id）。
+    ///
+    /// 为什么存整份顺序而不是「oldIndex + moved」：组联动会同时搬多条，
+    /// 逐条记录各自旧索引在 revert 时容易互相干扰（先还原 A 会让 B 的
+    /// 旧索引失效）。直接还原整份顺序最稳，且组规模远小于轨道总数。
+    std::optional<std::vector<TrackId>> beforeOrder_;
+    /// 首次 apply 时记录参与移动的轨道 id（含组内全部成员），供 merge 使用。
+    std::vector<TrackId> movingIds_;
 };
 
 /// 设置轨道显示高度与折叠状态（B2-10）。
@@ -744,6 +762,8 @@ public:
     Result apply(Project& project) override;
     Result revert(Project& project) override;
     std::string nameImpl() const override { return "调整素材顺序"; }
+    /// 原地移动（from == to）不改动任何数据，不该产生历史。
+    bool isNoOp(const Project& project) const override;
 
 private:
     int fromIndex_;

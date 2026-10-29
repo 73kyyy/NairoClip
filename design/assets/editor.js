@@ -107,6 +107,31 @@ function renderTopbar() {
 async function renderStage() {
   const p = project();
   const t = Math.round(state.playhead);
+  const hasContent = (state.data.tracks || []).some((tr) => tr.clips.length > 0);
+  const stageCanvas = $('.stage-canvas');
+  let emptyNode = $('#stageEmpty');
+  if (!hasContent) {
+    $('#frame').classList.add('hidden');
+    if (!emptyNode) {
+      emptyNode = el('div', { class: 'stage-empty', id: 'stageEmpty' });
+      emptyNode.innerHTML = `
+        <div style="width:46px;height:46px;display:grid;place-items:center;border:1px solid var(--ink-500);border-radius:2px;color:var(--paper-faint)">
+          ${icon('film', 'ic ic-lg')}</div>
+        <h3>时间轴还是空的</h3>
+        <p>导入一段视频或图片开始剪辑。素材只在本机解码，不会上传。</p>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary chamfer-sm" id="importBtn">导入素材</button>
+          <button class="btn" id="importDemoBtn">载入示例草稿</button>
+        </div>`;
+      stageCanvas.append(emptyNode);
+      emptyNode.querySelector('#importBtn').addEventListener('click', importAssetFlow);
+      emptyNode.querySelector('#importDemoBtn').addEventListener('click', loadDemoProject);
+    }
+    $('#subtitleLayer').innerHTML = '';
+    return;
+  }
+  $('#frame').classList.remove('hidden');
+  emptyNode?.remove();
   $('#frame').style.aspectRatio = canvasRatio();
   $('#stageRatio').textContent = `${p.width}×${p.height}`;
   $('#timecode').innerHTML = `${timecode(t, p.fps_num, p.fps_den, false)}:<span class="f">${String(
@@ -151,10 +176,28 @@ function renderTrackHeads() {
       'data-type': typeName,
       'data-index': track.index,
     });
+    // 折叠态（B2-10）：只保留序号 + 名字 + 展开按钮。
+    // 小眼睛/锁等图标收起后，它们原本占的位置变成**空白**；
+    // 这块空白与轨道头其它空白一样可以长按搬动整条轨道
+    // （见 initTrackDrag —— 它只排除 button，不排除空白区域）。
+    if (track.collapsed) {
+      head.classList.add('is-collapsed');
+      head.innerHTML = `
+        <span class="track-index">${String(track.index + 1).padStart(2, '0')}</span>
+        <button class="track-name" title="重命名轨道">${escapeHtml(track.name)}</button>
+        <div class="track-toggles">
+          <button data-collapse="0" aria-pressed="true" title="展开轨道">
+            ${icon('chevronRight', 'ic')}</button>
+        </div>`;
+      host.append(head);
+      continue;
+    }
     head.innerHTML = `
       <span class="track-index">${String(track.index + 1).padStart(2, '0')}</span>
       <button class="track-name" title="重命名轨道">${escapeHtml(track.name)}</button>
       <div class="track-toggles">
+        <button data-collapse="1" aria-pressed="false" title="收起图标">
+          ${icon('chevronDown', 'ic')}</button>
         <button data-flag="locked" aria-pressed="${track.locked}" title="锁定">
           ${icon(track.locked ? 'lock' : 'unlock', 'ic')}</button>
         <button data-flag="${typeName === 'audio' ? 'muted' : 'hidden'}"
@@ -181,8 +224,13 @@ function xToTime(x) {
   return Math.max(0, (x / state.pxPerSec) * 1e6);
 }
 
-function laneHeight(type) {
-  return type === 1 ? 46 : 56;
+/// 折叠态只留标题栏高度；否则用轨道自己的 height_px（B2-10），
+/// 缺省时按类型给默认值（音频矮一点，波形不需要太高）。
+const COLLAPSED_LANE_H = 18;
+function laneHeight(track) {
+  if (track.collapsed) return COLLAPSED_LANE_H;
+  if (Number.isFinite(track.height_px)) return track.height_px;
+  return track.type === 1 ? 46 : 56;
 }
 
 function renderTimeline() {
@@ -202,8 +250,9 @@ function renderTimeline() {
       'data-type': ['video', 'audio', 'subtitle', 'effect'][track.type],
       'data-index': track.index,
     });
-    lane.style.height = `${laneHeight(track.type)}px`;
-    lane.dataset.height = laneHeight(track.type);
+    lane.style.height = `${laneHeight(track)}px`;
+    lane.dataset.height = laneHeight(track);
+    if (track.collapsed) lane.dataset.collapsed = '1';
 
     for (const clip of track.clips) {
       lane.append(renderClip(track, clip));
@@ -237,7 +286,6 @@ function renderTimeline() {
   renderRuler(contentWidth);
   renderMarkers();
   renderPlayhead();
-  renderThumbnails();
 }
 
 function renderClip(track, clip) {
@@ -395,10 +443,11 @@ function renderRuler(contentWidth) {
     ctx.stroke();
     ctx.globalAlpha = 1;
     if (isMajor) {
-      const label = step < 1
-        ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
-        : timecode(s * 1e6, FPS(), 1, false).slice(3);
-      ctx.fillText(label, x + 3, 10);
+      const mm = Math.floor(s / 60);
+      const ss = Math.floor(s % 60);
+      const label = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+      // 首个刻度从右移一点，避免与左边界重叠
+      ctx.fillText(label, x + (x < 6 ? 0 : 3), 10);
     }
   }
   // 悬停时间指示由 CSS 光标承担，不额外画线
@@ -683,6 +732,65 @@ function markerSection() {
   return node;
 }
 
+// 真实导入：/api/call 直通 nc_import_asset / nc_add_track / nc_insert_clip。
+// 素材路径由设计桥自带（design/media），时长由平台层探测后传入。
+async function importAssetFlow() {
+  const media = await api('/api/media_library').catch(() => ({ items: [] }));
+  const body = el('div');
+  if (!media.items.length) {
+    body.innerHTML = `<p class="empty-hint">本机没有可用素材。真机上这里会打开系统相册/文件选择器。</p>`;
+    openSheet('导入素材', body);
+    return;
+  }
+  body.innerHTML = `<div class="section-head" style="margin-bottom:8px">本机素材（真实文件）</div>`;
+  const list = el('div');
+  for (const item of media.items) {
+    const row = el('button', { class: 'row' });
+    row.style.cssText = 'width:100%;height:auto;padding:8px 0;text-align:left;border-bottom:1px solid var(--ink-700)';
+    row.innerHTML = `<span class="chip">${item.type === 1 ? '音频' : '视频'}</span>
+      <span style="flex:1">${escapeHtml(item.name)}</span>
+      <span class="num faint" style="font-size:10px">${duration(item.duration_us)}</span>`;
+    row.addEventListener('click', async () => {
+      const res = await api('/api/call', {
+        fn: 'nc_import_asset',
+        args: { name: item.name, path: item.path, type: item.type, duration_us: item.duration_us },
+      });
+      const assetId = res.result?.value;
+      if (!assetId) { toast('导入失败', 'alarm'); return; }
+      // 没有目标轨道时先建一条（视频/音频各一类）
+      const kind = item.type === 1 ? 1 : 0;
+      let track = state.data.tracks.find((tr) => tr.type === kind);
+      if (!track) {
+        await api('/api/call', { fn: 'nc_add_track', args: { name: kind ? '音频' : '主画面', track_type: kind } });
+        await refresh();
+        track = [...state.data.tracks].reverse().find((tr) => tr.type === kind);
+      }
+      await api('/api/call', {
+        fn: 'nc_insert_clip',
+        args: { track_index: track.index, asset_id: assetId, start_us: 0, duration_us: Math.min(item.duration_us, 6000000) },
+      });
+      sheet.close();
+      await refresh();
+      await renderStage();
+      toast(`已导入 ${item.name}`);
+    });
+    list.append(row);
+  }
+  body.append(list);
+  const sheet = openSheet('导入素材', body);
+}
+
+async function loadDemoProject() {
+  const list = await api('/api/projects');
+  const file = list.projects?.[0]?.file;
+  if (!file) { toast('没有已保存的草稿', 'alarm'); return; }
+  const res = await api('/api/load', { file });
+  if (!res.ok) { toast(res.message || '载入失败', 'alarm'); return; }
+  await refresh({ keepSelection: false });
+  await renderStage();
+  toast(`已载入 ${file}`);
+}
+
 // ---------------------------------------------------------------- 交互
 async function edit(payload) {
   const res = await api('/api/edit', payload);
@@ -741,6 +849,196 @@ function scheduleTick() {
   renderPlayhead();
   renderStage();
   requestAnimationFrame(scheduleTick);
+}
+
+// ---------------------------------------------------------------- 轨道搬家
+// 两条路径都能把「整条轨道」连同其中全部内容上下移动：
+//   A. 长按轨道头（小眼睛向右的空白处，以及折叠后图标所在的整个区域）
+//   B. 长按轨道上的片段
+//
+// 「整条轨道」的语义由核心层保证：片段、片段上的效果/关键帧/速度曲线、
+// 转场、调整图层特效栈、静音/隐藏/锁定/独奏标志、轨道增益、高度
+// 全都存放在 Track 结构体内部（core/include/nairoclip/core/track.h），
+// moveTrack 只换 tracks 数组中的位置，因此这些内容自动整体搬移。
+//
+// 轨道头图标（小眼睛等）不是独立图层：它们由 renderTrackHeads 按
+// tracks 数组顺序重绘，轨道换位后自然跟到新位置。折叠态下高度变矮，
+// 轨道头同样按数组顺序重绘，因此折叠/展开都不影响跟手。
+const TRACK_HOLD_MS = 350;   // 长按判定；短于此视为点击（选中/改播放头）
+/// 长按搬家结束后，浏览器的补发 click 要吃掉一次。
+/// 用计数器而非布尔：极端情况下可能连发多次。
+let suppressNextClick = false;
+let suppressClickTimer = 0;
+const TRACK_HOLD_SLOP = 8;   // 长按前允许的抖动像素
+
+function initTrackDrag() {
+  const scroll = $('#tlScroll');
+  const heads = $('#trackHeads');
+  let pending = null;  // { from, startX, startY, timer, pointerId }
+  let active = null;   // { from, to, node, placeholder }
+
+  const trackIndexAt = (clientY) => {
+    // 以轨道头为准做命中：轨道头与轨道行一一对应且已对齐高度。
+    // 这样即使长按发生在片段上，也能命中片段所属的那一条轨道。
+    const nodes = $$('#trackHeads .track-head');
+    for (const n of nodes) {
+      const r = n.getBoundingClientRect();
+      if (clientY >= r.top && clientY <= r.bottom) return Number(n.dataset.index);
+    }
+    // 落在最后一条之下：贴到末尾；落在第一条之上：贴到开头
+    if (!nodes.length) return -1;
+    const first = nodes[0].getBoundingClientRect();
+    return clientY < first.top ? 0 : nodes.length - 1;
+  };
+
+  const begin = (event) => {
+    if (active) return;
+    const headNode = event.target.closest('#trackHeads .track-head');
+    const clipNode = event.target.closest('.clip');
+    // 轨道头上的图标按钮（小眼睛/锁）与轨道名：点击即切换，不参与长按搬家
+    if (headNode && event.target.closest('button[data-flag], button.track-name')) return;
+    if (!headNode && !clipNode) return;
+
+    const from = Number((headNode ?? clipNode).dataset.index);
+    if (!Number.isInteger(from) || from < 0) return;
+    const track = state.data.tracks.find((t) => t.index === from);
+    if (!track) return;
+    if (track.locked) {
+      // 锁定轨道不可移动（与核心层 MoveTrackCommand 的校验一致）
+      toast('轨道已锁定，无法移动', 'alarm');
+      return;
+    }
+
+    pending = {
+      from,
+      startX: event.clientX,
+      startY: event.clientY,
+      pointerId: event.pointerId,
+      timer: setTimeout(() => {
+        pending = null;
+        enterDragMode(from, event.clientX, event.clientY);
+      }, TRACK_HOLD_MS),
+    };
+  };
+
+  const enterDragMode = (from, clientX, clientY) => {
+    const headNode = $$('#trackHeads .track-head').find((n) => Number(n.dataset.index) === from);
+    const laneNode = $$('#tlTracks .track-lane').find((n) => Number(n.dataset.index) === from);
+    if (!headNode) return;
+
+    // 视觉：抬起原始行，插入一条占位
+    const rect = headNode.getBoundingClientRect();
+    const laneRect = laneNode?.getBoundingClientRect();
+    ([headNode, laneNode].filter(Boolean)).forEach((n) => n.classList.add('is-dragging'));
+
+    const ghost = headNode.cloneNode(true);
+    ghost.classList.add('track-drag-ghost');
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.top = `${rect.top}px`;
+    document.body.append(ghost);
+
+    active = { from, to: from, ghost, headNode, laneNode, clientX, clientY };
+    if (navigator.vibrate) navigator.vibrate(8);
+    showTrackDropHint(from);
+  };
+
+  const move = (event) => {
+    if (pending) {
+      const dx = Math.abs(event.clientX - pending.startX);
+      const dy = Math.abs(event.clientY - pending.startY);
+      // 长按判定前偏移过大 -> 视为滚动/拖片段，放弃搬家
+      if (dx > TRACK_HOLD_SLOP || dy > TRACK_HOLD_SLOP) {
+        clearTimeout(pending.timer);
+        pending = null;
+      }
+      return;
+    }
+    if (!active) return;
+    active.clientX = event.clientX;
+    active.clientY = event.clientY;
+    active.ghost.style.top = `${event.clientY - 18}px`;
+    const to = trackIndexAt(event.clientY);
+    if (to >= 0 && to !== active.to) {
+      active.to = to;
+      showTrackDropHint(to);
+    }
+  };
+
+  const finish = async (event, cancelled) => {
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending = null;
+    }
+    if (!active) return;
+    const a = active;
+    active = null;
+    ([a.headNode, a.laneNode].filter(Boolean)).forEach((n) => n.classList.remove('is-dragging'));
+    a.ghost.remove();
+    hideTrackDropHint();
+    // 只要真的进入过搬家态，就吃掉随后那次 click ——
+    // 即便落点没变（用户长按后又放回原处），也不该触发重命名。
+    // click 在 pointerup 之后的**下一个任务**里派发，所以不能用 0ms 定时器
+    // 清标志（那样会在 click 之前就清掉，抑制失效）。给 350ms 窗口，
+    // 覆盖移动端合成 click 的常见延迟，又不至于误吞用户的正常点击。
+    suppressNextClick = true;
+    clearTimeout(suppressClickTimer);
+    suppressClickTimer = setTimeout(() => { suppressNextClick = false; }, 350);
+    if (cancelled || a.to === a.from) return;
+    // 一次拖动只落一条历史：核心层 MoveTrackCommand 自带可撤销快照
+    await edit({ op: 'track_move', track: a.from, to_index: a.to });
+  };
+
+  heads.addEventListener('pointerdown', begin);
+  scroll.addEventListener('pointerdown', begin);
+
+  // ---- 冲突 A：轨道头与轨道行是两个独立滚动容器 ----
+  // .tl-heads-list 是 overflow:hidden，.tl-scroll 是 overflow:auto，
+  // 两者之间原本没有任何同步。纵向滚动后「头」不动而「行」动，
+  // 轨道头就会和它对应的轨道错位 —— 长按搬家的落点判定也会跟着错。
+  // 这里做单向同步：滚 tl-scroll 时把 heads 的 scrollTop 拉齐。
+  const syncScroll = () => {
+    if (heads.scrollTop !== scroll.scrollTop) heads.scrollTop = scroll.scrollTop;
+  };
+  scroll.addEventListener('scroll', syncScroll, { passive: true });
+  // 轨道头侧不设可滚动：用户只能从轨道行区域滚，避免两个方向打架
+  heads.style.overflowY = 'hidden';
+  window.addEventListener('pointermove', move, { passive: true });
+  window.addEventListener('pointerup', (e) => finish(e, false));
+  window.addEventListener('pointercancel', (e) => finish(e, true));
+
+  // 拖到边缘自动滚动：轨道多时手指停在视口底部仍能继续往上/下搬
+  let autoScrollRaf = 0;
+  const autoScroll = () => {
+    autoScrollRaf = 0;
+    if (!active) return;
+    const r = scroll.getBoundingClientRect();
+    const edge = 48;
+    if (active.clientY > r.bottom - edge) scroll.scrollTop += 8;
+    else if (active.clientY < r.top + edge) scroll.scrollTop -= 8;
+    autoScrollRaf = requestAnimationFrame(autoScroll);
+  };
+  window.addEventListener('pointermove', () => {
+    if (active && !autoScrollRaf) autoScrollRaf = requestAnimationFrame(autoScroll);
+  }, { passive: true });
+}
+
+let trackDropHintNode = null;
+function showTrackDropHint(index) {
+  const lane = $$('#tlTracks .track-lane').find((n) => Number(n.dataset.index) === index);
+  if (!lane) return;
+  if (!trackDropHintNode) {
+    trackDropHintNode = el('div', { class: 'track-drop-hint' });
+    document.body.append(trackDropHintNode);
+  }
+  const r = lane.getBoundingClientRect();
+  trackDropHintNode.style.top = `${r.top}px`;
+  trackDropHintNode.style.height = `${r.height}px`;
+  trackDropHintNode.style.left = `${r.left}px`;
+  trackDropHintNode.style.width = `${r.width}px`;
+  trackDropHintNode.style.display = 'block';
+}
+function hideTrackDropHint() {
+  if (trackDropHintNode) trackDropHintNode.style.display = 'none';
 }
 
 // 播放头拖拽（命中 24px 宽区）
@@ -1198,9 +1496,33 @@ function bind() {
 
   // 轨道头：锁定/静音/隐藏、重命名
   $('#trackHeads').addEventListener('click', async (e) => {
+    // 长按搬家刚结束时，浏览器仍会补发一次 click。
+    // 若不拦，手指落在轨道名上会直接弹出重命名 prompt（冲突 B）。
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     const head = e.target.closest('.track-head');
     if (!head) return;
     const index = Number(head.dataset.index);
+
+    // 收起 / 展开图标：只改视图状态，不动轨道顺序
+    const collapseBtn = e.target.closest('[data-collapse]');
+    if (collapseBtn) {
+      const track = trackAt(index);
+      const wantCollapsed = collapseBtn.dataset.collapse === '1';
+      await api('/api/edit', {
+        op: 'track_view',
+        track: index,
+        height_px: track.height_px ?? (track.type === 1 ? 46 : 56),
+        collapsed: wantCollapsed,
+      });
+      await refresh();
+      return;
+    }
+
     const flagBtn = e.target.closest('[data-flag]');
     if (flagBtn) {
       const track = trackAt(index);
@@ -1266,6 +1588,7 @@ function escapeHtml(text) {
 async function boot() {
   bind();
   initPlayheadDrag();
+  initTrackDrag();
   initClipGestures();
   await refresh({ keepSelection: false });
   $('#playBtn').innerHTML = icon('play');

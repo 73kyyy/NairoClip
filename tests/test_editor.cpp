@@ -1005,19 +1005,21 @@ NC_TEST(Editor, MoveTrackAllowsCrossType) {
 }
 
 NC_TEST(Editor, MoveTrackToSameIndexKeepsOrder) {
-    // 拖回原位：顺序不变，撤销后仍是同一顺序。
+    // 拖回原位：顺序不变，且**不产生历史记录**。
     //
-    // 已知局限：框架的 no-op 抑制需要 Command 层支持（commit 目前总入栈），
-    // 所以这里会产生一条「移动轨道」的空历史记录。撤销它不会破坏任何数据，
-    // 只是历史面板多一项。未为此改动 Command 接口——收益不足以承担影响面。
+    // 早期这里记录为「已知局限：会产生一条空历史」。2026-10-29 引入
+    // Command::isNoOp 后该局限已消除 —— 空历史会让用户按一次撤销
+    // 「毫无反应」，观感是撤销坏了，不是可接受的瑕疵。
     TrackOrderFixture f;
     TimelineEditor editor(f.project);
+    const std::size_t before = editor.undoCount();
     NC_CHECK(editor.moveTrack(f.seqId, f.v2, 1).isOk());
     NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
-    const std::size_t before = editor.undoCount();
-    NC_CHECK(editor.undo().isOk());
+    // no-op 不入栈：历史条数不变
+    NC_CHECK(editor.undoCount() == before);
+    // 因此此时没有可撤销的东西
+    NC_CHECK(!editor.undo().isOk());
     NC_CHECK(f.order() == std::vector<TrackId>({f.v1, f.v2, f.v3}));
-    NC_CHECK(editor.undoCount() < before);
 }
 
 NC_TEST(Editor, MoveTrackMergesConsecutiveDrags) {

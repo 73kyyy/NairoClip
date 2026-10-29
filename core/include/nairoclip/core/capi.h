@@ -171,10 +171,30 @@ int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_
                      int32_t* out_muted, int32_t* out_hidden, int32_t* out_solo,
                      double* out_gain_db);
 
+/// 读取轨道显示高度与折叠状态（B2-10）。
+/// - out_height_px：当前高度像素（默认 48，范围 24~200）；
+/// - out_collapsed：1 = 已折叠（仅显示标题栏）；任一输出可为 NULL。
+int32_t nc_track_get_view(const NcEditor* editor, int32_t track_index, int32_t* out_height_px,
+                          int32_t* out_collapsed);
+
+/// 设置轨道显示高度与折叠状态（B2-10；可撤销）。
+/// 折叠态下轨道仍需可被长按搬动，视觉高度由 UI 决定，此处只存状态。
+int32_t nc_set_track_view(NcEditor* editor, int32_t track_index, int32_t height_px,
+                          int32_t collapsed);
+
 /// 删除轨道（含其中片段；可撤销）。
 int32_t nc_remove_track(NcEditor* editor, int32_t track_index);
 /// 重命名轨道。
 int32_t nc_rename_track(NcEditor* editor, int32_t track_index, const char* new_name);
+/// 移动轨道到新位置（可撤销）。
+///
+/// 整条轨道连同其中全部内容一起移动：片段、片段上的效果/关键帧/速度曲线、
+/// 转场、调整图层特效栈、静音/隐藏/锁定/独奏标志与轨道增益。
+/// 这些字段都存放在 Track 结构体内部，换序列中的位置即整体搬移。
+///
+/// new_index 语义为「移动后」的位置（0 在最上方）。
+/// 锁定轨道拒绝；越界拒绝并返回 NC_ERROR_OUT_OF_RANGE。
+int32_t nc_move_track(NcEditor* editor, int32_t track_index, int32_t new_index);
 /// 设置轨道锁定 / 静音 / 隐藏（1/0）。
 int32_t nc_set_track_locked(NcEditor* editor, int32_t track_index, int32_t locked);
 int32_t nc_set_track_muted(NcEditor* editor, int32_t track_index, int32_t muted);

@@ -356,3 +356,57 @@
   .topbar{padding-left:8px}
   .project-name{max-width:18ch}
 }
+
+/* ---------------------------------------------------------------- 轨道搬家 */
+/* 长按轨道头或轨道上的片段进入搬家态；整条轨道（含其中的片段、效果、
+   小眼睛/锁等标志）一起换位置。视觉上把原始行压暗、给一条幽灵行跟手。 */
+.track-head.is-dragging,
+.track-lane.is-dragging{opacity:.28;filter:saturate(.4)}
+
+.track-drag-ghost{
+  position:fixed;left:0;z-index:900;
+  pointer-events:none;
+  background:var(--ink-700);
+  border:1px solid var(--tungsten);
+  border-left:2px solid var(--tungsten);
+  box-shadow:0 8px 24px rgba(0,0,0,.55);
+  opacity:.94;
+  /* 折叠态下轨道头很矮，幽灵行至少留出可读高度，手指不会盖住内容 */
+  min-height:34px;
+}
+/* 幽灵行里的图标按钮不可点，且不显示 hover 态，避免「看起来能点」 */
+.track-drag-ghost button{pointer-events:none}
+
+/* 落点提示：整条轨道的插入位置 */
+.track-drop-hint{
+  position:fixed;z-index:880;display:none;pointer-events:none;
+  border-top:2px solid var(--tungsten);
+  border-bottom:2px solid var(--tungsten);
+  background:linear-gradient(rgba(240,160,60,.10),rgba(240,160,60,.04));
+  border-radius:2px;
+}
+
+/* 搬家态下禁止长按选中文字、禁止系统菜单打断手势 */
+.track-head,.track-lane{ -webkit-user-select:none;user-select:none; }
+.track-head{ -webkit-touch-callout:none; }
+
+/* 折叠态（B2-10）：轨道头压到只剩一行，小眼睛等图标收起后
+   其原位置变成空白，仍可长按搬动整条轨道。 */
+.track-head.is-collapsed{
+  grid-template-rows:auto;
+  padding-top:0;padding-bottom:0;
+  display:flex;align-items:center;gap:6px;
+}
+.track-head.is-collapsed .track-index{flex:none}
+.track-head.is-collapsed .track-name{
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-align:left;
+}
+.track-head.is-collapsed .track-toggles{flex:none;margin-left:auto}
+
+/* 折叠后轨道行只剩一条细带；背景压实，避免看出「空了一大块」 */
+.track-lane[data-collapsed="1"]{
+  border-bottom:var(--hair) solid var(--ink-700);
+  background:repeating-linear-gradient(
+    90deg,transparent 0 6px,rgba(255,255,255,.025) 6px 7px);
+}

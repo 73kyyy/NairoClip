@@ -18,6 +18,9 @@
 
 #include "nairoclip/core/capi.h"
 #include "nairoclip/core/json.h"
+#ifdef NAIROCLIP_HAS_FFMPEG
+#include "nairoclip/core/media_ffmpeg.h"
+#endif
 
 #include <zlib.h>
 
@@ -29,6 +32,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -348,6 +352,16 @@ std::string buildStateJson() {
         track.set("hidden", JsonValue::boolean(hidden == 1));
         track.set("solo", JsonValue::boolean(solo == 1));
         track.set("gain_db", JsonValue::number(gain));
+        // B2-10：高度与折叠状态。UI 需要在折叠态下仍能长按搬动轨道，
+        // 因此这两个值必须提供给前端，否则前端只能猜。
+        {
+            int32_t hpx = 48;
+            int32_t col = 0;
+            if (nc_track_get_view(gEditor, t, &hpx, &col) == NC_OK) {
+                track.set("height_px", JsonValue::integer(hpx));
+                track.set("collapsed", JsonValue::boolean(col == 1));
+            }
+        }
 
         JsonValue clips = JsonValue::array();
         const int clipCount = nc_clip_count(gEditor, t);
@@ -648,6 +662,20 @@ int32_t applyEditLocked(const JsonValue& req) {
         gLastError = "未知轨道标志位";
         gLastCode = NC_ERROR_INVALID_ARGUMENT;
         return gLastCode;
+    }
+    if (op == "track_view") {
+        if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
+        const int32_t hpx = jint(req, "height_px", 48);
+        const int32_t col = jbool(req, "collapsed", false) ? 1 : 0;
+        return check(nc_set_track_view(gEditor, track, hpx, col)) ? NC_OK : gLastCode;
+    }
+    if (op == "track_move") {
+        // 整条轨道连同其中全部内容（片段/效果/关键帧/转场/调整图层/
+        // 静音隐藏锁定标志/轨道增益）一起换位置 —— 它们都在 Track 内部。
+        if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
+        const int32_t to = jint(req, "to_index", -1);
+        if (!need(to >= 0, "缺少目标位置")) return gLastCode;
+        return check(nc_move_track(gEditor, track, to)) ? NC_OK : gLastCode;
     }
     if (op == "track_gain") {
         if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
@@ -1288,6 +1316,54 @@ Response handleApi(const Request& req) {
         storage.set("proxy_generating", JsonValue::integer(generating));
         storage.set("proxy_bytes", JsonValue::integer(proxyBytes));
         root.set("storage", std::move(storage));
+        return jsonResponse(toJsonString(root, false));
+    }
+    if (req.path == "/api/media_library") {
+        /* 本机素材库（设计桥宿主目录 design/media）。
+           时长由 **真实解码探测** 得到：nc_import_asset 需要调用方给出时长，
+           设计桥不能猜，因此这里用 FFmpeg 读取器探测每个文件。
+           探测失败的文件不列出（不提供不可用的素材）。 */
+        JsonValue root = JsonValue::object();
+        JsonValue items = JsonValue::array();
+        const std::string dir = rootDir + "/media";
+        DIR* d = opendir(dir.c_str());
+        if (d != nullptr) {
+            std::vector<std::string> files;
+            while (dirent* entry = readdir(d)) {
+                const std::string name = entry->d_name;
+                if (name.empty() || name[0] == '.') continue;
+                if (name.size() < 4) continue;
+                const std::string ext = name.substr(name.size() - 3);
+                if (ext == "mp4" || ext == "mov" || ext == "wav" || ext == "m4a" || ext == "mp3") {
+                    files.push_back(name);
+                }
+            }
+            closedir(d);
+            std::sort(files.begin(), files.end());
+#ifdef NAIROCLIP_HAS_FFMPEG
+            for (const std::string& file : files) {
+                nairoclip::core::FFmpegMediaReader reader;
+                const std::string full = dir + "/" + file;
+                if (!reader.open(full).isOk()) continue;
+                const auto& probe = reader.probe();
+                const std::int64_t durationUs = toMicroseconds(probe.duration);
+                if (durationUs <= 0) continue;
+                JsonValue item = JsonValue::object();
+                item.set("name", JsonValue::string(file));
+                item.set("path", JsonValue::string(full));
+                item.set("duration_us", JsonValue::integer(durationUs));
+                item.set("type", JsonValue::integer(probe.hasVideo ? 0 : 1));
+                item.set("width", JsonValue::integer(probe.width));
+                item.set("height", JsonValue::integer(probe.height));
+                item.set("fps_num", JsonValue::integer(probe.frameRate.num));
+                item.set("fps_den", JsonValue::integer(probe.frameRate.den));
+                items.push(std::move(item));
+            }
+#else
+            (void)files;
+#endif
+        }
+        root.set("items", std::move(items));
         return jsonResponse(toJsonString(root, false));
     }
     if (req.path == "/api/projects") {

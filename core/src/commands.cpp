@@ -215,6 +215,57 @@ Result RemoveTrackCommand::revert(Project& project) {
 MoveTrackCommand::MoveTrackCommand(SequenceId sequenceId, TrackId trackId, int newIndex)
     : sequenceId_(sequenceId), trackId_(trackId), newIndex_(newIndex) {}
 
+bool MoveTrackCommand::isNoOp(const Project& project) const {
+    const Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) return false;  // 交给 apply 报「序列不存在」
+    const int count = static_cast<int>(seq->tracks.size());
+    if (newIndex_ < 0 || newIndex_ >= count) return false;  // 交给 apply 报越界
+
+    int from = -1;
+    for (int i = 0; i < count; ++i) {
+        if (seq->tracks[static_cast<std::size_t>(i)].id == trackId_) {
+            from = i;
+            break;
+        }
+    }
+    if (from < 0) return false;  // 轨道不存在：交给 apply 报错
+
+    // 组的判定要在这里做：no-op 必须在 apply 之前判断，
+    // 而「整组搬」是否真的改变顺序取决于组在序列中的位置。
+    std::vector<int> indexes{from};
+    const TrackGroup* group = seq->groupOf(trackId_);
+    if (group != nullptr) {
+        indexes.clear();
+        for (int i = 0; i < count; ++i) {
+            if (group->contains(seq->tracks[static_cast<std::size_t>(i)].id)) {
+                indexes.push_back(i);
+            }
+        }
+    }
+    // 单轨：原地即 no-op
+    if (indexes.size() == 1) return indexes[0] == newIndex_;
+
+    // 组：只有「被拖动那条落到 newIndex_」不构成 no-op —— 因为整组会重排，
+    // 组内其他成员的位置会变。真正的 no-op 是「整组搬完后顺序与原来一致」，
+    // 这需要模拟一次，成本高且 rare；这里保守返回 false（宁可多一条历史，
+    // 也不误吞用户的真实操作）。
+    return false;
+}
+
+namespace {
+
+/// 把 indexes 中的轨道按它们当前顺序收集出来。
+std::vector<Track> collectTracks(const Sequence& seq, const std::vector<int>& indexes) {
+    std::vector<Track> out;
+    out.reserve(indexes.size());
+    for (const int i : indexes) {
+        out.push_back(seq.tracks[static_cast<std::size_t>(i)]);
+    }
+    return out;
+}
+
+}  // namespace
+
 Result MoveTrackCommand::apply(Project& project) {
     Sequence* seq = project.findSequence(sequenceId_);
     if (seq == nullptr) {
@@ -225,47 +276,116 @@ Result MoveTrackCommand::apply(Project& project) {
         return Result::fail(ErrorCode::InvalidArgument,
                             "目标位置超出范围（有效范围 0~" + std::to_string(count - 1) + "）");
     }
-    const auto it = std::find_if(seq->tracks.begin(), seq->tracks.end(),
-                                 [this](const Track& t) { return t.id == trackId_; });
-    if (it == seq->tracks.end()) {
+    int from = -1;
+    for (int i = 0; i < count; ++i) {
+        if (seq->tracks[static_cast<std::size_t>(i)].id == trackId_) {
+            from = i;
+            break;
+        }
+    }
+    if (from < 0) {
         return Result::fail(ErrorCode::NotFound, "轨道不存在");
     }
-    if (it->locked) {
+    if (seq->tracks[static_cast<std::size_t>(from)].locked) {
         return Result::fail(ErrorCode::Locked, "轨道已锁定，无法移动");
     }
-    const int from = static_cast<int>(std::distance(seq->tracks.begin(), it));
-    // 快照必须在「是否为 no-op」判定之前记录：否则同索引移动虽然不改顺序，
-    // 却会留下一条 undo 时无权还原的命令（revert 会报「缺少轨道快照」）。
-    if (!oldIndex_.has_value()) {
-        oldIndex_ = from;
-        moved_ = *it;
+
+    // 首次 apply：记录整份顺序快照（revert 直接还原它）
+    if (!beforeOrder_.has_value()) {
+        beforeOrder_.emplace();
+        beforeOrder_->reserve(seq->tracks.size());
+        for (const auto& t : seq->tracks) beforeOrder_->push_back(t.id);
     }
-    if (from == newIndex_) {
-        return Result::ok();  // 位置没变：不改动 tracks
+
+    // 找出要一起搬的轨道：无组 = 只有自己；有组 = 组内全部成员
+    std::vector<int> indexes;
+    const TrackGroup* group = seq->groupOf(trackId_);
+    if (group == nullptr) {
+        indexes.push_back(from);
+    } else {
+        for (int i = 0; i < count; ++i) {
+            if (group->contains(seq->tracks[static_cast<std::size_t>(i)].id)) {
+                indexes.push_back(i);
+            }
+        }
     }
-    // 取出再插入：等价于「删除 + 在目标位置插入」，避免逐位交换的边界错误。
-    Track moved = *it;
-    seq->tracks.erase(it);
-    seq->tracks.insert(seq->tracks.begin() + newIndex_, std::move(moved));
+    if (indexes.empty()) {
+        return Result::fail(ErrorCode::NotFound, "待移动的轨道不存在");
+    }
+    if (!movingIds_.empty()) {
+        // 二次 apply（redo）：沿用首次记录的成员集合，避免组在撤销期间被改过
+        indexes.clear();
+        for (std::size_t i = 0; i < seq->tracks.size(); ++i) {
+            const auto& t = seq->tracks[i];
+            if (std::find(movingIds_.begin(), movingIds_.end(), t.id) != movingIds_.end()) {
+                indexes.push_back(static_cast<int>(i));
+            }
+        }
+    } else {
+        for (const int i : indexes) movingIds_.push_back(seq->tracks[static_cast<std::size_t>(i)].id);
+    }
+
+    // 单轨且位置没变：不改动（no-op 已在 push 层拦截，这里兜底）
+    if (indexes.size() == 1 && indexes[0] == newIndex_) {
+        return Result::ok();
+    }
+
+    // 取出整组，再整体插到 newIndex_ 处。
+    // 组内相对顺序由 collectTracks 保序（按它们在序列中的当前顺序）。
+    std::vector<Track> moving = collectTracks(*seq, indexes);
+    // 从后往前删，避免下标失效
+    for (auto it = indexes.rbegin(); it != indexes.rend(); ++it) {
+        seq->tracks.erase(seq->tracks.begin() + *it);
+    }
+
+    // 插入位置：newIndex_ 是「移动后」的最终下标。
+    // 但整组被移除后，原 newIndex_ 可能已越界，需要按剩余长度收敛。
+    //
+    // 锚点语义：被拖动的轨道（trackId_）最终应该落在 newIndex_。
+    // 组内该轨道之前有 k 个成员会排在它前面，所以整组的插入起点是
+    // newIndex_ - k（再按移除后的数组长度收敛到合法区间）。
+    int anchorOffset = 0;
+    for (const auto& t : moving) {
+        if (t.id == trackId_) break;
+        ++anchorOffset;
+    }
+    int insertAt = newIndex_ - anchorOffset;
+    const int afterSize = static_cast<int>(seq->tracks.size());
+    if (insertAt < 0) insertAt = 0;
+    if (insertAt > afterSize) insertAt = afterSize;
+
+    seq->tracks.insert(seq->tracks.begin() + insertAt,
+                       std::make_move_iterator(moving.begin()),
+                       std::make_move_iterator(moving.end()));
     return Result::ok();
 }
 
 Result MoveTrackCommand::revert(Project& project) {
-    if (!oldIndex_.has_value() || !moved_.has_value()) {
-        return Result::fail(ErrorCode::InvalidArgument, "缺少轨道快照");
+    if (!beforeOrder_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少轨道顺序快照");
     }
     Sequence* seq = project.findSequence(sequenceId_);
     if (seq == nullptr) {
         return Result::fail(ErrorCode::NotFound, "序列不存在");
     }
-    const auto it = std::find_if(seq->tracks.begin(), seq->tracks.end(),
-                                 [this](const Track& t) { return t.id == trackId_; });
-    if (it == seq->tracks.end()) {
-        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    // 按 id 还原顺序：先把现有轨道做成 id → Track 的索引，
+    // 再按快照顺序重排。快照里已不存在的轨道跳过（期间被删过）。
+    std::vector<Track> restored;
+    restored.reserve(seq->tracks.size());
+    for (const TrackId id : *beforeOrder_) {
+        const auto it = std::find_if(seq->tracks.begin(), seq->tracks.end(),
+                                     [id](const Track& t) { return t.id == id; });
+        if (it != seq->tracks.end()) {
+            restored.push_back(std::move(*it));
+        }
     }
-    seq->tracks.erase(it);
-    const int back = std::min(*oldIndex_, static_cast<int>(seq->tracks.size()));
-    seq->tracks.insert(seq->tracks.begin() + back, *moved_);
+    // 快照之后新增的轨道：附在末尾，绝不丢失用户数据
+    for (auto& t : seq->tracks) {
+        const bool known = std::any_of(beforeOrder_->begin(), beforeOrder_->end(),
+                                       [&t](TrackId id) { return id == t.id; });
+        if (!known) restored.push_back(std::move(t));
+    }
+    seq->tracks = std::move(restored);
     return Result::ok();
 }
 
@@ -280,12 +400,10 @@ bool MoveTrackCommand::canMergeWith(const Command& other) const {
 void MoveTrackCommand::mergeFrom(const Command& other) {
     const auto* o = dynamic_cast<const MoveTrackCommand*>(&other);
     if (o != nullptr) {
-        // 保留最初的 oldIndex_（撤销要回到起点），只更新目标位置
+        // 保留最初的 beforeOrder_（撤销要回到起点），只更新目标位置
         newIndex_ = o->newIndex_;
     }
 }
-
-// ---------------- SetTrackHeightCommand（B2-10） ----------------
 
 SetTrackHeightCommand::SetTrackHeightCommand(SequenceId sequenceId, TrackId trackId,
                                              int heightPx, bool collapsed)
@@ -721,6 +839,11 @@ Result UndoStack::push(Project& project, std::unique_ptr<Command> command) {
     if (!command) {
         return Result::fail(ErrorCode::InvalidArgument, "命令为空");
     }
+    // no-op 不应产生历史记录：用户按撤销会「毫无反应」，观感是撤销坏了。
+    // 判定必须在 apply 之前 —— apply 会写入 oldIndex_/moved_ 等快照。
+    if (command->isNoOp(project)) {
+        return Result::ok();
+    }
     // 事务期间：命令只执行不入栈，暂存到事务缓冲
     if (transactionDepth_ > 0) {
         const Result applied = command->apply(project);
@@ -745,6 +868,10 @@ Result UndoStack::pushInternal(Project& project, std::unique_ptr<Command> comman
             top.mergeFrom(*command);
             return Result::ok();
         }
+    }
+    // 同 push：no-op 不入栈（这条路径也覆盖到，因为 push 之外还可能被直接调用）
+    if (command->isNoOp(project)) {
+        return Result::ok();
     }
     const Result applied = command->apply(project);
     if (!applied.isOk()) {
@@ -2024,6 +2151,17 @@ ImportAssetCommand::ImportAssetCommand(AssetId assetId, MediaAsset asset)
 
 ReorderAssetsCommand::ReorderAssetsCommand(int fromIndex, int toIndex)
     : fromIndex_(fromIndex), toIndex_(toIndex) {}
+
+bool ReorderAssetsCommand::isNoOp(const Project& project) const {
+    // 只有「索引合法 + 原地不动」才算 no-op。
+    // 若直接 return fromIndex_ == toIndex_，空素材池时的 (0,0) 会被误判为
+    // no-op —— push 会直接返回 ok，绕过 apply 的越界报错，用户拖了个空操作
+    // 却收不到任何提示。
+    const int count = static_cast<int>(project.assets.size());
+    if (fromIndex_ < 0 || fromIndex_ >= count) return false;
+    if (toIndex_ < 0 || toIndex_ >= count) return false;
+    return fromIndex_ == toIndex_;
+}
 
 Result ReorderAssetsCommand::apply(Project& project) {
     const int count = static_cast<int>(project.assets.size());

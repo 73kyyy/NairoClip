@@ -40,6 +40,20 @@ public:
     /// 从后续命令吸收状态（canMergeWith 返回 true 时调用）。
     virtual void mergeFrom(const Command& other) { (void)other; }
 
+    /// 是否为「没有实际改动」的命令。
+    ///
+    /// 背景：apply 的返回值语义是「是否成功」，不是「是否改动了数据」。
+    /// 因此把某条轨道移到它当前所在位置（from == newIndex）时，apply 返回
+    /// ok 但其实什么都没变。若照常入栈，用户按一次撤销会「毫无反应」——
+    /// 观感是撤销坏了。
+    ///
+    /// 判定必须在 apply **之前**完成（apply 会改动 oldIndex_ 等快照），
+    /// UndoStack::push 据此决定是否入栈。
+    virtual bool isNoOp(const Project& project) const {
+        (void)project;
+        return false;
+    }
+
 protected:
     /// 子类实现的原始名称（默认由 name() 转发）。
     virtual std::string nameImpl() const = 0;

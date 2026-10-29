@@ -576,6 +576,41 @@ int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_
     return NC_OK;
 }
 
+int32_t nc_track_get_view(const NcEditor* editor, int32_t track_index,
+                          int32_t* out_height_px, int32_t* out_collapsed) {
+    if (editor == nullptr || track_index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或索引为负");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (out_height_px != nullptr) *out_height_px = track.heightPx;
+    if (out_collapsed != nullptr) *out_collapsed = track.collapsed ? 1 : 0;
+    return NC_OK;
+}
+
+int32_t nc_set_track_view(NcEditor* editor, int32_t track_index, int32_t height_px,
+                          int32_t collapsed) {
+    if (editor == nullptr || track_index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或索引为负");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return failResult(
+        editor->editor->setTrackHeight(main->id, trackId, height_px, collapsed != 0));
+}
+
 int32_t nc_remove_track(NcEditor* editor, int32_t track_index) {
     if (editor == nullptr || track_index < 0) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
@@ -589,6 +624,24 @@ int32_t nc_remove_track(NcEditor* editor, int32_t track_index) {
     }
     const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
     return failResult(editor->editor->removeTrack(main->id, trackId));
+}
+
+int32_t nc_move_track(NcEditor* editor, int32_t track_index, int32_t new_index) {
+    if (editor == nullptr || track_index < 0 || new_index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或索引为负");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    if (static_cast<std::size_t>(new_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "目标位置超出范围");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    return failResult(editor->editor->moveTrack(main->id, trackId, new_index));
 }
 
 int32_t nc_rename_track(NcEditor* editor, int32_t track_index, const char* new_name) {
