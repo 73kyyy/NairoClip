@@ -1719,6 +1719,23 @@ int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t i
     return NC_OK;
 }
 
+int32_t nc_transition_get_id(const NcEditor* editor, int32_t track_index, int32_t index,
+                             uint64_t* out_id) {
+    if (editor == nullptr || track_index < 0 || index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或索引为负");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (static_cast<std::size_t>(index) >= track.transitions.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "转场序号超出范围");
+    }
+    if (out_id != nullptr) *out_id = track.transitions[static_cast<std::size_t>(index)].id.value;
+    return NC_OK;
+}
+
 // ---- 转场库（文档 Part 4-B 第 6 节「转场」9 分类）----
 
 int32_t nc_transition_type_count(void) {

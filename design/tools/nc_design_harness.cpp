@@ -354,6 +354,37 @@ std::string buildStateJson() {
         track.set("hidden", JsonValue::boolean(hidden == 1));
         track.set("solo", JsonValue::boolean(solo == 1));
         track.set("gain_db", JsonValue::number(gain));
+
+        // 转场：UI 需要在时间轴上把已存在的转场画成交界标记
+        {
+            JsonValue trs = JsonValue::array();
+            const int tc = nc_transition_count(gEditor, t);
+            for (int ti = 0; ti < tc; ++ti) {
+                int32_t ttype = 0;
+                int64_t tdur = 0;
+                std::uint64_t tfrom = 0, tto = 0;
+                char* tname = nullptr;
+                if (nc_transition_get(gEditor, t, ti, &ttype, &tdur, &tfrom, &tto, &tname) != NC_OK) {
+                    continue;
+                }
+                JsonValue tr = JsonValue::object();
+                // id 用于删除/编辑；nc_transition_get 不下发，改从核心层直读
+                // 转场 id：删除/编辑需要，走 nc_transition_get_id
+                {
+                    std::uint64_t tid = 0;
+                    if (nc_transition_get_id(gEditor, t, ti, &tid) == NC_OK) {
+                        tr.set("id", JsonValue::integer(static_cast<std::int64_t>(tid)));
+                    }
+                }
+                tr.set("type", JsonValue::integer(ttype));
+                tr.set("duration_us", JsonValue::integer(tdur));
+                tr.set("from", JsonValue::integer(static_cast<std::int64_t>(tfrom)));
+                tr.set("to", JsonValue::integer(static_cast<std::int64_t>(tto)));
+                tr.set("name", JsonValue::string(takeString(tname)));
+                trs.push(std::move(tr));
+            }
+            track.set("transitions", std::move(trs));
+        }
         // B2-10：高度与折叠状态。UI 需要在折叠态下仍能长按搬动轨道，
         // 因此这两个值必须提供给前端，否则前端只能猜。
         {
@@ -708,6 +739,12 @@ int32_t applyEditLocked(const JsonValue& req) {
             static_cast<std::uint64_t>(jint(req, "to", 0)));
         if (id == 0) { gLastCode = NC_ERROR_INTERNAL; return gLastCode; }
         return NC_OK;
+    }
+    if (op == "remove_transition") {
+        if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
+        const std::uint64_t tid = static_cast<std::uint64_t>(jint(req, "transition", 0));
+        if (!need(tid != 0, "缺少转场 id")) return gLastCode;
+        return check(nc_remove_transition(gEditor, track, tid)) ? NC_OK : gLastCode;
     }
     if (op == "marker") {
         const std::uint64_t id = nc_add_marker(gEditor, jint(req, "time_us"),
@@ -1318,6 +1355,24 @@ Response handleApi(const Request& req) {
         storage.set("proxy_generating", JsonValue::integer(generating));
         storage.set("proxy_bytes", JsonValue::integer(proxyBytes));
         root.set("storage", std::move(storage));
+        return jsonResponse(toJsonString(root, false));
+    }
+    if (req.path == "/api/transitions") {
+        /* 转场库：34 种类型 + 分类 + 是否支持方向。
+           全部来自 nc_transition_*，不在前端写死列表。 */
+        JsonValue root = JsonValue::object();
+        JsonValue list = JsonValue::array();
+        const int n = nc_transition_type_count();
+        for (int i = 0; i < n; ++i) {
+            JsonValue it = JsonValue::object();
+            it.set("type", JsonValue::integer(i));
+            it.set("name", JsonValue::string(nc_transition_type_name(i)));
+            it.set("category", JsonValue::string(nc_transition_category(i)));
+            it.set("directional", JsonValue::boolean(nc_transition_supports_direction(i) == 1));
+            list.push(std::move(it));
+        }
+        root.set("count", JsonValue::integer(n));
+        root.set("items", std::move(list));
         return jsonResponse(toJsonString(root, false));
     }
     if (req.path == "/api/media_library") {

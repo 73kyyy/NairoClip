@@ -608,3 +608,42 @@ body { -webkit-text-size-adjust: 100%; }
 
 /* 设置页里指向法律条款的行：右侧箭头保持与普通行一致 */
 .line[data-doc] { cursor: pointer; }
+
+/* ---- 转场交界标记（P-14）---------------------------------------------
+   两相邻片段的交界处叠一个小方块：无转场显示「+」，有转场显示转场图标。
+   点击进转场库；间隙不足时由引擎校验后如实提示。 */
+.junction {
+  position: absolute; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 1px solid rgba(255,255,255,.32); border-radius: 4px;
+  background: rgba(17,20,19,.92); color: #9AA6A2; cursor: pointer;
+  z-index: 3; transition: border-color .12s, color .12s, transform .12s;
+}
+.junction .i { width: 10px; height: 10px; }
+.junction:hover { border-color: #C6F24E; color: #C6F24E; transform: scale(1.14); }
+/* 已应用转场：实心青色，明显区别于「可添加」 */
+.junction.has-trans { background: #C6F24E; border-color: #C6F24E; color: #101312; }
+.junction.has-trans:hover { background: #D4FF5C; }
+
+/* 转场选择面板 */
+.trans-lib {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  max-height: 300px; overflow-y: auto; margin-top: 4px;
+}
+.trans-item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 9px 4px; border: 1px solid rgba(255,255,255,.1); border-radius: 6px;
+  background: rgba(255,255,255,.03); color: #EDF1EE; cursor: pointer;
+  font-size: 10px; line-height: 1.2;
+}
+.trans-item .i { width: 16px; height: 16px; color: #8FA098; }
+.trans-item em { font-style: normal; font-size: 8px; color: #6E7B76; }
+.trans-item:hover { border-color: rgba(198,242,78,.5); background: rgba(198,242,78,.08); }
+.trans-item.on { border-color: #C6F24E; background: rgba(198,242,78,.14); }
+.trans-item.on .i { color: #C6F24E; }
+.trans-dur {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  font-size: 11px; color: #9AA6A2;
+}
+.trans-dur input { flex: 1; accent-color: #C6F24E; }
+.trans-dur b { min-width: 46px; text-align: right; color: #EDF1EE; font-weight: 500; }

@@ -64,8 +64,15 @@
       if (argsJson) {
         try { args = JSON.parse(argsJson); } catch (e) { args = {}; }
       }
-      // /api/call 的返回是 {ok,code,message,result}，与原生桥契约一致
-      return syncJson('POST', '/api/call', { fn, args });
+      /* 两条不同的通道，按名字分流：
+         · nc_xxx  —— 直接映射 C ABI 函数，走 /api/call
+         · 其余     —— 时间轴编辑操作（split/trim/transition/...），
+                       桥实现为 /api/edit，参数里要带 op
+         早期这里一律发 /api/call，导致所有编辑操作 404。 */
+      if (/^nc_/.test(fn)) {
+        return syncJson('POST', '/api/call', { fn, args });
+      }
+      return syncJson('POST', '/api/edit', Object.assign({ op: fn }, args));
     },
 
     /* ---- 预览帧：返回 data URL ---- */

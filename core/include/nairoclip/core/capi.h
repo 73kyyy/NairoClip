@@ -306,6 +306,14 @@ int32_t nc_transition_get(const NcEditor* editor, int32_t track_index, int32_t i
 
 // ---- 转场库（文档 Part 4-B 第 6 节「转场」9 分类）----
 
+/// 读取第 index 个转场的 ID（删除/加关键帧需要）。
+///
+/// 为什么单独一个函数而不是扩 `nc_transition_get` 的形参：
+/// 后者已有多处调用方，加参数会破坏 ABI 兼容。ID 又是「按序号查」的
+/// 场景才需要，独立函数更贴合用途。
+int32_t nc_transition_get_id(const NcEditor* editor, int32_t track_index, int32_t index,
+                             uint64_t* out_id);
+
 /// 转场类型总数（34 个：既有 8 + 文档新增 26）。
 int32_t nc_transition_type_count(void);
 /// 转场类型名称（type 0..33；静态字符串；非法返回 "未知转场"）。

@@ -104,7 +104,12 @@ function applyState(st) {
         enabled: c.enabled, opacity: c.opacity,
         filterStyle: c.filter_style, filterIntensity: c.filter_intensity
       };
-    })
+    }),
+    // 转场：交界标记需要（from/to 是片段 id，at 是交界时刻）
+    transitions: (t.transitions || []).map((x) => ({
+      id: x.id, type: x.type, name: x.name,
+      dur: x.duration_us / 1e6, from: x.from, to: x.to
+    }))
   }));
   S.subtitles = st.subtitles || [];
   S.markers = st.markers || [];
@@ -615,6 +620,185 @@ function renderTracks() {
   }
 }
 
+/* ============================================================================
+   转场 UI（P-14）
+   ----------------------------------------------------------------------------
+   文档要求：可在任意两相邻片段间添加/编辑/删除转场，不足条件有明确提示。
+   核心层已有 34 种转场与完整校验链（validateTransition：时长/顺序/间隙/链式）。
+   此前 UI 完全没有入口 —— 本段补上。
+
+   交互：
+     · 相邻片段的交界处显示一个标记（相交处的小方块）
+     · 无转场时显示「+」，点击 -> 选转场类型 -> 写入引擎
+     · 有转场时显示转场图标，点击 -> 可选时长 / 删除
+     · 间隙不足时如实提示，不静默失败
+   ========================================================================== */
+
+/// 找出轨道上所有「相邻片段对」（按起点排序，间隔 <= 1 帧视为相邻）
+function junctionsOf(tr) {
+  const clips = [...(tr.clips || [])].sort((a, b) => a.start - b.start);
+  const out = [];
+  for (let i = 0; i + 1 < clips.length; i += 1) {
+    const a = clips[i];
+    const b = clips[i + 1];
+    const gap = b.start - (a.start + a.dur);
+    if (gap <= 1 / FPS + 1e-6) {
+      out.push({ track: tr, from: a, to: b, at: a.start + a.dur });
+    }
+  }
+  return out;
+}
+
+/// 在交界处渲染标记（叠在轨道行上）
+function renderJunctions(lane, tr) {
+  const trs = tr.transitions || [];
+  for (const j of junctionsOf(tr)) {
+    const existing = trs.find((t) => t.from === j.from.id && t.to === j.to.id);
+    const x = t2x(j.at);
+
+    const node = document.createElement('button');
+    node.className = 'junction' + (existing ? ' has-trans' : '');
+    node.style.left = `${x}px`;
+    node.title = existing
+      ? `${existing.name} · ${Math.round(existing.duration_us / 1000)}ms（点击编辑）`
+      : '添加转场';
+    node.innerHTML = existing
+      ? '<svg class="i"><use href="#i-trans"/></svg>'
+      : '<svg class="i"><use href="#i-plus"/></svg>';
+
+    node.addEventListener('pointerdown', (e) => e.stopPropagation());  // 不触发轨道搬家
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openTransitionSheet(tr, j, existing);
+    });
+    lane.append(node);
+  }
+}
+
+/// 打开自定义内容的三级面板（复用页面既有的 .l3-mask / .l3 骨架，
+/// 不新建一套容器 —— 否则会和 l3-panel.js 的开关打架）
+function showPanel(title, body) {
+  const mask = document.getElementById('l3-mask');
+  const panel = document.getElementById('l3');
+  const bodyEl = document.getElementById('l3-body');
+  const titleEl = document.getElementById('l3-title');
+  if (!mask || !panel || !bodyEl) { toast('面板容器缺失'); return; }
+  if (titleEl) titleEl.textContent = title;
+  bodyEl.innerHTML = '';
+  bodyEl.append(body);
+  // 复用既有结构：隐藏分段条与动作区（转场面板不需要）
+  const seg = document.getElementById('l3-seg');
+  const act = document.getElementById('l3-actions');
+  if (seg) seg.hidden = true;
+  if (act) act.hidden = true;
+  mask.hidden = false;
+  panel.hidden = false;
+  requestAnimationFrame(() => panel.classList.add('open'));
+  // 既有骨架的关闭按钮由 l3-panel.js 绑定；这里补一次兜底
+  const x = document.getElementById('l3-close');
+  if (x && !x.dataset.boundTrans) {
+    x.dataset.boundTrans = '1';
+    x.addEventListener('click', hidePanel);
+  }
+}
+
+function hidePanel() {
+  const mask = document.getElementById('l3-mask');
+  const panel = document.getElementById('l3');
+  if (!mask || !panel) return;
+  panel.classList.remove('open');
+  setTimeout(() => { mask.hidden = true; panel.hidden = true; }, 180);
+}
+
+/// 转场选择/编辑面板（真实调用 nc_add_transition / nc_remove_transition）
+async function openTransitionSheet(tr, junction, existing) {
+  // 转场库来自引擎（/api/transitions），不在前端写死
+  let library = [];
+  try {
+    const r = await fetch('/api/transitions');
+    const d = await r.json();
+    library = d.items || [];
+  } catch (err) {
+    library = [];
+  }
+
+  const body = document.createElement('div');
+  const title = existing ? `${existing.name}` : '添加转场';
+
+  // 可用时长上限：取两片段较短者的一半（内核据此校验）
+  const maxUs = Math.floor(Math.min(junction.from.dur, junction.to.dur) * 1e6 / 2);
+  const curUs = existing ? Math.round(existing.dur * 1e6) : Math.min(500000, maxUs);
+
+  body.innerHTML = `
+    <div class="trans-dur">
+      <span>时长</span>
+      <input type="range" id="transDur" min="100000" max="${Math.max(100000, maxUs)}"
+             step="50000" value="${Math.min(curUs, Math.max(100000, maxUs))}">
+      <b id="transDurVal">${Math.round(Math.min(curUs, maxUs) / 1000)}ms</b>
+    </div>
+    <div class="trans-lib" id="transLib"></div>
+    ${existing ? '<button class="btn" id="transDel" style="width:100%;margin-top:10px;color:#E06C5A">删除转场</button>' : ''}
+  `;
+
+  const lib = body.querySelector('#transLib');
+  if (!library.length) {
+    lib.innerHTML = '<div class="empty-hint" style="font-size:11px">转场库读取失败：引擎未提供 /api/transitions</div>';
+  } else {
+    for (const item of library) {
+      const b = document.createElement('button');
+      b.className = 'trans-item' + (existing && existing.type === item.type ? ' on' : '');
+      b.innerHTML = `<svg class="i"><use href="#i-trans"/></svg>
+        <span>${item.name}</span><em>${item.category}</em>`;
+      b.addEventListener('click', async () => {
+        const dur = Number(body.querySelector('#transDur').value);
+        // 内核语义：一个交界只允许一个转场（validateTransition 规则 1：
+        // 同一对片段已存在转场则拒绝）。因此「换一个转场」= 先删后加。
+        if (existing && existing.id) {
+          const dropped = await guardedEdit(
+            { op: 'remove_transition', track: tr.index, transition: existing.id });
+          if (!dropped) return;
+        }
+        const okFlag = await guardedEdit({
+          op: 'transition', track: tr.index, type: item.type, duration_us: dur,
+          from: junction.from.id, to: junction.to.id,
+        }, `已应用「${item.name}」`);
+        if (okFlag) hidePanel();
+      });
+      lib.append(b);
+    }
+  }
+
+  const durInput = body.querySelector('#transDur');
+  const durVal = body.querySelector('#transDurVal');
+  durInput.addEventListener('input', () => { durVal.textContent = `${Math.round(durInput.value / 1000)}ms`; });
+
+  const delBtn = body.querySelector('#transDel');
+  if (delBtn) {
+    delBtn.addEventListener('click', async () => {
+      // 需要转场 id：从 state 里找（nc_transition_get 有返回 id 的话）
+      const okFlag = await removeTransitionAt(tr, existing);
+      if (okFlag) hidePanel();
+    });
+  }
+
+  showPanel(title, body);
+}
+
+/// 删除转场：需要转场 id，因此重新拉一次 state 找匹配项
+async function removeTransitionAt(tr, existing) {
+  const st = Engine.refresh();
+  if (!st) { toast('无法读取工程状态'); return false; }
+  const track = (st.tracks || []).find((t) => t.index === tr.index);
+  const list = track?.transitions || [];
+  const hit = list.find((t) => t.from === existing.from && t.to === existing.to);
+  if (!hit || hit.id === undefined) {
+    // 桥当前未下发转场 id：如实告知，不假装成功
+    toast('引擎未下发转场 id，暂时无法按 id 删除。请改选一个转场覆盖。', 3200);
+    return false;
+  }
+  return guardedEdit({ op: 'remove_transition', track: tr.index, transition: hit.id }, '已删除转场');
+}
+
 function renderTracksBody() {
   // 逐个摘除直到清空（不用 querySelectorAll 快照，避免清不干净）
   let stale = E.tracks.querySelector('.trow');
@@ -633,6 +817,7 @@ function renderTracksBody() {
     body.className = 'tbody';
     tr.clips.forEach((c) => body.appendChild(buildClip(tr, c)));
     row.appendChild(body);
+    renderJunctions(row, tr);      // 相邻片段交界处的转场标记
     E.tracks.appendChild(row);
   });
 
