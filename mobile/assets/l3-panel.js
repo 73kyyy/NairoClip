@@ -53,6 +53,19 @@
   /* 宿主提供：当前选中片段、编辑器状态、写入接口 */
   const host = () => window.L3_HOST || {};
 
+  /* 取当前选中片段。
+     坑：L3_HOST.selClip 是 **getter**（返回对象），不是函数；
+     早期写成 `h.selClip && h.selClip()` 会把对象当函数调用，
+     抛出的 TypeError 发生在 try 之前 —— catch 接不到，
+     于是所有面板的「改值」都静默失效（没有提示、引擎也不变）。
+     这里统一兼容「函数」与「对象」两种形态。 */
+  function currentSelection() {
+    const h = host();
+    const v = h.selClip;
+    if (typeof v === 'function') return v();
+    return v || null;
+  }
+
   const EL = () => ({
     mask: $('l3-mask'), panel: $('l3'), title: $('l3-title'),
     close: $('l3-close'), reset: $('l3-reset'),
@@ -236,6 +249,7 @@
     if (c.kind === 'color') return colorRow(key, c);
     if (c.kind === 'number') return numberRow(key, c);
     if (c.kind === 'button') return buttonRow(key, c);
+    if (c.kind === 'blend') return blendRow(key, c);
     return null;
   }
 
@@ -317,6 +331,36 @@
         markDirty();
       });
       box.appendChild(b);
+    });
+    return row;
+  }
+
+  /* 混合模式选择器：16 种，宫格式两列滚动。
+     名称来自内核（window.NC_BLEND_MODES，由 editor.js 启动时拉取），
+     未拉到时降级为编号，不伪造名称。 */
+  function blendRow(key, c) {
+    const row = document.createElement('div');
+    row.className = 'prow blend-row';
+    const cur = ST.values[key] ?? 0;
+    const list = Array.isArray(window.NC_BLEND_MODES) ? window.NC_BLEND_MODES : [];
+    row.innerHTML = `<span class="plabel wide">${c.name}</span>
+      <div class="blend-grid"></div>`;
+    const grid = row.querySelector('.blend-grid');
+    if (!list.length) {
+      grid.innerHTML = '<div class="empty-hint" style="font-size:11px">混合模式列表读取失败：引擎未提供 /api/blend_modes</div>';
+      return row;
+    }
+    list.forEach((m) => {
+      const b = document.createElement('button');
+      b.className = 'blend-item' + (m.mode === cur ? ' on' : '');
+      b.textContent = m.label;
+      b.addEventListener('click', () => {
+        ST.values[key] = m.mode;
+        grid.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+        markDirty();
+      });
+      grid.append(b);
     });
     return row;
   }
@@ -429,7 +473,7 @@
       // 2 = 已安装；4 = 可更新（可继续用）→ 往下走
     }
 
-    const sel = h.selClip && h.selClip();
+    const sel = currentSelection();
     if (act.needClip && !sel) {
       toast('请先在时间轴上选中一个片段');
       return;
@@ -475,13 +519,22 @@
   async function commit() {
     const h = host();
     if (typeof h.edit !== 'function') return;
-    const sel = h.selClip && h.selClip();
+    const sel = currentSelection();
     if (!sel) return;
     const v = ST.values;
     const track = sel.track.index;
     const clip = sel.clip.id;
     const us = typeof h.nowUs === 'function' ? h.nowUs() : 0;
     try {
+      /* 混合模式（P-16）：选了就写引擎，不静默丢弃。
+         必须排在关键帧循环之前：后者会遍历全部可动画通道，
+         任何一个抛错都会中断整段 commit（catch 只弹 toast），
+         混合模式就永远轮不到执行。
+         判据用 !== undefined 而非 typeof === 'number'：
+         默认值 0 是合法模式（normal），不能被 falsy 判断吃掉。 */
+      if (v.blendmode !== undefined && v.blendmode !== null) {
+        await h.edit({ op: 'blend', track, clip, mode: Number(v.blendmode) });
+      }
       /* 关键帧通道 */
       for (const key of Object.keys(v)) {
         const c = C[key] || SPEC.adjustBase.find((x) => x.key === key);
@@ -799,7 +852,7 @@
   async function applyGrid(item) {
     const h = host();
     if (typeof h.edit !== 'function') return;
-    const sel = h.selClip && h.selClip();
+    const sel = currentSelection();
     const track = sel ? sel.track.index : -1;
     const clip = sel ? sel.clip.id : 0;
     const g = item;
@@ -915,6 +968,10 @@
     }
   }
 
+  /* 调试出口：仅用于自动化验证「改了值 → 真的写进引擎」这条链。
+     生产代码不会调用它；留着也便于现场排查面板写入失效。 */
+  window.L3COMMIT = () => commit();
+  window.L3VALUES = () => JSON.parse(JSON.stringify(ST.values || {}));
   window.L3OPEN = open;
   window.L3CLOSE = close;
   /** 供其他模块（如导出确认、AI 任务提示）复用同一套法律跳转。 */

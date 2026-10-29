@@ -1129,14 +1129,25 @@ double nc_chroma_key_estimate(const uint8_t* rgba, int32_t width, int32_t height
 // ---- 画中画混合模式（文档第二段 5.9）----
 
 /// 设置片段的画中画混合模式（多层合成时与下层的混合公式）。
-/// - mode：0=normal 1=screen 2=overlay 3=darken 4=hard_light；
+/// - mode：0..15（见 blend_modes.h 的 BlendMode / kBlendModeCount）；
+///   0 normal / 1 screen / 2 overlay / 3 darken / 4 hard_light /
+///   5 multiply / 6 lighten / 7 color_dodge / 8 color_burn / 9 linear_burn /
+///   10 linear_dodge / 11 soft_light / 12 linear_light / 13 pin_light /
+///   14 difference / 15 exclusion；
 /// - 返回 NC_OK 或错误码（非法 mode → NC_ERROR_INVALID_ARGUMENT）。
 /// 说明：混合模式属于工程数据（随 .nclip 持久化；默认 normal 不写文件）。
 int32_t nc_set_clip_blend_mode(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                                int32_t mode);
 
-/// 读取片段的画中画混合模式（0..4；未设置返回 0 = normal）。
-/// 返回：0..4 = 模式；-1 = 参数错误。
+/// 混合模式总数（16，含 normal）。
+int32_t nc_blend_mode_count(void);
+
+/// 混合模式名称（mode 0..15；静态字符串，非法返回空串）。
+/// 与 nc_set_clip_blend_mode 接受的编号一一对应，UI 列表直接取自这里。
+const char* nc_blend_mode_name(int32_t mode);
+
+/// 读取片段的画中画混合模式（0..15；未设置返回 0 = normal）。
+/// 返回：0..15 = 模式；-1 = 参数错误。
 int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
 
 // ---- AI 模型管理（文档第 5 部分「二、AI模型管理」+ 第 8 部分「模型分发架构」）----

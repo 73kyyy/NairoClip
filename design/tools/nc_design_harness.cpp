@@ -423,6 +423,7 @@ std::string buildStateJson() {
             const int hasFilter = nc_get_clip_filter(gEditor, t, clipId, &style, &intensity);
             clip.set("filter_style", JsonValue::integer(hasFilter == 1 ? style : 0));
             clip.set("filter_intensity", JsonValue::number(hasFilter == 1 ? intensity : 0.0));
+            clip.set("blend_mode", JsonValue::integer(nc_get_clip_blend_mode(gEditor, t, clipId)));
             clip.set("effect_count", JsonValue::integer(nc_effect_count(gEditor, t, clipId)));
             clip.set("is_compound", JsonValue::boolean(nc_clip_is_compound(gEditor, t, clipId) == 1));
             clips.push(std::move(clip));
@@ -739,6 +740,17 @@ int32_t applyEditLocked(const JsonValue& req) {
             static_cast<std::uint64_t>(jint(req, "to", 0)));
         if (id == 0) { gLastCode = NC_ERROR_INTERNAL; return gLastCode; }
         return NC_OK;
+    }
+    if (op == "blend") {
+        // 画中画混合模式（0..15，见 nc_blend_mode_count）
+        if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
+        const std::uint64_t cid = static_cast<std::uint64_t>(jint(req, "clip", 0));
+        if (!need(cid != 0, "缺少片段 id")) return gLastCode;
+        const int32_t mode = static_cast<int32_t>(jint(req, "mode", 0));
+        if (!need(mode >= 0 && mode < nc_blend_mode_count(), "混合模式编号超出范围")) {
+            return gLastCode;
+        }
+        return check(nc_set_clip_blend_mode(gEditor, track, cid, mode)) ? NC_OK : gLastCode;
     }
     if (op == "remove_transition") {
         if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
@@ -1355,6 +1367,26 @@ Response handleApi(const Request& req) {
         storage.set("proxy_generating", JsonValue::integer(generating));
         storage.set("proxy_bytes", JsonValue::integer(proxyBytes));
         root.set("storage", std::move(storage));
+        return jsonResponse(toJsonString(root, false));
+    }
+    if (req.path == "/api/blend_modes") {
+        /* 混合模式库：16 种（kBlendModeCount）。
+           名称与顺序取自内核 blend_modes.h，前端不写死。 */
+        JsonValue root = JsonValue::object();
+        JsonValue list = JsonValue::array();
+        const int n = nc_blend_mode_count();
+        for (int i = 0; i < n; ++i) {
+            const char* nm = nc_blend_mode_name(i);
+            if (nm == nullptr || nm[0] == '\0') {
+                continue;
+            }
+            JsonValue it = JsonValue::object();
+            it.set("mode", JsonValue::integer(i));
+            it.set("name", JsonValue::string(nm));
+            list.push(std::move(it));
+        }
+        root.set("count", JsonValue::integer(static_cast<std::int64_t>(list.size())));
+        root.set("items", std::move(list));
         return jsonResponse(toJsonString(root, false));
     }
     if (req.path == "/api/transitions") {

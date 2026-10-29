@@ -2759,6 +2759,18 @@ int32_t nc_set_clip_blend_mode(NcEditor* editor, int32_t track_index, uint64_t c
     return failResult(editor->editor->setClipBlendMode(main->id, trackId, ClipId{clip_id}, blendMode));
 }
 
+int32_t nc_blend_mode_count(void) {
+    return kBlendModeCount;
+}
+
+const char* nc_blend_mode_name(int32_t mode) {
+    BlendMode bm;
+    if (!blendModeFromInt(mode, bm)) {
+        return "";
+    }
+    return blendModeName(bm);
+}
+
 int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
         return -1;

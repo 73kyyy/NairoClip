@@ -38,6 +38,8 @@
     /* —— 非动画标量 —— */
     speed:     { kind: 'slider', name: '速度',     icon: 'i-speed',   min: 0.1, max: 10, step: 0.01, def: 1,   unit: 'x' },
     filteramt: { kind: 'slider', name: '强度',     icon: 'i-filter',  min: 0, max: 100, step: 1, def: 60,    unit: '' },
+    /* 画中画混合模式：16 种，名称运行时从内核拉取（window.NC_BLEND_MODES） */
+    blendmode: { kind: 'blend',  name: '混合模式', icon: 'i-pip', def: 0 },
     fxamt:     { kind: 'slider', name: '强度',     icon: 'i-fx',      min: 0, max: 100, step: 1, def: 50,    unit: '' },
     feather:   { kind: 'slider', name: '羽化',     icon: 'i-mask',    min: 0, max: 1, step: 0.01, def: 0.02,  unit: '%', scale: 100 },
     radius:    { kind: 'slider', name: '圆角',     icon: 'i-crop',    min: 0, max: 0.5, step: 0.01, def: 0,   unit: '%', scale: 100 },
@@ -301,8 +303,9 @@
     /* ===== 画中画 ===== */
     pipmix: {
       title: '混合模式', mode: 'single',
-      groups: [['opacity']],
-      note: '混合模式（正片叠底/滤色/叠加等）本版尚未接入引擎'
+      /* 16 种模式来自内核 blend_modes.h（经 nc_blend_mode_name 下发），
+         选择即写入工程数据，随 .nclip 持久化。 */
+      groups: [['blendmode'], ['opacity']]
     },
 
     /* ===== 特效 ===== */

@@ -647,3 +647,22 @@ body { -webkit-text-size-adjust: 100%; }
 }
 .trans-dur input { flex: 1; accent-color: #C6F24E; }
 .trans-dur b { min-width: 46px; text-align: right; color: #EDF1EE; font-weight: 500; }
+
+/* ---- 混合模式选择器（P-16）-------------------------------------------
+   16 种模式，四列网格。选中态用项目青色，未选为低对比描边。 */
+/* .prow 默认 42px 定高横排（滑轨用）；混合模式是网格，必须放开高度 */
+.blend-row { flex-direction: column; align-items: stretch; height: auto;
+             gap: 0; padding-bottom: 6px; }
+.blend-row .plabel { margin-bottom: 6px; }
+.blend-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.blend-item {
+  padding: 7px 2px; font-size: 10px; line-height: 1.2;
+  border: 1px solid rgba(255,255,255,.1); border-radius: 5px;
+  background: rgba(255,255,255,.03); color: #C7D0CC; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.blend-item:hover { border-color: rgba(198,242,78,.45); }
+.blend-item.on {
+  border-color: #C6F24E; background: rgba(198,242,78,.15);
+  color: #C6F24E; font-weight: 500;
+}

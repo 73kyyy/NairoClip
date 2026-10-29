@@ -620,6 +620,30 @@ function renderTracks() {
   }
 }
 
+/// 拉取混合模式库（16 种）。标签用中文，映射表按内核英文名对齐；
+/// 未匹配到的模式直接显示内核名，不猜也不隐藏。
+const BLEND_LABEL = {
+  normal: '正常', screen: '滤色', overlay: '叠加', darken: '变暗',
+  hard_light: '强光', multiply: '正片叠底', lighten: '变亮',
+  color_dodge: '颜色减淡', color_burn: '颜色加深', linear_burn: '线性加深',
+  linear_dodge: '线性减淡', soft_light: '柔光', linear_light: '线性光',
+  pin_light: '点光', difference: '差值', exclusion: '排除',
+};
+
+async function loadBlendModes() {
+  try {
+    const r = await fetch('/api/blend_modes');
+    const d = await r.json();
+    window.NC_BLEND_MODES = (d.items || []).map((x) => ({
+      mode: x.mode,
+      label: BLEND_LABEL[x.name] || x.name,
+      name: x.name,
+    }));
+  } catch (err) {
+    window.NC_BLEND_MODES = [];
+  }
+}
+
 /* ============================================================================
    转场 UI（P-14）
    ----------------------------------------------------------------------------
@@ -1889,6 +1913,8 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
     return;
   }
   applyState(Engine.state);
+  // 混合模式库：名称与顺序来自内核（nc_blend_mode_count/name），不写死
+  await loadBlendModes();
   // 首次载入：把整个工程缩放进来（用户手动缩放后不再覆盖）
   if (!/\bzoom=/.test(location.search)) fitToSeq();
   // 预览按 fill 输出（铺满居中裁切）：与 9:16 画布一致，不出现上下黑边
