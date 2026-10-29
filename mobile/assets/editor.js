@@ -1562,10 +1562,11 @@ function showMediaLibrary() {
   const assets = S.assets || [];
   E.sheetList.innerHTML = '';
   if (!assets.length) {
-    sheetRow('暂无素材', '点「＋」从相册导入', () => { closeSheet(); openSheet(); });
+    sheetRow('暂无素材', '点「＋」导入视频 / 图片 / 音频', () => { closeSheet(); openSheet(); });
   } else {
     assets.forEach((a) => {
-      const kind = a.kind === 1 ? '音频' : '视频';
+      /* kind 与内核 media_type 对齐：0 视频 / 1 音频 / 2 图片 */
+      const kind = a.kind === 1 ? '音频' : (a.kind === 2 ? '图片' : '视频');
       sheetRow(a.name, `${kind} · ${a.dur.toFixed(1)}s`, () => {
         // 点素材：在当前轨道末尾插入（无轨道则先建一条）
         insertAssetToTimeline(a);
@@ -1771,18 +1772,14 @@ function allClips() {
 }
 
 /* ---------------- 素材导入 ---------------- */
+/* 时间轴左上角「+」：只加素材本身（视频 / 图片 / 音频）。
+   不放示例素材、不放滤镜/转场等效果 —— 那些在底部工具栏里。
+   素材类型与内核 nc_import_asset 的 media_type 对齐：0 视频 / 1 音频 / 2 图片。 */
 function openSheet() {
   E.sheetList.innerHTML = '';
-  sheetRow('从相册选择视频', '真实解码 · 生成胶片条', pickFile);
-  sheetRow('示例素材 · 城市夜景', 'shot_city.mp4 · 6s', () => {
-    importCatalogue('城市夜景', 'shot_city.mp4'); closeSheet();
-  });
-  sheetRow('示例素材 · 暖光特写', 'shot_warm.mp4 · 5s', () => {
-    importCatalogue('暖光特写', 'shot_warm.mp4'); closeSheet();
-  });
-  sheetRow('示例素材 · 霓虹空镜', 'shot_neon.mp4 · 4s', () => {
-    importCatalogue('霓虹空镜', 'shot_neon.mp4'); closeSheet();
-  });
+  sheetRow('视频', 'mp4 / mov / mkv · 取时长并生成胶片条', () => pickFile('video'));
+  sheetRow('图片', 'jpg / png / webp · 默认 5 秒静帧', () => pickFile('image'));
+  sheetRow('音频', 'mp3 / wav / m4a / flac · 生成波形', () => pickFile('audio'));
   E.sheet.hidden = false;
 }
 function sheetRow(label, sub, fn) {
@@ -1832,10 +1829,16 @@ async function importToEngine(name, path, type, durationUs) {
   return Number(r.result.value);
 }
 
-function pickFile() {
+function pickFile(kind) {
+  const accept = {
+    video: 'video/*',
+    image: 'image/*',
+    audio: 'audio/*',
+  }[kind] || 'video/*,image/*,audio/*';
+
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'video/*,audio/*';
+  input.accept = accept;
   input.multiple = true;
   input.addEventListener('change', async () => {
     const files = [...input.files];
@@ -1844,16 +1847,20 @@ function pickFile() {
 
     let imported = 0;
     for (const f of files) {
+      const isImage = /^image\//.test(f.type) || /\.(jpe?g|png|webp|bmp|gif)$/i.test(f.name);
       const isAudio = /^audio\//.test(f.type) || /\.(mp3|wav|m4a|aac|flac)$/i.test(f.name);
       toast(`正在读取「${f.name}」…`, 2500);
-      const durUs = await probeDuration(f, isAudio);
+      /* 图片没有天然时长：给 5 秒静帧，与剪映「图片默认 5s」一致。
+         视频/音频读真实时长。 */
+      const durUs = isImage ? 5000000 : await probeDuration(f, isAudio);
       if (!durUs) {
         toast(`「${f.name}」无法读取时长，已跳过`, 3000);
         continue;
       }
+      const mediaType = isImage ? 2 : (isAudio ? 1 : 0);
       // Web 端拿不到本地文件的绝对路径：把文件名作为 path 交给引擎，
       // 平台层（JNI/Swift）接入时会换成真实路径。
-      const id = await importToEngine(f.name, f.name, isAudio ? 1 : 0, durUs);
+      const id = await importToEngine(f.name, f.name, mediaType, durUs);
       if (id) imported += 1;
     }
     if (imported) {
@@ -1863,15 +1870,6 @@ function pickFile() {
   });
   input.click();
 }
-
-/* 示例素材：走同一条 importToEngine 链路（静态版直接如实提示） */
-function importCatalogue(name, file) {
-  if (!Engine.online) {
-    return toast(`「${name}」需连接引擎后导入（当前为静态评审版）`, 3000);
-  }
-  toast(`示例素材「${name}」需平台层提供 ${file} 的真实路径`, 3000);
-}
-
 
 /* ---------------- 三级面板宿主接口 ----------------
    l3-panel.js 只认这些接口，不直接依赖 editor.js 内部变量。 */
