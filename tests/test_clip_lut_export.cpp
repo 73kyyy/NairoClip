@@ -3,6 +3,7 @@
 #include "test_framework.h"
 #include "nairoclip/core/editor.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>

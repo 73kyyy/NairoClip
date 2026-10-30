@@ -36,9 +36,6 @@ android {
         buildConfig = true
     }
 
-    // 每次打包前刷新前端资源，避免 APK 里是旧版 UI
-    tasks.named("preBuild") { dependsOn("syncMobileUi") }
-
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
@@ -119,6 +116,16 @@ val syncMobileUi = tasks.register<Copy>("syncMobileUi") {
     exclude("**/Thumbs.db", "**/.DS_Store")
     includeEmptyDirs = false
 }
+
+/* 每次打包前刷新前端资源，避免 APK 里是旧版 UI。
+   位置很重要：必须在 tasks.register("syncMobileUi") **之后**。
+   放在 android { } 里（本文件第 40 行附近）时，Gradle 按顺序求值脚本，
+   那一刻 syncMobileUi 还没注册，`dependsOn("syncMobileUi")` 会把它当成
+   一个尚不存在的 task，assembleRelease 报
+     Task with path 'syncMobileUi' not found in project ':app'
+   —— 这个错误只在真正解析 preBuild 依赖时暴露，configure 阶段看不出来。 */
+tasks.named("preBuild") { dependsOn(tasks.named("syncMobileUi")) }
+
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
