@@ -147,19 +147,43 @@ jobs:
         run: |
           set -uo pipefail
           chmod +x gradlew
-          ./gradlew :app:printDeps --no-daemon 2>&1 | tee /tmp/printdeps.log
+          # 注意：这一步**不设 set -e**，gradle 失败也要把日志留下来。
+          ./gradlew :app:printDeps --no-daemon > /tmp/printdeps.log 2>&1
+          rc=$?
+          echo "printDeps exit=$rc"
+          echo "===== DEPS 行 ====="
+          grep 'DEPS|' /tmp/printdeps.log || echo "（无 DEPS 输出）"
+          echo "===== 末尾 40 行（含可能的报错）====="
+          tail -40 /tmp/printdeps.log
           {
-            echo "## release 依赖解析"
+            echo "## release 依赖解析（exit=$rc）"
             echo ""
+            echo '### DEPS 行'
             echo '```'
             grep 'DEPS|' /tmp/printdeps.log || echo "（无 DEPS 输出）"
             echo '```'
+            echo ""
+            echo '### 末尾 40 行'
+            echo '```'
+            tail -40 /tmp/printdeps.log
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          # 不在这里失败：让 assemble 阶段照常暴露真实错误，
-          # 但若解析结果里确实没有 appcompat，先记一条醒目提示。
-          if grep -q 'appcompat 存在 = false' /tmp/printdeps.log; then
-            echo "::error title=DEPS::appcompat 未解析到 releaseRuntimeClasspath"
-          fi
+
+          # 保底：把关键结论放进 artifact。
+          # 日志会被截断、Job Summary 需要登录查看，
+          # 而 artifact 只要 run 完成就能下载 —— 这是最可靠的一手证据。
+          mkdir -p /tmp/depsdiag
+          cp /tmp/printdeps.log /tmp/depsdiag/ || true
+          grep 'DEPS|' /tmp/printdeps.log > /tmp/depsdiag/deps.txt 2>/dev/null || true
+
+      - name: Upload dependency diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-deps-diagnostic
+          path: /tmp/depsdiag/
+          retention-days: 3
+          if-no-files-found: warn
 
       - name: Assemble release APK
         working-directory: android

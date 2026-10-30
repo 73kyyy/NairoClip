@@ -60,6 +60,35 @@ jobs:
           set -euo pipefail
           python3 tools/ci_status_publish.py --out docs/ci-status
 
+      # 把 Android APK 运行的依赖诊断 artifact 取下来，一起提交到 ci-status。
+      #
+      # 动机：开发容器读不到 Actions 日志（无 PAT/gh），而失败日志在网页上
+      # 也只保留尾部。artifact 是唯一能拿到**配置阶段完整输出**的通道。
+      # 这里只在「最近一次 Android APK 运行」存在时尝试；失败不阻断整体汇报。
+      - name: 取 Android 依赖诊断
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          mkdir -p docs/ci-status
+          RUN_ID=$(gh api "/repos/$REPO/actions/workflows/android-apk.yml/runs?per_page=1" \
+                     --jq '.workflow_runs[0].id' 2>/dev/null || true)
+          if [ -z "${RUN_ID:-}" ]; then
+            echo "（取不到 Android APK 的 run id，跳过）"
+            exit 0
+          fi
+          echo "Android APK run id=$RUN_ID"
+          if gh run download "$RUN_ID" -n android-deps-diagnostic -D /tmp/deps 2>/dev/null; then
+            cp /tmp/deps/deps.txt docs/ci-status/android-deps.txt 2>/dev/null || true
+            cp /tmp/deps/printdeps.log docs/ci-status/android-printdeps.log 2>/dev/null || true
+            echo "已取到诊断 artifact："
+            ls -l docs/ci-status/ || true
+          else
+            echo "（该运行没有 android-deps-diagnostic artifact）"
+          fi
+
       - name: 写到 Job Summary（网页上直接可读）
         if: always()
         run: |
@@ -83,6 +112,10 @@ jobs:
 
           tmp="$(mktemp -d)"
           cp docs/ci-status/RUNS.md docs/ci-status/latest.json "$tmp"/
+          # 诊断文件可选（取到才带）
+          for f in android-deps.txt android-printdeps.log; do
+            [ -f "docs/ci-status/$f" ] && cp "docs/ci-status/$f" "$tmp"/ || true
+          done
           cd "$tmp"
 
           git init -q -b ci-status
@@ -90,6 +123,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add RUNS.md latest.json
+          [ -f android-deps.txt ] && git add android-deps.txt || true
+          [ -f android-printdeps.log ] && git add android-printdeps.log || true
           git commit -q -m "chore(ci-status): ${STATUS_TS}"
 
           # ci-status 是产物分支：单提交覆盖，不留历史
