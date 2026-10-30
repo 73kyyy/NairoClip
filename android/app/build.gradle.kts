@@ -182,22 +182,42 @@ configurations.matching { it.name == "releaseRuntimeClasspath" }.configureEach {
 }
 
 /* 诊断任务：CI 里显式调用，把依赖解析结果打到 stdout。
-   单独做成 task 是为了让输出必然出现在某个步骤的日志里，
-   而不是依赖某个步骤内部的 logger（那很容易被日志尾部截断吞掉）。
-   用法：./gradlew :app:printDeps */
+   用法：./gradlew :app:printDeps -q
+
+   全程 try-catch：这一步的目的是"拿到信息"，它自己绝不能先崩掉，
+   否则又回到"看不到任何输出"的盲区（此前已发生两次）。 */
 tasks.register("printDeps") {
     doLast {
-        val runtime = configurations.getByName("releaseRuntimeClasspath")
-        val resolved = runtime.incoming.resolutionResult.allComponents
-            .mapNotNull { c -> c.moduleVersion?.let { "${it.group}:${it.name}:${it.version}" } }
-            .distinct()
-            .sorted()
-        println("===== releaseRuntimeClasspath 解析出 ${resolved.size} 个模块 =====")
-        resolved.forEach { println("DEPS| $it") }
-        val hasAppcompat = resolved.any { it.startsWith("androidx.appcompat:appcompat") }
-        println("DEPS| appcompat 存在 = $hasAppcompat")
-        if (!hasAppcompat) {
-            println("DEPS| ❌ appcompat 缺失 —— 这就是 AAPT 找不到 Theme.AppCompat 的根因")
+        println("DEPS| ---- begin ----")
+        try {
+            val runtime = configurations.getByName("releaseRuntimeClasspath")
+            println("DEPS| 配置: ${runtime.name}")
+
+            val declared = runtime.dependencies
+                .map { d -> "${d.group}:${d.name}:${d.version}" }
+                .sorted()
+            println("DEPS| 声明 ${declared.size} 条")
+            declared.forEach { println("DEPS|  D $it") }
+
+            val resolved = runtime.resolvedConfiguration.resolvedArtifacts
+                .map { a ->
+                    val id = a.moduleVersion.id
+                    "${id.group}:${id.name}:${id.version}"
+                }
+                .distinct()
+                .sorted()
+            println("DEPS| 解析 ${resolved.size} 个 artifact")
+            resolved.forEach { println("DEPS|  R $it") }
+
+            val hasAppcompat = resolved.any { it.startsWith("androidx.appcompat:appcompat") }
+            println("DEPS| appcompat 存在 = $hasAppcompat")
+            if (!hasAppcompat) {
+                println("DEPS| appcompat 缺失 —— 这就是 AAPT 找不到 Theme.AppCompat 的根因")
+            }
+        } catch (e: Throwable) {
+            println("DEPS| 诊断本身失败: ${e.javaClass.simpleName}: ${e.message}")
+            e.stackTrace.take(6).forEach { println("DEPS|   at $it") }
         }
+        println("DEPS| ---- end ----")
     }
 }
