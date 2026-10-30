@@ -95,11 +95,25 @@ jobs:
 
           if gh run download "$RUN_ID" -n android-deps-diagnostic -D /tmp/deps 2>/dev/null; then
             cp /tmp/deps/deps.txt docs/ci-status/android-deps.txt 2>/dev/null || true
+            cp /tmp/deps/depsdiag_builtin.txt docs/ci-status/android-builtin-deps.txt 2>/dev/null || true
+            cp /tmp/deps/tasks.log docs/ci-status/android-tasks.log 2>/dev/null || true
             cp /tmp/deps/printdeps.log docs/ci-status/android-printdeps.log 2>/dev/null || true
             echo "已取到诊断 artifact："
             ls -l docs/ci-status/ || true
           else
             echo "（该运行没有 android-deps-diagnostic artifact）"
+          fi
+
+          # valgrind 证据：堆破坏唯一能给出"真凶行号"的来源。
+          # 该 artifact 之前不存在（job 以 exit 0 结束且不上传），
+          # 所以堆破坏一直无法定位。
+          if [ -n "${CI_RUN:-}" ]; then
+            if gh run download "$CI_RUN" -n valgrind-evidence -D /tmp/vg 2>/dev/null; then
+              cp /tmp/vg/summary.txt docs/ci-status/valgrind-summary.txt 2>/dev/null || true
+              echo "已取到 valgrind 证据"
+            else
+              echo "（该 CI 运行没有 valgrind-evidence artifact）"
+            fi
           fi
 
       - name: 写到 Job Summary（网页上直接可读）
@@ -126,7 +140,7 @@ jobs:
           tmp="$(mktemp -d)"
           cp docs/ci-status/RUNS.md docs/ci-status/latest.json "$tmp"/
           # 诊断文件可选（取到才带）
-          for f in android-deps.txt android-printdeps.log lut-summary.txt lut-ok.txt; do
+          for f in android-deps.txt android-builtin-deps.txt android-tasks.log android-printdeps.log valgrind-summary.txt lut-summary.txt lut-ok.txt; do
             [ -f "docs/ci-status/$f" ] && cp "docs/ci-status/$f" "$tmp"/ || true
           done
           cd "$tmp"
@@ -140,6 +154,9 @@ jobs:
           [ -f lut-summary.txt ] && git add lut-summary.txt || true
           [ -f lut-ok.txt ] && git add lut-ok.txt || true
           [ -f android-printdeps.log ] && git add android-printdeps.log || true
+          [ -f android-builtin-deps.txt ] && git add android-builtin-deps.txt || true
+          [ -f android-tasks.log ] && git add android-tasks.log || true
+          [ -f valgrind-summary.txt ] && git add valgrind-summary.txt || true
           git commit -q -m "chore(ci-status): ${STATUS_TS}"
 
           # ci-status 是产物分支：单提交覆盖，不留历史

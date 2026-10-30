@@ -598,7 +598,36 @@ jobs:
           # 堆对象被判越界的调用栈（前 3 个）
           STK=$(grep -A12 -m1 -E 'Invalid write of size' /tmp/vg.txt | tr '\n' '~' | cut -c1-1400)
           echo "::error title=VG_STACK::${STK:-none}"
+
+          # 收尾：把一手证据打包。
+          # 此前这个 job 以 exit 0 结束、不上传任何 artifact，
+          # 而开发容器读不到 Actions 日志（无 PAT/无 gh）——
+          # 于是 valgrind 跑了等于没跑，堆破坏一直无人能定位。
+          mkdir -p /tmp/vgdiag
+          cp /tmp/vg.txt /tmp/vgdiag/ 2>/dev/null || true
+          cp /tmp/vg_stdout.txt /tmp/vgdiag/ 2>/dev/null || true
+          {
+            echo "VG_RC=$rc"
+            echo "VG_FIRST=${FIRST:-none}"
+            echo "VG_LAST_RUN=$(grep -E '^\[ RUN  \]' /tmp/vg_stdout.txt | tail -1)"
+            echo
+            echo "===== 首个 Invalid write 栈（25 层）====="
+            grep -A25 -m1 -E 'Invalid (write|read) of size' /tmp/vg.txt || echo "（无 Invalid write/read）"
+            echo
+            echo "===== 全部错误摘要 ====="
+            grep -E 'Invalid (write|read) of size|ERROR SUMMARY' /tmp/vg.txt | head -40
+          } > /tmp/vgdiag/summary.txt 2>&1
+          cat /tmp/vgdiag/summary.txt
           exit 0
+
+      - name: 上传 valgrind 证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: valgrind-evidence
+          path: /tmp/vgdiag/
+          retention-days: 7
+          if-no-files-found: warn
 
   # ---------------------------------------------------------------
   # 未初始化变量 / UB 诊断
