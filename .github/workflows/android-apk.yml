@@ -138,16 +138,6 @@ jobs:
         working-directory: android
         run: gradle wrapper --gradle-version 8.7 --no-daemon
 
-      # 定位 build.gradle.kts 求值到哪一行就断了。
-      #
-      # run #49 的三份实测证据：
-      #   1) tasks --all 共 369 行，**没有 syncMobileUi**（第 99 行注册）
-      #      也**没有 printDeps**（第 159 行注册）；
-      #   2) Gradle 内置 :app:dependencies 显示 releaseRuntimeClasspath
-      #      只有 kotlin-stdlib —— dependencies{} 在第 142 行，同样没生效；
-      #   3) 上面三者全部位于第 85 行 android{} 闭合之后。
-      # 指向「脚本后半段从未执行」，但现有输出里没有 Kotlin 编译错误原文，
-      # 所以只能显式把配置阶段输出抓回来。
       # 校验 build.gradle.kts 的 Kotlin 词法完整性。
       #
       # 真实根因（2026-10-30 定位）：

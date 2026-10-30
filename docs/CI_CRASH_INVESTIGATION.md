@@ -1,7 +1,68 @@
 # CI 崩溃排查：Capi.WatermarkRealExportEndToEnd
 
-状态：**未结**。已确定崩溃的全部外部特征与触发边界，但尚未定位到具体写入者。
-更新：2026-10-28
+状态：**已结（2026-10-30）**。根因是 `sws_scale` 写入无尾部余量的缓冲，
+越界 8 字节。修复见 commit `846f4dc`。
+更新：2026-10-30
+
+## 〇、结论先行
+
+**根因**：`core/src/media_ffmpeg.cpp` 的 `readVideoFrame` 里，
+
+    out.stride = width * 4;                 // 4320（1080 宽）
+    out.pixels.resize(stride * height);     // 恰好 8,294,400
+    sws_scale(..., dst, dstStride);         // 写到这块缓冲
+
+`sws_scale` 的 SIMD 路径按 8/16 字节块写入，最后一行末尾会越过
+`stride*height` 若干字节。缓冲**没有尾部余量**，于是堆越界写。
+
+**决定性证据**（valgrind memcheck，CI）：
+
+    Invalid write of size 8
+      at sws_scale (libswscale.so.7.5.100)
+      by FFmpegMediaReader::readVideoFrame (media_ffmpeg.cpp:350)
+      by nc_test_Capi_WatermarkRealExportEndToEnd (test_capi.cpp:1758)
+    Address 0x2012a040 is 0 bytes after a block of size 8,294,400
+      alloc'd by std::vector<unsigned char>::resize (media_ffmpeg.cpp:346)
+
+8,294,400 = 1080 x 1920 x 4，正是本仓库默认画布的一帧 RGBA。
+
+**修复**：用独立临时缓冲 `frameBytes + 64`（FFmpeg 自身的
+`AV_INPUT_BUFFER_PADDING_SIZE` 惯例）承接 `sws_scale`，转换后
+`memcpy` 回 `out.pixels`。不把 padding 塞进 `out.pixels`，
+因为多处调用方按 `pixels.size() == stride*height` 断言帧大小。
+
+**验证**：`846f4dc` 的 CI 全绿（主 job 与 Android APK 均 success）。
+
+### 为什么此前 5 轮没抓到
+
+排查后期已把范围收敛到 `readVideoFrame`（见 2·补），方向是对的，
+差的是**证据通道**而非思路。两个阻断因素：
+
+1. valgrind job 只装了 `libav*-dev` **没装 `ffmpeg` 可执行文件**，
+   于是 `tests/fixtures/generate_media.sh` 失败、`/tmp/media_gen` 为空，
+   依赖真实视频的用例被跳过 —— valgrind 报
+   `1489 cases | 3 failed | ERROR SUMMARY: 0 errors`，
+   “0 errors” 是**假阴性**（`e5e36b5` 修复）。
+2. 三个诊断 job 不上传 artifact，而开发容器无 PAT / 无 gh、
+   读不到 Actions 日志，结论一律丢弃在 CI 侧（`f05a8de` 起逐个接回）。
+
+补上 ffmpeg 后，valgrind 第一次真正执行该用例，立刻报出越界写。
+
+### 为什么崩溃点会漂移
+
+本文 §2.5/§2.6 记录的“只差一次 getenv 就换结果”、
+以及不同运行分别崩在 `Capi.WatermarkRealExportEndToEnd` 与
+`SpatialEffectsE2E.BlurAndSharpenChangeGradientEnergy`，
+都源于同一件事：**写入者在更早处，崩溃点只是第一个申请到坏 chunk 的地方**。
+堆布局一变，报错位置就变。这是堆破坏的固有表现，不是多个缺陷。
+
+---
+
+# 以下为原始排查记录（保留，含方法论教训）
+
+---
+
+## 原始状态（2026-10-28）
 
 ## 一、现象
 
