@@ -157,6 +157,40 @@ inline int runAll() {
         return false;
     };
 
+    // NC_TEST_INCLUDE：只跑指定前缀的用例，逗号分隔，如
+    //   NC_TEST_INCLUDE=CapiLut.,ClipLutExport.
+    //
+    // 用途：全量在 CI 上会撞到既有的 glibc 堆破坏而中途 abort，
+    // 后面的用例根本没执行 —— 于是「新加的测试到底过没过」无法判定
+    // （没跑到 和 跑过了 分不清）。按前缀单独跑一遍给出独立结论。
+    // 与 NC_TEST_EXCLUDE 同时存在时，先 include 再 exclude。
+    std::vector<std::string> includes;
+    if (const char* s = std::getenv("NC_TEST_INCLUDE")) {
+        std::string acc;
+        for (const char* p = s;; ++p) {
+            if (*p == ',' || *p == '\0') {
+                std::size_t b = acc.find_first_not_of(" \t");
+                std::size_t e = acc.find_last_not_of(" \t");
+                if (b != std::string::npos) {
+                    includes.push_back(acc.substr(b, e - b + 1));
+                }
+                acc.clear();
+                if (*p == '\0') break;
+            } else {
+                acc.push_back(*p);
+            }
+        }
+    }
+    auto selected = [&includes](const std::string& suite, const std::string& name) {
+        if (includes.empty()) return true;   // 未指定 = 全选
+        const std::string full = suite + "." + name;
+        for (const auto& x : includes) {
+            // 支持前缀（"CapiLut." 命中 "CapiLut.Foo"）与全名
+            if (full.compare(0, x.size(), x) == 0) return true;
+        }
+        return false;
+    };
+
     int index = -1;
     for (auto& tc : registry()) {
         ++index;
@@ -165,6 +199,9 @@ inline int runAll() {
         }
         if (maxIndex >= 0 && index >= maxIndex) {
             break;
+        }
+        if (!selected(tc.suite, tc.name)) {
+            continue;
         }
         if (excluded(tc.suite, tc.name)) {
             std::printf("[ SKIP ] %s.%s（NC_TEST_EXCLUDE）\n", tc.suite.c_str(),

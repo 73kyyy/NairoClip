@@ -322,15 +322,61 @@ jobs:
           done
           exit $rc
 
+      # LUT 按名筛选跑一遍：给出不受全量崩溃影响的独立结论。
+      #
+      # 动机：全量在中途遇到既有 glibc 堆破坏就 abort，后面的用例没执行，
+      # 于是「LUT 测试到底过没过」无法判定（没跑到 vs 跑过了 分不清）。
+      # NC_TEST_INCLUDE 是按名字筛选，与注册顺序无关。
+      - name: LUT 用例专项
+        run: |
+          set +e
+          # 一次跑完全部 LUT 相关用例（CapiLut.* 与 ClipLutExport.*）
+          NC_TEST_INCLUDE=CapiLut.,ClipLutExport. \
+            stdbuf -oL -eL ./build/tests/nairoclip_tests \
+            > /tmp/lut_output.txt 2>&1
+          rc=$?
+          echo "exit=$rc"
+          tail -40 /tmp/lut_output.txt
+
+          # 注意：汇总行里的 cases 是**注册总数**（含被 INCLUDE 过滤掉的），
+          # 所以不能拿它判「LUT 跑了几个」。这里数真正的 [  OK  ] 行。
+          RAN=$(grep -c '^\[  OK  \]' /tmp/lut_output.txt || true)
+          echo "实际通过用例数（按名字筛选后）= $RAN"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=LUT_TESTS::exit=$rc"
+            exit 1
+          fi
+          if [ "$RAN" -lt 15 ]; then
+            echo "::error title=LUT_TESTS::只跑了 $RAN 个，少于预期 15 个"
+            exit 1
+          fi
+          echo "✅ LUT 用例全部通过（$RAN 个）"
+
       - name: 对账用例总数
         # 踩过的坑：新测试文件没编进主套件，全量仍全绿。
         # 用例数只增不减，设下限可以抓住「漏编」。
         run: |
           SUMMARY=$(grep -E '^=====.*cases' /tmp/test_output.txt || true)
+
+          # 没有汇总行 = 进程中途 abort（既有 glibc 堆破坏，非本次改动引入）。
+          # 这时不能直接判失败：那会把「已通过的部分」和「新增用例是否可用」
+          # 一起埋掉。改为：
+          #   · 明确标注这是**既有**崩溃，并给出已跑到哪个用例
+          #   · 若 LUT 专项（上一步）为绿，则新增功能判定为可用
+          #   · 但整条 CI 仍标红（下面 exit 1），因为堆破坏本身没修好
           if [ -z "$SUMMARY" ]; then
-            echo "ERROR: 没有汇总行，测试可能崩溃"
+            echo "::error title=KNOWN_CRASH::全量测试中途 abort（既有 glibc 堆破坏）"
+            LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1 || true)
+            echo "崩溃前最后进入的用例：${LAST:-未知}"
+            if [ -f /tmp/lut_output.txt ] && grep -q '^=====' /tmp/lut_output.txt; then
+              LUTSUM=$(grep -E '^=====' /tmp/lut_output.txt | tail -1)
+              echo "LUT 专项汇总：$LUTSUM"
+              echo "::notice title=LUT_OK::新增 LUT 用例已单独验证通过"
+            fi
+            echo "结论：既有堆破坏仍未修复；本次 LUT 改动由专项步骤独立验证。"
             exit 1
           fi
+
           CASES=$(echo "$SUMMARY" | sed -E 's/^===== ([0-9]+) cases.*/\1/')
           FAILED=$(echo "$SUMMARY" | sed -E 's/.*\| ([0-9]+) failed.*/\1/')
           echo "用例数=$CASES 失败数=$FAILED"
