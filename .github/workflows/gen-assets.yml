@@ -1,0 +1,120 @@
+name: Gen Assets
+
+# =============================================================================
+# 素材生成 / 前端静态校验（在 CI 上跑，不在本地跑）
+# =============================================================================
+# 为什么放 CI：
+#   开发容器是 aarch64 手机环境，跑 PIL 批量图像处理会长时间满载、发热，
+#   而且占着交互会话。x64 runner 免费且快，产物直接提交回仓库，
+#   本地只需 review 结果。
+#
+# 覆盖的生成器（后续新增的也往这里加，保持「本地零执行」）：
+#   · mobile/tools/gen_grid_previews.py   宫格缩略图（滤镜/特效/转场/蒙版）
+#
+# 触发：手动；或 push 到 main 且改动了生成器 / 底图 / 规格表 / 本文件。
+# 行为：
+#   1. 静态校验：python 语法 + JS 语法 + 清单与实现分支覆盖
+#   2. 跑生成器；非 0 退出直接失败
+#   3. 校验产物（tools/verify_grid_assets.py：齐全 / 尺寸 / 去重）
+#   4. 有变更则自动提交回 main（[skip ci] 避免自激）
+# =============================================================================
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mobile/tools/gen_grid_previews.py'
+      - 'mobile/assets/l3-spec.js'
+      - 'mobile/assets/l3-panel.js'
+      - 'mobile/static/faces/**'
+      - 'tools/check_grid_*.py'
+      - 'tools/verify_grid_assets.py'
+      - '.github/workflows/gen-assets.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gen-assets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grid:
+    name: 宫格缩略图
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 Pillow
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check pillow
+          python3 -c "import PIL; print('Pillow', PIL.__version__)"
+
+      - name: Python 语法检查
+        # 本地不跑 py_compile，语法错误必须在 CI 第一时间暴露，
+        # 而不是等生成器跑到一半才炸。
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            mobile/tools/gen_grid_previews.py \
+            mobile/tools/make_static.py \
+            mobile/tools/make_pages_static.py \
+            tools/check_grid_spec_alignment.py \
+            tools/check_grid_render_coverage.py \
+            tools/verify_grid_assets.py
+          echo "✅ Python 语法通过"
+
+      - name: JS 语法检查
+        # node --check 只做语法解析，不执行代码，不影响 DOM/引擎。
+        run: |
+          set -euo pipefail
+          node --version
+          for f in mobile/assets/*.js; do
+            node --check "$f" || { echo "❌ 语法错误：$f"; exit 1; }
+          done
+          echo "✅ JS 语法通过（$(ls mobile/assets/*.js | wc -l) 个文件）"
+
+      - name: 与 l3-spec.js 对齐检查（id 清单必须一致）
+        # 生成器里的清单写死在 python 里，UI 的清单写在 l3-spec.js 里。
+        # 两边一旦漂移，宫格图就会张冠李戴（点了「电影」显示「黑白」），
+        # 而这种错误界面看不出来 —— 必须在生成前用机器比对。
+        # 比对逻辑在 tools/check_grid_spec_alignment.py（按行解析，不用跨行正则）。
+        run: python3 tools/check_grid_spec_alignment.py
+
+      - name: 清单 → 实现分支覆盖率
+        # 清单里加了 slug 但忘了写 if 分支时，函数会静默返回原图
+        # = 那个格子是假功能（图生成了、但没有任何效果）。
+        run: python3 tools/check_grid_render_coverage.py
+
+      - name: 生成宫格缩略图
+        run: python3 mobile/tools/gen_grid_previews.py
+
+      - name: 校验产物
+        # tools/verify_grid_assets.py：
+        #   映射齐全 / 文件存在 / 数量一致 / 键集合 == 清单全集 /
+        #   尺寸 160×160 RGB / 图像互不相同
+        run: python3 tools/verify_grid_assets.py
+
+      - name: 显示体积
+        run: |
+          du -sh mobile/static/grid
+          ls mobile/static/grid | head -5
+          echo "..."
+          ls mobile/static/grid | wc -l
+
+      - name: 提交回仓库
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mobile/static/grid
+          if git diff --cached --quiet; then
+            echo "无变更（产物与仓库一致）"
+            exit 0
+          fi
+          git commit -m 'chore(assets): 重新生成宫格缩略图 [skip ci]'
+          git push

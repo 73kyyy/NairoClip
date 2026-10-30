@@ -68,7 +68,20 @@ if os.path.isdir(_face_dir):
     for _f in sorted(os.listdir(_face_dir)):
         if _f.endswith('.jpg'):
             thumb_imgs['face_sm/' + _f] = _dataurl(os.path.join(_face_dir, _f))
-_map_file = os.path.join(ROOT, 'static', 'thumb', 'map.json')
+
+# 宫格底图：CI 生成的 static/grid/（滤镜/特效/转场/蒙版全量，每格互不相同）。
+# map.json 的值形如 "grid/filter_1.jpg"，键与 l3-spec.js 的 <kind>_<id> 一致。
+# 静态版必须内联这些图，否则单文件打开后四类宫格全是占位色块。
+_grid_dir = os.path.join(ROOT, 'static', 'grid')
+if os.path.isdir(_grid_dir):
+    for _f in sorted(os.listdir(_grid_dir)):
+        if _f.endswith('.jpg'):
+            thumb_imgs['grid/' + _f] = _dataurl(os.path.join(_grid_dir, _f))
+
+_map_file = os.path.join(ROOT, 'static', 'grid', 'map.json')
+if not os.path.isfile(_map_file):
+    # 旧产物兜底：thumb/map.json 只覆盖 23 特效 + 12 转场 + 6 蒙版
+    _map_file = os.path.join(ROOT, 'static', 'thumb', 'map.json')
 if os.path.isfile(_map_file):
     thumb_map = json.load(open(_map_file, encoding='utf-8'))
 
@@ -80,6 +93,9 @@ if os.path.isdir(_aud_dir):
 
 preset_imgs = {}
 _preset_dir = os.path.join(ROOT, 'static', 'preset_sm')
+# preset_sm 已于重构中删除（滤镜宫格改用 static/grid/，见 gen_grid_previews.py）。
+# 这里保留目录探测只为兼容历史产物：目录存在就内联，不存在则 NC_PRESET_IMG 为空对象，
+# l3-panel 不会读它（已统一走 NC_THUMB_MAP），所以空对象无副作用。
 if os.path.isdir(_preset_dir):
     for _f in sorted(os.listdir(_preset_dir)):
         if _f.endswith('.jpg'):

@@ -153,6 +153,63 @@ jobs:
           fi
           echo "✅ APK 不含测试资产"
 
+      # 产物自检：确认打进去的是**页面版**（live engine），不是静态快照版
+      #
+      #   APK 里必须：
+      #     assets/pages/*.html        页面版（走 engine.js → NCEngine）
+      #     assets/assets/engine.js    实时引擎适配层
+      #     assets/assets/engine_static.js  离线兜底（保留但会因为检测到
+      #                                     NCEngine 而不接管）
+      #   APK 里必须没有：
+      #     assets/static/nairoclip-*.html  6 个单文件静态版
+      #       （内联构建时快照，装进去 UI 就是只读的）
+      - name: Verify APK uses live-engine UI
+        run: |
+          set -euo pipefail
+          APK=$(find android -name '*.apk' | head -1)
+          echo "检查: $APK"
+          unzip -l "$APK" | awk '{print $4}' > /tmp/apk_files.txt
+
+          echo "--- 1) 必须存在的页面版 ---"
+          miss=0
+          for f in \
+            "assets/pages/01-home.html" \
+            "assets/pages/10-editor.html" \
+            "assets/pages/05-legal.html" \
+            "assets/assets/engine.js" \
+            "assets/assets/editor.js" \
+            "assets/assets/l3-panel.js"
+          do
+            if grep -qxF "$f" /tmp/apk_files.txt; then
+              echo "  ✅ $f"
+            else
+              echo "  ❌ 缺失 $f"
+              miss=1
+            fi
+          done
+          if [ "$miss" -ne 0 ]; then
+            echo "❌ APK 缺少页面版资源，UI 无法连实时引擎"
+            exit 1
+          fi
+
+          echo "--- 2) 不得存在的静态快照版 ---"
+          if grep -E '^assets/static/nairoclip-.*\.html$' /tmp/apk_files.txt; then
+            echo "❌ APK 打进了单文件静态版（只读快照），会覆盖实时引擎 UI"
+            echo "   修：build.gradle.kts 的 syncMobileUi 里 exclude(\"**/nairoclip-*.html\")"
+            exit 1
+          fi
+          echo "  ✅ 未打入任何 nairoclip-*.html 静态版"
+
+          echo "--- 3) 入口指向页面版 ---"
+          if grep -q 'assets/pages/01-home.html' \
+               android/app/src/main/java/com/nairoclip/app/MainActivity.kt; then
+            echo "  ✅ MainActivity 加载 assets/pages/01-home.html"
+          else
+            echo "❌ MainActivity 入口不是页面版"
+            grep -n 'loadUrl' android/app/src/main/java/com/nairoclip/app/MainActivity.kt
+            exit 1
+          fi
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

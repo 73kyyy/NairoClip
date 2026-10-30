@@ -622,26 +622,39 @@ function renderTracks() {
   }
 }
 
-/// 宫格缩略图用的黏土底图。
+/// 宫格缩略图映射表（滤镜 / 特效 / 转场 / 蒙版）。
 ///
-/// 静态版（static/*.html）由 make_static.py 把 map.json 与图片内联成
-/// window.NC_THUMB_MAP / NC_THUMB_IMG；**网页版没有这一步**，所以同一套
-/// l3-panel 在网页里只能画占位色块 —— 这是「宫格没有效果图」的真正原因，
-/// 不是没做，是数据没送进来。
+/// 数据来源，按优先级：
+///   1. `static/grid/map.json` —— 由 tools/gen_grid_previews.py 生成
+///      （在 CI 里跑，产物提交回仓库）。**四类全量覆盖，id 与 l3-spec.js 一致**
+///   2. `static/thumb/map.json` —— 早期只有 23 特效 + 12 转场 + 6 蒙版，
+///      且转场 id 从 1 开始（引擎是 0..33）。仅作旧产物兜底。
+///
+/// 静态版（static/*.html）由 make_static.py 把 map + 图片内联成
+/// window.NC_THUMB_MAP / NC_THUMB_IMG，运行时零网络请求；
+/// 网页版则由本函数 fetch map.json，图片按需加载。
 const STATIC_BASE = '../static';
 
-async function loadThumbMap() {
+async function fetchJsonMaybe(url) {
   try {
-    const r = await fetch(`${STATIC_BASE}/thumb/map.json`);
-    if (!r.ok) {
-      return;
-    }
-    window.NC_THUMB_MAP = await r.json();
-    // 图片按需取：不预加载 60 张，浏览器自己缓存 <img src>
-    window.NC_STATIC_BASE = STATIC_BASE;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return await r.json();
   } catch (err) {
-    /* 映射缺失时 l3-panel 会退回占位色块，不阻塞交互 */
+    return null;
   }
+}
+
+async function loadThumbMap() {
+  const grid = await fetchJsonMaybe(`${STATIC_BASE}/grid/map.json`);
+  const map = grid || (await fetchJsonMaybe(`${STATIC_BASE}/thumb/map.json`));
+  if (!map) {
+    /* 映射缺失时 l3-panel 会退回占位色块，不阻塞交互 */
+    return;
+  }
+  window.NC_THUMB_MAP = map;
+  // 图片按需取：不预加载上百张，浏览器自己缓存 <img src>
+  window.NC_STATIC_BASE = STATIC_BASE;
 }
 
 /// 拉取混合模式库（16 种）。标签用中文，映射表按内核英文名对齐；

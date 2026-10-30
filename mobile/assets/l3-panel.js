@@ -793,8 +793,9 @@
 
       /* 缩略图三级回退：
          1) 引擎在线 → NCEngine.presetFrame 取真实渲染帧（能反映当前片段）
-         2) 引擎离线或失败 → static/preset/<slug>_sN.jpg（离线烘焙的实拍底图）
-         3) 都没有 → 保留占位底色 */
+         2) 引擎离线或渲染失败 → static/grid/<kind>_<id>.jpg
+            （CI 生成的离线兜底图，四类全量，见 tools/gen_grid_previews.py）
+         3) 都没有 → 保留占位底色，不伪造画面 */
       const th = b.querySelector('.thumb');
       const paint = (url) => {
         const img = new Image();
@@ -815,12 +816,16 @@
       };
 
       /* 底图分工（重要）：
-         · 滤镜/调色 → 人像实拍（色调映射需要连续色阶，纯色块看不出差异）
-         · 其他全部 → 黏土表情（结构变换/区域裁切需要清晰轮廓）
-         每格的表情互不重复：由 NC_THUMB_MAP 的 <kind>_<id> 映射到唯一一张脸。 */
-      const slug = item.slug || '';
-      const isColorGrid = (kind === 'filter');
-      const key = isColorGrid ? `${slug}_s1` : `${kind}_${item.id}`;
+         · 全部宫格统一用 static/grid/ 的离线兜底图（CI 生成，见
+           tools/gen_grid_previews.py）。底图是黏土表情 —— 卡通角色，
+           没有真人肖像权问题，且轮廓清晰，结构类特效/蒙版看得出一眼差异。
+         · 真机上有桥时优先走 NCEngine.presetFrame 真实渲染，见下方；
+           这张离线图只是「无桥 / 渲染失败」时的兜底，不伪造效果。
+         每格图互不重复：由 map.json 的 `<kind>_<id>` 映射，id 与 l3-spec.js 一致。 */
+      /* 主键：四类统一 `<kind>_<id>`。
+         早期只有非滤镜用这个键、滤镜用 `slug_s1` 去查 preset_sm，
+         而 preset_sm 已被删除 → 滤镜宫格全空白。现在统一走 grid。 */
+      const key = `${kind}_${item.id}`;
       const useStatic = () => {
         /* 音频等带显式 thumb 的条目直接用给定图 */
         if (item.thumb) {
@@ -830,15 +835,16 @@
           paint(`../static/${item.thumb}`);
           return true;
         }
-        const bank = isColorGrid ? window.NC_PRESET_IMG : window.NC_THUMB_IMG;
-        const id = isColorGrid ? key : (window.NC_THUMB_MAP || {})[key];
-        if (bank && id && bank[id]) { paint(bank[id]); return true; }
+        const bank = window.NC_THUMB_IMG;
+        const rel = (window.NC_THUMB_MAP || {})[key];
+        /* 静态版：图片已内联成 data URL，键是相对 static/ 的路径 */
+        if (bank && rel && bank[rel]) { paint(bank[rel]); return true; }
         const base = window.NC_STATIC_BASE;
         if (base === 'data') return false;
-        if (isColorGrid) paint(`${base || '../static'}/preset_sm/${key}.jpg`);
-        else if (id) paint(`${base || '../static'}/${id}`);
-        else return false;
-        return true;
+        /* 网页版：直接按相对路径加载 */
+        if (rel) { paint(`${base || '../static'}/${rel}`); return true; }
+        /* 既没有映射也没有内联图 → 保留占位底色，不伪造画面 */
+        return false;
       };
 
       /* 宫格缩略帧：优先用平台桥 presetFrame（桥内临时套预设→渲染→还原）；
