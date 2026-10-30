@@ -151,35 +151,53 @@ dependencies {
    放在 afterEvaluate 里，此时 Android 插件已完成配置。
    缺失就**让构建失败**——这比让 AAPT 报一个看不懂的
    "resource style/Theme.AppCompat not found" 要好得多。 */
-afterEvaluate {
-    val runtime = configurations.findByName("releaseRuntimeClasspath")
-    if (runtime == null) {
-        throw GradleException(
-            "[deps] 找不到 releaseRuntimeClasspath —— Android 插件没有生效。" +
-            "检查 plugins { } 与 settings.gradle.kts 的 include(\":app\")。"
-        )
-    }
-    // 注意：这里必须看 **解析结果**（incoming.resolutionResult），
-    // 不能只看 dependencies（那是"声明"，声明了不代表解析到了）。
-    // 上一版自检就错在这里：声明里有 appcompat 所以静默通过，
-    // 实际解析结果里可能因为仓库/冲突根本没有它。
-    val declared = runtime.dependencies.map { "${it.group}:${it.name}" }
-    logger.lifecycle("[deps] 声明数=${declared.size} -> $declared")
+/* 自检：确认 appcompat 真的被**解析**进 release 运行时类路径。
+   ---------------------------------------------------------------------------
+   为什么用 configurations.matching{}.configureEach 而不是 afterEvaluate：
+   Kotlin DSL 里顶层 afterEvaluate 不一定被求值（上一版就是这样，
+   加了自检却一行 [deps] 都没打印），而 configureEach 是 Gradle 的
+   惰性回调，配置该 configuration 时必然触发。
 
-    val resolved = try {
-        runtime.incoming.resolutionResult.allComponents
-            .mapNotNull { it.moduleVersion?.let { mv -> "${mv.group}:${mv.name}" } }
+   为什么查 resolutionResult 而不是 dependencies：
+   dependencies 是"声明"，声明了不代表解析到了。
+   上一版只看声明，所以自检静默通过，而 AAPT 依然报
+     resource style/Theme.AppCompat.NoActionBar not found */
+configurations.matching { it.name == "releaseRuntimeClasspath" }.configureEach {
+    val self = this
+    incoming.afterResolve {
+        val resolved = self.incoming.resolutionResult.allComponents
+            .mapNotNull { c -> c.moduleVersion?.let { "${it.group}:${it.name}" } }
             .distinct()
-    } catch (e: Exception) {
-        throw GradleException("[deps] 解析 releaseRuntimeClasspath 失败：${e.message}", e)
+            .sorted()
+        logger.lifecycle("[deps] 解析出 ${resolved.size} 个模块")
+        resolved.forEach { logger.lifecycle("[deps]   $it") }
+        if (resolved.none { it.startsWith("androidx.appcompat:appcompat") }) {
+            throw GradleException(
+                "[deps] appcompat 没有解析到 releaseRuntimeClasspath。" +
+                "AAPT 报找不到 Theme.AppCompat.NoActionBar 就是这个原因。"
+            )
+        }
+        logger.lifecycle("[deps] ✅ appcompat 已解析，资源应由 AAPT 合并")
     }
-    logger.lifecycle("[deps] 解析出 ${resolved.size} 个模块")
-    resolved.sorted().forEach { logger.lifecycle("[deps]   $it") }
+}
 
-    if (resolved.none { it.startsWith("androidx.appcompat:appcompat") }) {
-        throw GradleException(
-            "[deps] appcompat **没有解析到** releaseRuntimeClasspath。" +
-            "AAPT 报找不到 Theme.AppCompat.NoActionBar 就是这个原因。"
-        )
+/* 诊断任务：CI 里显式调用，把依赖解析结果打到 stdout。
+   单独做成 task 是为了让输出必然出现在某个步骤的日志里，
+   而不是依赖某个步骤内部的 logger（那很容易被日志尾部截断吞掉）。
+   用法：./gradlew :app:printDeps */
+tasks.register("printDeps") {
+    doLast {
+        val runtime = configurations.getByName("releaseRuntimeClasspath")
+        val resolved = runtime.incoming.resolutionResult.allComponents
+            .mapNotNull { c -> c.moduleVersion?.let { "${it.group}:${it.name}:${it.version}" } }
+            .distinct()
+            .sorted()
+        println("===== releaseRuntimeClasspath 解析出 ${resolved.size} 个模块 =====")
+        resolved.forEach { println("DEPS| $it") }
+        val hasAppcompat = resolved.any { it.startsWith("androidx.appcompat:appcompat") }
+        println("DEPS| appcompat 存在 = $hasAppcompat")
+        if (!hasAppcompat) {
+            println("DEPS| ❌ appcompat 缺失 —— 这就是 AAPT 找不到 Theme.AppCompat 的根因")
+        }
     }
 }

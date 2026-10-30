@@ -139,6 +139,28 @@ jobs:
         run: gradle wrapper --gradle-version 8.7 --no-daemon
 
 
+      # 显式打印依赖解析结果。做成独立步骤的原因：
+      # 之前把诊断放在 assemble 内部用 logger 输出，结果被日志尾部截断，
+      # 连着两轮都看不到任何内容，等于没做诊断。
+      - name: Print resolved release dependencies
+        working-directory: android
+        run: |
+          set -uo pipefail
+          chmod +x gradlew
+          ./gradlew :app:printDeps --no-daemon 2>&1 | tee /tmp/printdeps.log
+          {
+            echo "## release 依赖解析"
+            echo ""
+            echo '```'
+            grep 'DEPS|' /tmp/printdeps.log || echo "（无 DEPS 输出）"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 不在这里失败：让 assemble 阶段照常暴露真实错误，
+          # 但若解析结果里确实没有 appcompat，先记一条醒目提示。
+          if grep -q 'appcompat 存在 = false' /tmp/printdeps.log; then
+            echo "::error title=DEPS::appcompat 未解析到 releaseRuntimeClasspath"
+          fi
+
       - name: Assemble release APK
         working-directory: android
         run: |
