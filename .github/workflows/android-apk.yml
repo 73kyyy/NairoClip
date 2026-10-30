@@ -129,6 +129,31 @@ jobs:
         working-directory: android
         run: gradle wrapper --gradle-version 8.7 --no-daemon
 
+      # 诊断：确认 appcompat 真的进了 release 的运行时/资源类路径。
+      #
+      # 背景：assembleRelease 曾报
+      #   AAPT: error: resource style/Theme.AppCompat.NoActionBar not found
+      # 而 build.gradle.kts 里 implementation("androidx.appcompat:appcompat:1.7.0")
+      # 明明写着。两种可能：
+      #   ① 依赖没解析成功（网络/仓库问题），类路径里根本没有 appcompat；
+      #   ② 解析成功但资源没参与链接。
+      # 这两者的修法完全不同，必须先看清是哪一种，不能靠猜。
+      - name: Diagnose appcompat dependency
+        working-directory: android
+        run: |
+          set -uo pipefail
+          chmod +x gradlew
+          echo "===== releaseRuntimeClasspath 中的 appcompat ====="
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon \
+            2>&1 | grep -i -A 3 -B 1 'appcompat' || echo "❌ releaseRuntimeClasspath 里没有 appcompat"
+          echo
+          echo "===== 是否有解析失败 ====="
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon \
+            2>&1 | grep -i -E 'FAILED|Could not' | head -10 || echo "（无解析失败）"
+          echo
+          echo "===== 本地缓存的 appcompat aar ====="
+          find ~/.gradle/caches -path '*appcompat*' -name '*.aar' 2>/dev/null | head -5 || true
+
       - name: Assemble release APK
         working-directory: android
         run: |
