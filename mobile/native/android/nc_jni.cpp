@@ -313,14 +313,21 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "speed") {
-        // l3-panel 传 num/den；也接受 speed 单值（旧调用方）
-        double speed = JNum(a, "speed", 0.0);
-        if (speed <= 0.0) {
-            const double num = JNum(a, "num", 100.0);
-            const double den = JNum(a, "den", 100.0);
-            speed = (den > 0.0) ? (num / den) : 1.0;
+        // nc_set_clip_speed 收的是**整数分数**（num/den），不是 double ——
+        // 用 double 传会直接编译失败，且分数形式能保证 1/3 这类速度精确可逆。
+        int64_t num = static_cast<int64_t>(JInt(a, "num", -1));
+        int64_t den = static_cast<int64_t>(JInt(a, "den", -1));
+        if (num <= 0 || den <= 0) {
+            // 兼容只传 speed 的旧调用方：按千分位换算，最大误差 0.0005x
+            const double speed = JNum(a, "speed", 1.0);
+            if (!(speed > 0.0)) {
+                *out = Err("速度必须大于 0");
+                return true;
+            }
+            num = static_cast<int64_t>(speed * 1000.0 + 0.5);
+            den = 1000;
         }
-        const int32_t rc = nc_set_clip_speed(ed, ti, cid, speed);
+        const int32_t rc = nc_set_clip_speed(ed, ti, cid, num, den);
         *out = rc == NC_OK ? Ok("") : Err("设置速度失败，错误码 " + std::to_string(rc));
         return true;
     }
