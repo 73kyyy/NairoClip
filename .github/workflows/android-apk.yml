@@ -145,9 +145,16 @@ jobs:
       - name: Print resolved release dependencies
         working-directory: android
         run: |
+          # GitHub Actions 的 bash 默认带 -e。`set -u` 只加选项、**不会关掉它** —— 
+          # 之前这里写 `set -uo pipefail` 并注释「不设 set -e」，
+          # 但 -e 从头就开着：gradlew 一失败，脚本当场退出，
+          # rc=$? 之后的日志回显、artifact 产出、exit 0 全部执行不到。
+          # 表现是这一步 59 秒后 exit 1、日志里只有脚本回显（无任何输出），
+          # 而 assembleRelease 根本没机会跑 —— 真实错误被永久遮住。
+          # 必须显式 +e。
+          set +e
           set -uo pipefail
           chmod +x gradlew
-          # 注意：这一步**不设 set -e**，gradle 失败也要把日志留下来。
           ./gradlew :app:printDeps --no-daemon > /tmp/printdeps.log 2>&1
           rc=$?
           echo "printDeps exit=$rc"
@@ -193,7 +200,13 @@ jobs:
       - name: Assemble release APK
         working-directory: android
         run: |
-          # 不能开 -e：它会在 tee 之前随管道中断，PIPESTATUS 就读不到了。
+          # 同上游 printDeps：Actions 的 bash 自带 -e，
+          # 只用 `set -uo pipefail` 关不掉。必须显式 +e，
+          # 否则 assembleRelease 失败时 rc=${PIPESTATUS[0]} 之后
+          # 的日志收集与 exit $rc 都不会执行（曾经就是这样，
+          # 导致只能看到「Process completed with exit code 1」，
+          # 拿不到任何 AAPT/Gradle 原文）。
+          set +e
           set -uo pipefail
           chmod +x gradlew
           # --no-build-cache：不读 build cache。
