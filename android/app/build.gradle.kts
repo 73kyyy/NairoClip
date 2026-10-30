@@ -88,14 +88,14 @@ android {
    ---------------------------------------------------------------------------
    之前 assets 里放的是 make_static.py 导出的「单文件静态版」，
    那是给浏览器双击打开用的快照（engine_static.js 只读构建时数据）。
-   真机上必须用**页面版**：pages/*.html + assets/*.js，
+   真机上必须用**页面版**：pages/<name>.html + assets/<name>.js，
    走 engine.js → window.NCEngine（NativeEngineBridge 直调 C ABI），
    这样编辑、预览、导出才是活的。
 
    目录映射（WebView 里以 https://appassets.androidplatform.net/assets/ 为根）：
-     mobile/pages/*.html   → assets/pages/*.html
-     mobile/assets/**      → assets/assets/**（图片/字体/脚本）
-     mobile/static/**      → assets/static/**（黏土图、图标等静态资源） */
+     mobile/pages/<name>.html   → assets/pages/<name>.html
+     mobile/assets/<path>  → assets/assets/<path>（图片/字体/脚本）
+     mobile/static/<path>  → assets/static/<path>（黏土图、图标等静态资源） */
 val syncMobileUi = tasks.register<Copy>("syncMobileUi") {
     val mobile = rootProject.file("../mobile")
     from(mobile.resolve("pages")) { into("pages") }

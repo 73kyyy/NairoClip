@@ -148,74 +148,54 @@ jobs:
       #   3) 上面三者全部位于第 85 行 android{} 闭合之后。
       # 指向「脚本后半段从未执行」，但现有输出里没有 Kotlin 编译错误原文，
       # 所以只能显式把配置阶段输出抓回来。
-      - name: Diagnose build script evaluation
+      # 校验 build.gradle.kts 的 Kotlin 词法完整性。
+      #
+      # 真实根因（2026-10-30 定位）：
+      #   Kotlin 块注释**可以嵌套**。注释正文里出现 "/*" 会再开一层，
+      #   于是从那条注释起一直吞到文件末尾也闭不上。
+      #   mobile/pages/*.html 这类路径写法正好踩中：
+      #     第 87 行 "/* 把 mobile/ ..." 开注释
+      #     第 91 行 "pages/*.html"          → 嵌套 +1
+      #     第 96 行 "mobile/pages/*.html"   → 嵌套 +1
+      #   结果第 99 行 syncMobileUi、142 行 dependencies{}、
+      #   159 行 printDeps **全部被当注释**，从不执行。
+      #   于是 appcompat 没进 classpath → AAPT 找不到 Theme.AppCompat。
+      #
+      # 这不是"结构被改坏"，也不是缓存/依赖问题：是注释吞代码。
+      # 本步骤用词法扫描复现判断，防止再次引入。
+      - name: Verify build script lexical integrity
+        run: |
+          set +e
+          python3 tools/check_kotlin_block_comments.py android/app/build.gradle.kts
+          rc=$?
+          echo "lexical check exit=$rc"
+          exit $rc
+
+      # 列出本步骤之前/之后的自定义任务是否存在（轻量确认，不重复 printDeps）
+      - name: Confirm custom tasks are registered
         working-directory: android
         run: |
           set +e
-          mkdir -p /tmp/scriptdiag
-          {
-            echo "===== CI 上实际执行的脚本 ====="
-            wc -l app/build.gradle.kts
-            md5sum app/build.gradle.kts
-            echo "--- 注册语句所在行 ---"
-            grep -nE '^dependencies \{|^val syncMobileUi|^tasks\.named|^tasks\.register|^import' app/build.gradle.kts
-            echo "--- 第 85-100 行 ---"
-            sed -n '85,100p' app/build.gradle.kts
-            echo "--- 末尾 6 行 ---"
-            tail -6 app/build.gradle.kts
-            echo
-            echo "===== 列出任务（同一进程内判断）====="
-            ./gradlew :app:tasks --all --no-daemon 2>&1 \
-              | grep -inE 'syncMobileUi|printDeps' \
-              || echo "（tasks 输出中无 syncMobileUi / printDeps）"
-            echo
-            echo "===== :app:printDeps --dry-run --stacktrace ====="
-            # 完整保留，不截尾：BUILD FAILED 的原因就在里面的
-            # "What went wrong" 段。上一版 tail -30 只剩一行 BUILD FAILED。
-            ./gradlew :app:printDeps --dry-run --no-daemon --stacktrace 2>&1
-            echo "dryrun exit=$?"
-            echo
-            echo "===== :app:help --info ====="
-            ./gradlew :app:help --no-daemon --stacktrace --info 2>&1
-          } > /tmp/scriptdiag/all.log 2>&1
-          echo "done"
-
-          echo "===== 脚本编译错误 / 配置失败 ====="
-          grep -nE '^e: |Script compilation|Unresolved reference|FAILURE:|Caused by|BUILD (SUCCESSFUL|FAILED)' \
-            /tmp/scriptdiag/all.log | head -60 || echo "（无匹配）"
-
-          # 不再用白名单 grep 筛证据 —— 已经两次被自己的过滤规则
-          # 弄丢关键行（先是 wc -l/md5，后是 What went wrong/Caused by）。
-          # 改为：按段落切分保存，每段都完整保留。
-          cd /tmp/scriptdiag
-          csplit -s -z -f part_ -b '%02d.txt' all.log '/^===== /' '{*}' 2>/dev/null || cp all.log part_00.txt
-          rm -f all.log
-          for f in part_*.txt; do
-            [ -f "$f" ] || continue
-            head -1 "$f" | grep -q '^=====' || continue
-            name=$(head -1 "$f" | sed 's/^===== //; s/ =====.*//; s/[^A-Za-z0-9]\+/_/g')
-            mv "$f" "sec_${name}.txt"
-          done
-          ls -l
-          echo "===== 各段首尾（快速定位哪个任务失败）====="
-          for f in sec_*.txt part_*.txt; do
-            [ -f "$f" ] || continue
-            echo "########## $f ##########"
-            head -3 "$f"
-            echo "   ... (共 $(wc -l < "$f") 行) ..."
-            tail -5 "$f"
+          mkdir -p /tmp/taskcheck
+          ./gradlew :app:tasks --all --no-daemon > /tmp/taskcheck/tasks.log 2>&1
+          echo "tasks exit=$?"
+          for t in syncMobileUi printDeps; do
+            if grep -qE "^$t\b" /tmp/taskcheck/tasks.log; then
+              echo "  OK  $t 已注册"
+            else
+              echo "  MISSING  $t 未注册"
+            fi
           done
           exit 0
 
-      - name: Upload script diagnostic
+      - name: Upload task check
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-script-diagnostic
-          path: /tmp/scriptdiag/
+          name: android-task-check
+          path: /tmp/taskcheck/
           retention-days: 7
           if-no-files-found: warn
-
 
       # 显式打印依赖解析结果。做成独立步骤的原因：
       # 之前把诊断放在 assemble 内部用 logger 输出，结果被日志尾部截断，
@@ -234,14 +214,7 @@ jobs:
           set -uo pipefail
           chmod +x gradlew
 
-          # 先看自定义任务到底注册上没有。
-          # 上一轮实测：`:app:printDeps` 报 "task 'printDeps' not found"，
-          # 于是 android-deps.txt 是空的 —— 此前所有关于依赖树的判断
-          # 都建立在一条从未执行过的诊断上。先把这个事实钉死。
-          ./gradlew :app:tasks --all --no-daemon > /tmp/tasks.log 2>&1
-          echo "tasks exit=$?"
-          grep -iE '^printDeps|^syncMobileUi|^assembleRelease' /tmp/tasks.log \
-            || echo "（tasks 列表里没有 printDeps/syncMobileUi）"
+          # 任务注册状态由上一步 Confirm custom tasks 负责，这里不再重复。
 
           # 主力证据：Gradle 内置的 dependencies 任务。
           # 它不依赖我写的任何注册代码，一定存在；
@@ -290,7 +263,6 @@ jobs:
           grep 'DEPS|' /tmp/printdeps.log > /tmp/depsdiag/deps.txt 2>/dev/null || true
           # Gradle 内置 dependencies 的输出：不受自定义任务注册影响，是最硬证据
           cp /tmp/depsdiag_builtin.txt /tmp/depsdiag/ 2>/dev/null || true
-          cp /tmp/tasks.log /tmp/depsdiag/ 2>/dev/null || true
 
           # 本步骤只负责产出信息，**不阻断**后续构建：
           # 之前它自己失败，导致 assemble 根本没机会跑，
