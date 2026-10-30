@@ -91,6 +91,35 @@ jobs:
             else
               echo "（该 CI 运行没有 lut-test-evidence artifact）"
             fi
+
+            # 主 job 的完整测试输出：崩溃现场的唯一一手证据。
+            # 此前只上传到 artifact，ci-status 从不取 —— 于是只能看
+            # RUNS.md 里被截断的日志尾巴，无法定位。
+            if gh run download "$CI_RUN" -n test-output -D /tmp/tout 2>/dev/null; then
+              SRC=/tmp/tout/test_output.txt
+              OUT=docs/ci-status/test-output.txt
+              # 原文可能几十万字节，直接提交会撑大产物分支。
+              # 只保留可定位的部分：首 30 行、最后 3 个 RUN、末尾 120 行、
+              # 以及 abort/assert/汇总 等关键行。
+              {
+                echo "===== 原文行数: $(wc -l < "$SRC") ====="
+                echo
+                echo "===== 首 30 行 ====="
+                head -30 "$SRC"
+                echo
+                echo "===== 最后 3 个 RUN ====="
+                grep -E '^\[ RUN  \]' "$SRC" | tail -3
+                echo
+                echo "===== 关键行（abort/assert/malloc/汇总/FAIL）====="
+                grep -nE 'abort|Assertion|malloc\(\)|corrupted|^=====|\[FAIL\]' "$SRC" | tail -40
+                echo
+                echo "===== 末尾 120 行 ====="
+                tail -120 "$SRC"
+              } > "$OUT" 2>&1
+              echo "已取到 test-output（原文 $(wc -l < "$SRC") 行，裁剪后 $(wc -l < "$OUT") 行）"
+            else
+              echo "（该 CI 运行没有 test-output artifact）"
+            fi
           fi
 
           if gh run download "$RUN_ID" -n android-deps-diagnostic -D /tmp/deps 2>/dev/null; then
@@ -152,7 +181,7 @@ jobs:
           tmp="$(mktemp -d)"
           cp docs/ci-status/RUNS.md docs/ci-status/latest.json "$tmp"/
           # 诊断文件可选（取到才带）
-          for f in android-deps.txt android-builtin-deps.txt android-tasks.log android-printdeps.log valgrind-summary.txt valgrind-stdout.txt lut-summary.txt lut-ok.txt; do
+          for f in android-deps.txt android-builtin-deps.txt android-tasks.log android-printdeps.log valgrind-summary.txt valgrind-stdout.txt test-output.txt lut-summary.txt lut-ok.txt; do
             [ -f "docs/ci-status/$f" ] && cp "docs/ci-status/$f" "$tmp"/ || true
           done
           cd "$tmp"
@@ -170,6 +199,7 @@ jobs:
           [ -f android-tasks.log ] && git add android-tasks.log || true
           [ -f valgrind-summary.txt ] && git add valgrind-summary.txt || true
           [ -f valgrind-stdout.txt ] && git add valgrind-stdout.txt || true
+          [ -f test-output.txt ] && git add test-output.txt || true
           git commit -q -m "chore(ci-status): ${STATUS_TS}"
 
           # ci-status 是产物分支：单提交覆盖，不留历史
