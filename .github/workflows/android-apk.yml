@@ -52,6 +52,15 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        # 说明：这里**不加** with: 参数。
+        #
+        # 曾怀疑 build cache 导致
+        #   AAPT: resource style/Theme.AppCompat.NoActionBar not found
+        # 但 setup-gradle 的缓存只影响 Gradle User Home（依赖 + wrapper），
+        # 项目自己的 build/ 目录在工作区里，每次 checkout 都是干净的，
+        # 不会跨运行复用。所以「陈旧资源产物」这个假设不成立 ——
+        # 真正的修复在下面 assemble 步骤（--rerun-tasks）与
+        # android/gradle.properties（org.gradle.caching=false）。
 
       # 出包前剔除仅用于开发的测试与素材（只影响本次 CI 工作区，仓库内容不变）。
       # 目的：① 产物不携带任何测试资产；② 缩小打包上下文与构建时间。
@@ -129,37 +138,52 @@ jobs:
         working-directory: android
         run: gradle wrapper --gradle-version 8.7 --no-daemon
 
-      # 诊断：确认 appcompat 真的进了 release 的运行时/资源类路径。
+
+      # 硬断言：appcompat 的 AAR 必须真的存在本地缓存里。
       #
-      # 背景：assembleRelease 曾报
-      #   AAPT: error: resource style/Theme.AppCompat.NoActionBar not found
-      # 而 build.gradle.kts 里 implementation("androidx.appcompat:appcompat:1.7.0")
-      # 明明写着。两种可能：
-      #   ① 依赖没解析成功（网络/仓库问题），类路径里根本没有 appcompat；
-      #   ② 解析成功但资源没参与链接。
-      # 这两者的修法完全不同，必须先看清是哪一种，不能靠猜。
-      - name: Diagnose appcompat dependency
+      # 这一步比读依赖树更有力：它直接回答「资源从哪来」。
+      # 如果这里就失败，说明问题在**依赖解析/网络**；
+      # 如果这里通过但 AAPT 仍报找不到主题，问题在**资源合并**。
+      # 两种原因的修法完全不同，不能再靠猜。
+      - name: Assert appcompat aar is present
         working-directory: android
         run: |
-          set -uo pipefail
+          set -euo pipefail
           chmod +x gradlew
-          echo "===== releaseRuntimeClasspath 中的 appcompat ====="
+          # resolve 一次依赖（不改任何文件，只下载/校验）
           ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon \
-            2>&1 | grep -i -A 3 -B 1 'appcompat' || echo "❌ releaseRuntimeClasspath 里没有 appcompat"
-          echo
-          echo "===== 是否有解析失败 ====="
-          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon \
-            2>&1 | grep -i -E 'FAILED|Could not' | head -10 || echo "（无解析失败）"
-          echo
-          echo "===== 本地缓存的 appcompat aar ====="
-          find ~/.gradle/caches -path '*appcompat*' -name '*.aar' 2>/dev/null | head -5 || true
+            > /tmp/deps.txt 2>&1 || true
+
+          if ! grep -qi 'androidx.appcompat:appcompat' /tmp/deps.txt; then
+            echo "❌ releaseRuntimeClasspath 里没有 appcompat"
+            echo "---- 依赖树尾部 ----"
+            tail -40 /tmp/deps.txt
+            exit 1
+          fi
+          echo "✅ 依赖树含 appcompat："
+          grep -i -A 2 'androidx.appcompat:appcompat' /tmp/deps.txt | head -5
+
+          AAR=$(find ~/.gradle/caches -path '*appcompat*' -name '*.aar' 2>/dev/null | head -1)
+          if [ -z "$AAR" ]; then
+            echo "❌ Gradle 缓存里找不到 appcompat 的 .aar —— 依赖没真正下载"
+            exit 1
+          fi
+          echo "✅ appcompat aar: $AAR"
+          echo "--- 其中的 themes 资源（应含 Theme.AppCompat）---"
+          unzip -l "$AAR" | grep -iE 'res/values|themes' | head -5 || \
+            echo "（aar 内无 values 资源条目，需进一步检查）"
 
       - name: Assemble release APK
         working-directory: android
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --stacktrace --no-daemon
+          # --no-build-cache：不读 build cache。
+          # --rerun-tasks：强制所有 task 真正执行，不复用 up-to-date 判定。
+          # 两者一起，确保 resource merge / link 一定重新跑一遍 ——
+          # 这是排除「复用了不含 appcompat 资源的旧产物」的唯一确定方式。
+          ./gradlew :app:assembleRelease --stacktrace --no-daemon \
+            --no-build-cache --rerun-tasks
 
       - name: Show APK
         run: find android -name '*.apk' -exec ls -lh {} \;
