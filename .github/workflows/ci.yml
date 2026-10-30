@@ -31,7 +31,7 @@ jobs:
           echo "== 编译器 =="; g++ --version | head -1
           echo "== CMake =="; cmake --version | head -1
 
-      - name: 安装 FFmpeg 开发库
+      - name: 安装 FFmpeg（可执行文件 + 开发库）
         # 关键：CI 需要的是 **开发库**（-dev），不是 ffmpeg CLI。
         # 只装 CLI 时 pkg-config 找不到 libavcodec，CMake 会降级到 Mock 读取器，
         # 45 个 FFmpeg 用例根本不编进去 —— 表现为「CI 全绿但用例数少了 45」。
@@ -445,10 +445,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 安装 FFmpeg 开发库
+      - name: 安装 FFmpeg（可执行文件 + 开发库）
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
+          # 必须装 ffmpeg **可执行文件**，不只是开发库：
+          # tests/fixtures/generate_media.sh 用它生成 /tmp/media_gen 素材，
+          # 缺了它依赖真实视频的用例（test_export_runner.cpp 等）会失败。
+          # 此前三个诊断 job 都只装开发库，于是 valgrind 报
+          # "1489 cases | 3 failed | 8 checks failed"，全部是素材缺失导致的假失败。
+          sudo apt-get install -y -qq ffmpeg libavcodec-dev libavformat-dev libavutil-dev \
             libswscale-dev libswresample-dev pkg-config
 
       - name: 缓存 ONNX Runtime
@@ -547,7 +552,12 @@ jobs:
       - name: 安装 FFmpeg 开发库 + valgrind
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
+          # 必须装 ffmpeg **可执行文件**，不只是开发库：
+          # tests/fixtures/generate_media.sh 用它生成 /tmp/media_gen 素材，
+          # 缺了它依赖真实视频的用例（test_export_runner.cpp 等）会失败。
+          # 此前三个诊断 job 都只装开发库，于是 valgrind 报
+          # "1489 cases | 3 failed | 8 checks failed"，全部是素材缺失导致的假失败。
+          sudo apt-get install -y -qq ffmpeg libavcodec-dev libavformat-dev libavutil-dev \
             libswscale-dev libswresample-dev pkg-config valgrind
 
       - name: 缓存 ONNX Runtime
@@ -679,10 +689,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 安装 FFmpeg 开发库
+      - name: 安装 FFmpeg（可执行文件 + 开发库）
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libavcodec-dev libavformat-dev libavutil-dev \
+          # 必须装 ffmpeg **可执行文件**，不只是开发库：
+          # tests/fixtures/generate_media.sh 用它生成 /tmp/media_gen 素材，
+          # 缺了它依赖真实视频的用例（test_export_runner.cpp 等）会失败。
+          # 此前三个诊断 job 都只装开发库，于是 valgrind 报
+          # "1489 cases | 3 failed | 8 checks failed"，全部是素材缺失导致的假失败。
+          sudo apt-get install -y -qq ffmpeg libavcodec-dev libavformat-dev libavutil-dev \
             libswscale-dev libswresample-dev pkg-config
 
       - name: 缓存 ONNX Runtime
