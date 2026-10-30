@@ -15,6 +15,7 @@ extern "C" {
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <vector>
 
 namespace nairoclip {
 namespace core {
@@ -343,11 +344,32 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
             out.width = width;
             out.height = height;
             out.stride = width * 4;
-            out.pixels.resize(static_cast<std::size_t>(out.stride) *
-                              static_cast<std::size_t>(height));
-            std::uint8_t* dst[4] = {out.pixels.data(), nullptr, nullptr, nullptr};
+            const std::size_t frameBytes =
+                static_cast<std::size_t>(out.stride) * static_cast<std::size_t>(height);
+            out.pixels.resize(frameBytes);
+            /* sws_scale 必须写到一块**尾部有余量**的缓冲上。
+               ----------------------------------------------------------------
+               sws_scale 的 SIMD 路径按 8/16 字节块写入，最后一行的末尾会越过
+               stride*height 若干字节。若直接写进恰好 frameBytes 的 vector，
+               就是一次堆越界写。valgrind 实测（1080x1920 导出后解码）：
+
+                 Invalid write of size 8
+                 Address 0x2012a040 is 0 bytes after a block of size 8,294,400
+                   at sws_scale (libswscale.so.7.5.100)
+                   by readVideoFrame (media_ffmpeg.cpp:350)
+
+               因此这里用一块独立的临时缓冲（frameBytes + 64，取 FFmpeg 自身的
+               AV_INPUT_BUFFER_PADDING_SIZE 惯例），转换完再拷回 out.pixels。
+               不把 padding 塞进 out.pixels 的原因：多处调用方（含
+               test_media_ffmpeg / test_media_io 的 CHECK_EQ）按
+               pixels.size() == stride*height 断言帧大小，改变它会造成
+               语义破坏。代价是一次 frameBytes 的拷贝，换取缓冲区契约不变。 */
+            constexpr std::size_t kTailPadding = 64;
+            std::vector<std::uint8_t> scratch(frameBytes + kTailPadding, 0);
+            std::uint8_t* dst[4] = {scratch.data(), nullptr, nullptr, nullptr};
             const int dstStride[4] = {out.stride, 0, 0, 0};
             sws_scale(impl.sws, impl.frame->data, impl.frame->linesize, 0, height, dst, dstStride);
+            std::memcpy(out.pixels.data(), scratch.data(), frameBytes);
             mediaHeapCheck("sws_scale 之后");
             av_frame_unref(impl.frame);
             mediaHeapCheck("av_frame_unref 之后");
