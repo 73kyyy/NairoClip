@@ -170,7 +170,10 @@ jobs:
               || echo "（tasks 输出中无 syncMobileUi / printDeps）"
             echo
             echo "===== :app:printDeps --dry-run --stacktrace ====="
-            ./gradlew :app:printDeps --dry-run --no-daemon --stacktrace 2>&1 | tail -30
+            # 完整保留，不截尾：BUILD FAILED 的原因就在里面的
+            # "What went wrong" 段。上一版 tail -30 只剩一行 BUILD FAILED。
+            ./gradlew :app:printDeps --dry-run --no-daemon --stacktrace 2>&1
+            echo "dryrun exit=$?"
             echo
             echo "===== :app:help --info ====="
             ./gradlew :app:help --no-daemon --stacktrace --info 2>&1
@@ -181,13 +184,27 @@ jobs:
           grep -nE '^e: |Script compilation|Unresolved reference|FAILURE:|Caused by|BUILD (SUCCESSFUL|FAILED)' \
             /tmp/scriptdiag/all.log | head -60 || echo "（无匹配）"
 
-          # 保留关键标量行（wc -l / md5sum / 注册语句行号），
-          # 上一版把它们 grep 掉了，导致"CI 上脚本是否就是这份"无法回答。
-          grep -nE '^[0-9]+ app/build\.gradle\.kts$|^[0-9a-f]{32} |^[0-9]+:(dependencies \{|val syncMobileUi|tasks\.(named|register))|^e: |Unresolved reference|BUILD (SUCCESSFUL|FAILED)|^> Configure project|syncMobileUi|printDeps|^\+\+\+|^--- ' \
-            /tmp/scriptdiag/all.log > /tmp/scriptdiag/errors.txt 2>&1 || true
-          rm -f /tmp/scriptdiag/all.log
-          echo "--- errors.txt（$(wc -l < /tmp/scriptdiag/errors.txt) 行）---"
-          cat /tmp/scriptdiag/errors.txt
+          # 不再用白名单 grep 筛证据 —— 已经两次被自己的过滤规则
+          # 弄丢关键行（先是 wc -l/md5，后是 What went wrong/Caused by）。
+          # 改为：按段落切分保存，每段都完整保留。
+          cd /tmp/scriptdiag
+          csplit -s -z -f part_ -b '%02d.txt' all.log '/^===== /' '{*}' 2>/dev/null || cp all.log part_00.txt
+          rm -f all.log
+          for f in part_*.txt; do
+            [ -f "$f" ] || continue
+            head -1 "$f" | grep -q '^=====' || continue
+            name=$(head -1 "$f" | sed 's/^===== //; s/ =====.*//; s/[^A-Za-z0-9]\+/_/g')
+            mv "$f" "sec_${name}.txt"
+          done
+          ls -l
+          echo "===== 各段首尾（快速定位哪个任务失败）====="
+          for f in sec_*.txt part_*.txt; do
+            [ -f "$f" ] || continue
+            echo "########## $f ##########"
+            head -3 "$f"
+            echo "   ... (共 $(wc -l < "$f") 行) ..."
+            tail -5 "$f"
+          done
           exit 0
 
       - name: Upload script diagnostic

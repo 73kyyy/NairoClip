@@ -123,7 +123,12 @@ jobs:
           # 没有出现在任务列表里、dependencies 为什么没生效。
           if gh run download "$RUN_ID" -n android-script-diagnostic -D /tmp/script 2>/dev/null; then
             cp /tmp/script/errors.txt docs/ci-status/android-script-errors.txt 2>/dev/null || true
-            echo "已取到脚本诊断"
+            # 分段证据：每段完整保留，不做白名单过滤
+            for f in /tmp/script/sec_*.txt /tmp/script/part_*.txt; do
+              [ -f "$f" ] || continue
+              cp "$f" docs/ci-status/android-script-$(basename "$f") 2>/dev/null || true
+            done
+            echo "已取到脚本诊断：$(ls /tmp/script/ 2>/dev/null | tr '\n' ' ')"
           else
             echo "（该运行没有 android-script-diagnostic artifact）"
           fi
@@ -152,7 +157,7 @@ jobs:
           tmp="$(mktemp -d)"
           cp docs/ci-status/RUNS.md docs/ci-status/latest.json "$tmp"/
           # 诊断文件可选（取到才带）
-          for f in android-deps.txt android-builtin-deps.txt android-tasks.log android-printdeps.log android-script-errors.txt valgrind-summary.txt valgrind-stdout.txt lut-summary.txt lut-ok.txt; do
+          for f in android-deps.txt android-builtin-deps.txt android-tasks.log android-printdeps.log android-script-errors.txt valgrind-summary.txt valgrind-stdout.txt lut-summary.txt lut-ok.txt $(ls android-script-sec_* android-script-part_* 2>/dev/null || true); do
             [ -f "docs/ci-status/$f" ] && cp "docs/ci-status/$f" "$tmp"/ || true
           done
           cd "$tmp"
@@ -171,6 +176,9 @@ jobs:
           [ -f android-script-errors.txt ] && git add android-script-errors.txt || true
           [ -f valgrind-summary.txt ] && git add valgrind-summary.txt || true
           [ -f valgrind-stdout.txt ] && git add valgrind-stdout.txt || true
+          for f in android-script-sec_* android-script-part_*; do
+            [ -f "$f" ] && git add "$f" || true
+          done
           git commit -q -m "chore(ci-status): ${STATUS_TS}"
 
           # ci-status 是产物分支：单提交覆盖，不留历史
