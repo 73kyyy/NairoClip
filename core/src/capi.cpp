@@ -441,6 +441,17 @@ int32_t nc_asset_is_referenced(const NcEditor* editor, uint64_t asset_id) {
     return editor->editor->isAssetReferenced(AssetId{asset_id}) ? 1 : 0;
 }
 
+int32_t nc_asset_reorder(NcEditor* editor, int32_t from_index, int32_t to_index) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Result r = editor->editor->reorderAssets(from_index, to_index);
+    if (!r.isOk()) {
+        return failNc(r.code(), r.message());
+    }
+    return NC_OK;
+}
+
 int32_t nc_track_count(const NcEditor* editor) {
     if (editor == nullptr) {
         return 0;

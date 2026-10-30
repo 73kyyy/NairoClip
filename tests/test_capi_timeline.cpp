@@ -194,6 +194,75 @@ NC_TEST(CapiTimeline, AssetReferenceProtection) {
     nc_editor_destroy(editor);
 }
 
+// B2-9：素材顺序调整的 C ABI。
+// 核心层（TimelineEditor::reorderAssets + ReorderAssetsCommand）已有 17 个
+// 用例覆盖语义；这里只验证 C ABI 这一层：参数校验、返回值映射、
+// 顺序真的改变、以及可撤销。
+NC_TEST(CapiTimeline, AssetReorder) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t a1 = nc_import_asset(editor, "A", "/a.mp4", 0, 1000000);
+    const std::uint64_t a2 = nc_import_asset(editor, "B", "/b.mp4", 0, 1000000);
+    const std::uint64_t a3 = nc_import_asset(editor, "C", "/c.mp4", 0, 1000000);
+    NC_CHECK(a1 != 0 && a2 != 0 && a3 != 0);
+    NC_CHECK_EQ(nc_asset_count(editor), 3);
+
+    auto assetAt = [&](int32_t index) -> std::uint64_t {
+        std::uint64_t id = 0;
+        if (nc_asset_get(editor, index, &id, nullptr, nullptr, nullptr, nullptr) != NC_OK) {
+            return 0;
+        }
+        return id;
+    };
+
+    // 初始顺序 A, B, C
+    NC_CHECK_EQ(assetAt(0), a1);
+    NC_CHECK_EQ(assetAt(1), a2);
+    NC_CHECK_EQ(assetAt(2), a3);
+
+    // 把 A 移到末尾（to_index = 移动后位置）
+    NC_CHECK_EQ(nc_asset_reorder(editor, 0, 2), NC_OK);
+    NC_CHECK_EQ(assetAt(0), a2);
+    NC_CHECK_EQ(assetAt(1), a3);
+    NC_CHECK_EQ(assetAt(2), a1);
+
+    // 可撤销：revert 按 id 找回，回到 A, B, C
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(assetAt(0), a1);
+    NC_CHECK_EQ(assetAt(1), a2);
+    NC_CHECK_EQ(assetAt(2), a3);
+
+    // 重做
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(assetAt(2), a1);
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+
+    // 原地移动是 no-op，且不产生撤销记录：
+    // 若产生记录，上面这次 undo 之后栈顶应还有一条可撤销项。
+    NC_CHECK_EQ(nc_asset_reorder(editor, 1, 1), NC_OK);
+    NC_CHECK_EQ(nc_can_undo(editor), 0);
+
+    // 参数校验：一律 InvalidArgument，不静默截断。
+    // （核心层 ReorderAssetsCommand::apply 对负索引和越界统一返回
+    //   ErrorCode::InvalidArgument，没有 OutOfRange。）
+    NC_CHECK_EQ(nc_asset_reorder(editor, -1, 0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_asset_reorder(editor, 0, -1), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_asset_reorder(editor, 3, 0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_asset_reorder(editor, 0, 3), NC_ERROR_INVALID_ARGUMENT);
+
+    // editor 为空
+    NC_CHECK_EQ(nc_asset_reorder(nullptr, 0, 1), NC_ERROR_INVALID_ARGUMENT);
+
+    // 空素材池：(0,0) 不能因为 from==to 被当成 no-op 而静默成功，
+    // 必须报错 —— isNoOp 对此有专门处理（索引非法时返回 false）。
+    NcEditor* empty = nc_editor_create();
+    NC_CHECK_EQ(nc_asset_count(empty), 0);
+    NC_CHECK_EQ(nc_asset_reorder(empty, 0, 0), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_can_undo(empty), 0);
+    nc_editor_destroy(empty);
+
+    nc_editor_destroy(editor);
+}
+
 // ---------------------------------------------------------------------------
 // 4. 轨道管理（文档 Part 2-B 第8节）
 // ---------------------------------------------------------------------------

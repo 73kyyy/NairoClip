@@ -140,6 +140,15 @@ int32_t nc_asset_get(const NcEditor* editor, int32_t index, uint64_t* out_asset_
 int32_t nc_remove_asset(NcEditor* editor, uint64_t asset_id);
 /// 查询素材是否被任意片段引用（1 = 已引用；0 = 未引用；-1 = 参数错误）。
 int32_t nc_asset_is_referenced(const NcEditor* editor, uint64_t asset_id);
+/// 调整素材在素材区中的顺序（B2-9）。
+/// - `to_index` 是**移动后**的目标位置（与 UI「拖到第 N 格」一致）；
+/// - 原地移动（from == to）为 no-op，不产生撤销记录；
+/// - 越界 / 负索引 / 空素材池一律拒绝并给出中文原因，
+///   不静默截断（静默截断会让落点提示与实际结果不一致）；
+/// - 可撤销：revert 按素材 id 找回当前位置，不做索引逆运算
+///   （中间可能夹了别的重排命令，索引会错位）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_asset_reorder(NcEditor* editor, int32_t from_index, int32_t to_index);
 
 // ---- 编辑操作（最小集；逐步扩展） ----
 
