@@ -36,6 +36,9 @@ android {
         buildConfig = true
     }
 
+    // 每次打包前刷新前端资源，避免 APK 里是旧版 UI
+    tasks.named("preBuild") { dependsOn("syncMobileUi") }
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
@@ -82,6 +85,39 @@ android {
             "META-INF/NOTICE*"
         )
     }
+}
+
+/* 把 mobile/ 的前端资源同步进 Android assets。
+   ---------------------------------------------------------------------------
+   之前 assets 里放的是 make_static.py 导出的「单文件静态版」，
+   那是给浏览器双击打开用的快照（engine_static.js 只读构建时数据）。
+   真机上必须用**页面版**：pages/*.html + assets/*.js，
+   走 engine.js → window.NCEngine（NativeEngineBridge 直调 C ABI），
+   这样编辑、预览、导出才是活的。
+
+   目录映射（WebView 里以 https://appassets.androidplatform.net/assets/ 为根）：
+     mobile/pages/*.html   → assets/pages/*.html
+     mobile/assets/**      → assets/assets/**（图片/字体/脚本）
+     mobile/static/**      → assets/static/**（黏土图、图标等静态资源） */
+val syncMobileUi = tasks.register<Copy>("syncMobileUi") {
+    val mobile = rootProject.file("../mobile")
+    from(mobile.resolve("pages")) { into("pages") }
+    from(mobile.resolve("assets")) { into("assets") }
+    from(mobile.resolve("static")) { into("static") }
+    into(layout.projectDirectory.dir("src/main/assets"))
+    /* 排除项（都是「不该进 APK」的东西）：
+       · static/nairoclip-*.html 单文件静态版 —— 由 tools/make_*_static.py
+         导出，内联的是构建时数据快照，装进 APK 只会让 UI 变成只读。
+         注意这条必须覆盖全部 6 个产物：
+           nairoclip-editor-static.html / home / me / auth / phone / settings。
+         早前只写了 `nairoclip-*-static.html`，只命中 editor 那一个，
+         其余 5 个仍会打进 APK —— 一旦有人误开就是只读界面。
+       · _probe.html 调试页
+       · thumbs.db / .DS_Store 之类的系统垃圾 */
+    exclude("**/nairoclip-*.html")
+    exclude("**/_probe.html")
+    exclude("**/Thumbs.db", "**/.DS_Store")
+    includeEmptyDirs = false
 }
 
 dependencies {

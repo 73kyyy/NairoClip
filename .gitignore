@@ -42,3 +42,6 @@ Thumbs.db
 # 设计桥编译产物
 /design/tools/nc_design_harness
 /design/screenshots/
+
+# Android assets 由 Gradle syncMobileUi 从 mobile/ 生成，不入库
+/android/app/src/main/assets/

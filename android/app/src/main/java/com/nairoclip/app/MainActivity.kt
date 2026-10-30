@@ -51,7 +51,13 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(eng, "NCEngine")
         webView.addJavascriptInterface(NativeAuthBridge(this, webView), "NCAndroid")
 
-        webView.loadUrl("https://appassets.androidplatform.net/assets/nairoclip-home.html")
+        /* 入口用**页面版**而不是静态版。
+           assets/nairoclip-home.html 是 make_static.py / make_pages_static.py
+           导出的单文件快照（数据在构建时冻结，engine_static.js 只读）。
+           页面版 pages/01-home.html 走 engine.js → window.NCEngine，
+           才有真实的编辑/预览/导出能力。
+           两者都在 assets 里：pages/ 由 Gradle 的 syncMobileUi 从 mobile/ 同步。 */
+        webView.loadUrl("https://appassets.androidplatform.net/assets/pages/01-home.html")
 
         setContentView(webView)
     }

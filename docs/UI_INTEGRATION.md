@@ -445,6 +445,44 @@ cmake --build build --target nc_design_harness
 | **桌面 Qt** | C++ 直调 | 无中间层 |
 | **Web/WASM** | 需 WASM 化 core | **当前不支持** |
 
+### Android 打包：装页面版，不装静态版（重要）
+
+前端有两套产物，用途完全不同：
+
+| 产物 | 文件 | 引擎 | 用途 |
+|---|---|---|---|
+| **页面版** | `mobile/pages/*.html` + `mobile/assets/*.js` | `engine.js` → `window.NCEngine` | **只这个能进 APK** |
+| 静态版 | `mobile/static/nairoclip-*.html`（6 个） | `engine_static.js` → 构建时快照 | 仅浏览器双击预览 |
+
+静态版是 `tools/make_static.py` / `make_pages_static.py` 导出的单文件快照，
+数据在构建时冻结、所有编辑都被「只读」实现挡回。装进 APK 的表现是：
+WebView 明明 `addJavascriptInterface(NativeEngineBridge, "NCEngine")` 成功，
+界面却读不到工程状态、点什么都不生效。
+
+约定（已落到 `android/app/build.gradle.kts`）：
+
+```kotlin
+// preBuild 自动从 mobile/ 同步，排除全部静态产物
+tasks.named("preBuild") { dependsOn("syncMobileUi") }
+
+exclude("**/nairoclip-*.html")   // 6 个静态版全排除，不只是 editor
+exclude("**/_probe.html")
+```
+
+目录映射（`WebViewAssetLoader` 根为 `/assets/`）：
+
+```
+mobile/pages/*.html  → assets/pages/*.html
+mobile/assets/**     → assets/assets/**     （页面里写 ../assets/，正好解析到这里）
+mobile/static/**     → assets/static/**
+```
+
+入口：`MainActivity` 加载 `assets/pages/01-home.html`（不是 `nairoclip-home.html`）。
+
+`engine_static.js` 仍保留在 assets 里作为离线兜底，但它已加保护：
+检测到 `window.NCEngine` 完整实现（有 `call` + `state`）时**直接 return**，
+不再覆盖 `engine.js` 建立的实时引擎。
+
 ### Android 交叉编译产物（已产出）
 
 ```
