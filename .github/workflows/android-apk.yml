@@ -173,8 +173,13 @@ jobs:
           # 日志会被截断、Job Summary 需要登录查看，
           # 而 artifact 只要 run 完成就能下载 —— 这是最可靠的一手证据。
           mkdir -p /tmp/depsdiag
-          cp /tmp/printdeps.log /tmp/depsdiag/ || true
+          cp /tmp/printdeps.log /tmp/depsdiag/ 2>/dev/null || true
           grep 'DEPS|' /tmp/printdeps.log > /tmp/depsdiag/deps.txt 2>/dev/null || true
+
+          # 本步骤只负责产出信息，**不阻断**后续构建：
+          # 之前它自己失败，导致 assemble 根本没机会跑，
+          # 于是连 AAPT 的真实错误都拿不到。
+          exit 0
 
       - name: Upload dependency diagnostic
         if: always()
