@@ -1,0 +1,99 @@
+name: CI Status
+
+# =============================================================================
+# 把 Actions 的结论写回 `ci-status` 分支
+# =============================================================================
+# 为什么需要：
+#   开发容器（aarch64 手机环境）按 docs/DEV_ENVIRONMENT.md 规定不跑脚本，
+#   同时容器里没有 PAT / 没有 gh，REST API 一律 401 —— 本地读不到运行结果。
+#
+#   唯一稳定的读取通道：让 runner 自己把结论写进 git。
+#   开发容器只要 `git fetch origin ci-status` 就能看到真实结论，
+#   不用再靠猜、也不用让用户手动截图。
+#
+# 产物（只有两个文件，放在分支根目录）：
+#   RUNS.md      人读：各工作流最近一次结论 + 失败工作/步骤 + 失败日志尾部
+#   latest.json  机读：同上，结构化
+#
+# 注意：`ci-status` 是**产物分支**，不是源码分支。
+#   每次运行都用单个提交覆盖它——不保留历史，避免仓库膨胀。
+#   这是刻意的，也只对这一条分支 force push。
+# =============================================================================
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    # 覆盖所有会产生「值得看」的结论的工作流
+    workflows: [ 'CI', 'Gen Assets', 'Android APK', 'Report' ]
+    types: [ completed ]
+
+permissions:
+  contents: write   # 需要往 ci-status 分支写
+  actions: read     # 需要读 runs / jobs / logs
+
+# 同一时刻只允许一个；后到的覆盖先到的（结论总是越新越有用）
+concurrency:
+  group: ci-status
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: 汇总并回写
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout（默认分支，只要脚本与 tools/）
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 时间戳
+        run: echo "STATUS_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: 生成状态文件
+        # 拿不到数据必须失败：一个「静默绿」的汇报通道比没有通道更糟。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 tools/ci_status_publish.py --out docs/ci-status
+
+      - name: 写到 Job Summary（网页上直接可读）
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ -f docs/ci-status/RUNS.md ]; then
+            cat docs/ci-status/RUNS.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '**状态文件未生成，请查看上一步日志。**' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 提交到 ci-status 分支
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ ! -f docs/ci-status/RUNS.md ] || [ ! -f docs/ci-status/latest.json ]; then
+            echo "❌ 缺少产物，拒绝提交空状态"
+            exit 1
+          fi
+
+          tmp="$(mktemp -d)"
+          cp docs/ci-status/RUNS.md docs/ci-status/latest.json "$tmp"/
+          cd "$tmp"
+
+          git init -q -b ci-status
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add RUNS.md latest.json
+          git commit -q -m "chore(ci-status): ${STATUS_TS}"
+
+          # ci-status 是产物分支：单提交覆盖，不留历史
+          git push -q --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+            HEAD:ci-status
+          echo "✅ 已回写 ci-status：$(git rev-parse --short HEAD)"
