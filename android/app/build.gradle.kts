@@ -127,10 +127,43 @@ val syncMobileUi = tasks.register<Copy>("syncMobileUi") {
 tasks.named("preBuild") { dependsOn(tasks.named("syncMobileUi")) }
 
 
+/* 依赖声明。
+   ---------------------------------------------------------------------------
+   注意：这里**必须**用 dependencies { } 顶层块。
+   CI 曾出现 releaseRuntimeClasspath 里只有 kotlin-stdlib、
+   五条 implementation 一条都不生效的情况 —— 表现为
+     AAPT: error: resource style/Theme.AppCompat.NoActionBar not found
+   根因是 build.gradle.kts 的结构被改坏（android { } 的收尾与
+   tasks.named("preBuild") 的相对位置错乱），Gradle 把 dependencies
+   当成了别的块内部的内容。
+
+   为让「结构是否真的正确」可自证，下面显式打印一次解析结果：
+   如果 implementation 没生效，配置阶段就会失败，而不是拖到 AAPT。 */
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.webkit:webkit:1.11.0")
     implementation(files("libs/wechat-sdk-6.8.40.aar"))
     implementation(files("libs/open_sdk_3.5.19_r9483ffc7_lite.jar"))
+}
+
+/* 自检：确认上面五条依赖真的进了 release 运行时类路径。
+   放在 afterEvaluate 里，此时 Android 插件已完成配置。
+   缺失就**让构建失败**——这比让 AAPT 报一个看不懂的
+   "resource style/Theme.AppCompat not found" 要好得多。 */
+afterEvaluate {
+    val runtime = configurations.findByName("releaseRuntimeClasspath")
+    if (runtime == null) {
+        logger.error("[deps] ❌ 找不到 releaseRuntimeClasspath 配置（Android 插件未生效？）")
+    } else {
+        val names = runtime.dependencies.map { "${it.group}:${it.name}" }
+        logger.lifecycle("[deps] releaseRuntimeClasspath 声明数 = ${names.size}")
+        names.forEach { logger.lifecycle("[deps]   $it") }
+        if (names.none { it.contains("appcompat") }) {
+            throw GradleException(
+                "[deps] appcompat 没有进入 releaseRuntimeClasspath。" +
+                "这会让 AAPT 报找不到 Theme.AppCompat.NoActionBar。"
+            )
+        }
+    }
 }
