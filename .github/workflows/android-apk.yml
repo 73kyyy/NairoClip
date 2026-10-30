@@ -138,6 +138,52 @@ jobs:
         working-directory: android
         run: gradle wrapper --gradle-version 8.7 --no-daemon
 
+      # 定位 build.gradle.kts 求值到哪一行就断了。
+      #
+      # run #49 的三份实测证据：
+      #   1) tasks --all 共 369 行，**没有 syncMobileUi**（第 99 行注册）
+      #      也**没有 printDeps**（第 159 行注册）；
+      #   2) Gradle 内置 :app:dependencies 显示 releaseRuntimeClasspath
+      #      只有 kotlin-stdlib —— dependencies{} 在第 142 行，同样没生效；
+      #   3) 上面三者全部位于第 85 行 android{} 闭合之后。
+      # 指向「脚本后半段从未执行」，但现有输出里没有 Kotlin 编译错误原文，
+      # 所以只能显式把配置阶段输出抓回来。
+      - name: Diagnose build script evaluation
+        working-directory: android
+        run: |
+          set +e
+          mkdir -p /tmp/scriptdiag
+          {
+            echo "===== 被执行的脚本本身 ====="
+            wc -l app/build.gradle.kts
+            md5sum app/build.gradle.kts
+            echo
+            echo "===== 第 85-100 行（android{} 闭合处及之后）====="
+            sed -n '85,100p' app/build.gradle.kts
+            echo
+            echo "===== :app:help --info --stacktrace ====="
+            ./gradlew :app:help --no-daemon --stacktrace --info 2>&1
+          } > /tmp/scriptdiag/all.log 2>&1
+          echo "help exit=$?"
+          echo "===== 脚本编译错误 / 配置失败 ====="
+          grep -nE '^e: |Script compilation|Unresolved reference|FAILURE:|Caused by|BUILD (SUCCESSFUL|FAILED)' \
+            /tmp/scriptdiag/all.log | head -60 || echo "（无匹配）"
+          # 只保留切片，避免 artifact 过大（--info 输出很长）
+          grep -nE '^e: |Script compilation|Unresolved reference|FAILURE:|Caused by|BUILD (SUCCESSFUL|FAILED)|^> Configure project|^> Task :app:help' \
+            /tmp/scriptdiag/all.log > /tmp/scriptdiag/errors.txt 2>&1 || true
+          rm -f /tmp/scriptdiag/all.log
+          ls -l /tmp/scriptdiag/
+          exit 0
+
+      - name: Upload script diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-script-diagnostic
+          path: /tmp/scriptdiag/
+          retention-days: 7
+          if-no-files-found: warn
+
 
       # 显式打印依赖解析结果。做成独立步骤的原因：
       # 之前把诊断放在 assemble 内部用 logger 输出，结果被日志尾部截断，
