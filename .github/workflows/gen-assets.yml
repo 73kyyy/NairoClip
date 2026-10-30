@@ -65,7 +65,8 @@ jobs:
             mobile/tools/make_pages_static.py \
             tools/check_grid_spec_alignment.py \
             tools/check_grid_render_coverage.py \
-            tools/verify_grid_assets.py
+            tools/verify_grid_assets.py \
+            tools/grid_status_md.py
           echo "✅ Python 语法通过"
 
       - name: JS 语法检查
@@ -105,6 +106,35 @@ jobs:
           ls mobile/static/grid | head -5
           echo "..."
           ls mobile/static/grid | wc -l
+
+      - name: 校验结论写入 job summary
+        # 私有仓库的 run 日志需要认证才能读；但 Job Summary 随仓库可见性，
+        # 协作者在网页上能直接看到。用户无法在本地跑脚本，
+        # 必须有一条不依赖 API/token 的结果通道。
+        #
+        # 注意：这里**不要写 heredoc**。YAML block scalar 会剥掉公共缩进，
+        # 而 bash heredoc 要求终止符在行首 —— 套在 `{ } >> file` 里时
+        # 缩进一变就静默变成「把后续内容当脚本」，命令照跑、结果照错。
+        # 逻辑全在 tools/grid_status_md.py，这里只调一行。
+        if: always()
+        run: |
+          set -euo pipefail
+          echo '## 宫格缩略图生成结果' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/grid_status_md.py >> "$GITHUB_STEP_SUMMARY" || true
+          if [ -d mobile/static/grid ]; then
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo "- 总体积：$(du -sh mobile/static/grid | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 上传产物（供人工核对）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grid-thumbnails
+          path: mobile/static/grid/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: 提交回仓库
         run: |

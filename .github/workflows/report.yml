@@ -1,0 +1,106 @@
+name: Report
+
+# =============================================================================
+# 结果汇报（把「CI 跑成什么样」变成可读的结论）
+# =============================================================================
+# 背景：仓库是私有的。开发容器里没有 PAT、没有 gh，REST API 一律 401 ——
+# 也就是说**本地读不到 Actions 的运行结果**。
+#
+# 但 run 页面上的 Job Summary 与 Artifact 随仓库可见性，
+# 仓库所有者/协作者在网页上能直接看到。所以把关键结论主动写进 summary，
+# 就等于给「本地不能跑脚本」开了一条人工可读的验证通道。
+#
+# 本工作流不跑重型任务，只做汇总，成本可忽略。
+#
+# 约定：本文件里**不使用 heredoc**（python3 - <<'PY'）。
+# YAML block scalar 会剥掉公共缩进，bash heredoc 要求终止符在行首，
+# 两者叠加时极易静默出错。所有逻辑都放在 tools/*.py，这里只调一行。
+# =============================================================================
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [ 'CI', 'Gen Assets', 'Android APK' ]
+    types: [ completed ]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  summarize:
+    name: 汇总结果
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 仓库状态快照
+        run: |
+          {
+            echo '## 仓库状态'
+            echo ''
+            echo '```'
+            echo "commit: $(git rev-parse --short HEAD)"
+            git log -1 --pretty='subject: %s'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 宫格缩略图现状
+        run: python3 tools/grid_status_md.py >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 静态校验（不依赖 Pillow）
+        # 纯文本解析级别的校验，任何环境下都能跑，结论直接进 summary。
+        run: |
+          set -uo pipefail
+          {
+            echo ''
+            echo '## 静态校验'
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          ok=0
+          if python3 tools/check_grid_spec_alignment.py > /tmp/a.txt 2>&1; then
+            echo '- ✅ 生成器清单与 `l3-spec.js` id 集合一致' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '- ❌ **清单不一致**（宫格图会张冠李戴）' >> "$GITHUB_STEP_SUMMARY"
+            ok=1
+          fi
+
+          if python3 tools/check_grid_render_coverage.py > /tmp/b.txt 2>&1; then
+            echo '- ✅ 清单每个 slug 都有实现分支' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '- ❌ **有 slug 没有实现分支**（会静默出原图 = 假功能）' >> "$GITHUB_STEP_SUMMARY"
+            ok=1
+          fi
+
+          if python3 tools/grid_status_md.py --check > /tmp/c.txt 2>&1; then
+            echo '- ✅ 宫格映射与文件一一对应' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '- ⚠️ **宫格映射与文件不一致**（产物未生成或残缺）' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo ''
+            echo '<details><summary>明细（点击展开）</summary>'
+            echo ''
+            echo '```'
+            cat /tmp/a.txt 2>/dev/null || true
+            echo '---'
+            cat /tmp/b.txt 2>/dev/null || true
+            echo '---'
+            cat /tmp/c.txt 2>/dev/null || true
+            echo '```'
+            echo ''
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$ok" -ne 0 ]; then
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '**结论：存在阻断性问题，需先修再生成。**' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '**结论：静态校验通过。**' >> "$GITHUB_STEP_SUMMARY"
