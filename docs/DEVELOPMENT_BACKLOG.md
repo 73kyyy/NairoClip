@@ -1119,7 +1119,18 @@ int32_t nc_track_placement_reason(int32_t track_type, int32_t media_type,
 
 ---
 
-### B2-9 🔄 素材区拖动排序（核心层已完成，UI 待做）
+### B2-9 🔄 素材区拖动排序（核心层 + C ABI 已完成，UI 手势待做）
+
+**C ABI 完成（2026-10-30，commit `9847d9e`）**：
+
+- `nc_asset_reorder(NcEditor*, int32_t from_index, int32_t to_index)`；
+- `mobile/assets/nc-api.js` 同步暴露，**并加入 `FUNCTIONS` 白名单**
+  （不加白名单会运行时被拦，症状是"函数存在但调用无效"）；
+- 新增 `CapiTimeline.AssetReorder` 用例，覆盖顺序改变/撤销/重做/
+  no-op 不入栈/负索引/越界/空池/nullptr；
+- 一处语义按实现修正：负索引与越界**统一返回
+  `NC_ERROR_INVALID_ARGUMENT`**（`ReorderAssetsCommand::apply` 没有
+  OutOfRange 分支），不能想当然写 `NC_ERROR_OUT_OF_RANGE`。
 
 **范围修正（2026-10-29）**：原文还包含「素材可直接拖到时间轴」与
 「落点幽灵」两条，**已删除**。理由是这条规划把桌面非编的交互范式
@@ -1152,7 +1163,7 @@ int32_t nc_track_placement_reason(int32_t track_type, int32_t media_type,
   连续撤销/交错撤销/no-op 不入栈/**序列化往返顺序一致**/
   id 保留/片段引用不受影响/`Sequence::invariantsHold()`。
 
-**待完成**：UI 层长按拖动排序的手势与落点提示、`nc_asset_reorder` C ABI。
+**待完成**：UI 层长按拖动排序的手势与落点提示（C ABI 已完成，见上）。
 
 **原始问题**：
 

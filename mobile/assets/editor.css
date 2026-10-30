@@ -227,6 +227,22 @@ body { -webkit-text-size-adjust: 100%; }
               color: #EDEFEC; font-family: var(--font); font-size: 12px; text-align: left; }
 .sheet-item small { color: #7B817F; font-size: 10px; font-family: var(--font-num); }
 
+/* ---- 素材拖动排序（B2-9）----
+   drag-src   ：被长按拖起的原行（半透明，告诉用户"它正在被移动"）
+   drag-over  ：手指当前覆盖的目标行（左侧亮条，预告落点）
+   drag-ghost ：跟随手指的浮层（position 由 JS 按 clientY 设置）
+   sheet-hint ：底部操作提示 */
+.sheet-item.drag-src { opacity: .45; }
+.sheet-item.drag-over { border-color: #8B7CFF; box-shadow: inset 3px 0 0 #8B7CFF; }
+.sheet-item.drag-ghost { box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.sheet-hint { color: #7B817F; font-size: 10px; text-align: center; padding: 2px 0 0; }
+/* 拖动期间禁止列表滚动抢手势 */
+.sheet-list:has(.drag-src) { overflow: hidden; }
+/* 关键：素材行必须允许 pointermove 冒泡到 JS。
+   否则移动端会让"手指上下滑动"直接变成列表滚动，
+   长按拖动永远收不到 move 事件（表现为拖不起来）。 */
+.sheet-item { touch-action: pan-x; -webkit-user-select: none; user-select: none; }
+
 /* ---- 图层列表：一行一轨，右侧显示 / 静音 / 锁定 开关 ---- */
 .layer-row {
   display: flex; align-items: center; gap: 10px;

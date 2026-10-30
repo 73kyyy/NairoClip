@@ -1573,25 +1573,153 @@ if (E.brand) {
 }
 
 /* ---------------- 素材库：列出本项目真实素材 ---------------- */
+
+/* 长按拖动排序（B2-9）。
+   为什么是长按而不是直接拖：素材行本身是「点击插入」的按钮，
+   直接拖会让"想点击"的手抖被识别成拖动。长按 300ms 后才进入排序态，
+   与移动端常见的列表重排手势一致（iOS 列表 / 安卓 RecyclerView）。
+
+   为什么不用 HTML5 drag & drop：移动 WebView 里 draggable 属性
+   依赖原生拖放，触摸事件下不触发。必须用 pointerdown/move/up。 */
+
+const DRAG_LONG_PRESS_MS = 300;
+const DRAG_MOVE_CANCEL_PX = 8;   // 长按未成行前的位移容差
+
 function showMediaLibrary() {
   const assets = S.assets || [];
   E.sheetList.innerHTML = '';
   if (!assets.length) {
     sheetRow('暂无素材', '点「＋」导入视频 / 图片 / 音频', () => { closeSheet(); openSheet(); });
   } else {
-    assets.forEach((a) => {
+    assets.forEach((a, index) => {
       /* kind 与内核 media_type 对齐：0 视频 / 1 音频 / 2 图片 */
       const kind = a.kind === 1 ? '音频' : (a.kind === 2 ? '图片' : '视频');
-      sheetRow(a.name, `${kind} · ${a.dur.toFixed(1)}s`, () => {
+      const row = sheetRow(a.name, `${kind} · ${a.dur.toFixed(1)}s`, () => {
         // 点素材：在当前轨道末尾插入（无轨道则先建一条）
         insertAssetToTimeline(a);
         closeSheet();
       });
+      attachAssetReorder(row, index);
     });
+    if (assets.length > 1) {
+      const hint = document.createElement('div');
+      hint.className = 'sheet-hint';
+      hint.textContent = '长按可拖动排序';
+      E.sheetList.appendChild(hint);
+    }
   }
   const head = E.sheet && E.sheet.querySelector('.sheet-head span');
   if (head) head.textContent = `素材库（${assets.length}）`;
   E.sheet.hidden = false;
+}
+
+/* 给一行素材挂长按拖动排序手势。
+   fromIndex 是这一行当前的显示下标，与后端 assets 数组顺序一一对应
+   （project.assets 的数组顺序就是显示顺序，没有额外的 order 字段）。 */
+function attachAssetReorder(row, fromIndex) {
+  let timer = null;
+  let startX = 0;
+  let startY = 0;
+  let dragging = false;
+  let suppressClick = false;
+  let ghost = null;
+  let targetIndex = fromIndex;
+
+  const rows = () => Array.from(E.sheetList.querySelectorAll('.sheet-item'));
+
+  const cleanup = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (ghost) { ghost.remove(); ghost = null; }
+    rows().forEach((r) => r.classList.remove('drag-src', 'drag-over'));
+    dragging = false;
+    targetIndex = fromIndex;
+  };
+
+  const commit = () => {
+    const from = fromIndex;
+    const to = targetIndex;
+    cleanup();
+    if (from === to) return;            // 原地：不发请求，后端也会当 no-op
+    if (!Engine.online) return toast('未连接引擎，无法排序');
+    // 与 insertAssetToTimeline 一致：nc_ 函数走 engineCall 直通，
+    // 不经 edit()（edit 的 op 是语义操作 split/delete，桥另有分发）。
+    const r = engineCall('nc_asset_reorder', { from_index: from, to_index: to });
+    if (!r || !r.ok) return toast(`排序失败：${(r && r.message) || '未知错误'}`, 3000);
+    // 引擎是唯一真源：成功后重新拉状态，不在前端自己挪数组。
+    // 顺序：applyState 更新快照 → renderAll 重绘轨道 → 重开素材库显示新顺序。
+    try {
+      applyState(fetchState());
+      renderAll();
+      showMediaLibrary();
+    } catch (err) {
+      toast(`刷新失败：${err.message}`, 3000);
+    }
+  };
+
+  // 长按进入排序态
+  row.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    startX = e.clientX; startY = e.clientY;
+    timer = setTimeout(() => {
+      timer = null;
+      dragging = true;
+      row.classList.add('drag-src');
+      if (navigator.vibrate) navigator.vibrate(12);   // 触觉确认
+      ghost = row.cloneNode(true);
+      ghost.className = 'sheet-item drag-ghost';
+      ghost.style.cssText += 'position:fixed;pointer-events:none;opacity:.85;z-index:99;';
+      ghost.style.width = `${row.offsetWidth}px`;
+      ghost.style.left = `${row.getBoundingClientRect().left}px`;
+      ghost.style.top = `${row.getBoundingClientRect().top}px`;
+      document.body.appendChild(ghost);
+      try { row.setPointerCapture(e.pointerId); } catch (_) { /* 老 WebView 不支持 */ }
+    }, DRAG_LONG_PRESS_MS);
+  });
+
+  // 长按未成行前，位移超容差就取消（用户其实在滚动列表）
+  row.addEventListener('pointermove', (e) => {
+    if (!dragging) {
+      if (timer && (Math.abs(e.clientX - startX) > DRAG_MOVE_CANCEL_PX ||
+                    Math.abs(e.clientY - startY) > DRAG_MOVE_CANCEL_PX)) {
+        clearTimeout(timer); timer = null;
+      }
+      return;
+    }
+    if (ghost) {
+      ghost.style.top = `${e.clientY - ghost.offsetHeight / 2}px`;
+    }
+    // 落点：鼠标/手指所在 y 覆盖到哪一行
+    const list = rows();
+    for (let i = 0; i < list.length; i++) {
+      const r = list[i];
+      if (r === row) continue;
+      const b = r.getBoundingClientRect();
+      if (e.clientY >= b.top && e.clientY <= b.bottom) {
+        list.forEach((x) => x.classList.remove('drag-over'));
+        r.classList.add('drag-over');
+        targetIndex = i;
+        break;
+      }
+    }
+  });
+
+  const endDrag = (e) => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (!dragging) return;
+    try { row.releasePointerCapture(e.pointerId); } catch (_) { /* 同上 */ }
+    commit();
+    // commit() 内的 cleanup() 已把 dragging 置 false，所以这里必须
+    // 单独置抑制标记：否则松手后浏览器补发的 click 会顺手插入素材。
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 0);
+  };
+  row.addEventListener('pointerup', endDrag);
+  row.addEventListener('pointercancel', cleanup);
+
+  // 长按已激活时抑制随后的 click（否则松手会顺手插入素材）
+  row.addEventListener('click', (e) => {
+    if (suppressClick) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
 }
 
 async function insertAssetToTimeline(asset) {
@@ -1805,6 +1933,7 @@ function sheetRow(label, sub, fn) {
     <span style="flex:1">${label}<br><small>${sub}</small></span>`;
   b.addEventListener('click', fn);
   E.sheetList.appendChild(b);
+  return b;
 }
 function closeSheet() { E.sheet.hidden = true; }
 E.sheetClose.addEventListener('click', closeSheet);
