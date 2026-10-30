@@ -450,11 +450,13 @@ def make_transition(im, eid, slug):
         return Image.blend(mid, Image.new('RGB', (w, h), (255, 255, 255)), 0.55)
 
     if slug == 'wipe_left':
-        out = b.copy()
-        out.paste(a.crop((w // 2, 0, w, h)), (w // 2, 0))
+        # 左向擦除：B 从左侧推入（左半 B，右半仍 A）
+        out = a.copy()
+        out.paste(b.crop((0, 0, w // 2, h)), (0, 0))
         return out
 
     if slug == 'wipe_right':
+        # 右向擦除：B 从右侧推入（右半 B，左半仍 A）
         out = a.copy()
         out.paste(b.crop((w // 2, 0, w, h)), (w // 2, 0))
         return out
@@ -465,8 +467,13 @@ def make_transition(im, eid, slug):
         return out
 
     if slug == 'hard_cut':
+        # 硬切：没有混合，只有一刀两断。用 40% 分界 + 白线，
+        # 与 wipe_right（50% 分界、无分界线）明确区分；
+        # 否则两格肉眼几乎一样，等于少一格。
+        cut = int(w * 0.4)
         out = a.copy()
-        out.paste(b.crop((w // 2, 0, w, h)), (w // 2, 0))
+        out.paste(b.crop((cut, 0, w, h)), (cut, 0))
+        ImageDraw.Draw(out).line([(cut, 0), (cut, h)], fill=(255, 255, 255), width=2)
         return ImageEnhance.Contrast(out).enhance(1.05)
 
     if slug == 'color_dissolve':
@@ -569,7 +576,11 @@ def make_transition(im, eid, slug):
         return ImageEnhance.Brightness(mid).enhance(1.1)
 
     if slug == 'exposure_flash':
-        return ImageEnhance.Brightness(Image.blend(a, b, 0.4)).enhance(1.75)
+        # 曝光闪烁：整体提亮 + 暖偏。与 flash_white 的区别是
+        # flash_white 是「白场压过来」，这里是「画面本身过曝」，
+        # 两格必须能一眼分开。
+        bright = ImageEnhance.Brightness(Image.blend(a, b, 0.35)).enhance(1.7)
+        return tint(bright, (255, 240, 200), 1.02, 0.25)
 
     if slug == 'circle_wipe':
         mask = Image.new('L', (w, h), 0)
