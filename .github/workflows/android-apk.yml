@@ -154,25 +154,40 @@ jobs:
           set +e
           mkdir -p /tmp/scriptdiag
           {
-            echo "===== 被执行的脚本本身 ====="
+            echo "===== CI 上实际执行的脚本 ====="
             wc -l app/build.gradle.kts
             md5sum app/build.gradle.kts
-            echo
-            echo "===== 第 85-100 行（android{} 闭合处及之后）====="
+            echo "--- 注册语句所在行 ---"
+            grep -nE '^dependencies \{|^val syncMobileUi|^tasks\.named|^tasks\.register|^import' app/build.gradle.kts
+            echo "--- 第 85-100 行 ---"
             sed -n '85,100p' app/build.gradle.kts
+            echo "--- 末尾 6 行 ---"
+            tail -6 app/build.gradle.kts
             echo
-            echo "===== :app:help --info --stacktrace ====="
+            echo "===== 列出任务（同一进程内判断）====="
+            ./gradlew :app:tasks --all --no-daemon 2>&1 \
+              | grep -inE 'syncMobileUi|printDeps' \
+              || echo "（tasks 输出中无 syncMobileUi / printDeps）"
+            echo
+            echo "===== :app:printDeps --dry-run --stacktrace ====="
+            ./gradlew :app:printDeps --dry-run --no-daemon --stacktrace 2>&1 | tail -30
+            echo
+            echo "===== :app:help --info ====="
             ./gradlew :app:help --no-daemon --stacktrace --info 2>&1
           } > /tmp/scriptdiag/all.log 2>&1
-          echo "help exit=$?"
+          echo "done"
+
           echo "===== 脚本编译错误 / 配置失败 ====="
           grep -nE '^e: |Script compilation|Unresolved reference|FAILURE:|Caused by|BUILD (SUCCESSFUL|FAILED)' \
             /tmp/scriptdiag/all.log | head -60 || echo "（无匹配）"
-          # 只保留切片，避免 artifact 过大（--info 输出很长）
-          grep -nE '^e: |Script compilation|Unresolved reference|FAILURE:|Caused by|BUILD (SUCCESSFUL|FAILED)|^> Configure project|^> Task :app:help' \
+
+          # 保留关键标量行（wc -l / md5sum / 注册语句行号），
+          # 上一版把它们 grep 掉了，导致"CI 上脚本是否就是这份"无法回答。
+          grep -nE '^[0-9]+ app/build\.gradle\.kts$|^[0-9a-f]{32} |^[0-9]+:(dependencies \{|val syncMobileUi|tasks\.(named|register))|^e: |Unresolved reference|BUILD (SUCCESSFUL|FAILED)|^> Configure project|syncMobileUi|printDeps|^\+\+\+|^--- ' \
             /tmp/scriptdiag/all.log > /tmp/scriptdiag/errors.txt 2>&1 || true
           rm -f /tmp/scriptdiag/all.log
-          ls -l /tmp/scriptdiag/
+          echo "--- errors.txt（$(wc -l < /tmp/scriptdiag/errors.txt) 行）---"
+          cat /tmp/scriptdiag/errors.txt
           exit 0
 
       - name: Upload script diagnostic
