@@ -142,14 +142,27 @@ jobs:
       - name: Assemble release APK
         working-directory: android
         run: |
-          set -euo pipefail
+          # 不能开 -e：它会在 tee 之前随管道中断，PIPESTATUS 就读不到了。
+          set -uo pipefail
           chmod +x gradlew
           # --no-build-cache：不读 build cache。
           # --rerun-tasks：强制所有 task 真正执行，不复用 up-to-date 判定。
           # 两者一起，确保 resource merge / link 一定重新跑一遍 ——
           # 这是排除「复用了不含 appcompat 资源的旧产物」的唯一确定方式。
+          #
+          # 2>&1 | tee：把配置阶段的 [deps] 诊断留在文件里。
+          # 失败时 GitHub 只保留失败步骤的日志尾部，配置阶段的输出容易丢。
           ./gradlew :app:assembleRelease --stacktrace --no-daemon \
-            --no-build-cache --rerun-tasks
+            --no-build-cache --rerun-tasks 2>&1 | tee /tmp/gradle.log
+          rc=${PIPESTATUS[0]}
+          {
+            echo "## Gradle 依赖诊断"
+            echo ""
+            echo '```'
+            grep -E '^\[deps\]' /tmp/gradle.log | head -60 || echo "（无 [deps] 输出）"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
       - name: Show APK
         run: find android -name '*.apk' -exec ls -lh {} \;

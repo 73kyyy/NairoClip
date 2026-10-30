@@ -154,16 +154,32 @@ dependencies {
 afterEvaluate {
     val runtime = configurations.findByName("releaseRuntimeClasspath")
     if (runtime == null) {
-        logger.error("[deps] ❌ 找不到 releaseRuntimeClasspath 配置（Android 插件未生效？）")
-    } else {
-        val names = runtime.dependencies.map { "${it.group}:${it.name}" }
-        logger.lifecycle("[deps] releaseRuntimeClasspath 声明数 = ${names.size}")
-        names.forEach { logger.lifecycle("[deps]   $it") }
-        if (names.none { it.contains("appcompat") }) {
-            throw GradleException(
-                "[deps] appcompat 没有进入 releaseRuntimeClasspath。" +
-                "这会让 AAPT 报找不到 Theme.AppCompat.NoActionBar。"
-            )
-        }
+        throw GradleException(
+            "[deps] 找不到 releaseRuntimeClasspath —— Android 插件没有生效。" +
+            "检查 plugins { } 与 settings.gradle.kts 的 include(\":app\")。"
+        )
+    }
+    // 注意：这里必须看 **解析结果**（incoming.resolutionResult），
+    // 不能只看 dependencies（那是"声明"，声明了不代表解析到了）。
+    // 上一版自检就错在这里：声明里有 appcompat 所以静默通过，
+    // 实际解析结果里可能因为仓库/冲突根本没有它。
+    val declared = runtime.dependencies.map { "${it.group}:${it.name}" }
+    logger.lifecycle("[deps] 声明数=${declared.size} -> $declared")
+
+    val resolved = try {
+        runtime.incoming.resolutionResult.allComponents
+            .mapNotNull { it.moduleVersion?.let { mv -> "${mv.group}:${mv.name}" } }
+            .distinct()
+    } catch (e: Exception) {
+        throw GradleException("[deps] 解析 releaseRuntimeClasspath 失败：${e.message}", e)
+    }
+    logger.lifecycle("[deps] 解析出 ${resolved.size} 个模块")
+    resolved.sorted().forEach { logger.lifecycle("[deps]   $it") }
+
+    if (resolved.none { it.startsWith("androidx.appcompat:appcompat") }) {
+        throw GradleException(
+            "[deps] appcompat **没有解析到** releaseRuntimeClasspath。" +
+            "AAPT 报找不到 Theme.AppCompat.NoActionBar 就是这个原因。"
+        )
     }
 }

@@ -123,6 +123,40 @@ inline int runAll() {
         const int v = std::atoi(s);
         if (v > 0) maxIndex = v;
     }
+    // NC_TEST_EXCLUDE：按名字排除用例，逗号分隔，如
+    //   NC_TEST_EXCLUDE=Capi.WatermarkRealExportEndToEnd,Other.Case
+    //
+    // 为什么需要它（而不是只用 SKIP/MAX）：
+    // SKIP/MAX 是**位置型**的，只要新增或删掉任何一个用例，索引就整体漂移。
+    // CI 里为此写死过「崩溃在索引 267」，之后每加一批测试都要同步改数字，
+    // 忘改就会把崩溃用例又跑起来（或误跳过好用例）。
+    // 按名字排除与注册顺序无关，新增测试不会让它失效。
+    std::vector<std::string> excludes;
+    if (const char* s = std::getenv("NC_TEST_EXCLUDE")) {
+        std::string acc;
+        for (const char* p = s;; ++p) {
+            if (*p == ',' || *p == '\0') {
+                // 去掉首尾空白，允许 " A, B " 这种写法
+                std::size_t b = acc.find_first_not_of(" \t");
+                std::size_t e = acc.find_last_not_of(" \t");
+                if (b != std::string::npos) {
+                    excludes.push_back(acc.substr(b, e - b + 1));
+                }
+                acc.clear();
+                if (*p == '\0') break;
+            } else {
+                acc.push_back(*p);
+            }
+        }
+    }
+    auto excluded = [&excludes](const std::string& suite, const std::string& name) {
+        const std::string full = suite + "." + name;
+        for (const auto& x : excludes) {
+            if (x == full) return true;
+        }
+        return false;
+    };
+
     int index = -1;
     for (auto& tc : registry()) {
         ++index;
@@ -131,6 +165,11 @@ inline int runAll() {
         }
         if (maxIndex >= 0 && index >= maxIndex) {
             break;
+        }
+        if (excluded(tc.suite, tc.name)) {
+            std::printf("[ SKIP ] %s.%s（NC_TEST_EXCLUDE）\n", tc.suite.c_str(),
+                        tc.name.c_str());
+            continue;
         }
         if (shards > 1 && (index % shards) != shard) {
             continue;
