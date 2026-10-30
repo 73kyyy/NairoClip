@@ -616,6 +616,34 @@ jobs:
             echo
             echo "===== 全部错误摘要 ====="
             grep -E 'Invalid (write|read) of size|ERROR SUMMARY' /tmp/vg.txt | head -40
+            echo
+            # VG_RC=1 且 0 errors 时，必须回答"为什么退出"。
+            # 三种可能：信号、abort/断言、超时被杀。逐个取证，
+            # 不能停留在"0 errors 但退出了"这种无法定性的状态。
+            echo "===== 退出原因判定 ====="
+            echo "--- 是否被信号杀死/超时 ---"
+            grep -inE 'signal|killed|timeout|Terminated' /tmp/vg_stdout.txt | tail -10 || echo "（无信号/超时字样）"
+            echo "--- abort/assert/malloc 破坏 ---"
+            grep -inE 'abort|assert|malloc\(\)|corrupted|Assertion' /tmp/vg_stdout.txt | tail -10 || echo "（无 abort/assert/corrupted）"
+            echo "--- 汇总行（正常结束才有）---"
+            grep -E '^=====' /tmp/vg_stdout.txt | tail -3 || echo "（无汇总行 -> 非正常结束）"
+            echo "--- 末尾 25 行（原文）---"
+            tail -25 /tmp/vg_stdout.txt
+            echo
+            echo "===== 计数 ====="
+            echo "stdout 行数=$(wc -l < /tmp/vg_stdout.txt)"
+            echo "RUN=$(grep -c '^\[ RUN  \]' /tmp/vg_stdout.txt) OK=$(grep -c '^\[  OK  \]' /tmp/vg_stdout.txt)"
+            echo
+            # 是否跑完全量：正常结束会打印 "===== N cases | ... =====" 汇总行。
+            # 没有它说明是被中断（超时/信号），此时 VG_RC 不能当崩溃判据。
+            echo "===== 是否跑完全量 ====="
+            if grep -qE '^=====.*cases.*=====' /tmp/vg_stdout.txt; then
+              echo "已跑完：$(grep -E '^=====.*cases.*=====' /tmp/vg_stdout.txt | tail -1)"
+            else
+              echo "未跑完（无汇总行）—— VG_RC 不能作为崩溃判据"
+              echo "最后 RUN 行："
+              grep -E '^\[ RUN  \]' /tmp/vg_stdout.txt | tail -3
+            fi
           } > /tmp/vgdiag/summary.txt 2>&1
           cat /tmp/vgdiag/summary.txt
           exit 0

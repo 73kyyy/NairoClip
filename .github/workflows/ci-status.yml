@@ -110,6 +110,9 @@ jobs:
           if [ -n "${CI_RUN:-}" ]; then
             if gh run download "$CI_RUN" -n valgrind-evidence -D /tmp/vg 2>/dev/null; then
               cp /tmp/vg/summary.txt docs/ci-status/valgrind-summary.txt 2>/dev/null || true
+              # stdout 尾部：VG_RC=1 且 0 errors 时，判定"崩溃 vs 中断"
+              # 只能靠它（有无汇总行、最后 RUN 行、是否被信号杀）。
+              cp /tmp/vg/vg_stdout.txt docs/ci-status/valgrind-stdout.txt 2>/dev/null || true
               echo "已取到 valgrind 证据"
             else
               echo "（该 CI 运行没有 valgrind-evidence artifact）"
@@ -149,7 +152,7 @@ jobs:
           tmp="$(mktemp -d)"
           cp docs/ci-status/RUNS.md docs/ci-status/latest.json "$tmp"/
           # 诊断文件可选（取到才带）
-          for f in android-deps.txt android-builtin-deps.txt android-tasks.log android-printdeps.log android-script-errors.txt valgrind-summary.txt lut-summary.txt lut-ok.txt; do
+          for f in android-deps.txt android-builtin-deps.txt android-tasks.log android-printdeps.log android-script-errors.txt valgrind-summary.txt valgrind-stdout.txt lut-summary.txt lut-ok.txt; do
             [ -f "docs/ci-status/$f" ] && cp "docs/ci-status/$f" "$tmp"/ || true
           done
           cd "$tmp"
@@ -167,6 +170,7 @@ jobs:
           [ -f android-tasks.log ] && git add android-tasks.log || true
           [ -f android-script-errors.txt ] && git add android-script-errors.txt || true
           [ -f valgrind-summary.txt ] && git add valgrind-summary.txt || true
+          [ -f valgrind-stdout.txt ] && git add valgrind-stdout.txt || true
           git commit -q -m "chore(ci-status): ${STATUS_TS}"
 
           # ci-status 是产物分支：单提交覆盖，不留历史
