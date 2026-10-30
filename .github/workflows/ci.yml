@@ -352,6 +352,22 @@ jobs:
           fi
           echo "✅ LUT 用例全部通过（$RAN 个）"
 
+          # 结论写进 Job Summary + 落盘，供 ci-status 回传。
+          # 这一步是**成功步骤**，其日志不会出现在 --log-failed 里，
+          # 而开发容器读不到 Actions 网页 —— 必须主动留证据。
+          {
+            echo "## LUT 用例专项"
+            echo ""
+            echo "- 通过：$RAN 个"
+            echo "- 退出码：$rc"
+          } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p /tmp/lutdiag
+          {
+            echo "ran=$RAN"
+            echo "rc=$rc"
+          } > /tmp/lutdiag/summary.txt
+          grep -E '^\[  OK  \]' /tmp/lut_output.txt > /tmp/lutdiag/ok.txt || true
+
       - name: 对账用例总数
         # 踩过的坑：新测试文件没编进主套件，全量仍全绿。
         # 用例数只增不减，设下限可以抓住「漏编」。
@@ -397,6 +413,17 @@ jobs:
           name: test-output
           path: /tmp/test_output.txt
           retention-days: 7
+
+      # LUT 专项证据单独上传：全量崩溃时它仍能证明新增功能可用，
+      # 而开发容器只能通过 artifact（经 ci-status 分支）读到它。
+      - name: 上传 LUT 专项证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lut-test-evidence
+          path: /tmp/lutdiag/
+          retention-days: 7
+          if-no-files-found: warn
 
   # ---------------------------------------------------------------
   # ASAN 诊断 job

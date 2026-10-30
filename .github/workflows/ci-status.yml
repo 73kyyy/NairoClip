@@ -80,6 +80,19 @@ jobs:
             exit 0
           fi
           echo "Android APK run id=$RUN_ID"
+          # 顺带取 CI 的 LUT 专项证据（与 Android 诊断同一个思路）
+          CI_RUN=$(gh api "/repos/$REPO/actions/workflows/ci.yml/runs?per_page=1" \
+                     --jq '.workflow_runs[0].id' 2>/dev/null || true)
+          if [ -n "${CI_RUN:-}" ]; then
+            if gh run download "$CI_RUN" -n lut-test-evidence -D /tmp/lut 2>/dev/null; then
+              cp /tmp/lut/summary.txt docs/ci-status/lut-summary.txt 2>/dev/null || true
+              cp /tmp/lut/ok.txt docs/ci-status/lut-ok.txt 2>/dev/null || true
+              echo "已取到 LUT 证据：$(cat docs/ci-status/lut-summary.txt 2>/dev/null | tr '\n' ' ')"
+            else
+              echo "（该 CI 运行没有 lut-test-evidence artifact）"
+            fi
+          fi
+
           if gh run download "$RUN_ID" -n android-deps-diagnostic -D /tmp/deps 2>/dev/null; then
             cp /tmp/deps/deps.txt docs/ci-status/android-deps.txt 2>/dev/null || true
             cp /tmp/deps/printdeps.log docs/ci-status/android-printdeps.log 2>/dev/null || true
@@ -113,7 +126,7 @@ jobs:
           tmp="$(mktemp -d)"
           cp docs/ci-status/RUNS.md docs/ci-status/latest.json "$tmp"/
           # 诊断文件可选（取到才带）
-          for f in android-deps.txt android-printdeps.log; do
+          for f in android-deps.txt android-printdeps.log lut-summary.txt lut-ok.txt; do
             [ -f "docs/ci-status/$f" ] && cp "docs/ci-status/$f" "$tmp"/ || true
           done
           cd "$tmp"
@@ -124,6 +137,8 @@ jobs:
 
           git add RUNS.md latest.json
           [ -f android-deps.txt ] && git add android-deps.txt || true
+          [ -f lut-summary.txt ] && git add lut-summary.txt || true
+          [ -f lut-ok.txt ] && git add lut-ok.txt || true
           [ -f android-printdeps.log ] && git add android-printdeps.log || true
           git commit -q -m "chore(ci-status): ${STATUS_TS}"
 
