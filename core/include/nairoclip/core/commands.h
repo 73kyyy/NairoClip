@@ -888,6 +888,33 @@ private:
 };
 
 /// ---------------------------------------------------------------------------
+/// 设置片段 3D LUT（文档 Part 4-B 第 7 节「LUT 调色」）
+/// ---------------------------------------------------------------------------
+/// 语义：把片段的 lutPath / lutStrength 写入工程数据。
+///  - lutPath 为空 = 清除 LUT；
+///  - strength 必须 0..1（C ABI 先校验，命令层再兜一次）；
+///  - 撤销时同时恢复路径与强度：两者是同一个逻辑操作，
+///    分开恢复会让用户看到「路径回来了但强度还是新的」的错乱中间态。
+class SetClipLutCommand : public Command {
+public:
+    SetClipLutCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                      std::string path, double strength);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "设置 LUT 调色"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    std::string path_;
+    double strength_;
+    std::optional<std::string> beforePath_;
+    std::optional<double> beforeStrength_;
+};
+
+/// ---------------------------------------------------------------------------
 /// 创建复合片段（嵌套序列）—— 文档第 3 部分「嵌套序列/复合片段」
 /// ---------------------------------------------------------------------------
 /// 语义：把选中片段从原轨道摘除，放入新建的嵌套序列（保留相对时间），

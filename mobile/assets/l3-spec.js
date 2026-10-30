@@ -40,6 +40,8 @@
     filteramt: { kind: 'slider', name: '强度',     icon: 'i-filter',  min: 0, max: 100, step: 1, def: 60,    unit: '%' },
     /* 画中画混合模式：16 种，名称运行时从内核拉取（window.NC_BLEND_MODES） */
     blendmode: { kind: 'blend',  name: '混合模式', icon: 'i-pip', def: 0 },
+    lutstrength: { kind: 'slider', name: '强度', icon: 'i-adjust', min: 0, max: 1, step: 0.01,
+                   def: 1, unit: '%', scale: 100 },
     fxamt:     { kind: 'slider', name: '强度',     icon: 'i-fx',      min: 0, max: 100, step: 1, def: 50,    unit: '%' },
     feather:   { kind: 'slider', name: '羽化',     icon: 'i-mask',    min: 0, max: 1, step: 0.01, def: 0.02,  unit: '%', scale: 100 },
     radius:    { kind: 'slider', name: '圆角',     icon: 'i-crop',    min: 0, max: 1, step: 0.01, def: 0,   unit: '%', scale: 100 },
@@ -344,6 +346,13 @@
       curve: { presets: null, unit: '' },
       pageNames: ['常规', '区间'],
       hidden: true
+    },
+    lut: {
+      title: 'LUT 调色', mode: 'dual',
+      groups: [['lutstrength']],
+      curve: { presets: null, unit: '' },
+      pageNames: ['常规', '区间'],
+      lutPanel: true
     },
 
     /* ===== 调节 ===== */

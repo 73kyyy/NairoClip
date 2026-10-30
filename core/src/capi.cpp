@@ -20,6 +20,7 @@
 #include "nairoclip/core/export_preset.h"
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/chroma_key.h"
+#include "nairoclip/core/lut.h"
 #include "nairoclip/core/speech_cut.h"
 #include "nairoclip/core/proxy.h"
 #include "nairoclip/core/model_manager.h"
@@ -2829,6 +2830,88 @@ int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint
         return -1;
     }
     return static_cast<int32_t>(clip->blendMode);
+}
+
+// ---------------------------------------------------------------------------
+// LUT 调色（文档 Part 4-B 第 7 节；UI_BACKLOG P-01）
+// ---------------------------------------------------------------------------
+
+int32_t nc_set_clip_lut(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                        const char* path, double strength) {
+    if (editor == nullptr || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    // NaN 会穿过所有比较（NaN < 0 与 NaN > 1 都是 false），
+    // 必须先显式拦掉，否则一个 NaN 强度会写进工程且永远校验通过。
+    if (!(strength >= 0.0 && strength <= 1.0)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "LUT 强度必须在 0..1");
+    }
+    SequenceId seqId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &seqId, &trackId, &code)) {
+        return code;
+    }
+    const std::string lutPath = (path != nullptr) ? std::string(path) : std::string();
+    return failResult(editor->editor->setClipLut(seqId, trackId, ClipId{clip_id}, lutPath,
+                                                 strength));
+}
+
+int32_t nc_get_clip_lut(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                        char** out_path, double* out_strength) {
+    if (editor == nullptr || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (track_index < 0 ||
+        static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "track_index 越界");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    }
+    // 未设置时输出空串而不是 NULL：UI 侧统一按字符串处理，不用到处判空。
+    if (out_path != nullptr) *out_path = dupString(clip->lutPath);
+    if (out_strength != nullptr) *out_strength = clip->lutStrength;
+    return NC_OK;
+}
+
+int32_t nc_lut_validate_file(const char* path, int32_t* out_size, char** out_title,
+                             char** out_message) {
+    if (path == nullptr || path[0] == '\0') {
+        if (out_message != nullptr) *out_message = dupString("路径为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "路径为空");
+    }
+    Lut3D lut;
+    std::string error;
+    if (!loadCubeLutFile(std::string(path), lut, error)) {
+        // 明确把原因回给 UI：导入失败最常见的是 1D LUT 与 LUT_3D_SIZE 缺失，
+        // 「调用失败」四个字对用户毫无用处。
+        if (out_message != nullptr) *out_message = dupString(error);
+        if (out_size != nullptr) *out_size = 0;
+        if (out_title != nullptr) *out_title = dupString(std::string());
+        return failNc(NC_ERROR_INVALID_ARGUMENT, error);
+    }
+    if (out_size != nullptr) *out_size = lut.size;
+    if (out_title != nullptr) *out_title = dupString(lut.title);
+    if (out_message != nullptr) *out_message = dupString(std::string());
+    return NC_OK;
+}
+
+int32_t nc_lut_preset_count(void) {
+    // 刻意返回 0：本库不附带任何 .cube 文件。
+    // 造几个「点了没反应」的假预设比没有预设更糟——UI 应直接引导用户导入。
+    return 0;
+}
+
+const char* nc_lut_preset_name(int32_t index) {
+    (void)index;
+    return "";
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

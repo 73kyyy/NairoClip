@@ -776,6 +776,20 @@ int32_t applyEditLocked(const JsonValue& req) {
         }
         return check(nc_set_clip_blend_mode(gEditor, track, cid, mode)) ? NC_OK : gLastCode;
     }
+    if (op == "lut") {
+        // 片段 3D LUT（P-01）。path 为空 = 清除。
+        if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
+        const std::uint64_t cid = static_cast<std::uint64_t>(jint(req, "clip", 0));
+        if (!need(cid != 0, "缺少片段 id")) return gLastCode;
+        const std::string path = jstr(req, "path", "");
+        const double strength = jnum(req, "strength", 1.0);
+        if (!need(strength >= 0.0 && strength <= 1.0, "LUT 强度必须在 0..1")) {
+            return gLastCode;
+        }
+        return check(nc_set_clip_lut(gEditor, track, cid,
+                                     path.empty() ? nullptr : path.c_str(),
+                                     strength)) ? NC_OK : gLastCode;
+    }
     if (op == "remove_transition") {
         if (!need(track >= 0, "缺少目标轨道")) return gLastCode;
         const std::uint64_t tid = static_cast<std::uint64_t>(jint(req, "transition", 0));

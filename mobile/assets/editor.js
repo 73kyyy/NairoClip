@@ -232,6 +232,7 @@ const L2 = {
   ],
   filter: [
     { id: 'filterall', name: '滤镜库', icon: 'i-filter' },
+    { id: 'lut', name: 'LUT', icon: 'i-adjust' },
     { id: 'filterall2', name: '应用到全部', icon: 'i-copy', kind: 'exec' }
   ],
   adjust: [
@@ -417,6 +418,7 @@ function runFunction(cat, f) {
     case 'transkf':     return openL3('transkf');
     /* 滤镜 / 调节 */
     case 'filterall':  return openL3('filterall');
+    case 'lut':        return openL3('lut');
     case 'adj':        return openL3('adj');
     /* 比例 */
     case 'ratiocustom': return openL3('ratiocustom');
@@ -1911,7 +1913,33 @@ window.L3_HOST = {
       .filter((c) => c.id !== s.clip.id && c.start >= s.clip.start)
       .sort((a, b) => a.start - b.start)[0] || null;
   },
-  maskShape: () => 4
+  maskShape: () => 4,
+  clipLut: () => {
+    const s = selClip();
+    if (!s) return { path: '', strength: 1 };
+    return {
+      path: s.clip.lutPath || '',
+      strength: (typeof s.clip.lutStrength === 'number') ? s.clip.lutStrength : 1
+    };
+  },
+  validateLut: (path) => {
+    try {
+      const r = engineCall('nc_lut_validate_file',
+        { path: path, out_size: 1, out_title: 1, out_message: 1 });
+      if (!r || r.ok === false) {
+        return { ok: false, message: (r && (r.message || r.result)) || '校验失败' };
+      }
+      const res = r.result || {};
+      return {
+        ok: true,
+        size: res.size || res.out_size || 0,
+        title: res.title || res.out_title || '',
+        message: ''
+      };
+    } catch (err) {
+      return { ok: false, message: String(err && err.message ? err.message : err) };
+    }
+  }
 };
 
 /* 三级面板由 assets/l3-panel.js 提供（规格在 l3-spec.js）：

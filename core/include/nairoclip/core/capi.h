@@ -1157,6 +1157,56 @@ const char* nc_blend_mode_name(int32_t mode);
 /// 返回：0..15 = 模式；-1 = 参数错误。
 int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
 
+// ---- LUT 调色（文档 Part 4-B 第 7 节；UI_BACKLOG P-01）----
+//
+// 背景：core 层早就有 `lut.h`（.cube 解析 + 三线性插值 + 强度混合）
+// 与 `Clip::lutPath/lutStrength`，工程文件也一直在序列化这两个字段，
+// 但此前**没有任何渲染路径读它**——也就是说「设置 LUT 不生效」。
+// 本组接口补齐 ABI，并让预览/导出真正应用 LUT（见 export_plan/export_executor）。
+//
+// 约定：
+//  - LUT 存**文件路径**不存数据：33³ 表是 107,811 个 double，
+//    塞进每个片段会让 .nclip 膨胀到几十 MB 且无法人工编辑；
+//  - 路径不存在**不在这里报错**：允许先设路径后放文件（跨机器打开工程也常见）。
+//    真正加载失败会在导出统计的 warnings 里出现，不静默吞掉；
+//  - 支持 .cube 3D LUT（LUT_3D_SIZE 2..64）；1D LUT 明确拒绝。
+
+/// 设置片段 LUT。
+/// - path：.cube 文件路径；传 NULL 或空串 = 清除该片段的 LUT；
+/// - strength：0.0 = 原图，1.0 = 完整 LUT（中间线性混合）；
+/// - 越界（<0 或 >1）、NaN 一律 NC_ERROR_INVALID_ARGUMENT，且不写入工程；
+/// - 轨道锁定时 NC_ERROR_LOCKED；片段不存在 NC_ERROR_NOT_FOUND；
+/// - 可撤销（一次操作同时记录路径与强度）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_set_clip_lut(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                        const char* path, double strength);
+
+/// 读取片段 LUT 设置。
+/// - out_path：出参（可空）路径字符串，调用方 nc_free_string 释放；
+///   未设置时返回空串（不是 NULL）；
+/// - out_strength：出参（可空）强度 0..1；未设置时为 1.0。
+/// 返回 NC_OK 或错误码（参数错误 / 片段不存在）。
+int32_t nc_get_clip_lut(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                        char** out_path, double* out_strength);
+
+/// 校验一个 .cube 文件能否被本库使用（供 UI 导入时即时反馈）。
+/// - 成功：*out_size 写 LUT 边长（2..64），*out_title 写文件里的 TITLE（无则空串，
+///   需 nc_free_string）；*out_message 写简短说明（可空，需 nc_free_string）。
+/// - 失败：返回 NC_ERROR_INVALID_ARGUMENT（文件不存在/格式错误/1D LUT），
+///   *out_message 给出具体原因（**不会**只给「调用失败」这种无信息的话）。
+/// 说明：只读文件、不改任何工程状态，可在 UI 里逐次调用。
+int32_t nc_lut_validate_file(const char* path, int32_t* out_size, char** out_title,
+                             char** out_message);
+
+/// 内置 LUT 预设数量（0 = 本版本不内置预设，UI 应直接走「导入 .cube」）。
+/// 刻意返回 0 而不是造几个假预设：本库不附带任何 LUT 文件，
+/// 假预设会让用户点了没反应。
+int32_t nc_lut_preset_count(void);
+
+/// 内置 LUT 预设名称（index 越界返回空串）。
+/// 与 nc_lut_preset_count 一致，当前恒为空。
+const char* nc_lut_preset_name(int32_t index);
+
 // ---- AI 模型管理（文档第 5 部分「二、AI模型管理」+ 第 8 部分「模型分发架构」）----
 
 /// 列举内置模型（供 UI「AI 模型管理」页列表）。

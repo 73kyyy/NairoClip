@@ -300,6 +300,163 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = Ok("");
         return true;
     }
+    // ---- 片段属性（l3-panel 的 16 种 op 缺一不可）----
+    // 背景：这里此前只有 split/delete/trim/move/enabled/opacity/filter，
+    // 而 l3-panel.js 会发 blend/chroma/mask/effect_add/audio/denoise/
+    // speed/speed_curve/keyframe/freeze/reverse/transition/canvas/lut。
+    // 结果是那些面板在 Android 上点「应用」后桥返回「未开放的操作」，
+    // 用户看到的是「面板能开、改了没反应」——最坏的一类坏体验。
+    if (op == "blend") {
+        const int32_t mode = static_cast<int32_t>(JInt(a, "mode", 0));
+        const int32_t rc = nc_set_clip_blend_mode(ed, ti, cid, mode);
+        *out = rc == NC_OK ? Ok("") : Err("设置混合模式失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "speed") {
+        // l3-panel 传 num/den；也接受 speed 单值（旧调用方）
+        double speed = JNum(a, "speed", 0.0);
+        if (speed <= 0.0) {
+            const double num = JNum(a, "num", 100.0);
+            const double den = JNum(a, "den", 100.0);
+            speed = (den > 0.0) ? (num / den) : 1.0;
+        }
+        const int32_t rc = nc_set_clip_speed(ed, ti, cid, speed);
+        *out = rc == NC_OK ? Ok("") : Err("设置速度失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "speed_curve") {
+        // 参数是数组：points:[{t,v,e}]。JInt/JNum 只能读标量，
+        // 这里用最小 JSON 扫描取出三元组；点少于 2 个视为清除曲线。
+        std::vector<double> ts, vs;
+        std::vector<int32_t> es;
+        size_t p = a.find("\"points\"");
+        if (p != std::string::npos) {
+            size_t lb = a.find('[', p);
+            size_t rb = a.find(']', lb == std::string::npos ? p : lb);
+            if (lb != std::string::npos && rb != std::string::npos && rb > lb) {
+                const std::string arr = a.substr(lb + 1, rb - lb - 1);
+                size_t pos = 0;
+                while (pos < arr.size()) {
+                    size_t ob = arr.find('{', pos);
+                    size_t cb = arr.find('}', ob == std::string::npos ? pos : ob);
+                    if (ob == std::string::npos || cb == std::string::npos) break;
+                    const std::string obj = arr.substr(ob, cb - ob + 1);
+                    ts.push_back(JNum(obj, "t", 0.0));
+                    vs.push_back(JNum(obj, "v", 1.0));
+                    es.push_back(static_cast<int32_t>(JInt(obj, "e", 0)));
+                    pos = cb + 1;
+                }
+            }
+        }
+        if (ts.size() < 2) {
+            *out = Err("速度曲线至少需要 2 个控制点");
+            return true;
+        }
+        const int32_t rc = nc_set_clip_speed_curve(ed, ti, cid, ts.data(), vs.data(),
+                                                   es.data(), static_cast<int32_t>(ts.size()));
+        *out = rc == NC_OK ? Ok("") : Err("设置速度曲线失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "effect_add") {
+        const int32_t type = static_cast<int32_t>(JInt(a, "type", 0));
+        const double value = JNum(a, "value", 0.5);
+        const uint64_t id = nc_add_effect(ed, ti, cid, type, value);
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}")
+                  : Err("添加特效失败");
+        return true;
+    }
+    if (op == "mask") {
+        const int32_t shape = static_cast<int32_t>(JInt(a, "shape", 4));
+        const int32_t rc = nc_set_clip_mask(
+            ed, ti, cid, shape,
+            JNum(a, "x", 0.5), JNum(a, "y", 0.5), JNum(a, "rotation", 0.0),
+            JNum(a, "width", 1.0), JNum(a, "height", 1.0),
+            JNum(a, "feather", 0.02), JNum(a, "radius", 0.0),
+            static_cast<int32_t>(JInt(a, "invert", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("设置蒙版失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "chroma") {
+        const std::string key = JStrField(a, "key");
+        const int32_t rc = nc_set_clip_chroma_key(
+            ed, ti, cid, key.empty() ? "#00FF00" : key.c_str(),
+            JNum(a, "inner", 0.35), JNum(a, "outer", 0.55),
+            JNum(a, "spill", 0.3),
+            static_cast<int32_t>(JInt(a, "quality", 1)),
+            static_cast<int32_t>(JInt(a, "enabled", 1)));
+        *out = rc == NC_OK ? Ok("") : Err("设置抠像失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "denoise") {
+        const int32_t rc = nc_set_clip_denoise(
+            ed, ti, cid, static_cast<int32_t>(JInt(a, "strength", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("设置降噪失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "audio") {
+        const int32_t rc = nc_set_clip_audio(
+            ed, ti, cid, JNum(a, "gain_db", 0.0),
+            static_cast<int64_t>(JInt(a, "fade_in_us", 0)),
+            static_cast<int64_t>(JInt(a, "fade_out_us", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("设置音频失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "keyframe") {
+        // l3-panel 传 prop（0..5）与 t（秒）/v；at_us 优先（更精确）
+        const int32_t prop = static_cast<int32_t>(JInt(a, "prop",
+                                       JInt(a, "property", 0)));
+        int64_t atUs = static_cast<int64_t>(JInt(a, "at_us", -1));
+        if (atUs < 0) {
+            atUs = static_cast<int64_t>(JNum(a, "t", 0.0) * 1e6);
+        }
+        const int32_t rc = nc_insert_keyframe(ed, ti, cid, prop, atUs,
+                                              JNum(a, "v", 1.0));
+        *out = rc == NC_OK ? Ok("") : Err("插入关键帧失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "freeze") {
+        const int64_t atUs = static_cast<int64_t>(JInt(a, "at_us", 0));
+        const int64_t durUs = static_cast<int64_t>(JInt(a, "duration_us", 2000000));
+        const uint64_t id = nc_freeze_frame(ed, ti, cid, atUs, durUs);
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("定格失败");
+        return true;
+    }
+    if (op == "reverse") {
+        const int32_t rc = nc_reverse_clip(ed, ti, cid);
+        *out = rc == NC_OK ? Ok("") : Err("倒放失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "transition") {
+        const int32_t type = static_cast<int32_t>(JInt(a, "type", 0));
+        const int64_t durUs = static_cast<int64_t>(JInt(a, "duration_us", 500000));
+        const uint64_t fromId = static_cast<uint64_t>(JInt(a, "from_clip", 0));
+        const uint64_t toId = static_cast<uint64_t>(JInt(a, "to_clip", 0));
+        const uint64_t id = nc_add_transition(ed, ti, type, durUs, fromId, toId);
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("添加转场失败");
+        return true;
+    }
+    if (op == "canvas") {
+        const int32_t rc = nc_set_project_canvas(
+            ed, static_cast<int32_t>(JInt(a, "width", 1080)),
+            static_cast<int32_t>(JInt(a, "height", 1920)));
+        *out = rc == NC_OK ? Ok("") : Err("设置画布失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "lut") {
+        // 片段 3D LUT（P-01）。path 为空 = 清除。
+        const std::string path = JStrField(a, "path");
+        const double strength = JNum(a, "strength", 1.0);
+        if (!(strength >= 0.0 && strength <= 1.0)) {
+            *out = Err("LUT 强度必须在 0..1");
+            return true;
+        }
+        const int32_t rc = nc_set_clip_lut(ed, ti, cid,
+                                           path.empty() ? nullptr : path.c_str(),
+                                           strength);
+        *out = rc == NC_OK ? Ok("") : Err("设置 LUT 失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+
     // ---- AI 任务框架（core 管状态机，平台层执行推理）----
     // ---- 素材 / 片段（编辑器导入与插入链路必需）----
     if (op == "nc_import_asset") {

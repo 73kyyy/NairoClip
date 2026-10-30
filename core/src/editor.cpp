@@ -226,6 +226,25 @@ Result TimelineEditor::setClipBlendMode(SequenceId sequenceId, TrackId trackId, 
     return commit(std::make_unique<SetClipBlendModeCommand>(sequenceId, trackId, clipId, mode));
 }
 
+Result TimelineEditor::setClipLut(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                  const std::string& path, double strength) {
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    if (track->findClip(clipId) == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!(strength >= 0.0 && strength <= 1.0)) {
+        return Result::fail(ErrorCode::InvalidArgument, "LUT 强度必须在 0..1");
+    }
+    return commit(std::make_unique<SetClipLutCommand>(sequenceId, trackId, clipId, path,
+                                                      strength));
+}
+
 Result TimelineEditor::setTrackSolo(SequenceId sequenceId, TrackId trackId, bool solo) {
     const Track* track = findTrack(project_, sequenceId, trackId);
     if (track == nullptr) {

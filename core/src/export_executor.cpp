@@ -306,6 +306,32 @@ ExportStats executeExport(
         }
     };
 
+    // ---- 片段级 LUT 缓存（B1-2）----
+    // 一个 33³ LUT 约 100k 个 double，每帧从磁盘重读会让长视频导出变成 IO 灾难。
+    // key = 路径，value = 已加载的 LUT（空 optional 表示加载失败，避免反复重试刷警告）。
+    struct LutCacheEntry {
+        bool ok = false;
+        Lut3D lut;
+    };
+    std::map<std::string, LutCacheEntry> clipLutCache;
+    auto lutForPath = [&](const std::string& path) -> const Lut3D* {
+        auto it = clipLutCache.find(path);
+        if (it == clipLutCache.end()) {
+            LutCacheEntry entry;
+            std::string err;
+            if (!loadCubeLutFile(path, entry.lut, err)) {
+                entry.ok = false;
+                // 只告警一次：文件缺失/格式错误是用户可见的真问题，
+                // 但每帧重复几百条会把统计撑爆、把真正的错误淹掉。
+                stats.warnings.push_back("片段 LUT 加载失败（" + path + "）：" + err);
+            } else {
+                entry.ok = true;
+            }
+            it = clipLutCache.emplace(path, std::move(entry)).first;
+        }
+        return it->second.ok ? &it->second.lut : nullptr;
+    };
+
     // ---- 视频遍历 ----
     if (options.outputVideo && videoSink && !plan.tracks.empty()) {
         std::int64_t frameIndex = 0;
@@ -582,6 +608,21 @@ ExportStats executeExport(
                         if (active->filterStyle != FilterStyle::None) {
                             applyFilterToRgba(frame.rgba.data(), plan.width, plan.height,
                                               active->filterStyle, active->filterIntensity);
+                        }
+                        // 应用片段 3D LUT（B1-2）。
+                        // 顺序：滤镜 → LUT → 特效栈。
+                        // 理由：滤镜是「风格预设」（等价于一组粗调色），LUT 是「精确色彩映射」，
+                        // 先把画面拉到预设基调、再做精确 LUT 变换，与专业调色软件
+                        // （DaVinci 的 Creative → LUT）一致；把 LUT 放在滤镜之前会
+                        // 让预设重新覆盖掉 LUT 的精确色偏。
+                        if (!active->lutPath.empty() && active->lutStrength > 0.0) {
+                            if (const Lut3D* lut = lutForPath(active->lutPath)) {
+                                applyLutToRgba(frame.rgba.data(), plan.width, plan.height, *lut,
+                                               active->lutStrength);
+                            }
+                            // 加载失败：lutForPath 已记录一次性告警；
+                            // 不中断导出（与调整图层 LUT 的既有策略一致），
+                            // 但绝不静默——stats.warnings 会出现在导出结果里。
                         }
                         // 背景填充（文档 Part 4-C 第 11 节）：留白区域填色/模糊/纹理。
                         // 说明：素材区域由画幅适配的几何决定（Fit 模式有留白）；

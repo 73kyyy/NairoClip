@@ -33,6 +33,10 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.blendMode = clip.blendMode;
     rc.filterStyle = clip.filterStyle;
     rc.filterIntensity = clip.filterIntensity;
+    // LUT 快照（B1-2）：字段在 Clip 上早已存在，但此前没有任何渲染路径读它，
+    // 等于「设置了也不生效」。这里补上快照，渲染端在滤镜之后、特效栈之前应用。
+    rc.lutPath = clip.lutPath;
+    rc.lutStrength = clip.lutStrength;
     rc.backgroundMode = clip.backgroundMode;
     rc.backgroundColorRgba = clip.backgroundColorRgba;
     rc.backgroundIntensity = clip.backgroundIntensity;

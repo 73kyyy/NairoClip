@@ -151,6 +151,13 @@ public:
     /// 说明：normal 为默认（与既有 alpha 混合行为一致）；其余四种为行业标准公式。
     Result setClipBlendMode(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                             BlendMode mode);
+    /// 设置片段 3D LUT（B1-2）。
+    /// - path 为空 = 清除 LUT；
+    /// - strength 必须 0..1，否则 InvalidArgument（不写工程，避免污染 .nclip）；
+    /// - 路径是否真实存在由渲染端在加载时判定（导出统计里出警告），
+    ///   这里不预检：UI 允许用户先设好路径、稍后再放文件（也便于跨机器打开工程）。
+    Result setClipLut(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                      const std::string& path, double strength);
     // ---- 音频属性 ----
     /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
     Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,

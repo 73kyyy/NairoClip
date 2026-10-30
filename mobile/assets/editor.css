@@ -663,3 +663,21 @@ body { -webkit-text-size-adjust: 100%; }
   border-color: #C6F24E; background: rgba(198,242,78,.15);
   color: #C6F24E; font-weight: 500;
 }
+
+/* ---------------- LUT 面板（P-01）----------------
+   文件行 + 两个按钮。色调沿用面板既有变量，不引入新颜色。 */
+.lut-head { margin: 2px 2px 10px; }
+.lut-file {
+  padding: 9px 11px; border-radius: 9px; background: var(--bg-2);
+  border: 1px solid var(--line-2); font-size: 12px; color: var(--text-hi);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 未设置时弱化：一眼能看出「这里还没选文件」 */
+.lut-file.empty { color: var(--text-low); font-style: italic; }
+.lut-btns { display: flex; gap: 8px; margin-top: 8px; }
+.lut-btn {
+  flex: 1; height: 32px; border-radius: 8px; border: 1px solid var(--line-2);
+  background: var(--bg-2); color: var(--text-hi); font-size: 12px;
+}
+.lut-btn.primary { border-color: var(--accent); color: var(--accent); }
+.lut-err { color: #E5484D; }

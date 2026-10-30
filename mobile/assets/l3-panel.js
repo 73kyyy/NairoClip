@@ -47,6 +47,7 @@
     values: {},      // 控件值
     curve: null,     // { points: [{t,v}], presetIdx }
     gridPick: null,  // 宫格选中的项
+    lutError: '',    // LUT 校验/写入失败的常驻说明
     dirty: false
   };
 
@@ -114,6 +115,13 @@
         }
         if (spec.groups && spec.groups.flat().includes('blendmode')) {
           ST.values.blendmode = typeof cur.clip.blendMode === 'number' ? cur.clip.blendMode : 0;
+        }
+        /* LUT 强度同理：已设过 0.3 的片段，面板一打开必须显示 0.3，
+           否则用户看到的滑块位置和画面不一致，一动就把强度弹回 1。 */
+        if (spec.groups && spec.groups.flat().includes('lutstrength')) {
+          const hv = host();
+          const cl = hv.clipLut ? hv.clipLut() : null;
+          if (cl && typeof cl.strength === 'number') ST.values.lutstrength = cl.strength;
         }
       }
     }
@@ -244,6 +252,114 @@
   }
 
   /* ---------------- 小标题（单页/宫格后的参数名） ---------------- */
+  /* ---------------- LUT 头部（P-01）----------------
+     结构：文件名行 + 导入/清除按钮 + 校验错误提示。
+     不用 ctl()：C 表只描述 slider/switch/color 这类「值控件」，
+     文件选择不是值控件，塞进去会把控件概念搞浑。 */
+  function lutHeader() {
+    const box = document.createElement('div');
+    box.className = 'lut-head';
+
+    const hh = host();
+    const cur = (hh.clipLut && hh.clipLut()) || { path: '', strength: 1 };
+    const name = cur.path ? cur.path.split('/').pop() : '';
+
+    const line = document.createElement('div');
+    line.className = 'lut-file' + (cur.path ? '' : ' empty');
+    line.textContent = cur.path ? name : '未使用 LUT';
+    if (cur.path) line.title = cur.path;
+    box.appendChild(line);
+
+    const row = document.createElement('div');
+    row.className = 'lut-btns';
+
+    const pick = document.createElement('button');
+    pick.className = 'lut-btn primary';
+    pick.textContent = cur.path ? '更换 .cube' : '导入 .cube';
+    pick.addEventListener('click', () => pickLutFile());
+    row.appendChild(pick);
+
+    if (cur.path) {
+      const clear = document.createElement('button');
+      clear.className = 'lut-btn';
+      clear.textContent = '清除';
+      clear.addEventListener('click', async () => { await commitLut(''); });
+      row.appendChild(clear);
+    }
+    box.appendChild(row);
+
+    /* 校验失败说明常驻显示：用户会反复点同一个坏文件，飘过的 toast 没用。 */
+    if (ST.lutError) {
+      const err = document.createElement('p');
+      err.className = 'chint lut-err';
+      err.textContent = ST.lutError;
+      box.appendChild(err);
+    }
+    return box;
+  }
+
+  /* 选文件 -> 内核校验 -> 写引擎。
+     校验走 nc_lut_validate_file 而不是前端猜后缀：
+     只有内核知道 1D LUT 不支持、数据行数对不对、DOMAIN 是否合法。 */
+  function pickLutFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.cube';
+    input.style.display = 'none';
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0];
+      if (input.parentNode) input.parentNode.removeChild(input);
+      if (!f) return;
+
+      /* 外部 LUT 是**路径引用**（工程里存路径，见 capi.h nc_set_clip_lut 注释）。
+         浏览器/WebView 的 File 对象没有绝对路径，拿不到就无法引用——
+         这种情况明确报错，不假装设置成功。 */
+      const path = f.path || '';
+      if (!path) {
+        ST.lutError = '当前环境拿不到文件绝对路径，无法引用外部 LUT。'
+                    + '请先把 .cube 放进应用可访问的目录再重试。';
+        renderBody();
+        return;
+      }
+
+      const hv = host();
+      const v = (hv.validateLut && hv.validateLut(path)) || { ok: false, message: '校验不可用' };
+      if (!v || !v.ok) {
+        ST.lutError = '无法使用该 LUT：' + ((v && v.message) || '格式不支持');
+        renderBody();
+        return;
+      }
+
+      ST.lutError = '';
+      await commitLut(path);
+      toast('已应用 LUT' + (v.size ? '（' + v.size + '³）' : ''));
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  /* 单独提交 LUT。
+     不走 commit()：后者遍历整张值表，会把当前面板无关的默认值也写回
+     （例如从「滤镜」切过来时携带 fxamt），对 LUT 这种「一改就生效」
+     的动作会顺手改掉别的属性。 */
+  async function commitLut(path) {
+    const sel = currentSelection();
+    if (!sel) { toast('请先选中片段'); return; }
+    const strength = (typeof ST.values.lutstrength === 'number') ? ST.values.lutstrength : 1;
+    const hv2 = host();
+    try {
+      await hv2.edit({
+        op: 'lut', track: sel.track.index, clip: sel.clip.id,
+        path: path, strength: strength
+      });
+      if (hv2.reload) await hv2.reload();
+      renderBody();
+    } catch (err) {
+      ST.lutError = '写入失败：' + (err.message || err);
+      renderBody();
+    }
+  }
+
   function titleBlock(text) {
     const d = document.createElement('div');
     d.className = 'l3-sub';
@@ -557,6 +673,17 @@
          默认值 0 是合法模式（normal），不能被 falsy 判断吃掉。 */
       if (v.blendmode !== undefined && v.blendmode !== null) {
         await h.edit({ op: 'blend', track, clip, mode: Number(v.blendmode) });
+      }
+
+      /* LUT 强度（P-01）：只有片段已经设了 LUT 才提交。
+         没设 LUT 时拖动强度滑块是无意义的（改的是「不存在的映射」），
+         静默跳过比写一条空 LUT 更诚实。 */
+      if (typeof v.lutstrength === 'number') {
+        const cur = h.clipLut ? h.clipLut() : null;
+        if (cur && cur.path) {
+          await h.edit({ op: 'lut', track, clip, path: cur.path,
+                         strength: v.lutstrength });
+        }
       }
       /* 关键帧通道 */
       for (const key of Object.keys(v)) {
@@ -965,6 +1092,10 @@
       }
       el.body.appendChild(gridPanel());
       return;
+    }
+
+    if (ST.spec.lutPanel && ST.page === 0) {
+      el.body.appendChild(lutHeader());
     }
 
     // 双页：第 2 页是曲线

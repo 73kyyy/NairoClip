@@ -320,8 +320,8 @@ jobs:
           CASES=$(echo "$SUMMARY" | sed -E 's/^===== ([0-9]+) cases.*/\1/')
           FAILED=$(echo "$SUMMARY" | sed -E 's/.*\| ([0-9]+) failed.*/\1/')
           echo "用例数=$CASES 失败数=$FAILED"
-          if [ "$CASES" -lt 1443 ]; then
-            echo "ERROR: 用例数 $CASES 低于下限 1443，可能有测试文件未编入"
+          if [ "$CASES" -lt 1458 ]; then
+            echo "ERROR: 用例数 $CASES 低于下限 1458（LUT 接口新增 15 例），可能有测试文件未编入"
             exit 1
           fi
           if [ "$FAILED" -ne 0 ]; then

@@ -2679,5 +2679,49 @@ Result SetClipBlendModeCommand::revert(Project& project) {
     return Result::ok();
 }
 
+// ---------------------------------------------------------------------------
+// 设置片段 3D LUT
+// ---------------------------------------------------------------------------
+
+SetClipLutCommand::SetClipLutCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                     std::string path, double strength)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      path_(std::move(path)),
+      strength_(strength) {}
+
+Result SetClipLutCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    // 强度兜底：命令可被直接调用（不只经 C ABI），
+    // 非法值一旦写进工程会污染 .nclip 文件，宁可在这里拒绝。
+    if (!(strength_ >= 0.0 && strength_ <= 1.0)) {
+        return Result::fail(ErrorCode::InvalidArgument, "LUT 强度必须在 0..1");
+    }
+    if (!beforePath_.has_value()) {
+        beforePath_ = clip->lutPath;
+        beforeStrength_ = clip->lutStrength;
+    }
+    clip->lutPath = path_;
+    clip->lutStrength = strength_;
+    return Result::ok();
+}
+
+Result SetClipLutCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!beforePath_.has_value() || !beforeStrength_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少 LUT 快照");
+    }
+    clip->lutPath = *beforePath_;
+    clip->lutStrength = *beforeStrength_;
+    return Result::ok();
+}
+
 }  // namespace core
 }  // namespace nairoclip

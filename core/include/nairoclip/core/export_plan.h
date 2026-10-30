@@ -58,6 +58,13 @@ struct RenderClip {
     /// 滤镜快照（文档 Part 4-B 第 7 节；None = 不应用）。
     FilterStyle filterStyle = FilterStyle::None;
     double filterIntensity = 80.0;
+    /// 3D LUT 快照（B1-2；空 = 不应用）。
+    ///
+    /// 存路径不存数据：33³ 的 LUT 是 107,811 个 double，
+    /// 每个片段复制一份会让计划变成几十 MB。渲染器按路径加载并缓存。
+    std::string lutPath;
+    /// LUT 强度 0..1（0 = 原图，1 = 完整 LUT）。
+    double lutStrength = 1.0;
     /// 背景填充快照（文档 Part 4-C 第 11 节；None = 留白用序列背景色）。
     BackgroundMode backgroundMode = BackgroundMode::None;
     std::uint32_t backgroundColorRgba = 0x000000FF;
