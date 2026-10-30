@@ -447,7 +447,8 @@ int32_t nc_asset_reorder(NcEditor* editor, int32_t from_index, int32_t to_index)
     }
     const Result r = editor->editor->reorderAssets(from_index, to_index);
     if (!r.isOk()) {
-        return failNc(r.code(), r.message());
+        // code / message 是 Result 的公有成员变量，不是方法。
+        return failNc(toNcError(r.code), r.message);
     }
     return NC_OK;
 }
