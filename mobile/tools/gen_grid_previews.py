@@ -43,12 +43,37 @@ import os
 import random
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter, ImageEnhance, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageEnhance, ImageOps
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, 'static', 'faces')
 OUT_DIR = os.path.join(ROOT, 'static', 'grid')
 SIZE = 160
+
+# ---------------------------------------------------------------- 实景底图
+# 宫格底图优先用实景照片（assets/media/ 下的真实摄影），没有才退到黏土表情。
+#
+# 为什么必须优先实景：
+#   · 滤镜 13 个全是**调色**。黏土表情是大面积纯色的扁平卡通，
+#     色相单一、几乎没有暗部和高光，调色差异被压得看不出来；
+#   · 特效里的马赛克/扫描线/故障/色散靠**纹理细节**，扁平图同样体现不出；
+#   · 真实照片有肤色、天空、深色物体、高光，才覆盖完整色域与亮度范围。
+#
+# 为什么「同一 kind 固定同一张底图」：
+#   旧实现给每格按 md5 散列取不同的黏土图，于是
+#   filter_1（方块脸）和 filter_4（嘴唇）的差异主要来自**底图不同**，
+#   用户无法把差异归因到滤镜本身 —— 与 id 错位一样属于误导性展示。
+#   固定底图后，13 格之间唯一的变量就是滤镜。
+#
+# 例外：effect 允许每格不同底图（用户确认）。
+#   特效改的是结构/质感，底图不同不影响理解，反而让宫格更有辨识度。
+REAL_DIR = os.path.join(ROOT, 'assets', 'media')
+# 主底图：纽约街道。选它的理由：肤色（行人）、天空、深色建筑、灰色路面、
+# 黄色车体全都有，色域与明暗层次最完整。纹理细节足够看清马赛克/扫描线。
+BASE_MAIN = 'photo-1449824913935-59a10b8d2000.jpg'
+# 转场 B 面：星空雪山。相对主底图在色调（冷/暖）、明暗（夜/昼）、
+# 构图（横/竖线）三方面都对立，A→B 的变化才看得清。
+BASE_ALT = 'night.jpg'
 
 # ---------------------------------------------------------------- 效果清单
 # 与 assets/l3-spec.js 一一对应（FILTERS / EFFECTS / TRANSITIONS / MASKS）。
@@ -107,6 +132,42 @@ def _clay_files():
 
 
 CLAY_FILES = None
+_REAL_CACHE = {}
+
+
+def has_real_base():
+    """实景底图是否可用。不可用时整个脚本退回黏土表情。"""
+    return (os.path.isdir(REAL_DIR)
+            and os.path.isfile(os.path.join(REAL_DIR, BASE_MAIN))
+            and os.path.isfile(os.path.join(REAL_DIR, BASE_ALT)))
+
+
+def load_real(filename, size=SIZE):
+    """读实景照片，居中裁成正方形再缩放（避免拉伸变形）。
+
+    size 允许调用方指定：转场要按最终画布尺寸取两次，免得后续再缩放两次。
+    """
+    key = (filename, size)
+    if key in _REAL_CACHE:
+        return _REAL_CACHE[key].copy()
+    path = os.path.join(REAL_DIR, filename)
+    if not os.path.isfile(path):
+        raise SystemExit(f'找不到实景底图：{path}')
+    im = Image.open(path).convert('RGB')
+    w, h = im.size
+    side = min(w, h)
+    im = im.crop(((w - side) // 2, (h - side) // 2,
+                  (w - side) // 2 + side, (h - side) // 2 + side))
+    im = im.resize((size, size), Image.LANCZOS)
+    _REAL_CACHE[key] = im.copy()
+    return im
+
+
+def _clay_files_or_empty():
+    try:
+        return _clay_files()
+    except SystemExit:
+        return []
 
 
 def load_clay(index):
@@ -131,21 +192,31 @@ def stable_index(kind, eid, total):
 
 
 def tint(im, rgb, strength=1.0, mix=0.55):
-    """把灰度映射到目标色调，再与原图混合（滤镜类用）。"""
-    gray = im.convert('L')
-    w, h = im.size
-    px_g = gray.load()
-    out = Image.new('RGB', (w, h))
-    px_o = out.load()
+    """暖/冷色调偏移：按目标色**分别缩放 R/G/B 通道**，保留原图色相差异。
+
+    **不能用「转灰度再乘目标色」**：那样会丢掉一切原始色相，
+    整张图变成单色调（sepia）。在纯色扁平卡通上还勉强，
+    换成色彩丰富的实景照片后，「电影感 / 胶片 / 暖阳 / 港风」
+    会全部塌成同一种橙色单色，13 个滤镜看起来几乎一样 ——
+    比不换底图更糟。
+
+    正确做法是通道级增益：目标色归一化到 R:G:B 比例，
+    再按该比例乘到原图的各通道上。这样：
+      · 暖色调（R>B）让原本就偏暖的区域更暖，偏冷的仍偏冷；
+      · 保留肤色与非肤色的区别，也保留明暗层次。
+    """
     r, g, b = rgb
-    for y in range(h):
-        for x in range(w):
-            v = px_g[x, y] / 255.0
-            px_o[x, y] = (
-                min(255, int(v * r * strength)),
-                min(255, int(v * g * strength)),
-                min(255, int(v * b * strength)),
-            )
+    # 归一化到 G=1（避免整体变亮/变暗，只改色相倾向）
+    gr = (r / 255.0) / max(1e-6, g / 255.0)
+    gb = (b / 255.0) / max(1e-6, g / 255.0)
+    # 通道增益 -> LUT，避免逐像素 Python 循环（160x160 也能快很多）
+    def _lut(factor):
+        return [max(0, min(255, int(i * factor * strength))) for i in range(256)]
+    lut_r = _lut(gr)
+    lut_g = _lut(1.0)
+    lut_b = _lut(gb)
+    ch_r, ch_g, ch_b = im.split()
+    out = Image.merge('RGB', (ch_r.point(lut_r), ch_g.point(lut_g), ch_b.point(lut_b)))
     return Image.blend(im, out, mix)
 
 
@@ -195,19 +266,48 @@ def noise_overlay(im, eid, amount=28, step=1):
 
 
 # ---------------------------------------------------------------- 滤镜
+"""滤镜参数。改之前先读下面这段「可辨识度」说明。
+
+**参数必须让 13 格两两可辨。** 在固定同一张底图后（见 pick_base），
+格与格之间唯一的变量就是这组参数 —— 两个参数太接近时，用户会看到
+两个几乎一样的格子，等于实际只做了 12 个滤镜。
+
+实测（160x160、纽约街道底图，两两 RGB 的 RMS 差异）：
+  · 旧参数：最小 RMS 3.23（movie vs film），中位数 6.99
+  · 现参数：最小 RMS 4.80（japanese vs cream），中位数 8.86
+
+拉开差距的主要手段，按有效性排序：
+  1. **饱和度对立**最有效 —— retro(sat .46) vs warm_sun(1.42) 差 1.0 档；
+  2. **亮度**次之 —— cream 提亮 1.16 + 低饱和，与 film 的自然饱和拉开；
+  3. **色相方向**要成对而非同向 —— japanese 走粉（B 抬近 R），
+     cream 走暖黄（B 压低），两者都亮但色相相反；
+  4. 单靠 tint 暖度不够：movie 与 retro 暖度几乎相同（+0.398 / +0.400），
+     必须靠 contrast/sat 分开。
+
+**main() 末尾有硬自检**：任何两格 RMS < 3.5 直接判失败，防止改参数
+把某两格又调成一样。这个阈值取在"肉眼勉强可辨"之下，留了余量。
+"""
 FILTER_PARAMS = {
-    'movie':       dict(tint=(255, 214, 170), contrast=1.12, sat=0.85),
-    'retro':       dict(tint=(230, 200, 150), contrast=0.9, sat=0.7),
-    'fresh':       dict(tint=(180, 255, 210), sat=1.15),
+    # 电影感：重对比 + 明显褪色（低饱和），是"电影调色"的典型特征
+    'movie':       dict(tint=(232, 180, 132), contrast=1.32, sat=0.58),
+    # 复古：比 movie 更淡、对比更低，偏土黄
+    'retro':       dict(tint=(218, 180, 118), contrast=0.78, sat=0.46),
+    'fresh':       dict(tint=(150, 255, 196), sat=1.34),
     'black_white': dict(mode='gray'),
-    'cyber':       dict(tint=(120, 220, 255), sat=1.3, contrast=1.15),
-    'japanese':    dict(tint=(255, 225, 225), bright=1.1, sat=0.9),
-    'film':        dict(tint=(255, 226, 190), contrast=1.06, sat=0.9),
-    'warm_sun':    dict(tint=(255, 190, 120)),
+    'cyber':       dict(tint=(100, 212, 255), sat=1.50, contrast=1.20),
+    # 日系：粉紫调（B 抬到 248，接近 R），低饱和、提亮
+    'japanese':    dict(tint=(255, 214, 248), bright=1.14, sat=0.72),
+    # 胶片：暖但保持自然饱和、对比略高
+    'film':        dict(tint=(255, 222, 176), contrast=1.14, sat=1.04),
+    # 暖阳：最暖 + 最高饱和
+    'warm_sun':    dict(tint=(255, 162, 80), contrast=1.12, sat=1.42),
     'cool_tone':   dict(tint=(150, 190, 255)),
-    'hong_kong':   dict(tint=(255, 170, 140), contrast=1.2, sat=1.1),
-    'high_gray':   dict(sat=0.25, contrast=1.25),
-    'cream':       dict(tint=(255, 240, 215), bright=1.08),
+    # 港风：重暖 + 重对比
+    'hong_kong':   dict(tint=(255, 140, 104), contrast=1.36, sat=1.26),
+    # 高级灰：几乎去色 + 重对比
+    'high_gray':   dict(sat=0.13, contrast=1.44),
+    # 奶油：亮 + 暖黄（B 压低），与日系的粉调相反
+    'cream':       dict(tint=(255, 238, 190), bright=1.16, sat=0.96),
     'negative':    dict(mode='invert'),
 }
 
@@ -413,13 +513,20 @@ def _pair(im, eid):
 
     **必须返回尺寸相同的两张不同图**：
       · `Image.blend` 要求尺寸一致；各分支的 `crop` 边界也按 `a.size` 算。
-      · A 与 B 若恰好选中同一张黏土图，「交叉溶解」就变成
+      · A 与 B 若恰好是同一张底图，「交叉溶解」就变成
         「原图与原图混合」—— 肉眼看不出任何转场效果，等于假格子。
 
-    主流程传入的 A = `load_clay(stable_index('transition', eid, n))`，
-    所以这里用同一表达式还原 A 的索引，再给 B 换一个不同的索引
+    实景模式：A = 主底图（纽约街道，暖/昼/竖线），
+              B = 备用底图（星空雪山，冷/夜/横线）。
+    两者色调、明暗、构图全面对立，任何转场的变化都能看出来。
+
+    黏土模式（实景缺失时的兜底）：A 是主流程传入的底图，
+    这里用同一表达式还原其索引，再给 B 换一个不同的索引
     （`stable_index` 是纯散列，两个不同 salt 完全可能撞到同一个槽）。
     """
+    if has_real_base():
+        return im, load_real(BASE_ALT, im.size[0])
+
     total = len(_clay_files())
     a_idx = stable_index('transition', eid, total)
     b_idx = stable_index('transition_b', eid, total)
@@ -697,9 +804,35 @@ PLAN = [
 ]
 
 
+def pick_base(kind, eid):
+    """按 kind 选底图。
+
+    实景可用时：
+      · filter → **全部固定主底图**。13 个滤镜全是调色，只有底图一致，
+        格与格之间的差异才能归因到滤镜本身；
+      · mask   → **全部固定主底图**。蒙版比的是形状裁切，
+        底图一致才看得清「心形 vs 星形」的边界差异；
+      · transition → 固定主底图作 A（B 在 _pair 里取备用底图）；
+      · effect → 允许每格变化（用户确认）：特效改的是结构/质感，
+        底图不同不影响理解，反而提高辨识度。
+
+    实景缺失时：全部退回原来的黏土散列。
+    """
+    if has_real_base():
+        if kind == 'effect' and _clay_files_or_empty():
+            idx = stable_index(kind, eid, len(_clay_files_or_empty()))
+            return load_clay(idx)
+        return load_real(BASE_MAIN)
+
+    return load_clay(stable_index(kind, eid, len(_clay_files())))
+
+
 def main():
-    if not os.path.isdir(SRC_DIR):
-        raise SystemExit(f'缺少黏土底图目录：{SRC_DIR}')
+    use_real = has_real_base()
+    if not use_real:
+        if not os.path.isdir(SRC_DIR):
+            raise SystemExit(f'缺少底图：实景（{REAL_DIR}）与黏土（{SRC_DIR}）都不可用')
+        print(f'⚠ 实景底图不可用，退回黏土表情：{SRC_DIR}', file=sys.stderr)
     os.makedirs(OUT_DIR, exist_ok=True)
 
     mapping = {}
@@ -708,8 +841,7 @@ def main():
 
     for kind, items, fn in PLAN:
         for eid, slug in items:
-            idx = stable_index(kind, eid, len(_clay_files()))
-            base = load_clay(idx)
+            base = pick_base(kind, eid)
             try:
                 img = fn(base, eid, slug)
             except Exception as e:  # 单个失败不影响整批，但最后要判定
@@ -756,6 +888,39 @@ def main():
             print(f'   {k} == {other}')
         return 1
     print(f'✅ {total} 格图像互不相同')
+
+    # 自检二：**同类**的格子两两必须足够不同。
+    #
+    # 只查 md5 相同是不够的：movie 与 film 曾出现 RMS=3.23，
+    # 两张图字节不同（md5 不同），但 160x160 缩略图上肉眼几乎一样 ——
+    # 用户实际只看到 12 个滤镜，是"半格假功能"。
+    #
+    # 只对同类比较：filter 内部要能互相区分；跨类（filter vs effect）
+    # 本来就该不同，比了没意义，反而会掩盖问题。
+    # 阈值 3.5 取在"肉眼勉强可辨"之下，留余量防止抖动。
+    SIM_MIN = 3.5
+    too_close = []
+    for kind, items, _ in PLAN:
+        keys = [f'{kind}_{eid}' for eid, _ in items if f'{kind}_{eid}' in mapping]
+        imgs = {}
+        for k in keys:
+            imgs[k] = Image.open(os.path.join(OUT_DIR, f'{k}.jpg')).convert('RGB')
+        for i in range(len(keys)):
+            for j in range(i + 1, len(keys)):
+                a, b = keys[i], keys[j]
+                diff = ImageChops.difference(imgs[a], imgs[b])
+                px = list(diff.getdata())
+                rms = (sum(sum(p) for p in px) / len(px)) ** 0.5
+                if rms < SIM_MIN:
+                    too_close.append((rms, a, b))
+    if too_close:
+        too_close.sort()
+        print(f'❌ {len(too_close)} 对同类格子过于相似（RMS < {SIM_MIN}）：')
+        for rms, a, b in too_close:
+            print(f'   RMS={rms:.2f}  {a} vs {b}')
+        print('   调整 FILTER_PARAMS / 对应 make_* 的参数，让它们可辨。')
+        return 1
+    print(f'✅ 同类格子两两可辨（RMS >= {SIM_MIN}）')
     return 0
 
 
