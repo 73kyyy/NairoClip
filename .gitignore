@@ -45,3 +45,8 @@ Thumbs.db
 
 # Android assets 由 Gradle syncMobileUi 从 mobile/ 生成，不入库
 /android/app/src/main/assets/
+
+# Python 字节码（py_compile / 导入时生成）。曾因 git add -A 误把
+# mobile/tools/__pycache__/*.pyc 提交进仓库（c8fd8e1），这里补上规则。
+__pycache__/
+*.py[cod]

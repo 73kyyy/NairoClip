@@ -165,6 +165,20 @@ std::string BuildState(NcEditor* ed) {
         j += ",\"solo\":" + std::to_string(solo);
         j += ",\"gain_db\":" + Num(gain);
 
+        // 轨道视图（B2-10）：高度与折叠。由独立的 nc_track_get_view 提供，
+        // nc_track_get 不返回这两个字段。
+        // 读失败时给默认值（48 / 未折叠），与 core 的默认一致，
+        // 不因为一个视图字段读不到就让整条轨道变成 {}。
+        {
+            int32_t viewH = 48, viewCollapsed = 0;
+            if (nc_track_get_view(ed, ti, &viewH, &viewCollapsed) == NC_OK) {
+                j += ",\"height_px\":" + std::to_string(viewH);
+                j += ",\"collapsed\":" + std::to_string(viewCollapsed);
+            } else {
+                j += ",\"height_px\":48,\"collapsed\":0";
+            }
+        }
+
         j += ",\"clips\":[";
         const int32_t cn = nc_clip_count(ed, ti);
         for (int32_t ci = 0; ci < cn; ++ci) {

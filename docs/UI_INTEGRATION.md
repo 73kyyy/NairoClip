@@ -429,8 +429,12 @@ cmake --build build_noffmpeg --parallel 4
 
 # 设计桥（已纳入 CMake，产物在 build/design/tools/）
 cmake --build build --target nc_design_harness
-# 注意：design/pages 与 design/assets 已于 2026-10-29 移除，
-# 桥本身保留（它只依赖 core，不依赖页面），可用于对接新的 UI 实现。
+# design/pages/ 已删除（2026-10-31）：里面是早期页面，引用 /m/assets/ ——
+# 这个路径根本不存在（应为 mobile/assets/），也就是说它早就打不开了，
+# 留着只会让人以为还有一套可用的页面。
+# design/assets/nce-adapter.js **保留**：它是设计桥的 HTTP → NCEngine 适配层，
+# 把 /api/* 包成同步桥，让 mobile/assets/*.js 能在浏览器里跑真实引擎。
+# 桥本身（design/tools/nc_design_harness）只依赖 core，不依赖页面。
 ./build/design/tools/nc_design_harness 8777 design
 ```
 
@@ -575,7 +579,7 @@ Release tag: android-builds
 1. **推进批次**：P0+P1 优先（建议）还是全量 232？
 2. **达标定义**：API 全量直通 + 核心 UI 入口（建议）还是仅其一？
 3. **依赖项处理**：如实标注 + 链路打通（建议）还是 mock？
-4. **设计产物入库**：`design/`+`mobile/`+`ui/` 共 99MB，是否 `.gitignore`？
+4. **设计产物入库**：`design/`+`mobile/` 体积较大，是否 `.gitignore`？
 5. **目标平台**：Android / iOS / 桌面 / Web？
 
 ---

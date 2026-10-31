@@ -50,7 +50,7 @@
 | 桌面 / C++ 构建 | ✅ 可构建、可跑全量测试 | `CMakeLists.txt`、`build/tests/nairoclip_tests` |
 | Android | ⚠️ 壳层存在，**JNI 未封装** | `android/app/src/main/java` 仅 4 个文件，`cpp/` 下 **0** 个 `.cpp` |
 | iOS | ❌ **不存在** | 无 `ios/` 目录、无 `.xcodeproj` |
-| WebView 前端 | ⚠️ 静态原型（HTML 页面，无构建脚本） | `ui/pages` 5 个、`mobile/pages` 9 个，均无 `package.json` |
+| WebView 前端 | ⚠️ 无构建体系（手写 HTML，无打包脚本） | `mobile/pages` 8 个，无 `package.json` |
 
 > **结论**：目前是「核心库完成度高 + 端侧几乎空白」的形态。
 > `COMPLIANCE.md` §3 的"三端对等"是**发布期约束**，当前远未满足。

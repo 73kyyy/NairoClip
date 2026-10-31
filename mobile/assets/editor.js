@@ -95,6 +95,10 @@ function applyState(st) {
     id: t.id, index: t.index, type: t.type, kind: kindOf(t.type), name: t.name,
     hidden: t.hidden, locked: t.locked, muted: t.muted,
     gainDb: typeof t.gain_db === 'number' ? t.gain_db : 0,
+    /* 轨道视图（B2-10）：高度 24~200，默认 48；collapsed 折叠时只留一条细条。
+       后端读不到时给默认值，保证 UI 不会因为 undefined 画出零高度。 */
+    heightPx: typeof t.height_px === 'number' ? t.height_px : 48,
+    collapsed: !!t.collapsed,
     clips: (t.clips || []).map((c) => {
       const asset = (st.assets || []).find((a) => a.id === c.asset_id);
       return {
@@ -171,6 +175,7 @@ async function guardedEdit(payload, okText) {
 /* ---------------- 工具栏数据（文档 §11–§22） ---------------- */
 const L1 = [
   { id: 'clip',   name: '剪辑',   icon: 'i-clip' },
+  { id: 'tmpl',   name: '模板',   icon: 'i-auto' },
   { id: 'audio',  name: '音频',   icon: 'i-audio' },
   { id: 'text',   name: '文字',   icon: 'i-text' },
   { id: 'pip',    name: '画中画', icon: 'i-pip' },
@@ -186,6 +191,10 @@ const L1 = [
 
 /* kind: exec 直接执行 / panel 需调参（本版不弹三级面板，改为提示） */
 const L2 = {
+  tmpl: [
+    { id: 'tmpllist', name: '模板库', icon: 'i-auto' },
+    { id: 'tmplauto', name: '一键套用', icon: 'i-bolt', kind: 'exec' }
+  ],
   clip: [
     { id: 'split', name: '分割', icon: 'i-split', kind: 'exec' },
     { id: 'speed', name: '变速', icon: 'i-speed' },
@@ -385,7 +394,10 @@ function runFunction(cat, f) {
     case 'ratio235': return setRatio(235, 100, '2.35:1');
     case 'ratiocustom': return askCustomRatio();
     /* ---- 二级功能 → 三级面板（全量映射；每个 L2 都有归属） ----
-       剪辑 */
+       模板 */
+    case 'tmpllist':   return showTemplateSheet();
+    case 'tmplauto':   return showTemplateSheet();   // 同一个面板，套用即在列表里选
+    /* 剪辑 */
     case 'speed':      return openL3('speed');
     case 'volume':     return openL3('volume');
     case 'opacity':    return openL3('opacity');
@@ -880,11 +892,20 @@ function renderTracksBody() {
   S.tracks.forEach((tr) => {
     const row = document.createElement('div');
     row.className = 'trow';
+    /* 轨道高度 / 折叠（B2-10）：每轨独立，来自引擎 state.tracks[i].height_px。
+       折叠时只留 18px 细条（够放转场标记与拖动把手，仍可点开）。
+       范围 24~200 与 core 的 Track::heightPx 一致，这里再夹一次，
+       防止旧数据或异常值把轨道画成 0 高度（那样点不到、也不好查）。 */
+    const hpx = Math.max(24, Math.min(200, tr.heightPx || 48));
+    row.style.height = tr.collapsed ? '18px' : `${hpx}px`;
+    row.classList.toggle('collapsed', !!tr.collapsed);
     const body = document.createElement('div');
     body.className = 'tbody';
-    tr.clips.forEach((c) => body.appendChild(buildClip(tr, c)));
+    if (!tr.collapsed) {
+      tr.clips.forEach((c) => body.appendChild(buildClip(tr, c)));
+    }
     row.appendChild(body);
-    renderJunctions(row, tr);      // 相邻片段交界处的转场标记
+    if (!tr.collapsed) renderJunctions(row, tr);   // 折叠时不画转场标记：18px 里放不下
     E.tracks.appendChild(row);
   });
 
@@ -900,6 +921,11 @@ function renderHeads() {
   S.tracks.forEach((tr) => {
     const g = document.createElement('div');
     g.className = 'fh';
+    /* 轨道头高度与时间轴行严格一致：行高是内联 px，这里写同一个值到
+       --fh-h，CSS 用 var(--fh-h, var(--row-h)) 取值。
+       折叠时 18px，与 .trow.collapsed 对齐。 */
+    const hpx = Math.max(24, Math.min(200, tr.heightPx || 48));
+    g.style.setProperty('--fh-h', tr.collapsed ? '18px' : `${hpx}px`);
 
     const row = document.createElement('div');
     row.className = 'row';
@@ -918,11 +944,36 @@ function renderHeads() {
       guardedEdit({ op: 'track_flag', track: tr.index, flag: 'locked', value: !tr.locked }));
     row.appendChild(lock);
 
+    /* 折叠/展开（B2-10）。折叠后轨道只剩 18px 细条，
+       长按轨道头仍可拖动排序，点这个箭头恢复。
+       走 nc_set_track_view 而不是 track_flag：高度与折叠是独立状态，
+       归 Track 的 heightPx/collapsed，不进 flag 体系。 */
+    const fold = document.createElement('button');
+    fold.className = tr.collapsed ? 'off' : '';
+    fold.title = tr.collapsed ? '展开轨道' : '折叠轨道';
+    fold.innerHTML = `<svg class="i"><use href="#${tr.collapsed ? 'i-chevron-down' : 'i-chevron'}"/></svg>`;
+    fold.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setTrackView(tr, tr.heightPx, !tr.collapsed);
+    });
+    row.appendChild(fold);
+
     g.appendChild(row);
     const nm = document.createElement('span');
     nm.className = 'fname';
     nm.textContent = tr.name;
     g.appendChild(nm);
+
+    /* 高度拖拽把手：贴在轨道头下边缘。
+       折叠态不给把手 —— 18px 里拖高度既难点中，也无意义。 */
+    if (!tr.collapsed) {
+      const grip = document.createElement('div');
+      grip.className = 'fh-grip';
+      grip.title = '拖动调整轨道高度';
+      attachTrackResize(grip, tr);
+      g.appendChild(grip);
+    }
+
     E.heads.appendChild(g);
   });
 }
@@ -933,6 +984,74 @@ function headBtn(icon, off, fn) {
   b.innerHTML = `<svg class="i"><use href="#${icon}"/></svg>`;
   b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
   return b;
+}
+
+/* 设置轨道高度 / 折叠（B2-10）。
+   直接走 nc_set_track_view，不经 guardedEdit —— guardedEdit 的 op 是
+   editor.js 自己的语义分发（split/delete/track_flag...），
+   Track 的视图状态不在那套 op 里，硬塞进去会让分发逻辑变臃肿。
+
+   成功后重新拉状态：高度/折叠是引擎持有的属性，前端不自己改 S.tracks，
+   否则撤销之后两边会不一致（撤销走的是引擎栈，前端改的那份不会被回滚）。 */
+function setTrackView(tr, heightPx, collapsed) {
+  if (!Engine.online) return toast('未连接引擎，无法调整轨道');
+  const h = Math.max(24, Math.min(200, Math.round(heightPx)));
+  const r = engineCall('nc_set_track_view', {
+    track_index: tr.index,
+    height_px: h,
+    collapsed: collapsed ? 1 : 0
+  });
+  if (!r || !r.ok) return toast(`调整失败：${(r && r.message) || '未知错误'}`, 3000);
+  try {
+    applyState(fetchState());
+    renderAll();
+  } catch (err) {
+    toast(`刷新失败：${err.message}`, 3000);
+  }
+}
+
+/* 拖动轨道头下边缘调整高度。
+   放在轨道头（.fh 里的 .row）上，而不是时间轴行上 ——
+   时间轴行要响应片段拖拽/选中，再叠一个高度拖拽会互相抢手势。 */
+function attachTrackResize(handle, tr) {
+  let startY = 0, startH = 0, active = false;
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    active = true;
+    startY = e.clientY;
+    startH = tr.heightPx || 48;
+    handle.classList.add('resizing');
+    try { handle.setPointerCapture(e.pointerId); } catch (_) { /* 老 WebView */ }
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!active) return;
+    const next = Math.max(24, Math.min(200, startH + (e.clientY - startY)));
+    // 拖动过程只改视觉，不落库：每移动 1px 都发一次 nc_set_track_view
+    // 会灌满撤销栈（高度是可撤销操作）。
+    // 用 .trow 过滤，不能用 E.tracks.children[index] —— 容器里还混着
+    // 播放头线等其它元素，按 children 下标取会错位到别的行。
+    const rows = E.tracks.querySelectorAll('.trow');
+    const row = rows[tr.index];
+    if (row) row.style.height = `${next}px`;
+    const heads = E.heads.querySelectorAll('.fh');
+    if (heads[tr.index]) heads[tr.index].style.setProperty('--fh-h', `${next}px`);
+  });
+  const end = (e) => {
+    if (!active) return;
+    active = false;
+    handle.classList.remove('resizing');
+    try { handle.releasePointerCapture(e.pointerId); } catch (_) { /* 同上 */ }
+    const next = Math.max(24, Math.min(200, startH + (e.clientY - startY)));
+    if (Math.abs(next - startH) >= 2) setTrackView(tr, next, tr.collapsed);
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', () => {
+    active = false;
+    handle.classList.remove('resizing');
+    try { applyState(fetchState()); renderAll(); } catch (_) { /* 还原失败不阻塞 */ }
+  });
 }
 
 function buildClip(tr, c) {
@@ -1936,6 +2055,80 @@ function sheetRow(label, sub, fn) {
   E.sheetList.appendChild(b);
   return b;
 }
+/* ---------------- 模板库（B2-4）----------------
+   数据来源 nc_template_list 返回的 JSON 数组：
+     [{ id, name, category, slotCount, totalDurationUs, musicHint?, coverPath? }]
+   套用走 nc_template_apply（自动填充，核心层按 B2-2 打分挑素材）。
+
+   为什么不做"手动指定第几段用哪个镜头"（nc_template_apply_slots）：
+   那需要先让用户在同一屏里完成"选模板 → 逐槽位挑素材"两步选择，
+   移动端一屏放不下；当前先把自动填充接通，手工映射留作后续。 */
+function showTemplateSheet() {
+  E.sheetList.innerHTML = '';
+  if (!Engine.online) {
+    sheetRow('未连接引擎', '模板需要真实工程状态', () => closeSheet());
+    E.sheet.hidden = false;
+    return;
+  }
+  const r = engineCall('nc_template_list', {});
+  if (!r || !r.ok) {
+    sheetRow('读取模板失败', (r && r.message) || '引擎拒绝', () => closeSheet());
+    E.sheet.hidden = false;
+    return;
+  }
+  // nc_template_list 的结果可能放在 result 里（桥统一包一层），
+  // 也可能是裸值。两种都接，缺了就当作空列表而不是崩。
+  let list = (r.result !== undefined) ? r.result : r.value;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch (_) { list = []; }
+  }
+  if (!Array.isArray(list)) list = [];
+
+  if (!list.length) {
+    sheetRow('暂无模板', '内置模板尚未注册', () => closeSheet());
+  } else {
+    list.forEach((t) => {
+      const secs = (t.totalDurationUs || 0) / 1e6;
+      const sub = `${t.category || '模板'} · ${t.slotCount || 0} 段 · ${secs.toFixed(1)}s`;
+      sheetRow(t.name || t.id, sub, () => applyTemplate(t));
+    });
+  }
+  const head = E.sheet && E.sheet.querySelector('.sheet-head span');
+  if (head) head.textContent = `模板库（${list.length}）`;
+  E.sheet.hidden = false;
+}
+
+/* 套用模板：把当前工程的全部素材作为候选交给核心层打分填充。
+   只传素材 id —— 核心层会用候选的顺序/时长做匹配，
+   前端不参与"哪个素材配哪个槽"的决策（那是 B2-2 的职责）。 */
+function applyTemplate(t) {
+  if (!Engine.online) return toast('未连接引擎，无法套用模板');
+  const assets = (S.assets || []).map((a) => a.id).filter((id) => id);
+  if (!assets.length) {
+    return toast('请先导入素材，模板需要素材才能填充', 3000);
+  }
+  const r = engineCall('nc_template_apply', {
+    template_id: t.id,
+    material_ids: assets,
+    count: assets.length
+  });
+  if (!r || !r.ok) {
+    return toast(`套用失败：${(r && r.message) || '引擎拒绝'}`, 3000);
+  }
+  // 摘要里含插入数/转场数/特效数/轨道数与 warnings —— 直接给用户看，
+  // 不要吞掉：模板填充失败一部分时，warnings 是唯一的说明来源。
+  const summary = (r.result && (r.result.summary || r.result)) || r.summary;
+  const text = typeof summary === 'string' ? summary : (summary && summary.text);
+  closeSheet();
+  toast(text ? `已套用「${t.name}」：${text}` : `已套用「${t.name}」`, 4000);
+  try {
+    applyState(fetchState());
+    renderAll();
+  } catch (err) {
+    toast(`刷新失败：${err.message}`, 3000);
+  }
+}
+
 function closeSheet() { E.sheet.hidden = true; }
 E.sheetClose.addEventListener('click', closeSheet);
 E.sheet.addEventListener('click', (e) => { if (e.target === E.sheet) closeSheet(); });

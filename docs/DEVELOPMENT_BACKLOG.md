@@ -363,7 +363,13 @@ LinearBurn / LinearDodge / SoftLight / LinearLight / PinLight / Difference / Exc
 - **验证方式**：另写一份独立 Python 实现，与 C++ 逐点比对 4851 个点
   （11 种 × 21×21 网格），全部一致——避免「用自己写的公式验证自己」。
 
-**待完成**：UI 下拉项（`ui/assets/editor.js` 的模式选择器）。
+**已实施（2026-10-30）**：UI 选择器在 `mobile/assets/l3-panel.js:477` 的
+`blendRow()` —— 宫格两列滚动，16 项名称**从内核拉取**
+（`window.NC_BLEND_MODES`，由 editor.js 启动时取 `/api/blend_modes`），
+拉不到时直接显示「混合模式列表读取失败」，不伪造名称。
+
+> 先前此条写的是「待完成：UI 下拉项（`ui/assets/editor.js`）」——
+> 那指向早期原型，改了也不进 APK；实际实现在 mobile/ 里，已更正。
 
 **原始问题**：
 

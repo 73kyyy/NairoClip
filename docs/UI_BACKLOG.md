@@ -21,7 +21,6 @@
 | 设置 | `mobile/pages/04-settings.html` | — | ✅ 有 |
 | 条款与说明 | `mobile/pages/05-legal.html` | 74 | ✅ 有（5 篇文档） |
 | **编辑器** | `mobile/pages/10-editor.html` | 120 | ✅ 有 |
-| 设计稿 | `ui/pages/*.html` | — | 📐 早期原型 |
 
 ### 1.2 已有 JS 模块
 

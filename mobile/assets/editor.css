@@ -161,6 +161,25 @@ body { -webkit-text-size-adjust: 100%; }
 .fh .fname { font-size: 8px; color: #6E7472; max-width: 42px; overflow: hidden;
              white-space: nowrap; text-overflow: ellipsis; }
 
+/* ---- 轨道高度 / 折叠（B2-10）----
+   轨道头高度必须与时间轴行一致，否则两列对不齐：
+   行高由 JS 按 state.tracks[i].height_px 内联设置，
+   .fh 侧取同一个值（JS 同步写 --row-h 到容器上）。
+   折叠时统一 18px。 */
+.fh { height: var(--fh-h, var(--row-h)); }
+.trow.collapsed { background: rgba(255,255,255,.04); border-radius: 4px; }
+
+/* 高度拖拽把手：贴在轨道头下边缘的一条细热区。
+   热区做成 12px 高（视觉上只有 2px 线），手指才够得着；
+   直接给 2px 的话 touch 目标太小，实测几乎拖不动。 */
+.fh-grip { position: absolute; left: 0; right: 0; bottom: -2px; height: 12px;
+           pointer-events: auto; cursor: ns-resize; }
+.fh-grip::after { content: ''; position: absolute; left: 4px; right: 4px; top: 5px;
+                  height: 2px; border-radius: 1px; background: #3A3F42; }
+.fh-grip:hover::after, .fh-grip.resizing::after { background: #8B7CFF; }
+/* 把手要相对 .fh 定位 */
+.fh { position: relative; }
+
 /* ⑤ 悬浮播放控制 40 */
 .transport { flex: none; height: var(--tp-h); background: var(--bg-dock);
              display: flex; align-items: center; justify-content: center; gap: 46px; }
