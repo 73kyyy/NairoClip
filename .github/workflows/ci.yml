@@ -60,6 +60,14 @@ jobs:
           tar -xzf ort.tgz -C ort --strip-components=1
           test -f ort/include/onnxruntime_cxx_api.h && echo "ORT 头文件就绪"
 
+      - name: 前端静态检查
+        # CI 此前只编译 C++/Kotlin，mobile/assets/*.js|css 与 pages/*.html
+        # 完全没有验证。这个检查补上三类高频事故：图标 <use> 引用了
+        # 不存在的 symbol（空白按钮）、data-act 没有 JS 分支（点了没反应）、
+        # 括号不配平（后续 CSS/JS 静默失效）。
+        # 放在 Configure 之前：纯文件读取，失败得早，不浪费编译时间。
+        run: python3 tools/check_mobile_frontend.py .
+
       - name: Configure
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
