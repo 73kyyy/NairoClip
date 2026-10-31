@@ -641,6 +641,53 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = Ok(j);
         return true;
     }
+    if (op == "nc_keyframe_count") {
+        // int32_t nc_keyframe_count(editor, track_index, clip_id, property)
+        // property 0..5：不透明度=0 缩放=1 位置X=2 位置Y=3 旋转=4
+        const int32_t rc = nc_keyframe_count(
+            ed, ti, cid, static_cast<int32_t>(JInt(a, "property", 0)));
+        if (rc < 0) {
+            *out = Err("读取关键帧数量失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"count\":" + std::to_string(rc) + "}");
+        return true;
+    }
+    if (op == "nc_keyframe_get") {
+        // int32_t nc_keyframe_get(editor, track_index, clip_id, property, index,
+        //                         out_time_us, out_value, out_easing)
+        int64_t tUs = 0;
+        double val = 0.0;
+        int32_t easing = 0;
+        const int32_t rc = nc_keyframe_get(
+            ed, ti, cid, static_cast<int32_t>(JInt(a, "property", 0)),
+            static_cast<int32_t>(JInt(a, "index", 0)), &tUs, &val, &easing);
+        if (rc != NC_OK) {
+            *out = Err("读取关键帧失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string j = "{\"time_us\":" + std::to_string(tUs);
+        j += ",\"value\":" + Num(val);
+        j += ",\"easing\":" + std::to_string(easing) + "}";
+        *out = Ok(j);
+        return true;
+    }
+    if (op == "nc_remove_keyframe") {
+        // int32_t nc_remove_keyframe(editor, track_index, clip_id, property, time_us)
+        const int32_t rc = nc_remove_keyframe(
+            ed, ti, cid, static_cast<int32_t>(JInt(a, "property", 0)),
+            JInt(a, "time_us", 0));
+        *out = rc == NC_OK ? Ok("") : Err("删除关键帧失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_set_background_color") {
+        // int32_t nc_set_background_color(editor, uint32_t rgba)
+        // JS 侧传 0xRRGGBBAA 打包的无符号整数。
+        const uint32_t rgba = static_cast<uint32_t>(JInt(a, "rgba", 0));
+        const int32_t rc = nc_set_background_color(ed, rgba);
+        *out = rc == NC_OK ? Ok("") : Err("设置背景色失败，错误码 " + std::to_string(rc));
+        return true;
+    }
     return false;  // 未知 op：由调用方报错，不静默成功
 }
 

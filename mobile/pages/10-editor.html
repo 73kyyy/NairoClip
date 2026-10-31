@@ -28,23 +28,40 @@
     </div>
   </section>
 
-  <!-- ③ 圆工具行（参考稿） -->
+  <!-- ③ 圆工具行（2026-10-31 按用户指定顺序重排为 11 项） -->
   <section class="toolbar">
     <div class="circles" id="circles">
-      <button class="cbtn c-plus" data-act="import" aria-label="导入素材"><svg class="i"><use href="#i-plus"/></svg></button>
-      <button class="cbtn" data-act="media" aria-label="素材库"><svg class="i"><use href="#i-folder"/></svg></button>
+      <!-- 1. 添加素材（视频 / 音频 / 图片） -->
+      <button class="cbtn c-plus" data-act="import" aria-label="添加素材"><svg class="i"><use href="#i-plus"/></svg></button>
+      <!-- 2. 返回首页 / 退出当前工程 -->
+      <button class="cbtn" data-act="home" aria-label="返回首页"><svg class="i"><use href="#i-home"/></svg></button>
       <span class="c-sep"></span>
-      <button class="cbtn" data-act="play-next" aria-label="下一段"><svg class="i"><use href="#i-play-next"/></svg></button>
-      <button class="cbtn" data-act="scene" aria-label="场景检测"><svg class="i"><use href="#i-clap"/></svg></button>
-      <button class="cbtn" data-act="layers" aria-label="图层"><svg class="i"><use href="#i-stack"/></svg></button>
-      <button class="cbtn c-key" data-act="keyframe" aria-label="关键帧"><svg class="i"><use href="#i-key"/></svg></button>
-      <button class="cbtn" data-act="marker" aria-label="标记"><svg class="i"><use href="#i-hash"/></svg></button>
-      <button class="cbtn c-ai" data-act="ai" aria-label="AI 工具">AI</button>
+      <!-- 3. 向左逐段跳：当前片段开头 → 前一段结尾 → 前一段开头 … -->
+      <button class="cbtn" data-act="step-prev" aria-label="向左逐段跳"><svg class="i"><use href="#i-prev"/></svg></button>
+      <!-- 4. 标记点（时间标记） -->
+      <button class="cbtn" data-act="marker" aria-label="标记点"><svg class="i"><use href="#i-hash"/></svg></button>
+      <!-- 5. 渲染（预览缓存 / 导出） -->
+      <button class="cbtn c-render" data-act="render" aria-label="渲染"><svg class="i"><use href="#i-render"/></svg></button>
       <span class="c-sep"></span>
+      <!-- 6. 当前片段的关键帧（查看 / 调节 / 删除） -->
+      <button class="cbtn" data-act="keyframes" aria-label="关键帧"><svg class="i"><use href="#i-keyframes"/></svg></button>
+      <!-- 7. 预览区 # 参考线（三等分构图辅助线） -->
+      <button class="cbtn" data-act="guides" aria-label="参考线"><svg class="i"><use href="#i-grid3"/></svg></button>
+      <!-- 8. 图片 / 背景（项目内图片管理 + 背景色） -->
+      <button class="cbtn" data-act="images" aria-label="图片与背景"><svg class="i"><use href="#i-image"/></svg></button>
+      <span class="c-sep"></span>
+      <!-- 9. AI（对应「仿剪」；其余 AI 在底部工具栏「更多」里） -->
+      <button class="cbtn c-ai" data-act="ai" aria-label="AI 仿剪">AI</button>
+      <!-- 10 / 11. 撤销 / 重做 -->
       <button class="cbtn" data-act="undo" id="btn-undo" aria-label="撤销"><svg class="i"><use href="#i-undo"/></svg></button>
       <button class="cbtn" data-act="redo" id="btn-redo" aria-label="重做"><svg class="i"><use href="#i-redo"/></svg></button>
     </div>
-    <div class="strip"><div class="strip-done" id="strip-done"></div></div>
+    <div class="strip">
+      <div class="strip-done" id="strip-done"></div>
+      <!-- 渲染进度独立一根：不能复用播放进度条，
+           否则渲染时 strip-done 会同时表示「播放到哪」和「渲染到哪」。 -->
+      <div class="strip-render" id="strip-render"></div>
+    </div>
   </section>
 
   <!-- ④ 时间轴：刻度尺 + 轨道（播放头贯穿两区） -->

@@ -43,13 +43,14 @@ const S = {
   level: 1,              // 1 = 一级工具栏；2 = 二级
   activeL1: null,
   markerMode: false,
-  headsOpen: false
+  headsOpen: false,
+  guides: false          // 预览区三分线（纯前端叠加，不进工程数据）
 };
 
 const $ = (id) => document.getElementById(id);
 const E = {
   app: $('app'), stage: $('stage'), canvas: $('canvas'), still: $('still'),
-circles: $('circles'), strip: $('strip-done'),
+circles: $('circles'), strip: $('strip-done'), stripRender: $('strip-render'),
   ruler: $('ruler'), rulerCv: $('ruler-canvas'), tracks: $('tracks'),
   hint: $('empty-hint'), heads: $('floating-heads'), barTrack: $('bar-track'),
   play: $('btn-play'), prev: $('btn-prev'), next: $('btn-next'),
@@ -186,7 +187,7 @@ const L1 = [
   { id: 'ratio',  name: '比例',   icon: 'i-ratio' },
   { id: 'bg',     name: '背景',   icon: 'i-bg' },
   { id: 'mask',   name: '蒙版',   icon: 'i-mask' },
-  { id: 'ai',     name: 'AI',     icon: 'i-ai' }
+  { id: 'ai',     name: '更多',   icon: 'i-ai' }
 ];
 
 /* kind: exec 直接执行 / panel 需调参（本版不弹三级面板，改为提示） */
@@ -206,7 +207,10 @@ const L2 = {
     { id: 'denoise', name: '降噪', icon: 'i-denoise' },
     { id: 'opacity', name: '不透明度', icon: 'i-opacity' },
     { id: 'ripple', name: '波纹删除', icon: 'i-trash', kind: 'exec', danger: true },
-    { id: 'toggle', name: '启用/停用', icon: 'i-eye', kind: 'exec' }
+    { id: 'toggle', name: '启用/停用', icon: 'i-eye', kind: 'exec' },
+    /* 场景检测原在圆工具行（已按用户指定顺序移除），
+       它是剪片时的辅助动作，移到「剪辑」二级菜单保留可达性。 */
+    { id: 'scene', name: '场景检测', icon: 'i-clap', kind: 'exec' }
   ],
   audio: [
     { id: 'music', name: '音乐', icon: 'i-note' },
@@ -384,6 +388,7 @@ function runFunction(cat, f) {
         next ? '已启用该片段' : '已停用该片段'
       );
     }
+    case 'scene': return runSceneDetect();
     case 'filterall2': return applyFilterToAll();
     case 'reset': return resetClipAdjust();
     case 'ratio916': return setRatio(9, 16, '9:16');
@@ -1597,12 +1602,14 @@ E.circles.addEventListener('click', async (e) => {
   const b = e.target.closest('.cbtn');
   if (!b) return;
   const act = b.dataset.act;
+  /* 1. 添加素材 */
   if (act === 'import') return openSheet();
-  if (act === 'undo') return guardedEdit({ op: 'undo' });
-  if (act === 'redo') return guardedEdit({ op: 'redo' });
-  if (act === 'keyframe') return addKeyframe();
+  /* 2. 返回首页（退出当前工程回项目列表） */
+  if (act === 'home') return goHome();
+  /* 3. 向左逐段跳 */
+  if (act === 'step-prev') return stepPrev();
+  /* 4. 标记点 */
   if (act === 'marker') {
-    // # = 标记：单击在播放头加标记；长按打开标记列表（改名 / 改色）
     const name = `标记 ${S.markers.length + 1}`;
     const ok = await guardedEdit({
       op: 'marker', time_us: Math.round(S.time * 1e6), name, color: '#FFFFFF'
@@ -1613,20 +1620,393 @@ E.circles.addEventListener('click', async (e) => {
     }
     return;
   }
-  if (act === 'play-next') {
-    const next = allClips().filter((c) => c.start > S.time + 0.01)
-      .sort((a, b2) => a.start - b2.start)[0];
-    if (!next) return toast('后面没有片段了');
-    S.time = next.start; renderTracks(); syncPreview();
-    return;
-  }
-  if (act === 'media') return showMediaLibrary();
-  if (act === 'scene') return runSceneDetect();
-  if (act === 'layers') return showLayerSheet();
-  toast(act);
+  /* 5. 渲染（预览缓存） */
+  if (act === 'render') return toggleRender(b);
+  /* 6. 关键帧面板 */
+  if (act === 'keyframes') return showKeyframeSheet();
+  /* 7. 参考线 */
+  if (act === 'guides') return toggleGuides(b);
+  /* 8. 图片与背景 */
+  if (act === 'images') return showImageSheet();
+  /* 9. AI 仿剪 */
+  if (act === 'ai') return showAiSheet();
+  /* 10 / 11. 撤销 / 重做 */
+  if (act === 'undo') return guardedEdit({ op: 'undo' });
+  if (act === 'redo') return guardedEdit({ op: 'redo' });
+  toast(`${b.getAttribute('aria-label') || act}：尚未绑定实现`);
 });
 
-/* ---------------- 标记列表：改名 / 改色（marker_color） ---------------- */
+/* ---------------- 2. 返回首页 ----------------
+   为什么用确认框：编辑页可能还有未导出的改动，
+   直接跳走会让用户以为工程丢了。有未保存改动时必须问一次。 */
+function goHome() {
+  const dirty = !!(S.project && (S.project.can_undo || S.project.can_redo));
+  if (dirty && !window.confirm('当前工程有未导出的修改，确定返回首页？')) return;
+  /* 不在这里调 bridge.release()：引擎句柄由 MainActivity 持有，
+     页面跳转不会销毁 Activity（只是换了 URL），提前 release 会让
+     新页面拿不到引擎。真正的释放交给 onDestroy。 */
+  location.href = '01-home.html';
+}
+
+/* ---------------- 3. 向左逐段跳 ----------------
+   用户定义的语义：当前停在本段 → 跳到本段开头 → 再点跳到前一段结尾
+   → 再点跳到前一段开头 → 以此类推。
+   实现要点：终点集合是「所有片段的 start 与 end」，去重后从大到小；
+   每次都跳到当前时间之前最近的一个端点。这与「一直跳到 0」不同，
+   用户能明确停在前一段的结尾（编辑接缝时常要这个位置）。 */
+function timelineAnchors() {
+  const pts = new Set([0]);
+  allClips().forEach((c) => {
+    pts.add(Math.round((c.start || 0) * 1e6));
+    pts.add(Math.round(((c.start || 0) + (c.dur || 0)) * 1e6));
+  });
+  return Array.from(pts).sort((a, b) => a - b);
+}
+
+function stepPrev() {
+  const nowUs = Math.round(S.time * 1e6);
+  const anchors = timelineAnchors();
+  // 严格小于当前时间（留 1ms 容差，避免同一个点反复命中）
+  let target = null;
+  for (let i = anchors.length - 1; i >= 0; i--) {
+    if (anchors[i] < nowUs - 1000) { target = anchors[i]; break; }
+  }
+  if (target === null) return toast('已经在最开头');
+  S.time = target / 1e6;
+  renderTracks();
+  drawRuler();
+  syncPreview();
+  updateStrip();
+}
+
+/* ---------------- 5. 渲染（预览缓存）----------------
+   用户给的语义：「预览渲染 / 生成预览缓存 / 导出渲染，渲染时间线，
+   实时预览效果、预渲染片段，方便流畅播放预览」。
+
+   当前实现边界（如实说明，不假装有缓存）：
+   · 引擎侧**还没有**帧缓存 API（nc_preview_render 每次全量重渲染，
+     且 ensurePreviewRenderer 在任意编辑后会整个重建）。
+   · 所以这里做的是「**预热 + 进度反馈**」：按当前时间轴逐帧请求预览，
+     让用户看到进度，并把已解码的 reader 留在引擎里
+     （readers_ 是 PreviewRenderer 内部的 map，同一签名下会复用）。
+   · 真正的帧缓存要等 core 加接口，见 commit 说明与 backlog。
+
+   为什么不做假的「进度条动画」：那是假功能。进度必须来自
+   真实跑完的帧数 / 总帧数。 */
+let renderJob = null;
+
+function renderFrameCount() {
+  const end = seqEnd();
+  if (!end) return 0;
+  // 与预览同步率对齐：按 12fps 采样（人眼在拖动时不需要 30fps 的缓存密度），
+  // 上限 600 帧，避免长工程把 UI 卡死。
+  return Math.min(600, Math.max(1, Math.round(end * 12)));
+}
+
+async function toggleRender(btn) {
+  if (renderJob) {                       // 正在渲染 → 取消
+    renderJob.cancelled = true;
+    renderJob = null;
+    btn.classList.remove('busy', 'on');
+    if (E.stripRender) E.stripRender.style.width = '0%';
+    return toast('已取消渲染');
+  }
+  if (!Engine.online) return toast('未连接引擎，无法渲染');
+
+  const total = renderFrameCount();
+  if (!total) return toast('时间轴为空，没有可渲染的片段');
+
+  btn.classList.add('busy', 'on');
+  const job = { cancelled: false };
+  renderJob = job;
+  const end = seqEnd();
+  let done = 0;
+  const t0 = performance.now();
+
+  for (let i = 0; i < total; i++) {
+    if (job.cancelled) break;
+    const us = Math.round((end * i / total) * 1e6);
+    // 直接请求预览帧：目的是让引擎解码并保留 reader，
+    // 同时把帧数据走一遍完整链路（能提前暴露解码失败）。
+    Engine.frameUrl(us, NEED.frameW);
+    done++;
+    if ((i & 3) === 0) {
+      if (E.stripRender) E.stripRender.style.width = `${(done / total) * 100}%`;
+      // 让出主线程，否则 UI 会卡住看不到进度
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  if (renderJob === job) renderJob = null;
+  btn.classList.remove('busy');
+  if (job.cancelled) {
+    if (E.stripRender) E.stripRender.style.width = '0%';
+    return;
+  }
+
+  const secs = ((performance.now() - t0) / 1000).toFixed(1);
+  if (E.stripRender) setTimeout(() => { E.stripRender.style.width = '0%'; }, 700);
+  btn.classList.add('on');
+  setTimeout(() => btn.classList.remove('on'), 600);
+  toast(`预览已预热 ${done} 帧（${secs}s）`, 3000);
+}
+
+/* ---------------- 6. 关键帧面板 ----------------
+   读取当前播放头所在片段在 5 个属性通道上的全部关键帧，
+   可逐个删除。属性映射来自 capi.h:543 的文档附录二：
+     不透明度=0 缩放=1 位置X=2 位置Y=3 旋转=4 */
+const KF_PROPS = [
+  { p: 0, name: '不透明度' },
+  { p: 1, name: '缩放' },
+  { p: 2, name: '位置 X' },
+  { p: 3, name: '位置 Y' },
+  { p: 4, name: '旋转' }
+];
+
+function showKeyframeSheet() {
+  const sel = selClip();
+  E.sheetList.innerHTML = '';
+  if (!sel) {
+    sheetRow('未选中片段', '把播放头停在某个片段上，或先点选片段', () => closeSheet());
+    E.sheet.hidden = false;
+    return;
+  }
+  if (!Engine.online) {
+    sheetRow('未连接引擎', '关键帧读取需要真实引擎', () => closeSheet());
+    E.sheet.hidden = false;
+    return;
+  }
+
+  /* 添加关键帧：原圆按钮的「打点」能力不能因为按钮改成面板而丢失，
+     所以面板顶部给一个显式入口。属性可选（默认不透明度）。 */
+  const addRow = document.createElement('div');
+  addRow.className = 'sheet-hint kf-addbar';
+  const lbl = document.createElement('span');
+  lbl.style.flex = '1';
+  lbl.textContent = '在当前播放头添加';
+  addRow.appendChild(lbl);
+
+  const propSel = document.createElement('select');
+  propSel.className = 'kf-prop';
+  KF_PROPS.forEach(({ p, name }) => {
+    const o = document.createElement('option');
+    o.value = String(p);
+    o.textContent = name;
+    propSel.appendChild(o);
+  });
+  addRow.appendChild(propSel);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'kf-add';
+  addBtn.textContent = '添加';
+  addBtn.addEventListener('click', async () => {
+    const p = Number(propSel.value);
+    const local = S.time - sel.clip.start;
+    if (local < 0 || local > sel.clip.dur) return toast('播放头不在该片段范围内');
+    // 取值范围随属性而变：不透明度/缩放给 1（无变化），位移/旋转给 0
+    const val = (p === 0 || p === 1) ? 1 : 0;
+    const ok = await guardedEdit({
+      op: 'keyframe', track: sel.track.index, clip: sel.clip.id,
+      property: p, time_us: Math.round(local * 1e6), value: val
+    }, '已添加关键帧');
+    if (ok) showKeyframeSheet();
+  });
+  addRow.appendChild(addBtn);
+  E.sheetList.appendChild(addRow);
+
+  let total = 0;
+  KF_PROPS.forEach(({ p, name }) => {
+    const r = engineCall('nc_keyframe_count', {
+      track_index: sel.track.index, clip_id: sel.clip.id, property: p
+    });
+    // C++ 侧 Ok() 把载荷放进 result：{"ok":true,"result":{"count":N}}
+    const n = (r && r.ok && r.result && typeof r.result.count === 'number')
+      ? r.result.count : 0;
+    if (!n) return;
+    total += n;
+
+    const head = document.createElement('div');
+    head.className = 'sheet-hint';
+    head.textContent = `${name}（${n}）`;
+    E.sheetList.appendChild(head);
+
+    for (let i = 0; i < n; i++) {
+      const g = engineCall('nc_keyframe_get', {
+        track_index: sel.track.index, clip_id: sel.clip.id,
+        property: p, index: i
+      });
+      const res = (g && g.result) || g || {};
+      const tUs = Number(res.time_us ?? res.out_time_us ?? 0);
+      const val = Number(res.value ?? res.out_value ?? 0);
+      const row = sheetRow(
+        `${fmt(tUs / 1e6)}`,
+        `值 ${val.toFixed(3)}`,
+        () => {}
+      );
+      // 删除按钮（模态内二次确认，避免误删）
+      const del = document.createElement('button');
+      del.className = 'kf-del';
+      del.textContent = '删除';
+      del.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (!window.confirm(`删除 ${name} 在 ${fmt(tUs / 1e6)} 的关键帧？`)) return;
+        const ok = await guardedEdit({
+          op: 'remove_keyframe', track: sel.track.index, clip: sel.clip.id,
+          property: p, time_us: tUs
+        }, '已删除关键帧');
+        if (ok) showKeyframeSheet();
+      });
+      row.appendChild(del);
+    }
+  });
+
+  if (!total) {
+    sheetRow('该片段没有关键帧', '用底部工具栏的「关键帧」来添加', () => closeSheet());
+  }
+  const headEl = E.sheet && E.sheet.querySelector('.sheet-head span');
+  if (headEl) headEl.textContent = `关键帧（${total}）`;
+  E.sheet.hidden = false;
+}
+
+/* ---------------- 7. 参考线（# 网格）----------------
+   纯前端叠加，不改工程数据，因此不产生撤销记录。
+   状态存在 S 里，重绘时保持。 */
+function toggleGuides(btn) {
+  S.guides = !S.guides;
+  btn.classList.toggle('on', S.guides);
+  let layer = document.getElementById('guide-layer');
+  if (!S.guides) {
+    if (layer) layer.remove();
+    return;
+  }
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'guide-layer';
+    layer.className = 'guide-layer';
+    // 三分线 + 中心十字：与圆工具行的 # 图标一致
+    layer.innerHTML =
+      '<i style="left:33.333%"></i><i style="left:66.666%"></i>' +
+      '<i class="h" style="top:33.333%"></i><i class="h" style="top:66.666%"></i>' +
+      '<i class="cx"></i><i class="cy"></i>';
+    E.canvas.appendChild(layer);
+  }
+}
+
+/* ---------------- 8. 图片与背景 ----------------
+   两件事合一个面板：
+   · 列出项目里所有图片素材（type=2），可删除；
+   · 设置画布背景色（nc_set_background_color）。
+   为什么合并：用户说的这个按钮就是「添加图片 + 添加背景（颜色）」。 */
+function showImageSheet() {
+  E.sheetList.innerHTML = '';
+  const images = (S.assets || []).filter((a) => a.kind === 2);
+
+  sheetRow('添加图片', '从相册/文件选择', () => { closeSheet(); openSheet(); });
+
+  if (!images.length) {
+    sheetRow('项目里还没有图片', '导入类型选「图片」', () => {});
+  } else {
+    images.forEach((a) => {
+      const row = sheetRow(a.name, `图片 · ${a.dur.toFixed(1)}s`, () => {});
+      const del = document.createElement('button');
+      del.className = 'kf-del';
+      del.textContent = '删除';
+      del.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const refd = engineCall('nc_asset_is_referenced', { asset_id: a.id });
+        const isRef = !!(refd && (refd.result === 1 || refd.value === 1));
+        if (isRef) return toast('该图片已被时间轴引用，请先删除片段', 3000);
+        if (!window.confirm(`删除图片「${a.name}」？`)) return;
+        const r = engineCall('nc_remove_asset', { asset_id: a.id });
+        if (!r || !r.ok) return toast(`删除失败：${(r && r.message) || '引擎拒绝'}`, 3000);
+        try { applyState(fetchState()); renderAll(); } catch (_) {}
+        showImageSheet();
+      });
+      row.appendChild(del);
+    });
+  }
+
+  /* 背景色：8 个预设，写入引擎（画布底色，不是片段背景） */
+  const head = document.createElement('div');
+  head.className = 'sheet-hint';
+  head.textContent = '画布背景色';
+  E.sheetList.appendChild(head);
+
+  const BG = [
+    ['纯黑', 0x000000FF], ['纯白', 0xFFFFFFFF], ['深灰', 0x1C1C1EFF],
+    ['米白', 0xF5F1EAFF], ['雾蓝', 0x2E3A4CFF], ['墨绿', 0x1F3A32FF],
+    ['酒红', 0x3A1F28FF], ['暖沙', 0xE8DCC8FF]
+  ];
+  const grid = document.createElement('div');
+  grid.className = 'bg-grid';
+  BG.forEach(([name, rgba]) => {
+    const sw = document.createElement('button');
+    sw.className = 'bg-sw';
+    sw.title = name;
+    // 引擎收的是 RGBA，按 0xRRGGBBAA 打包；CSS 用 #RRGGBB
+    const hex = '#' + (rgba >>> 8).toString(16).padStart(6, '0');
+    sw.style.background = hex;
+    sw.addEventListener('click', () => {
+      const r = engineCall('nc_set_background_color', { rgba: rgba >>> 0 });
+      if (!r || !r.ok) return toast(`设置失败：${(r && r.message) || '引擎拒绝'}`, 3000);
+      try { applyState(fetchState()); renderAll(); } catch (_) {}
+      toast(`背景已设为${name}`);
+      closeSheet();
+    });
+    grid.appendChild(sw);
+  });
+  E.sheetList.appendChild(grid);
+
+  const h2 = E.sheet && E.sheet.querySelector('.sheet-head span');
+  if (h2) h2.textContent = `图片与背景（${images.length}）`;
+  E.sheet.hidden = false;
+}
+
+/* ---------------- 9. AI 仿剪 ----------------
+   用 nc_ai_feature_access(feature=9) 做真实门控：
+   - 未登录 → 引导登录；需 Pro → 引导升级；都满足 → 开始任务。
+   本面板只做入口与门控，真正的推理由平台层执行
+   （core 只提供任务簿记状态机，不伪造进度）。 */
+function showAiSheet() {
+  E.sheetList.innerHTML = '';
+  const FEATURE_REFERENCE_EDIT = 9;   // AiFeatureType::ReferenceEdit
+
+  const loggedIn = !!(window.NCAndroid && window.NCAndroid.isLoggedIn &&
+                      window.NCAndroid.isLoggedIn());
+  const r = engineCall('nc_ai_feature_access', {
+    feature: FEATURE_REFERENCE_EDIT, logged_in: loggedIn ? 1 : 0
+  });
+  const res = (r && r.result) || {};
+  // nc_ai_feature_access 返回 1=可用 0=不可用 -1=参数错误，
+  // C++ 侧字段名是 available（见 nc_jni.cpp 的组装）。
+  const allowed = !!(r && r.ok && res.available === 1);
+  const reason = res.reason || (r && r.message) || '';
+  const needsPro = !!(res.requires_pro === 1);
+
+  const row = sheetRow(
+    '参考仿剪',
+    allowed ? '可用 · 选参考视频后自动生成同风格剪辑'
+            : (needsPro ? '需要 Pro 会员' : (loggedIn ? '暂不可用' : '需要登录')),
+    () => {
+      if (!allowed) {
+        if (!loggedIn) { closeSheet(); location.href = '03-auth.html'; return; }
+        return toast(reason || '需要 Pro 会员', 3000);
+      }
+      closeSheet();
+      // 仿剪的实际入口在底部工具栏「更多 → AI」，那里有完整流程
+      toast('请在「更多 → AI」里选择参考视频开始仿剪', 3500);
+    }
+  );
+  const badge = document.createElement('span');
+  badge.className = 'mk-badge' + (allowed ? ' ok' : '');
+  badge.textContent = allowed ? '可用' : (needsPro ? 'PRO' : '—');
+  row.appendChild(badge);
+
+  const headEl = E.sheet && E.sheet.querySelector('.sheet-head span');
+  if (headEl) headEl.textContent = 'AI';
+  E.sheet.hidden = false;
+}
+
 const MARK_COLORS = ['#FFFFFF', '#C6F24E', '#8B7CFF', '#FFB020', '#E5484D'];
 
 function showMarkerSheet() {
@@ -2040,17 +2420,36 @@ function allClips() {
    素材类型与内核 nc_import_asset 的 media_type 对齐：0 视频 / 1 音频 / 2 图片。 */
 function openSheet() {
   E.sheetList.innerHTML = '';
+  // 各面板会改写标题，回到「添加素材」时必须复位，否则残留上个面板的标题
+  const t = E.sheet && E.sheet.querySelector('.sheet-head span');
+  if (t) t.textContent = '添加素材';
   sheetRow('视频', 'mp4 / mov / mkv · 取时长并生成胶片条', () => pickFile('video'));
   sheetRow('图片', 'jpg / png / webp · 默认 5 秒静帧', () => pickFile('image'));
   sheetRow('音频', 'mp3 / wav / m4a / flac · 生成波形', () => pickFile('audio'));
   E.sheet.hidden = false;
 }
+/* label / sub 常来自用户数据（素材文件名、标记名），必须用 textContent
+   而不是 innerHTML 拼接，否则文件名里带 < 就会被当成标签解析。
+   图标位与结构在这里统一生成，调用方只提供纯文本。 */
 function sheetRow(label, sub, fn) {
   const b = document.createElement('button');
   b.className = 'sheet-item';
-  b.innerHTML = `<span style="width:52px;height:30px;border-radius:4px;background:#2F3437;
-    display:grid;place-items:center">＋</span>
-    <span style="flex:1">${label}<br><small>${sub}</small></span>`;
+
+  const ico = document.createElement('span');
+  ico.className = 'sheet-ico';
+  ico.textContent = '＋';
+
+  const box = document.createElement('span');
+  box.style.flex = '1';
+  box.appendChild(document.createTextNode(label));
+  const br = document.createElement('br');
+  box.appendChild(br);
+  const small = document.createElement('small');
+  small.textContent = sub == null ? '' : String(sub);
+  box.appendChild(small);
+
+  b.appendChild(ico);
+  b.appendChild(box);
   b.addEventListener('click', fn);
   E.sheetList.appendChild(b);
   return b;
