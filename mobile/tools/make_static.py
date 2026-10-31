@@ -79,9 +79,13 @@ if os.path.isdir(_grid_dir):
             thumb_imgs['grid/' + _f] = _dataurl(os.path.join(_grid_dir, _f))
 
 _map_file = os.path.join(ROOT, 'static', 'grid', 'map.json')
+# 不再退回 static/thumb/map.json：那份旧产物只有 41 条，
+# 且转场用旧编号（transition_1..12，引擎是 0..33）、
+# 还含一个不存在的 effect_37 —— 一旦触发兜底只会给出错误 id 的图，
+# 比没有图更糟。grid/map.json 由 gen_grid_previews.py 全量生成（76 条）。
 if not os.path.isfile(_map_file):
-    # 旧产物兜底：thumb/map.json 只覆盖 23 特效 + 12 转场 + 6 蒙版
-    _map_file = os.path.join(ROOT, 'static', 'thumb', 'map.json')
+    raise SystemExit(f'缺少宫格映射表：{_map_file}\n'
+                     f'先跑 mobile/tools/gen_grid_previews.py（CI 的 gen-assets 工作流会自动做）')
 if os.path.isfile(_map_file):
     thumb_map = json.load(open(_map_file, encoding='utf-8'))
 

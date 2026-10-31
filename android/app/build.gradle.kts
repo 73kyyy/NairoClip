@@ -110,7 +110,11 @@ val syncMobileUi = tasks.register<Copy>("syncMobileUi") {
          早前只写了 `nairoclip-*-static.html`，只命中 editor 那一个，
          其余 5 个仍会打进 APK —— 一旦有人误开就是只读界面。
        · _probe.html 调试页
-       · thumbs.db / .DS_Store 之类的系统垃圾 */
+       · thumbs.db / .DS_Store 之类的系统垃圾
+       说明：这些静态版**不是 CI 产物**，不会自动跟随 assets/ 下的脚本更新。
+       make_static.py 需要设计桥（NC_API_PORT）或 .cache/state.json
+       才能取到工程状态，CI 上两者都没有。所以它们是「设计时快照」，
+       内容滞后属正常 —— 真机 UI 走的是 pages/ + assets/，不受影响。 */
     exclude("**/nairoclip-*.html")
     exclude("**/_probe.html")
     exclude("**/Thumbs.db", "**/.DS_Store")

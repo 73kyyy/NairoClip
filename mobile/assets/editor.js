@@ -626,11 +626,13 @@ function renderTracks() {
 
 /// 宫格缩略图映射表（滤镜 / 特效 / 转场 / 蒙版）。
 ///
-/// 数据来源，按优先级：
-///   1. `static/grid/map.json` —— 由 tools/gen_grid_previews.py 生成
-///      （在 CI 里跑，产物提交回仓库）。**四类全量覆盖，id 与 l3-spec.js 一致**
-///   2. `static/thumb/map.json` —— 早期只有 23 特效 + 12 转场 + 6 蒙版，
-///      且转场 id 从 1 开始（引擎是 0..33）。仅作旧产物兜底。
+/// 数据来源：`static/grid/map.json` —— 由 mobile/tools/gen_grid_previews.py
+/// 生成（在 CI 里跑，产物提交回仓库）。**四类全量覆盖，id 与 l3-spec.js 一致**。
+///
+/// 不再退回 static/thumb/map.json：那份旧产物只有 41 条，
+/// 转场用旧编号（transition_1..12，引擎是 0..33），还含不存在的 effect_37。
+/// 一旦退回，用户点「交叉溶解」会看到别的转场的图 —— 属于错误展示，
+/// 比没有图更糟。缺映射时 l3-panel 会退回占位色块，不阻塞交互。
 ///
 /// 静态版（static/*.html）由 make_static.py 把 map + 图片内联成
 /// window.NC_THUMB_MAP / NC_THUMB_IMG，运行时零网络请求；
@@ -648,8 +650,7 @@ async function fetchJsonMaybe(url) {
 }
 
 async function loadThumbMap() {
-  const grid = await fetchJsonMaybe(`${STATIC_BASE}/grid/map.json`);
-  const map = grid || (await fetchJsonMaybe(`${STATIC_BASE}/thumb/map.json`));
+  const map = await fetchJsonMaybe(`${STATIC_BASE}/grid/map.json`);
   if (!map) {
     /* 映射缺失时 l3-panel 会退回占位色块，不阻塞交互 */
     return;
