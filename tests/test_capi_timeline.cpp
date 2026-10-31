@@ -236,10 +236,13 @@ NC_TEST(CapiTimeline, AssetReorder) {
     NC_CHECK_EQ(assetAt(2), a1);
     NC_CHECK_EQ(nc_undo(editor), NC_OK);
 
-    // 原地移动是 no-op，且不产生撤销记录：
-    // 若产生记录，上面这次 undo 之后栈顶应还有一条可撤销项。
+    // 原地移动是 no-op，且不产生撤销记录。
+    // 注意：不能断言 nc_can_undo == 0 —— 上面 3 次 nc_import_asset
+    // 本身就入栈（ImportAssetCommand 没有 isNoOp 重写），撤销栈非空。
+    // 正确判据是「no-op 前后 nc_undo_count 不变」。
+    const int32_t undoBefore = nc_undo_count(editor);
     NC_CHECK_EQ(nc_asset_reorder(editor, 1, 1), NC_OK);
-    NC_CHECK_EQ(nc_can_undo(editor), 0);
+    NC_CHECK_EQ(nc_undo_count(editor), undoBefore);
 
     // 参数校验：一律 InvalidArgument，不静默截断。
     // （核心层 ReorderAssetsCommand::apply 对负索引和越界统一返回
@@ -257,7 +260,7 @@ NC_TEST(CapiTimeline, AssetReorder) {
     NcEditor* empty = nc_editor_create();
     NC_CHECK_EQ(nc_asset_count(empty), 0);
     NC_CHECK_EQ(nc_asset_reorder(empty, 0, 0), NC_ERROR_INVALID_ARGUMENT);
-    NC_CHECK_EQ(nc_can_undo(empty), 0);
+    NC_CHECK_EQ(nc_undo_count(empty), 0);
     nc_editor_destroy(empty);
 
     nc_editor_destroy(editor);
