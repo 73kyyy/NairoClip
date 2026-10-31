@@ -1,0 +1,56 @@
+VG_RC=0
+VG_FIRST=none
+VG_LAST_RUN=[ RUN  ] CapiLut.NoBuiltinPresetsIsHonest
+
+===== 首个 Invalid write 栈（25 层）=====
+（无 Invalid write/read）
+
+===== 全部错误摘要 =====
+==5731== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+
+===== 退出原因判定 =====
+--- 是否被信号杀死/超时 ---
+1474:[ RUN  ] Waveform.ConstantSignal
+1475:[  OK  ] Waveform.ConstantSignal
+1476:[ RUN  ] Waveform.MixedSignalMinMax
+1477:[  OK  ] Waveform.MixedSignalMinMax
+--- abort/assert/malloc 破坏 ---
+1389:[ RUN  ] MediaWriter.FFmpegAbortLeavesNoTrailer
+1390:[  OK  ] MediaWriter.FFmpegAbortLeavesNoTrailer
+1395:[ RUN  ] ExportRunner.CancelledExportAborts
+1396:[  OK  ] ExportRunner.CancelledExportAborts
+--- 汇总行（正常结束才有）---
+===== 1490 cases | 0 failed | 0 checks failed =====
+--- 末尾 25 行（原文）---
+[  OK  ] CapiLut.DefaultsToEmptyAndFullStrength
+[ RUN  ] CapiLut.NullPathClearsLut
+[  OK  ] CapiLut.NullPathClearsLut
+[ RUN  ] CapiLut.RejectsStrengthOutOfRange
+[  OK  ] CapiLut.RejectsStrengthOutOfRange
+[ RUN  ] CapiLut.RejectsNaNAndInfinity
+[  OK  ] CapiLut.RejectsNaNAndInfinity
+[ RUN  ] CapiLut.BadTrackOrClipIsReported
+[  OK  ] CapiLut.BadTrackOrClipIsReported
+[ RUN  ] CapiLut.NullEditorIsRejected
+[  OK  ] CapiLut.NullEditorIsRejected
+[ RUN  ] CapiLut.IsUndoable
+[  OK  ] CapiLut.IsUndoable
+[ RUN  ] CapiLut.LockedTrackRejectsLutChange
+[  OK  ] CapiLut.LockedTrackRejectsLutChange
+[ RUN  ] CapiLut.ValidateAcceptsRealCube
+[  OK  ] CapiLut.ValidateAcceptsRealCube
+[ RUN  ] CapiLut.ValidateExplainsFailure
+[  OK  ] CapiLut.ValidateExplainsFailure
+[ RUN  ] CapiLut.ValidateRejects1DLut
+[  OK  ] CapiLut.ValidateRejects1DLut
+[ RUN  ] CapiLut.NoBuiltinPresetsIsHonest
+[  OK  ] CapiLut.NoBuiltinPresetsIsHonest
+
+===== 1490 cases | 0 failed | 0 checks failed =====
+
+===== 计数 =====
+stdout 行数=3693
+RUN=1489 OK=1489
+
+===== 是否跑完全量 =====
+已跑完：===== 1490 cases | 0 failed | 0 checks failed =====

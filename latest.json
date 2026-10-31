@@ -1,0 +1,193 @@
+{
+  "generated_at": "2026-10-31T19:25:56Z",
+  "repo": "73kyyy/NairoClip",
+  "latest": {
+    "Android APK": {
+      "conclusion": "success",
+      "run_number": 60,
+      "run_id": 41212507636,
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "event": "push",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/41212507636",
+      "created_at": "2026-10-31T14:57:18Z"
+    },
+    "CI": {
+      "conclusion": "success",
+      "run_number": 241,
+      "run_id": 41231469592,
+      "head_sha": "3e2826e9298b08e1c89869d64c6477f44b9bbd8d",
+      "event": "push",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/41231469592",
+      "created_at": "2026-10-31T18:52:01Z"
+    },
+    "CI Status": {
+      "conclusion": null,
+      "run_number": 120,
+      "run_id": 41234175572,
+      "head_sha": "3e2826e9298b08e1c89869d64c6477f44b9bbd8d",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/41234175572",
+      "created_at": "2026-10-31T19:25:47Z"
+    },
+    "Gen Assets": {
+      "conclusion": "success",
+      "run_number": 4,
+      "run_id": 41188578963,
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "event": "push",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/41188578963",
+      "created_at": "2026-10-31T09:24:34Z"
+    },
+    "Report": {
+      "conclusion": "success",
+      "run_number": 62,
+      "run_id": 41234160731,
+      "head_sha": "3e2826e9298b08e1c89869d64c6477f44b9bbd8d",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/41234160731",
+      "created_at": "2026-10-31T19:25:35Z"
+    }
+  },
+  "recent": [
+    {
+      "name": "CI Status",
+      "conclusion": null,
+      "head_sha": "3e2826e9298b08e1c89869d64c6477f44b9bbd8d",
+      "run_number": 120,
+      "created_at": "2026-10-31T19:25:47Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "3e2826e9298b08e1c89869d64c6477f44b9bbd8d",
+      "run_number": 62,
+      "created_at": "2026-10-31T19:25:35Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "3e2826e9298b08e1c89869d64c6477f44b9bbd8d",
+      "run_number": 119,
+      "created_at": "2026-10-31T19:25:35Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "success",
+      "head_sha": "3e2826e9298b08e1c89869d64c6477f44b9bbd8d",
+      "run_number": 241,
+      "created_at": "2026-10-31T18:52:01Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 118,
+      "created_at": "2026-10-31T15:28:34Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 61,
+      "created_at": "2026-10-31T15:28:21Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 117,
+      "created_at": "2026-10-31T15:28:21Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 116,
+      "created_at": "2026-10-31T15:04:51Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 60,
+      "created_at": "2026-10-31T15:04:35Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 115,
+      "created_at": "2026-10-31T15:04:35Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "success",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 240,
+      "created_at": "2026-10-31T14:57:18Z"
+    },
+    {
+      "name": "Android APK",
+      "conclusion": "success",
+      "head_sha": "94b9058b1fd820b365139031b60dc1715d266106",
+      "run_number": 60,
+      "created_at": "2026-10-31T14:57:18Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 114,
+      "created_at": "2026-10-31T09:57:52Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 113,
+      "created_at": "2026-10-31T09:57:39Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 59,
+      "created_at": "2026-10-31T09:57:39Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 112,
+      "created_at": "2026-10-31T09:31:42Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 111,
+      "created_at": "2026-10-31T09:31:33Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 58,
+      "created_at": "2026-10-31T09:31:33Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 110,
+      "created_at": "2026-10-31T09:25:11Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "d3c79516608ef33081444ecafcc6b1f788708baa",
+      "run_number": 109,
+      "created_at": "2026-10-31T09:24:57Z"
+    }
+  ]
+}

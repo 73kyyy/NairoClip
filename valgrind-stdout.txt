@@ -1,0 +1,3693 @@
+[ RUN  ] Rational.Normalize
+[  OK  ] Rational.Normalize
+[ RUN  ] Rational.Arithmetic
+[  OK  ] Rational.Arithmetic
+[ RUN  ] Rational.CompareAndRound
+[  OK  ] Rational.CompareAndRound
+[ RUN  ] Rational.MultiplicationExactlyFitsIn128
+[  OK  ] Rational.MultiplicationExactlyFitsIn128
+[ RUN  ] Rational.LargeButInRangeMultiplicationIsExact
+[  OK  ] Rational.LargeButInRangeMultiplicationIsExact
+[ RUN  ] Rational.MultiplicationUsesCrossReduction
+[  OK  ] Rational.MultiplicationUsesCrossReduction
+[ RUN  ] Rational.ComparisonHandlesLargeValues
+[  OK  ] Rational.ComparisonHandlesLargeValues
+[ RUN  ] Rational.NegativeDenominatorNormalizationHandlesMin
+[  OK  ] Rational.NegativeDenominatorNormalizationHandlesMin
+[ RUN  ] Rational.RoundToIntDoesNotOverflow
+[  OK  ] Rational.RoundToIntDoesNotOverflow
+[ RUN  ] Rational.AdditionSaturatesInsteadOfUb
+[  OK  ] Rational.AdditionSaturatesInsteadOfUb
+[ RUN  ] Rational.SubtractionSaturatesInsteadOfUb
+[  OK  ] Rational.SubtractionSaturatesInsteadOfUb
+[ RUN  ] Rational.NormalArithmeticDoesNotSetOverflowFlag
+[  OK  ] Rational.NormalArithmeticDoesNotSetOverflowFlag
+[ RUN  ] Rational.FramerateArithmeticStaysExact
+[  OK  ] Rational.FramerateArithmeticStaysExact
+[ RUN  ] Time.FrameConversions
+[  OK  ] Time.FrameConversions
+[ RUN  ] Time.FractionalFrameRate
+[  OK  ] Time.FractionalFrameRate
+[ RUN  ] Time.Microseconds
+[  OK  ] Time.Microseconds
+[ RUN  ] Time.Formatting
+[  OK  ] Time.Formatting
+[ RUN  ] Model.ClipDerivedValues
+[  OK  ] Model.ClipDerivedValues
+[ RUN  ] Model.TrackInvariantsAndQueries
+[  OK  ] Model.TrackInvariantsAndQueries
+[ RUN  ] Model.TrackDetectsInvalidState
+[  OK  ] Model.TrackDetectsInvalidState
+[ RUN  ] Model.SequenceDuration
+[  OK  ] Model.SequenceDuration
+[ RUN  ] ModelInvariants.ClipValidAcceptsWellFormed
+[  OK  ] ModelInvariants.ClipValidAcceptsWellFormed
+[ RUN  ] ModelInvariants.ClipEndIsStartPlusDuration
+[  OK  ] ModelInvariants.ClipEndIsStartPlusDuration
+[ RUN  ] ModelInvariants.ClipRejectsZeroDuration
+[  OK  ] ModelInvariants.ClipRejectsZeroDuration
+[ RUN  ] ModelInvariants.ClipRejectsNegativeDuration
+[  OK  ] ModelInvariants.ClipRejectsNegativeDuration
+[ RUN  ] ModelInvariants.ClipRejectsNegativeStart
+[  OK  ] ModelInvariants.ClipRejectsNegativeStart
+[ RUN  ] ModelInvariants.ClipRejectsNonPositiveSpeed
+[  OK  ] ModelInvariants.ClipRejectsNonPositiveSpeed
+[ RUN  ] ModelInvariants.ClipRejectsNegativeSourceIn
+[  OK  ] ModelInvariants.ClipRejectsNegativeSourceIn
+[ RUN  ] ModelInvariants.TrackEmptyIsValid
+[  OK  ] ModelInvariants.TrackEmptyIsValid
+[ RUN  ] ModelInvariants.TrackAcceptsOrderedNonOverlappingClips
+[  OK  ] ModelInvariants.TrackAcceptsOrderedNonOverlappingClips
+[ RUN  ] ModelInvariants.TrackAcceptsTouchingClips
+[  OK  ] ModelInvariants.TrackAcceptsTouchingClips
+[ RUN  ] ModelInvariants.TrackRejectsOverlappingClips
+[  OK  ] ModelInvariants.TrackRejectsOverlappingClips
+[ RUN  ] ModelInvariants.TrackRejectsUnsortedClips
+[  OK  ] ModelInvariants.TrackRejectsUnsortedClips
+[ RUN  ] ModelInvariants.TrackRejectsInvalidClip
+[  OK  ] ModelInvariants.TrackRejectsInvalidClip
+[ RUN  ] ModelInvariants.TrackSortClipsRestoresOrder
+[  OK  ] ModelInvariants.TrackSortClipsRestoresOrder
+[ RUN  ] ModelInvariants.TrackHasOverlapDetectsIntersection
+[  OK  ] ModelInvariants.TrackHasOverlapDetectsIntersection
+[ RUN  ] ModelInvariants.TrackHasOverlapCanIgnoreSelf
+[  OK  ] ModelInvariants.TrackHasOverlapCanIgnoreSelf
+[ RUN  ] ModelInvariants.TrackFindClipAndIndexOf
+[  OK  ] ModelInvariants.TrackFindClipAndIndexOf
+[ RUN  ] ModelInvariants.TrackGainBounds
+[  OK  ] ModelInvariants.TrackGainBounds
+[ RUN  ] ModelInvariants.AutoDuckDefaultsAndBounds
+[  OK  ] ModelInvariants.AutoDuckDefaultsAndBounds
+[ RUN  ] ModelInvariants.AutoDuckVoiceThresholdMapsInversely
+[  OK  ] ModelInvariants.AutoDuckVoiceThresholdMapsInversely
+[ RUN  ] ModelInvariants.SequenceEmptyDurationIsZero
+[  OK  ] ModelInvariants.SequenceEmptyDurationIsZero
+[ RUN  ] ModelInvariants.SequenceDurationTakesMaxClipEnd
+[  OK  ] ModelInvariants.SequenceDurationTakesMaxClipEnd
+[ RUN  ] ModelInvariants.SequenceDurationHandlesGap
+[  OK  ] ModelInvariants.SequenceDurationHandlesGap
+[ RUN  ] ModelInvariants.SequenceFindTrack
+[  OK  ] ModelInvariants.SequenceFindTrack
+[ RUN  ] ModelInvariants.SequencePropagatesTrackInvariantFailure
+[  OK  ] ModelInvariants.SequencePropagatesTrackInvariantFailure
+[ RUN  ] ModelInvariants.SequenceDefaultsAreSane
+[  OK  ] ModelInvariants.SequenceDefaultsAreSane
+[ RUN  ] ThreadSafety.ProjectDeepCopyIsIndependent
+[  OK  ] ThreadSafety.ProjectDeepCopyIsIndependent
+[ RUN  ] ThreadSafety.SnapshotUnaffectedByConcurrentEdits
+[  OK  ] ThreadSafety.SnapshotUnaffectedByConcurrentEdits
+[ RUN  ] ThreadSafety.RationalIsSafeForConcurrentReadOnly
+[  OK  ] ThreadSafety.RationalIsSafeForConcurrentReadOnly
+[ RUN  ] Editor.InsertAndQuery
+[  OK  ] Editor.InsertAndQuery
+[ RUN  ] Editor.InsertOverlapRejected
+[  OK  ] Editor.InsertOverlapRejected
+[ RUN  ] Editor.SourceRangeRejected
+[  OK  ] Editor.SourceRangeRejected
+[ RUN  ] Editor.UndoRedoInsert
+[  OK  ] Editor.UndoRedoInsert
+[ RUN  ] Editor.SplitClip
+[  OK  ] Editor.SplitClip
+[ RUN  ] Editor.SplitRejectsOutside
+[  OK  ] Editor.SplitRejectsOutside
+[ RUN  ] Editor.MoveClip
+[  OK  ] Editor.MoveClip
+[ RUN  ] Editor.TrimStartAdjustsSourceIn
+[  OK  ] Editor.TrimStartAdjustsSourceIn
+[ RUN  ] Editor.TrimStartBeyondSourceRejected
+[  OK  ] Editor.TrimStartBeyondSourceRejected
+[ RUN  ] Editor.TrimEnd
+[  OK  ] Editor.TrimEnd
+[ RUN  ] Editor.SetSpeedKeepsSourceRange
+[  OK  ] Editor.SetSpeedKeepsSourceRange
+[ RUN  ] Editor.SpeedOverlapRejected
+[  OK  ] Editor.SpeedOverlapRejected
+[ RUN  ] Editor.RemoveClipAndUndoOrder
+[  OK  ] Editor.RemoveClipAndUndoOrder
+[ RUN  ] Editor.RedoTruncatedByNewCommand
+[  OK  ] Editor.RedoTruncatedByNewCommand
+[ RUN  ] Editor.HistoryNames
+[  OK  ] Editor.HistoryNames
+[ RUN  ] Editor.LockedTrackRejected
+[  OK  ] Editor.LockedTrackRejected
+[ RUN  ] Editor.ImportAsset
+[  OK  ] Editor.ImportAsset
+[ RUN  ] Editor.UpsertSubtitleWithUndo
+[  OK  ] Editor.UpsertSubtitleWithUndo
+[ RUN  ] Editor.RemoveSubtitleWithUndo
+[  OK  ] Editor.RemoveSubtitleWithUndo
+[ RUN  ] Editor.RemoveMissingSubtitleFails
+[  OK  ] Editor.RemoveMissingSubtitleFails
+[ RUN  ] Editor.TransactionGroupsCommands
+[  OK  ] Editor.TransactionGroupsCommands
+[ RUN  ] Editor.EmptyTransactionNoHistory
+[  OK  ] Editor.EmptyTransactionNoHistory
+[ RUN  ] Editor.NestedTransaction
+[  OK  ] Editor.NestedTransaction
+[ RUN  ] Editor.TrackPropertyCommandsWithUndo
+[  OK  ] Editor.TrackPropertyCommandsWithUndo
+[ RUN  ] Editor.LockedTrackRejectsEdits
+[  OK  ] Editor.LockedTrackRejectsEdits
+[ RUN  ] Editor.DetachAudioCreatesAudioClip
+[  OK  ] Editor.DetachAudioCreatesAudioClip
+[ RUN  ] Editor.DetachAudioRejectsOverlap
+[  OK  ] Editor.DetachAudioRejectsOverlap
+[ RUN  ] Editor.MarkerCommandsWithUndo
+[  OK  ] Editor.MarkerCommandsWithUndo
+[ RUN  ] Editor.ClipAudioProperties
+[  OK  ] Editor.ClipAudioProperties
+[ RUN  ] Editor.ClipAudioRejectsInvalid
+[  OK  ] Editor.ClipAudioRejectsInvalid
+[ RUN  ] Editor.AssetImportUndoRedo
+[  OK  ] Editor.AssetImportUndoRedo
+[ RUN  ] Editor.RemoveAssetRejectedWhenReferenced
+[  OK  ] Editor.RemoveAssetRejectedWhenReferenced
+[ RUN  ] Editor.RemoveUnreferencedAssetWithUndo
+[  OK  ] Editor.RemoveUnreferencedAssetWithUndo
+[ RUN  ] Editor.GestureMergeCollapsesMoves
+[  OK  ] Editor.GestureMergeCollapsesMoves
+[ RUN  ] Editor.MergeDisabledKeepsSeparateHistory
+[  OK  ] Editor.MergeDisabledKeepsSeparateHistory
+[ RUN  ] Editor.AudioClipRejectedOnVideoTrack
+[  OK  ] Editor.AudioClipRejectedOnVideoTrack
+[ RUN  ] Editor.ImageClipRejectedOnAudioTrack
+[  OK  ] Editor.ImageClipRejectedOnAudioTrack
+[ RUN  ] Editor.VideoAssetAllowedOnAudioTrackForSoundExtraction
+[  OK  ] Editor.VideoAssetAllowedOnAudioTrackForSoundExtraction
+[ RUN  ] Editor.ImageClipAllowedOnVideoTrack
+[  OK  ] Editor.ImageClipAllowedOnVideoTrack
+[ RUN  ] Editor.AudioClipAllowedOnAudioTrack
+[  OK  ] Editor.AudioClipAllowedOnAudioTrack
+[ RUN  ] Editor.UnknownTypeClipNotBlockedByTrackType
+[  OK  ] Editor.UnknownTypeClipNotBlockedByTrackType
+[ RUN  ] Editor.ClipWithoutAssetRejectedOnSubtitleAndEffectTracks
+[  OK  ] Editor.ClipWithoutAssetRejectedOnSubtitleAndEffectTracks
+[ RUN  ] Editor.MoveClipToWrongTypeTrackRejected
+[  OK  ] Editor.MoveClipToWrongTypeTrackRejected
+[ RUN  ] Editor.CompoundClipRejectedOnAudioTrack
+[  OK  ] Editor.CompoundClipRejectedOnAudioTrack
+[ RUN  ] Editor.DetachAudioStillWorksOnAudioTrack
+[  OK  ] Editor.DetachAudioStillWorksOnAudioTrack
+[ RUN  ] Editor.MoveTrackReordersAndUndoes
+[  OK  ] Editor.MoveTrackReordersAndUndoes
+[ RUN  ] Editor.MoveTrackUpward
+[  OK  ] Editor.MoveTrackUpward
+[ RUN  ] Editor.MoveTrackRejectsOutOfRange
+[  OK  ] Editor.MoveTrackRejectsOutOfRange
+[ RUN  ] Editor.MoveTrackRejectsLockedTrack
+[  OK  ] Editor.MoveTrackRejectsLockedTrack
+[ RUN  ] Editor.MoveTrackAllowsCrossType
+[  OK  ] Editor.MoveTrackAllowsCrossType
+[ RUN  ] Editor.MoveTrackToSameIndexKeepsOrder
+[  OK  ] Editor.MoveTrackToSameIndexKeepsOrder
+[ RUN  ] Editor.MoveTrackMergesConsecutiveDrags
+[  OK  ] Editor.MoveTrackMergesConsecutiveDrags
+[ RUN  ] Editor.TrackHeightDefaultsAndRange
+[  OK  ] Editor.TrackHeightDefaultsAndRange
+[ RUN  ] Editor.TrackHeightChangeUndoes
+[  OK  ] Editor.TrackHeightChangeUndoes
+[ RUN  ] Editor.TrackCollapseKeepsHeight
+[  OK  ] Editor.TrackCollapseKeepsHeight
+[ RUN  ] Keyframe.EasingPresets
+[  OK  ] Keyframe.EasingPresets
+[ RUN  ] Keyframe.BezierClampsControlX
+[  OK  ] Keyframe.BezierClampsControlX
+[ RUN  ] Keyframe.InsertSortedAndReplace
+[  OK  ] Keyframe.InsertSortedAndReplace
+[ RUN  ] Keyframe.InsertRejectsNegativeTime
+[  OK  ] Keyframe.InsertRejectsNegativeTime
+[ RUN  ] Keyframe.SampleInterpolates
+[  OK  ] Keyframe.SampleInterpolates
+[ RUN  ] Keyframe.SampleClampsOutside
+[  OK  ] Keyframe.SampleClampsOutside
+[ RUN  ] Keyframe.SampleWithEasing
+[  OK  ] Keyframe.SampleWithEasing
+[ RUN  ] Keyframe.SteppedHoldsValue
+[  OK  ] Keyframe.SteppedHoldsValue
+[ RUN  ] Keyframe.RemoveAndClear
+[  OK  ] Keyframe.RemoveAndClear
+[ RUN  ] Keyframe.SampleEmptyReturnsFallback
+[  OK  ] Keyframe.SampleEmptyReturnsFallback
+[ RUN  ] Keyframe.FractionalTimesNoDrift
+[  OK  ] Keyframe.FractionalTimesNoDrift
+[ RUN  ] Transition.Names
+[  OK  ] Transition.Names
+[ RUN  ] Transition.ValidWithinGap
+[  OK  ] Transition.ValidWithinGap
+[ RUN  ] Transition.RejectsZeroDuration
+[  OK  ] Transition.RejectsZeroDuration
+[ RUN  ] Transition.RejectsMissingClips
+[  OK  ] Transition.RejectsMissingClips
+[ RUN  ] Transition.RejectsTooLongForGap
+[  OK  ] Transition.RejectsTooLongForGap
+[ RUN  ] Transition.RejectsReversedOrder
+[  OK  ] Transition.RejectsReversedOrder
+[ RUN  ] Transition.RejectsConflictWithExisting
+[  OK  ] Transition.RejectsConflictWithExisting
+[ RUN  ] Transition.AllowsSelfInExisting
+[  OK  ] Transition.AllowsSelfInExisting
+[ RUN  ] Transition.EditorAddAndUndo
+[  OK  ] Transition.EditorAddAndUndo
+[ RUN  ] Transition.EditorRejectsInvalid
+[  OK  ] Transition.EditorRejectsInvalid
+[ RUN  ] CrossTrack.MoveToAnotherTrack
+[  OK  ] CrossTrack.MoveToAnotherTrack
+[ RUN  ] CrossTrack.UndoRestoresBothTracks
+[  OK  ] CrossTrack.UndoRestoresBothTracks
+[ RUN  ] CrossTrack.RejectsSameTrack
+[  OK  ] CrossTrack.RejectsSameTrack
+[ RUN  ] CrossTrack.RejectsOverlapOnTarget
+[  OK  ] CrossTrack.RejectsOverlapOnTarget
+[ RUN  ] CrossTrack.RejectsLockedTarget
+[  OK  ] CrossTrack.RejectsLockedTarget
+[ RUN  ] CrossTrack.HistoryName
+[  OK  ] CrossTrack.HistoryName
+[ RUN  ] SpeedCurve.AddAndReplacePoint
+[  OK  ] SpeedCurve.AddAndReplacePoint
+[ RUN  ] SpeedCurve.RejectsOutOfRange
+[  OK  ] SpeedCurve.RejectsOutOfRange
+[ RUN  ] SpeedCurve.ConstantSpeed
+[  OK  ] SpeedCurve.ConstantSpeed
+[ RUN  ] SpeedCurve.SpeedAtInterpolates
+[  OK  ] SpeedCurve.SpeedAtInterpolates
+[ RUN  ] SpeedCurve.RampIntegration
+[  OK  ] SpeedCurve.RampIntegration
+[ RUN  ] SpeedCurve.RemoveAndClear
+[  OK  ] SpeedCurve.RemoveAndClear
+[ RUN  ] SpeedCurve.EmptyCurveUsesFallback
+[  OK  ] SpeedCurve.EmptyCurveUsesFallback
+[ RUN  ] SpeedCurve.ZeroRangeReturnsZero
+[  OK  ] SpeedCurve.ZeroRangeReturnsZero
+[ RUN  ] Json.ValueBasics
+[  OK  ] Json.ValueBasics
+[ RUN  ] Json.ObjectAndArrayAccess
+[  OK  ] Json.ObjectAndArrayAccess
+[ RUN  ] Json.RoundtripBasic
+[  OK  ] Json.RoundtripBasic
+[ RUN  ] Json.EscapeRoundtrip
+[  OK  ] Json.EscapeRoundtrip
+[ RUN  ] Json.UnicodeEscape
+[  OK  ] Json.UnicodeEscape
+[ RUN  ] Json.ParseErrors
+[  OK  ] Json.ParseErrors
+[ RUN  ] Json.Int64Precision
+[  OK  ] Json.Int64Precision
+[ RUN  ] Json.PrettyPrintContainsNewlines
+[  OK  ] Json.PrettyPrintContainsNewlines
+[ RUN  ] Serialization.SaveLoadRoundtrip
+[  OK  ] Serialization.SaveLoadRoundtrip
+[ RUN  ] Serialization.IdsRestoredForNewEntities
+[  OK  ] Serialization.IdsRestoredForNewEntities
+[ RUN  ] Serialization.RejectsWrongFormat
+[  OK  ] Serialization.RejectsWrongFormat
+[ RUN  ] Serialization.RejectsFutureVersion
+[  OK  ] Serialization.RejectsFutureVersion
+[ RUN  ] Serialization.RejectsBadJson
+[  OK  ] Serialization.RejectsBadJson
+[ RUN  ] Serialization.RejectsDanglingAssetReference
+[  OK  ] Serialization.RejectsDanglingAssetReference
+[ RUN  ] Serialization.FailedLoadLeavesTargetUnmodified
+[  OK  ] Serialization.FailedLoadLeavesTargetUnmodified
+[ RUN  ] Serialization.AnimationRoundtrip
+[  OK  ] Serialization.AnimationRoundtrip
+[ RUN  ] Serialization.ClipWithoutAnimationOmitsField
+[  OK  ] Serialization.ClipWithoutAnimationOmitsField
+[ RUN  ] Serialization.SubtitleRoundtrip
+[  OK  ] Serialization.SubtitleRoundtrip
+[ RUN  ] Serialization.TransitionRoundtrip
+[  OK  ] Serialization.TransitionRoundtrip
+[ RUN  ] Serialization.SpeedCurveRoundtrip
+[  OK  ] Serialization.SpeedCurveRoundtrip
+[ RUN  ] Serialization.ClipAudioRoundtrip
+[  OK  ] Serialization.ClipAudioRoundtrip
+[ RUN  ] Serialization.EffectsRoundtrip
+[  OK  ] Serialization.EffectsRoundtrip
+[ RUN  ] Serialization.RoundTripsAnimationAndSpeedCurve
+[  OK  ] Serialization.RoundTripsAnimationAndSpeedCurve
+[ RUN  ] Serialization.MinimalV1FileLoadsWithDefaults
+[  OK  ] Serialization.MinimalV1FileLoadsWithDefaults
+[ RUN  ] Serialization.V1FileWithoutProxiesLoads
+[  OK  ] Serialization.V1FileWithoutProxiesLoads
+[ RUN  ] Serialization.V1MissingProjectNameGetsDefault
+[  OK  ] Serialization.V1MissingProjectNameGetsDefault
+[ RUN  ] Serialization.FutureVersionMessageIsActionable
+[  OK  ] Serialization.FutureVersionMessageIsActionable
+[ RUN  ] Serialization.ZeroAndNegativeVersionRejected
+[  OK  ] Serialization.ZeroAndNegativeVersionRejected
+[ RUN  ] Serialization.LegacyEffectTrackTypeStillLoads
+[  OK  ] Serialization.LegacyEffectTrackTypeStillLoads
+[ RUN  ] Serialization.AdjustmentTrackTypeNameAccepted
+[  OK  ] Serialization.AdjustmentTrackTypeNameAccepted
+[ RUN  ] Serialization.AdjustmentTrackStillWritesLegacyName
+[  OK  ] Serialization.AdjustmentTrackStillWritesLegacyName
+[ RUN  ] Serialization.AdjustmentAndEffectAreSameValue
+[  OK  ] Serialization.AdjustmentAndEffectAreSameValue
+[ RUN  ] Serialization.TrackHeightRoundtrip
+[  OK  ] Serialization.TrackHeightRoundtrip
+[ RUN  ] Serialization.TrackDefaultHeightOmitsField
+[  OK  ] Serialization.TrackDefaultHeightOmitsField
+[ RUN  ] Serialization.TrackHeightMissingUsesDefault
+[  OK  ] Serialization.TrackHeightMissingUsesDefault
+[ RUN  ] Serialization.TrackHeightOutOfRangeIsClamped
+[  OK  ] Serialization.TrackHeightOutOfRangeIsClamped
+[ RUN  ] Recovery.StoreReadWrite
+[  OK  ] Recovery.StoreReadWrite
+[ RUN  ] Recovery.CleanTickProducesNothing
+[  OK  ] Recovery.CleanTickProducesNothing
+[ RUN  ] Recovery.IdleSaveAfterDebounce
+[  OK  ] Recovery.IdleSaveAfterDebounce
+[ RUN  ] Recovery.PeriodicSaveBasedOnInterval
+[  OK  ] Recovery.PeriodicSaveBasedOnInterval
+[ RUN  ] Recovery.RingBufferEvictsOldest
+[  OK  ] Recovery.RingBufferEvictsOldest
+[ RUN  ] Recovery.MarkCleanClearsSnapshots
+[  OK  ] Recovery.MarkCleanClearsSnapshots
+[ RUN  ] Recovery.EmptySnapshotRejected
+[  OK  ] Recovery.EmptySnapshotRejected
+[ RUN  ] Recovery.OversizedSnapshotRejected
+[  OK  ] Recovery.OversizedSnapshotRejected
+[ RUN  ] Recovery.RecoverWithoutSnapshotFails
+[  OK  ] Recovery.RecoverWithoutSnapshotFails
+[ RUN  ] Recovery.SnapshotIntegratesWithSerialization
+[  OK  ] Recovery.SnapshotIntegratesWithSerialization
+[ RUN  ] Animation.DefaultValuesWhenNoCurve
+[  OK  ] Animation.DefaultValuesWhenNoCurve
+[ RUN  ] Animation.PropertySpecAndNames
+[  OK  ] Animation.PropertySpecAndNames
+[ RUN  ] Animation.CurveInsertAndSample
+[  OK  ] Animation.CurveInsert[h264_nvenc @ 0x11e0c200] [Eval @ 0x1ffeffe030] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x11e0c200] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11e0bd80] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e29480] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e29480] Supported pixel formats:
+[h264_qsv @ 0x11e29480]   nv12
+[h264_qsv @ 0x11e29480]   qsv
+[h264_vaapi @ 0x11e2bb80] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11e2bb80] Supported pixel formats:
+[h264_vaapi @ 0x11e2bb80]   vaapi
+[h264_v4l2m2m @ 0x11e303c0] Could not find a valid device
+[h264_v4l2m2m @ 0x11e303c0] can't configure encoder
+[libx264 @ 0x11e3ad40] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x11e3ad40] profile High, level 4.0, 4:2:0, 8-bit
+[h264_nvenc @ 0x1233c900] [Eval @ 0x1ffeffe030] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1233c900] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x123d52c0] Cannot load libcuda.so.1
+[h264_qsv @ 0x12358740] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x12358740] Supported pixel formats:
+[h264_qsv @ 0x12358740]   nv12
+[h264_qsv @ 0x12358740]   qsv
+[h264_vaapi @ 0x123d8080] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x123d8080] Supported pixel formats:
+[h264_vaapi @ 0x123d8080]   vaapi
+[h264_v4l2m2m @ 0x1235dd40] Could not find a valid device
+[h264_v4l2m2m @ 0x1235dd40] can't configure encoder
+[libx264 @ 0x12368680] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x12368680] profile High, level 4.0, 4:2:0, 8-bit
+AndSample
+[ RUN  ] Animation.RemovesAndClearsCurves
+[  OK  ] Animation.RemovesAndClearsCurves
+[ RUN  ] Animation.SampleClampsToSpec
+[  OK  ] Animation.SampleClampsToSpec
+[ RUN  ] Animation.InvariantsDetectOutOfRange
+[  OK  ] Animation.InvariantsDetectOutOfRange
+[ RUN  ] Animation.LocalTimeSampling
+[  OK  ] Animation.LocalTimeSampling
+[ RUN  ] Animation.EasedCurveSample
+[  OK  ] Animation.EasedCurveSample
+[ RUN  ] Animation.EditorKeyframeWithUndo
+[  OK  ] Animation.EditorKeyframeWithUndo
+[ RUN  ] ExportPlan.CompilesClips
+[  OK  ] ExportPlan.CompilesClips
+[ RUN  ] ExportPlan.SkipsDisabledClips
+[  OK  ] ExportPlan.SkipsDisabledClips
+[ RUN  ] ExportPlan.WarnsHiddenAndMuted
+[  OK  ] ExportPlan.WarnsHiddenAndMuted
+[ RUN  ] ExportPlan.WarnsOfflineAsset
+[  OK  ] ExportPlan.WarnsOfflineAsset
+[ RUN  ] ExportPlan.WarnsMissingAsset
+[  OK  ] ExportPlan.WarnsMissingAsset
+[ RUN  ] ExportPlan.FlagsAnimatedClips
+[  OK  ] ExportPlan.FlagsAnimatedClips
+[ RUN  ] ExportPlan.RejectsInvalidPlan
+[  OK  ] ExportPlan.RejectsInvalidPlan
+[ RUN  ] ExportPlan.CompilesTransitions
+[  OK  ] ExportPlan.CompilesTransitions
+[ RUN  ] Capi.AbiVersion
+[  OK  ] Capi.AbiVersion
+[ RUN  ] Capi.CreateDestroy
+[  OK  ] Capi.CreateDestroy
+[ RUN  ] Capi.NullSafety
+[  OK  ] Capi.NullSafety
+[ RUN  ] Capi.ImportAndAddTrack
+[  OK  ] Capi.ImportAndAddTrack
+[ RUN  ] Capi.InsertClipAndDuration
+[  OK  ] Capi.InsertClipAndDuration
+[ RUN  ] Capi.RejectsInvalidInsert
+[  OK  ] Capi.RejectsInvalidInsert
+[ RUN  ] Capi.UndoRedo
+[  OK  ] Capi.UndoRedo
+[ RUN  ] Capi.SaveLoadRoundtrip
+[  OK  ] Capi.SaveLoadRoundtrip
+[ RUN  ] Capi.LoadFailureProvidesDetail
+[  OK  ] Capi.LoadFailureProvidesDetail
+[ RUN  ] Capi.CollisionRejectedWithCode
+[  OK  ] Capi.CollisionRejectedWithCode
+[ RUN  ] Capi.SubtitleCrud
+[  OK  ] Capi.SubtitleCrud
+[ RUN  ] Capi.TransitionCrud
+[  OK  ] Capi.TransitionCrud
+[ RUN  ] Capi.ClipGet
+[  OK  ] Capi.ClipGet
+[ RUN  ] Capi.EffectCrud
+[  OK  ] Capi.EffectCrud
+[ RUN  ] Capi.KeyframeAndAudio
+[  OK  ] Capi.KeyframeAndAudio
+[ RUN  ] Capi.AutoEditEndToEnd
+[  OK  ] Capi.AutoEditEndToEnd
+[ RUN  ] Capi.AutoEditRejectsBadArgs
+[  OK  ] Capi.AutoEditRejectsBadArgs
+[ RUN  ] Capi.ExportRunEndToEnd
+[  OK  ] Capi.ExportRunEndToEnd
+[ RUN  ] Capi.ExportRejectsNullArgs
+[  OK  ] Capi.ExportRejectsNullArgs
+[ RUN  ] Capi.AiLabelParamPlumbsThrough
+[  OK  ] Capi.AiLabelParamPlumbsThrough
+[ RUN  ] Capi.FrameFitSetGet
+[  OK  ] Capi.FrameFitSetGet
+[ RUN  ] Capi.FrameFitNullSafety
+[  OK  ] Capi.FrameFitNullSafety
+[ RUN  ] Capi.FrameFitPersistsThroughSaveLoad
+[  OK  ] Capi.FrameFitPersistsThroughSaveLoad
+[ RUN  ] Capi.AutoDuckSetGet
+[  OK  ] Capi.AutoDuckSetGet
+[ RUN  ] Capi.AutoDuckRejectsVideoTrack
+[  OK  ] Capi.AutoDuckRejectsVideoTrack
+[ RUN  ] Capi.AutoDuckNullSafety
+[  OK  ] Capi.AutoDuckNullSafety
+[ RUN  ] Capi.CompoundClipCreateAndUnwrap
+[  OK  ] Capi.CompoundClipCreateAndUnwrap
+[ RUN  ] Capi.CompoundClipRejectsBadArgs
+[  OK  ] Capi.CompoundClipRejectsBadArgs
+[ RUN  ] Capi.MixerConsoleControls
+[  OK  ] Capi.MixerConsoleControls
+[ RUN  ] Capi.MixerConsoleNullSafety
+[  OK  ] Capi.MixerConsoleNullSafety
+[ RUN  ] Capi.EntitlementSetGetAndTrackGate
+[  OK  ] Capi.EntitlementSetGetAndTrackGate
+[ RUN  ] Capi.EntitlementExportClampQuery
+[  OK  ] Capi.EntitlementExportClampQuery
+[ RUN  ] Capi.EntitlementNullSafety
+[  OK  ] Capi.EntitlementNullSafety
+[ RUN  ] Capi.AiCheckReportsIssuesAndFixes
+[  OK  ] Capi.AiCheckReportsIssuesAndFixes
+[ RUN  ] Capi.AiCheckNullSafety
+[  OK  ] Capi.AiCheckNullSafety
+[ RUN  ] Capi.ProxyRecordsAndUsage
+[  OK  ] Capi.ProxyRecordsAndUsage
+[ RUN  ] Capi.ProxyImportCheckAndNullSafety
+[  OK  ] Capi.ProxyImportCheckAndNullSafety
+[ RUN  ] Capi.ExportPresetsAndEstimate
+[  OK  ] Capi.ExportPresetsAndEstimate
+[ RUN  ] Capi.ExportSetupPresetGating
+[  OK  ] Capi.ExportSetupPresetGating
+[ RUN  ] Capi.SpeechCutNullSafetyAndErrors
+[  OK  ] Capi.SpeechCutNullSafetyAndErrors
+[ RUN  ] Capi.SpeechCutRealAudioEndToEnd
+[  OK  ] Capi.SpeechCutRealAudioEndToEnd
+[ RUN  ] Capi.ClipMaskSetGetAndClear
+[  OK  ] Capi.ClipMaskSetGetAndClear
+[ RUN  ] Capi.ModelCatalogAndInfo
+[  OK  ] Capi.ModelCatalogAndInfo
+[ RUN  ] Capi.ModelStatusLifecycle
+[  OK  ] Capi.ModelStatusLifecycle
+[ RUN  ] Capi.ModelAccessGating
+[  OK  ] Capi.ModelAccessGating
+[ RUN  ] Capi.ModelResumePlanAndDecrypt
+[  OK  ] Capi.ModelResumePlanAndDecrypt
+[ RUN  ] Capi.ModelStorageStats
+[  OK  ] Capi.ModelStorageStats
+[ RUN  ] Capi.ChapterDetectNullSafety
+[  OK  ] Capi.ChapterDetectNullSafety
+[ RUN  ] Capi.ChapterDetectAndApplyOnEmptyTimeline
+[  OK  ] Capi.ChapterDetectAndApplyOnEmptyTimeline
+[ RUN  ] Capi.ChapterLifecycleWithClips
+[  OK  ] Capi.ChapterLifecycleWithClips
+[ RUN  ] Capi.ChapterRealMediaEndToEnd
+[  OK  ] Capi.ChapterRealMediaEndToEnd
+[ RUN  ] Capi.ExportQueueEnqueueAndLimits
+[  OK  ] Capi.ExportQueueEnqueueAndLimits
+[ RUN  ] Capi.ExportQueueSchedulingAndLifecycle
+[  OK  ] Capi.ExportQueueSchedulingAndLifecycle
+[ RUN  ] Capi.ExportQueueProTierAndCancelAll
+[  OK  ] Capi.ExportQueueProTierAndCancelAll
+[ RUN  ] Capi.MediaOfflineNoProbeFailsClosed
+[  OK  ] Capi.MediaOfflineNoProbeFailsClosed
+[ RUN  ] Capi.MediaOfflineScanAndRelink
+[  OK  ] Capi.MediaOfflineScanAndRelink
+[ RUN  ] Capi.MediaOfflineMissingAndRelinkFlow
+[  OK  ] Capi.MediaOfflineMissingAndRelinkFlow
+[ RUN  ] Capi.MediaFindCandidates
+[  OK  ] Capi.MediaFindCandidates
+[ RUN  ] Capi.MediaRelinkBatchFlow
+[  OK  ] Capi.MediaRelinkBatchFlow
+[ RUN  ] Capi.ReferenceStyleAndVersionGates
+[  OK  ] Capi.ReferenceStyleAndVersionGates
+[ RUN  ] Capi.SmartMoviePlanAndApply
+[  OK  ] Capi.SmartMoviePlanAndApply
+[ RUN  ] Capi.SmartMoviePartialFailure
+[  OK  ] Capi.SmartMoviePartialFailure
+[ RUN  ] Capi.RegenerationImpactAndClear
+[  OK  ] Capi.RegenerationImpactAndClear
+[ RUN  ] Capi.WatermarkAccountHashAndDetect
+[  OK  ] Capi.WatermarkAccountHashAndDetect
+[ RUN  ] Capi.WatermarkRealExportEndToEnd
+[诊断] 用例入口 后堆 OK
+[诊断] nc_export_run 之前 后堆 OK
+[h264_nvenc @ 0x122487c0] [Eval @ 0x1ffeffd7d0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x122487c0] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x12181340] Cannot load libcuda.so.1
+[h264_qsv @ 0x11d43780] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11d43780] Supported pixel formats:
+[h264_qsv @ 0x11d43780]   nv12
+[h264_qsv @ 0x11d43780]   qsv
+[h264_vaapi @ 0x11d43cc0] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11d43cc0] Supported pixel formats:
+[h264_vaapi @ 0x11d43cc0]   vaapi
+[h264_v4l2m2m @ 0x11ed3340] Could not find a valid device
+[h264_v4l2m2m @ 0x11ed3340] can't configure encoder
+[libx264 @ 0x12180e00] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x12180e00] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x12180e00] frame I:1     Avg QP: 8.30  size: 20122
+[libx264 @ 0x12180e00] frame P:10    Avg QP:10.71  size:  3959
+[libx264 @ 0x12180e00] frame B:19    Avg QP:11.87  size:  1543
+[libx264 @ 0x12180e00] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x12180e00] mb I  I16..4: 84.3%  8.7%  7.0%
+[libx264 @ 0x12180e00] mb P  I16..4:  4.0%  3.3%  0.0%  P16..4:  2.5%  0.7%  0.2%  0.0%  0.0%    skip:89.3%
+[libx264 @ 0x12180e00] mb B  I16..4:  0.5%  0.4%  0.0%  B16..8:  2.3%  0.6%  0.1%  direct: 2.1%  skip:94.0%  L0:50.1% L1:47.8% BI: 2.1%
+[libx264 @ 0x12180e00] 8x8 transform intra:25.5% inter:37.7%
+[libx264 @ 0x12180e00] coded y,uvDC,uvAC intra: 13.7% 45.2% 27.4% inter: 0.2% 3.5% 0.4%
+[libx264 @ 0x12180e00] i16 v,h,dc,p: 83% 11%  2%  4%
+[libx264 @ 0x12180e00] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 49% 22% 17%  2%  2%  3%  2%  3%  1%
+[libx264 @ 0x12180e00] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 37% 22% 33%  1%  2%  1%  2%  1%  1%
+[libx264 @ 0x12180e00] i8c dc,h,v,p: 49% 14% 26% 11%
+[libx264 @ 0x12180e00] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x12180e00] kb/s:712.21
+[诊断] nc_export_run 之后 后堆 OK
+[诊断] 解码前 后堆 OK
+[诊断] reader.open 后堆 OK
+[诊断] readVideoFrame 后堆 OK
+[诊断] nc_watermark_detect 后堆 OK
+[诊断] readVideoFrame 后堆 OK
+[诊断] nc_watermark_detect 后堆 OK
+[诊断] readVideoFrame 后堆 OK
+[诊断] nc_watermark_detect 后堆 OK
+[诊断] readVideoFrame 后堆 OK
+[诊断] nc_watermark_detect 后堆 OK
+[诊断] readVideoFrame 后堆 OK
+[诊断] nc_watermark_detect 后堆 OK
+[诊断] reader.close 后堆 OK
+[实测] C ABI 导出水印：5/5 帧检出（agreement 阈值 0.9）
+[  OK  ] Capi.WatermarkRealExportEndToEnd
+[ RUN  ] Capi.HeartbeatLifecycle
+[  OK  ] Capi.HeartbeatLifecycle
+[ RUN  ] CapiTimeline.ProjectNameRoundtrip
+[  OK  ] CapiTimeline.ProjectNameRoundtrip
+[ RUN  ] CapiTimeline.ProjectCanvasAndFrameRate
+[  OK  ] CapiTimeline.ProjectCanvasAndFrameRate
+[ RUN  ] CapiTimeline.UndoCountAndHistoryNames
+[  OK  ] CapiTimeline.UndoCountAndHistoryNames
+[ RUN  ] CapiTimeline.UndoDepthLimitEnforced
+[  OK  ] CapiTimeline.UndoDepthLimitEnforced
+[ RUN  ] CapiTimeline.AssetListAndGet
+[  OK  ] CapiTimeline.AssetListAndGet
+[ RUN  ] CapiTimeline.AssetReferenceProtection
+[  OK  ] CapiTimeline.AssetReferenceProtection
+[ RUN  ] CapiTimeline.AssetReorder
+[  OK  ] CapiTimeline.AssetReorder
+[ RUN  ] CapiTimeline.TrackGetAndFlags
+[  OK  ] CapiTimeline.TrackGetAndFlags
+[ RUN  ] CapiTimeline.TrackRenameAndRemove
+[  OK  ] CapiTimeline.TrackRenameAndRemove
+[ RUN  ] CapiTimeline.SplitAndRemove
+[  OK  ] CapiTimeline.SplitAndRemove
+[ RUN  ] CapiTimeline.MoveTrimAndSpeed
+[  OK  ] CapiTimeline.MoveTrimAndSpeed
+[ RUN  ] CapiTimeline.MoveAcrossTracksAndCrossChecks
+[  OK  ] CapiTimeline.MoveAcrossTracksAndCrossChecks
+[ RUN  ] CapiTimeline.RippleDelete
+[  OK  ] CapiTimeline.RippleDelete
+[ RUN  ] CapiTimeline.DuplicateClip
+[  OK  ] CapiTimeline.DuplicateClip
+[ RUN  ] CapiTimeline.FreezeFrame
+[  OK  ] CapiTimeline.FreezeFrame
+[ RUN  ] CapiTimeline.ReverseClipAndPersistence
+[  OK  ] CapiTimeline.ReverseClipAndPersistence
+[ RUN  ] CapiTimeline.ClipInfoAndEnabled
+[  OK  ] CapiTimeline.ClipInfoAndEnabled
+[ RUN  ] CapiTimeline.ClipOpacity
+[  OK  ] CapiTimeline.ClipOpacity
+[ RUN  ] CapiTimeline.LockedTrackBlocksEdits
+[  OK  ] CapiTimeline.LockedTrackBlocksEdits
+[ RUN  ] CapiMedia.SpeedCurveSetGet
+[  OK  ] CapiMedia.SpeedCurveSetGet
+[ RUN  ] CapiMedia.SpeedCurveUndoable
+[  OK  ] CapiMedia.SpeedCurveUndoable
+[ RUN  ] CapiMedia.KeyframeQuery
+[  OK  ] CapiMedia.KeyframeQuery
+[ RUN  ] CapiMedia.Markers
+[  OK  ] CapiMedia.Markers
+[ RUN  ] CapiMedia.DetachAudio
+[  OK  ] CapiMedia.DetachAudio
+[ RUN  ] CapiMedia.PreviewRenderRealFrame
+[  OK  ] CapiMedia.PreviewRenderRealFrame
+[ RUN  ] CapiMedia.PreviewSubtitles
+[  OK  ] CapiMedia.PreviewSubtitles
+[ RUN  ] CapiMedia.ThumbnailGenerateReal
+[  OK  ] CapiMedia.ThumbnailGenerateReal
+[ RUN  ] CapiMedia.WaveformGenerateReal
+[  OK  ] CapiMedia.WaveformGenerateReal
+[ RUN  ] CapiMedia.SceneDetectReal
+[  OK  ] CapiMedia.SceneDetectReal
+[ RUN  ] CapiMedia.BeatDetectReal
+[  OK  ] CapiMedia.BeatDetectReal
+[ RUN  ] CapiMedia.PreviewInvalidate
+[  OK  ] CapiMedia.PreviewInvalidate
+[ RUN  ] PersonEffects.FlashBrightensDuringPulse
+[  OK  ] PersonEffects.FlashBrightensDuringPulse
+[ RUN  ] PersonEffects.MosaicPixelates
+[  OK  ] PersonEffects.MosaicPixelates
+[ RUN  ] PersonEffects.JitterShiftsFrame
+[  OK  ] PersonEffects.JitterShiftsFrame
+[ RUN  ] PersonEffects.ZoomInMagnifiesCenter
+[  OK  ] PersonEffects.ZoomInMagnifiesCenter
+[ RUN  ] PersonEffects.EdgeDetectFindsEdges
+[  OK  ] PersonEffects.EdgeDetectFindsEdges
+[ RUN  ] PersonEffects.SlimRequiresAlpha
+[  OK  ] PersonEffects.SlimRequiresAlpha
+[ RUN  ] PersonEffects.GlowOutlineRequiresAlpha
+[  OK  ] PersonEffects.GlowOutlineRequiresAlpha
+[ RUN  ] PersonEffects.DispatcherRouting
+[  OK  ] PersonEffects.DispatcherRouting
+[ RUN  ] PersonEffects.EffectStackAppliesFlashAndEffects
+[  OK  ] PersonEffects.EffectStackAppliesFlashAndEffects
+[ RUN  ] PersonEffects.EffectSpecNamesMatchDocument
+[  OK  ] PersonEffects.EffectSpecNamesMatchDocument
+[ RUN  ] Filters.DisplayNamesMatchDocument
+[  OK  ] Filters.DisplayNamesMatchDocument
+[ RUN  ] Filters.ParseRoundtrip
+[  OK  ] Filters.ParseRoundtrip
+[ RUN  ] Filters.BlackWhiteRemovesColor
+[  OK  ] Filters.BlackWhiteRemovesColor
+[ RUN  ] Filters.NegativeInverts
+[  OK  ] Filters.NegativeInverts
+[ RUN  ] Filters.WarmRaisesRedAndLowersBlue
+[  OK  ] Filters.WarmRaisesRedAndLowersBlue
+[ RUN  ] Filters.AllStylesChangeImage
+[  OK  ] Filters.AllStylesChangeImage
+[ RUN  ] Filters.IntensityZeroIsNoOp
+[  OK  ] Filters.IntensityZeroIsNoOp
+[ RUN  ] Filters.IntensityScalesEffect
+[  OK  ] Filters.IntensityScalesEffect
+[ RUN  ] Filters.InvalidBufferFails
+[  OK  ] Filters.InvalidBufferFails
+[ RUN  ] Filters.EditorSetAndUndo
+[  OK  ] Filters.EditorSetAndUndo
+[ RUN  ] Filters.SerializationRoundtrip
+[  OK  ] Filters.SerializationRoundtrip
+[ RUN  ] Filters.CapiSetGetFilter
+[  OK  ] Filters.CapiSetGetFilter
+[ RUN  ] Filters.SpeedCurvePresetNames
+[  OK  ] Filters.SpeedCurvePresetNames
+[ RUN  ] Filters.SpeedCurvePresetBuilds
+[  OK  ] Filters.SpeedCurvePresetBuilds
+[ RUN  ] Filters.ExportAppliesBlackWhite
+[  OK  ] Filters.ExportAppliesBlackWhite
+[ RUN  ] Filters.ExportAppliesLowerLayerFilterInMultiLayer
+[  OK  ] Filters.ExportAppliesLowerLayerFilterInMultiLayer
+[ RUN  ] AiTask.FeatureNamesMatchDocument
+[  OK  ] AiTask.FeatureNamesMatchDocument
+[ RUN  ] AiTask.FeatureParse
+[  OK  ] AiTask.FeatureParse
+[ RUN  ] AiTask.NetworkRequirementMatchesDocument
+[  OK  ] AiTask.NetworkRequirementMatchesDocument
+[ RUN  ] AiTask.UndoScopeMatchesDocument
+[  OK  ] AiTask.UndoScopeMatchesDocument
+[ RUN  ] AiTask.Lifecycle
+[  OK  ] AiTask.Lifecycle
+[ RUN  ] AiTask.SingleActiveTaskConstraint
+[  OK  ] AiTask.SingleActiveTaskConstraint
+[ RUN  ] AiTask.FailRequiresReason
+[  OK  ] AiTask.FailRequiresReason
+[ RUN  ] AiTask.ExplicitFailureReason
+[  OK  ] AiTask.ExplicitFailureReason
+[ RUN  ] AiTask.InvalidOperationsRejected
+[  OK  ] AiTask.InvalidOperationsRejected
+[ RUN  ] AiTask.StateNames
+[  OK  ] AiTask.StateNames
+[ RUN  ] AiTask.CapiLoginGate
+[  OK  ] AiTask.CapiLoginGate
+[ RUN  ] AiTask.CapiTaskLifecycle
+[  OK  ] AiTask.CapiTaskLifecycle
+[ RUN  ] AiTask.CapiFailureFlow
+[  OK  ] AiTask.CapiFailureFlow
+[ RUN  ] AiTask.CapiCancelAndEngineInfo
+[  OK  ] AiTask.CapiCancelAndEngineInfo
+[ RUN  ] BackgroundFill.ModeNames
+[  OK  ] BackgroundFill.ModeNames
+[ RUN  ] BackgroundFill.StyleNames
+[  OK  ] BackgroundFill.StyleNames
+[ RUN  ] BackgroundFill.ColorFillsMarginsOnly
+[  OK  ] BackgroundFill.ColorFillsMarginsOnly
+[ RUN  ] BackgroundFill.BlurFillsWithBlurredSource
+[  OK  ] BackgroundFill.BlurFillsWithBlurredSource
+[ RUN  ] BackgroundFill.StyleTextureGenerated
+[  OK  ] BackgroundFill.StyleTextureGenerated
+[ RUN  ] BackgroundFill.StyleFillsMargins
+[  OK  ] BackgroundFill.StyleFillsMargins
+[ RUN  ] BackgroundFill.EditorSetAndUndo
+[  OK  ] BackgroundFill.EditorSetAndUndo
+[ RUN  ] BackgroundFill.SerializationRoundtrip
+[  OK  ] BackgroundFill.SerializationRoundtrip
+[ RUN  ] BackgroundFill.CapiBackground
+[  OK  ] BackgroundFill.CapiBackground
+[ RUN  ] BackgroundFill.CapiSpeedCurvePreset
+[  OK  ] BackgroundFill.CapiSpeedCurvePreset
+[ RUN  ] BackgroundFill.ExportFillColorInLetterbox
+[  OK  ] BackgroundFill.ExportFillColorInLetterbox
+[ RUN  ] TransitionLibrary.PresetNamesMatchDocument
+[  OK  ] TransitionLibrary.PresetNamesMatchDocument
+[ RUN  ] TransitionLibrary.CategoryMapping
+[  OK  ] TransitionLibrary.CategoryMapping
+[ RUN  ] TransitionLibrary.DirectionSupport
+[  OK  ] TransitionLibrary.DirectionSupport
+[ RUN  ] TransitionLibrary.DurationRange
+[  OK  ] TransitionLibrary.DurationRange
+[ RUN  ] TransitionLibrary.AllTypesRenderRealOutput
+[  OK  ] TransitionLibrary.AllTypesRenderRealOutput
+[ RUN  ] TransitionLibrary.EndpointSemantics
+[  OK  ] TransitionLibrary.EndpointSemantics
+[ RUN  ] TransitionLibrary.Deterministic
+[  OK  ] TransitionLibrary.Deterministic
+[ RUN  ] TransitionLibrary.BackwardCompatibleEnumValues
+[  OK  ] TransitionLibrary.BackwardCompatibleEnumValues
+[ RUN  ] TransitionLibrary.CapiTypeQueries
+[  OK  ] TransitionLibrary.CapiTypeQueries
+[ RUN  ] TransitionLibrary.CapiAddTransitionWithNewType
+[  OK  ] TransitionLibrary.CapiAddTransitionWithNewType
+[ RUN  ] AiAdvanced.CameraTrackingSetGet
+[  OK  ] AiAdvanced.CameraTrackingSetGet
+[ RUN  ] AiAdvanced.CameraTrackingPersists
+[  OK  ] AiAdvanced.CameraTrackingPersists
+[ RUN  ] AiAdvanced.DepthEffectSetGet
+[  OK  ] AiAdvanced.DepthEffectSetGet
+[ RUN  ] AiAdvanced.TransitionKeyframes
+[  OK  ] AiAdvanced.TransitionKeyframes
+[ RUN  ] AiAdvanced.TransitionKeyframesIndependentPerProperty
+[  OK  ] AiAdvanced.TransitionKeyframesIndependentPerProperty
+[ RUN  ] DepthAI.RealInferenceProducesDepth
+[  OK  ] DepthAI.RealInferenceProducesDepth
+[ RUN  ] DepthAI.InferenceFailurePaths
+[  OK  ] DepthAI.InferenceFailurePaths
+[ RUN  ] DepthAI.BokehEffect
+[  OK  ] DepthAI.BokehEffect
+[ RUN  ] DepthAI.FogEffect
+[  OK  ] DepthAI.FogEffect
+[ RUN  ] DepthAI.ColorBandsEffect
+[  OK  ] DepthAI.ColorBandsEffect
+[ RUN  ] DepthAI.ParallaxEffect
+[  OK  ] DepthAI.ParallaxEffect
+[ RUN  ] DepthAI.AllEffectsValidateInputs
+[  OK  ] DepthAI.AllEffectsValidateInputs
+[ RUN  ] SuperRes.BilinearDoublesSize
+[  OK  ] SuperRes.BilinearDoublesSize
+[ RUN  ] SuperRes.BilinearQuadruplesSize
+[  OK  ] SuperRes.BilinearQuadruplesSize
+[ RUN  ] SuperRes.BilinearPreservesColorRegions
+[  OK  ] SuperRes.BilinearPreservesColorRegions
+[ RUN  ] SuperRes.BilinearRejectsBadInput
+[  OK  ] SuperRes.BilinearRejectsBadInput
+[ RUN  ] SuperRes.SuggestedTileFromShape
+[  OK  ] SuperRes.SuggestedTileFromShape
+[ RUN  ] SuperRes.RealInferenceProducesUpscaledFrame
+    [skip] 模型缺失：models/super_res_2x4x/model.onnx
+[  OK  ] SuperRes.RealInferenceProducesUpscaledFrame
+[ RUN  ] SuperRes.RejectsInvalidScaleAndUnloaded
+[  OK  ] SuperRes.RejectsInvalidScaleAndUnloaded
+[ RUN  ] Translate.TokenizerRejectsWhenUnloaded
+[  OK  ] Translate.TokenizerRejectsWhenUnloaded
+[ RUN  ] Translate.TokenizerProducesIdsForChinese
+    [skip] 模型/词表缺失
+[  OK  ] Translate.TokenizerProducesIdsForChinese
+[ RUN  ] Translate.TokenizerHandlesEmptyAndAscii
+[  OK  ] Translate.TokenizerHandlesEmptyAndAscii
+[ RUN  ] Translate.DecodeSkipsSpecialTokens
+[  OK  ] Translate.DecodeSkipsSpecialTokens
+[ RUN  ] Translate.RealInferenceProducesEnglish
+    [skip] 模型缺失
+[  OK  ] Translate.RealInferenceProducesEnglish
+[ RUN  ] Translate.RejectsUnknownDirection
+[  OK  ] Translate.RejectsUnknownDirection
+[ RUN  ] Translate.BatchReportsPerLineStatus
+[  OK  ] Translate.BatchReportsPerLineStatus
+[ RUN  ] Translate.BpeTokenizerRoundTrips
+    [skip] m2m100 模型缺失
+[  OK  ] Translate.BpeTokenizerRoundTrips
+[ RUN  ] Translate.BpeProducesEnglishWithoutDegeneration
+    [skip] m2m100 模型缺失
+[  OK  ] Translate.BpeProducesEnglishWithoutDegeneration
+[ RUN  ] Translate.BpeShortSentenceTerminates
+    [skip] m2m100 模型缺失
+[  OK  ] Translate.BpeShortSentenceTerminates
+[ RUN  ] Translate.BpeBatchTranslatesAllNonEmptyLines
+    [skip] m2m100 模型缺失
+[  OK  ] Translate.BpeBatchTranslatesAllNonEmptyLines
+[ RUN  ] Translate.BpeKnownLimitationMentionsNoStaleModel
+[  OK  ] Translate.BpeKnownLimitationMentionsNoStaleModel
+[ RUN  ] MattingAI.QualityNamesAndSizes
+[  OK  ] MattingAI.QualityNamesAndSizes
+[ RUN  ] MattingAI.RealInferenceProducesAlpha
+[  OK  ] MattingAI.RealInferenceProducesAlpha
+[ RUN  ] MattingAI.QualityLevelsWork
+[  OK  ] MattingAI.QualityLevelsWork
+[ RUN  ] MattingAI.FeatherAffectsEdges
+[  OK  ] MattingAI.FeatherAffectsEdges
+[ RUN  ] MattingAI.FailurePaths
+[  OK  ] MattingAI.FailurePaths
+[ RUN  ] MattingAI.AlphaUnlocksSlimAndGlow
+[  OK  ] MattingAI.AlphaUnlocksSlimAndGlow
+[ RUN  ] SpeechAI.LanguageNamesAndTokens
+[  OK  ] SpeechAI.LanguageNamesAndTokens
+[ RUN  ] SpeechAI.MelSpectrogramComputed
+[  OK  ] SpeechAI.MelSpectrogramComputed
+[ RUN  ] SpeechAI.MelSpectrogramResamples
+[  OK  ] SpeechAI.MelSpectrogramResamples
+[ RUN  ] SpeechAI.TokenizerLoadAndDecode
+[  OK  ] SpeechAI.TokenizerLoadAndDecode
+[ RUN  ] SpeechAI.TokenizerFailurePaths
+[  OK  ] SpeechAI.TokenizerFailurePaths
+[ RUN  ] SpeechAI.RealInferenceChain
+[  OK  ] SpeechAI.RealInferenceChain
+[ RUN  ] SpeechAI.FailurePaths
+[  OK  ] SpeechAI.FailurePaths
+[ RUN  ] SpeechAI.ProgressCallback
+[  OK  ] SpeechAI.ProgressCallback
+[ RUN  ] InterpolationAI.TargetNamesAndInsertCount
+[  OK  ] InterpolationAI.TargetNamesAndInsertCount
+[ RUN  ] InterpolationAI.TimestepDistribution
+[  OK  ] InterpolationAI.TimestepDistribution
+[ RUN  ] InterpolationAI.RealInterpolation
+[  OK  ] InterpolationAI.RealInterpolation
+[ RUN  ] InterpolationAI.HighPrecisionMode
+[  OK  ] InterpolationAI.HighPrecisionMode
+[ RUN  ] InterpolationAI.Deterministic
+[  OK  ] InterpolationAI.Deterministic
+[ RUN  ] InterpolationAI.FailurePaths
+[  OK  ] InterpolationAI.FailurePaths
+[ RUN  ] InterpolationAI.MultiInsertSequence
+[  OK  ] InterpolationAI.MultiInsertSequence
+[ RUN  ] AiCompletion.Int64TensorType
+[  OK  ] AiCompletion.Int64TensorType
+[ RUN  ] AiCompletion.BoolTensorType
+[  OK  ] AiCompletion.BoolTensorType
+[ RUN  ] AiCompletion.ZeroLengthDimIsValid
+[  OK  ] AiCompletion.ZeroLengthDimIsValid
+[ RUN  ] AiCompletion.WhisperAutoregressiveDecode
+[  OK  ] AiCompletion.WhisperAutoregressiveDecode
+[ RUN  ] AiCompletion.WhisperDecodeProducesValidText
+[  OK  ] AiCompletion.WhisperDecodeProducesValidText
+[ RUN  ] AiCompletion.ByteLevelDecodeCorrectness
+[  OK  ] AiCompletion.ByteLevelDecodeCorrectness
+[ RUN  ] AiCompletion.DecodeFiltersSpecialTokens
+[  OK  ] AiCompletion.DecodeFiltersSpecialTokens
+[ RUN  ] AiCompletion.TrackingScaleRoundtrip
+[  OK  ] AiCompletion.TrackingScaleRoundtrip
+[ RUN  ] AiCompletion.TrackingConsumedByRenderer
+[  OK  ] AiCompletion.TrackingConsumedByRenderer
+[ RUN  ] AiCompletion.TrackingModeZeroIgnoresScale
+[  OK  ] AiCompletion.TrackingModeZeroIgnoresScale
+[ RUN  ] Roundtrip.RandomEditSequenceSurvivesSaveLoad
+[  OK  ] Roundtrip.RandomEditSequenceSurvivesSaveLoad
+[ RUN  ] Roundtrip.SaveIsDeterministic
+[  OK  ] Roundtrip.SaveIsDeterministic
+[ RUN  ] Subtitle.InsertSortsAndFinds
+[  OK  ] Subtitle.InsertSortsAndFinds
+[ RUN  ] Subtitle.RejectsInvalidCue
+[  OK  ] Subtitle.RejectsInvalidCue
+[ RUN  ] Subtitle.CuesAtMoment
+[  OK  ] Subtitle.CuesAtMoment
+[ RUN  ] Subtitle.RemoveAndClear
+[  OK  ] Subtitle.RemoveAndClear
+[ RUN  ] Subtitle.ReplaceExistingId
+[  OK  ] Subtitle.ReplaceExistingId
+[ RUN  ] Subtitle.DisabledCueInvisible
+[  OK  ] Subtitle.DisabledCueInvisible
+[ RUN  ] Subtitle.SplitTextByLines
+[  OK  ] Subtitle.SplitTextByLines
+[ RUN  ] Subtitle.SplitLongLineByLength
+[  OK  ] Subtitle.SplitLongLineByLength
+[ RUN  ] Subtitle.SplitZeroLimitReturnsEmpty
+[  OK  ] Subtitle.SplitZeroLimitReturnsEmpty
+[ RUN  ] Stress.ThousandClipsUndoRedoSaveLoad
+  [stress] insert1000=513ms undo/redo1000=361ms saveload=382ms
+[  OK  ] Stress.ThousandClipsUndoRedoSaveLoad
+[ RUN  ] MediaIo.OpenCloseLifecycle
+[  OK  ] MediaIo.OpenCloseLifecycle
+[ RUN  ] MediaIo.OpenFailure
+[  OK  ] MediaIo.OpenFailure
+[ RUN  ] MediaIo.ReadVideoFrames
+[  OK  ] MediaIo.ReadVideoFrames
+[ RUN  ] MediaIo.ReadAudioBlocks
+[  OK  ] MediaIo.ReadAudioBlocks
+[ RUN  ] MediaIo.SeekResetsStreams
+[  OK  ] MediaIo.SeekResetsStreams
+[ RUN  ] MediaIo.SeekBeforeOpenFails
+[  OK  ] MediaIo.SeekBeforeOpenFails
+[ RUN  ] Effects.SpecAndNames
+[  OK  ] Effects.SpecAndNames
+[ RUN  ] Effects.StackAddReplaceRemove
+[  OK  ] Effects.StackAddReplaceRemove
+[ RUN  ] Effects.RejectsInvalidParams
+[  OK  ] Effects.RejectsInvalidParams
+[ RUN  ] Effects.StackOrderMove
+[  OK  ] Effects.StackOrderMove
+[ RUN  ] Effects.ColorTransformBrightness
+[  OK  ] Effects.ColorTransformBrightness
+[ RUN  ] Effects.ColorTransformClampsTo01
+[  OK  ] Effects.ColorTransformClampsTo01
+[ RUN  ] Effects.ColorTransformGrayscale
+[  OK  ] Effects.ColorTransformGrayscale
+[ RUN  ] Effects.DisabledEffectIgnored
+[  OK  ] Effects.DisabledEffectIgnored
+[ RUN  ] Effects.SpatialEffectsSkippedInColorTransform
+[  OK  ] Effects.SpatialEffectsSkippedInColorTransform
+[ RUN  ] Effects.MultipliedEffectsCombine
+[  OK  ] Effects.MultipliedEffectsCombine
+[ RUN  ] Effects.EditorEffectCommandsWithUndo
+[  OK  ] Effects.EditorEffectCommandsWithUndo
+[ RUN  ] AudioMixer.DbToLinear
+[  OK  ] AudioMixer.DbToLinear
+[ RUN  ] AudioMixer.PrepareExtractsAudioClips
+[  OK  ] AudioMixer.PrepareExtractsAudioClips
+[ RUN  ] AudioMixer.PrepareEmptyWithoutAudio
+[  OK  ] AudioMixer.PrepareEmptyWithoutAudio
+[ RUN  ] AudioMixer.ReadBlocksCoverDuration
+[  OK  ] AudioMixer.ReadBlocksCoverDuration
+[ RUN  ] AudioMixer.FadeEnvelopeApplied
+[  OK  ] AudioMixer.FadeEnvelopeApplied
+[ RUN  ] AudioMixer.GainReducesSampleMagnitude
+[  OK  ] AudioMixer.GainReducesSampleMagnitude
+[ RUN  ] AudioMixer.SeekNegativeRejected
+[  OK  ] AudioMixer.SeekNegativeRejected
+[ RUN  ] AudioDenoise.StrengthNames
+[  OK  ] AudioDenoise.StrengthNames
+[ RUN  ] AudioDenoise.StrengthFromString
+[  OK  ] AudioDenoise.StrengthFromString
+[ RUN  ] AudioDenoise.StrengthFromInt
+[  OK  ] AudioDenoise.StrengthFromInt
+[ RUN  ] AudioDenoise.TuningMapping
+[  OK  ] AudioDenoise.TuningMapping
+[ RUN  ] AudioDenoise.OffIsPassthrough
+[  OK  ] AudioDenoise.OffIsPassthrough
+[ RUN  ] AudioDenoise.FeedFramesForFirstBlockIncludesLookahead
+[  OK  ] AudioDenoise.FeedFramesForFirstBlockIncludesLookahead
+[ RUN  ] AudioDenoise.ZeroTimeOffsetForImpulse
+[  OK  ] AudioDenoise.ZeroTimeOffsetForImpulse
+[ RUN  ] AudioDenoise.SampleCountConservedAcrossBlockSizes
+[  OK  ] AudioDenoise.SampleCountConservedAcrossBlockSizes
+[ RUN  ] AudioDenoise.Deterministic
+[  OK  ] AudioDenoise.Deterministic
+[ RUN  ] AudioDenoise.MultiChannelIndependent
+[  OK  ] AudioDenoise.MultiChannelIndependent
+[ RUN  ] AudioDenoise.ResetClearsState
+[  OK  ] AudioDenoise.ResetClearsState
+[ RUN  ] AudioDenoise.NoiseSuppressionByStrength
+[  OK  ] AudioDenoise.NoiseSuppressionByStrength
+[ RUN  ] AudioDenoise.SpeechBurstsPreserved
+[  OK  ] AudioDenoise.SpeechBurstsPreserved
+[ RUN  ] AudioDenoise.NoiseEstimateConvergesToStableSuppression
+[  OK  ] AudioDenoise.NoiseEstimateConvergesToStableSuppression
+[ RUN  ] AudioDenoise.EditorSetAndUndo
+[  OK  ] AudioDenoise.EditorSetAndUndo
+[ RUN  ] AudioDenoise.EditorRejectsMissingClip
+[  OK  ] AudioDenoise.EditorRejectsMissingClip
+[ RUN  ] AudioDenoise.CommandNameMentionsStrength
+[  OK  ] AudioDenoise.CommandNameMentionsStrength
+[ RUN  ] AudioDenoise.SerializationRoundtrip
+[  OK  ] AudioDenoise.SerializationRoundtrip
+[ RUN  ] AudioDenoise.SerializationOmitsOff
+[  OK  ] AudioDenoise.SerializationOmitsOff
+[ RUN  ] AudioDenoise.SerializationTolerantToInvalidValue
+[  OK  ] AudioDenoise.SerializationTolerantToInvalidValue
+[ RUN  ] AudioDenoise.CapiSetGetDenoise
+[  OK  ] AudioDenoise.CapiSetGetDenoise
+[ RUN  ] AudioDenoise.MixerAppliesDenoiseToRealMedia
+[  OK  ] AudioDenoise.MixerAppliesDenoiseToRealMedia
+[ RUN  ] Preview.RendersActiveClip
+[  OK  ] Preview.RendersActiveClip
+[ RUN  ] Preview.EmptyGapReturnsNoClip
+[  OK  ] Preview.EmptyGapReturnsNoClip
+[ RUN  ] Preview.IncludesSubtitles
+[  OK  ] Preview.IncludesSubtitles
+[ RUN  ] Preview.AppliesAnimationOpacity
+[  OK  ] Preview.AppliesAnimationOpacity
+[ RUN  ] Preview.HiddenTrackSkipped
+[  OK  ] Preview.HiddenTrackSkipped
+[ RUN  ] Preview.AppliesColorEffectsToPixels
+[  OK  ] Preview.AppliesColorEffectsToPixels
+[ RUN  ] Preview.GrayscaleEffectTransformsPixels
+[  OK  ] Preview.GrayscaleEffectTransformsPixels
+[ RUN  ] Preview.TransitionBlending
+[  OK  ] Preview.TransitionBlending
+[ RUN  ] Preview.NoTransitionOutsideInterval
+[  OK  ] Preview.NoTransitionOutsideInterval
+[ RUN  ] ReferenceStyle.AnalyzeRhythmBasic
+[  OK  ] ReferenceStyle.AnalyzeRhythmBasic
+[ RUN  ] ReferenceStyle.AnalyzeRhythmSkipsInvalid
+[  OK  ] ReferenceStyle.AnalyzeRhythmSkipsInvalid
+[ RUN  ] ReferenceStyle.AnalyzeRhythmEmpty
+[  OK  ] ReferenceStyle.AnalyzeRhythmEmpty
+[ RUN  ] ReferenceStyle.AnalyzeTransitions
+[  OK  ] ReferenceStyle.AnalyzeTransitions
+[ RUN  ] ReferenceStyle.AnalyzeColorWarmth
+[  OK  ] ReferenceStyle.AnalyzeColorWarmth
+[ RUN  ] ReferenceStyle.AnalyzeSubtitles
+[  OK  ] ReferenceStyle.AnalyzeSubtitles
+[ RUN  ] ReferenceStyle.AnalyzeSubtitlesNone
+[  OK  ] ReferenceStyle.AnalyzeSubtitlesNone
+[ RUN  ] ReferenceStyle.SuggestCutsCoversShots
+[  OK  ] ReferenceStyle.SuggestCutsCoversShots
+[ RUN  ] ReferenceStyle.SuggestCutsMultipleMaterials
+[  OK  ] ReferenceStyle.SuggestCutsMultipleMaterials
+[ RUN  ] ReferenceStyle.SuggestCutsExhaustsMaterial
+[  OK  ] ReferenceStyle.SuggestCutsExhaustsMaterial
+[ RUN  ] ReferenceStyle.SuggestCutsEmptyInputs
+[  OK  ] ReferenceStyle.SuggestCutsEmptyInputs
+[ RUN  ] ReferenceStyle.SuggestColorEffectsWarm
+[  OK  ] ReferenceStyle.SuggestColorEffectsWarm
+[ RUN  ] ReferenceStyle.SuggestColorEffectsNeutralProfile
+[  OK  ] ReferenceStyle.SuggestColorEffectsNeutralProfile
+[ RUN  ] ReferenceStyle.SuggestColorEffectsClamped
+[  OK  ] ReferenceStyle.SuggestColorEffectsClamped
+[ RUN  ] ReferenceStyle.DescribeRhythmFast
+[  OK  ] ReferenceStyle.DescribeRhythmFast
+[ RUN  ] ReferenceStyle.DescribeRhythmSlow
+[  OK  ] ReferenceStyle.DescribeRhythmSlow
+[ RUN  ] ReferenceStyle.DescribeRhyth[h264_nvenc @ 0x1b10e140] [Eval @ 0x1ffeffe650] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1b10e140] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x12125c80] Cannot load libcuda.so.1
+[h264_qsv @ 0x12165200] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x12165200] Supported pixel formats:
+[h264_qsv @ 0x12165200]   nv12
+[h264_qsv @ 0x12165200]   qsv
+[h264_vaapi @ 0x1217c440] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x1217c440] Supported pixel formats:
+[h264_vaapi @ 0x1217c440]   vaapi
+[h264_v4l2m2m @ 0x123e08c0] Could not find a valid device
+[h264_v4l2m2m @ 0x123e08c0] can't configure encoder
+[libx264 @ 0x11e1e880] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x11e1e880] profile High, level 1.0, 4:2:0, 8-bit
+[libx264 @ 0x11e1e880] frame I:1     Avg QP:16.00  size:   758
+[libx264 @ 0x11e1e880] frame P:10    Avg QP:16.40  size:    16
+[libx264 @ 0x11e1e880] frame B:19    Avg QP:18.53  size:    13
+[libx264 @ 0x11e1e880] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x11e1e880] mb I  I16..4: 93.8%  0.0%  6.2%
+[libx264 @ 0x11e1e880] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x11e1e880] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x11e1e880] 8x8 transform intra:0.0%
+[libx264 @ 0x11e1e880] coded y,uvDC,uvAC intra: 1.6% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x11e1e880] i16 v,h,dc,p: 80%  0% 20%  0%
+[libx264 @ 0x11e1e880] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x11e1e880] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x11e1e880] Weighted P-Frames: Y:100.0% UV:0.0%
+[libx264 @ 0x11e1e880] kb/s:9.30
+[h264_nvenc @ 0x13abbb40] [Eval @ 0x1ffeffe850] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x13abbb40] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x1219cb40] Cannot load libcuda.so.1
+[h264_qsv @ 0x12302f80] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x12302f80] Supported pixel formats:
+[h264_qsv @ 0x12302f80]   nv12
+[h264_qsv @ 0x12302f80]   qsv
+[h264_vaapi @ 0x1230a040] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x1230a040] Supported pixel formats:
+[h264_vaapi @ 0x1230a040]   vaapi
+[h264_v4l2m2m @ 0x1230a900] Could not find a valid device
+[h264_v4l2m2m @ 0x1230a900] can't configure encoder
+[libx264 @ 0x12332d80] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x12332d80] profile High, level 1.0, 4:2:0, 8-bit
+[libx264 @ 0x12332d80] frame I:1     Avg QP:17.00  size:   758
+[libx264 @ 0x12332d80] frame P:10    Avg QP:18.40  size:    14
+[libx264 @ 0x12332d80] frame B:19    Avg QP:20.53  size:    13
+[libx264 @ 0x12332d80] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x12332d80] mb I  I16..4: 93.8%  0.0%  6.2%
+[libx264 @ 0x12332d80] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x12332d80] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x12332d80] 8x8 transform intra:0.0%
+[libx264 @ 0x12332d80] coded y,uvDC,uvAC intra: 1.6% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x12332d80] i16 v,h,dc,p: 80%  0% 20%  0%
+[libx264 @ 0x12332d80] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x12332d80] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x12332d80] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x12332d80] kb/s:9.14
+[aac @ 0x124e4f40] Qavg: 57606.559
+[h264_nvenc @ 0x13209240] [Eval @ 0x1ffeffe890] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x13209240] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x133c1940] Cannot load libcuda.so.1
+[h264_qsv @ 0x133c2200] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x133c2200] Supported pixel formats:
+[h264_qsv @ 0x133c2200]   nv12
+[h264_qsv @ 0x133c2200]   qsv
+[h264_vaapi @ 0x133f0580] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x133f0580] Supported pixel formats:
+[h264_vaapi @ 0x133f0580]   vaapi
+[h264_v4l2m2m @ 0x133f0e40] Could not find a valid device
+[h264_v4l2m2m @ 0x133f0e40] can't configure encoder
+[libx264 @ 0x133f1740] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x133f1740] profile High, level 1.0, 4:2:0, 8-bit
+[h264_nvenc @ 0x13982740] [Eval @ 0x1ffeffe860] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x13982740] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x133f6840] Cannot load libcuda.so.1
+[h264_qsv @ 0x11b92a00] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11b92a00] Supported pixel formats:
+[h264_qsv @ 0x11b92a00]   nv12
+[h264_qsv @ 0x11b92a00]   qsv
+[h264_vaapi @ 0x11c3a480] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11c3a480] Supported pixel formats:
+[h264_vaapi @ 0x11c3a480]   vaapi
+[h264_v4l2m2m @ 0x11f4bdc0] Could not find a valid device
+[h264_v4l2m2m @ 0x11f4bdc0] can't configure encoder
+[libx264 @ 0x120b4c80] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x120b4c80] profile High, level 1.0, 4:2:0, 8-bit
+[libx264 @ 0x120b4c80] frame I:1     Avg QP:17.00  size:   754
+[libx264 @ 0x120b4c80] frame P:13    Avg QP:18.31  size:    14
+[libx264 @ 0x120b4c80] frame B:26    Avg QP:20.50  size:    13
+[libx264 @ 0x120b4c80] consecutive B-frames:  2.5%  0.0% 97.5%
+[libx264 @ 0x120b4c80] mb I  I16..4: 93.8%  6.2%  0.0%
+[libx264 @ 0x120b4c80] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x120b4c80] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x120b4c80] 8x8 transform intra:6.2%
+[libx264 @ 0x120b4c80] coded y,uvDC,uvAC intra: 1.6% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x120b4c80] i16 v,h,dc,p: 80%  0% 20%  0%
+[libx264 @ 0x120b4c80] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x120b4c80] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x120b4c80] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x120b4c80] kb/s:7.63
+[aac @ 0x1380f340] Qavg: 119.466
+[h264_nvenc @ 0x1b05a040] [Eval @ 0x1ffeffdae0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1b05a040] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x1217c440] Cannot load libcuda.so.1
+[h264_qsv @ 0x12332dc0] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x12332dc0] Supported pixel formats:
+[h264_qsv @ 0x12332dc0]   nv12
+[h264_qsv @ 0x12332dc0]   qsv
+[h264_vaapi @ 0x12302f80] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x12302f80] Supported pixel formats:
+[h264_vaapi @ 0x12302f80]   vaapi
+[h264_v4l2m2m @ 0x1219cb40] Could not find a valid device
+[h264_v4l2m2m @ 0x1219cb40] can't configure encoder
+[libx264 @ 0x122eb180] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x122eb180] profile High, level 1.0, 4:2:0, 8-bit
+[libx264 @ 0x122eb180] frame I:1     Avg QP:17.00  size:   754
+[libx264 @ 0x122eb180] frame P:10    Avg QP:18.40  size:    14
+[libx264 @ 0x122eb180] frame B:19    Avg QP:20.53  size:    13
+[libx264 @ 0x122eb180] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x122eb180] mb I  I16..4: 93.8%  6.2%  0.0%
+[libx264 @ 0x122eb180] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x122eb180] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x122eb180] 8x8 transform intra:6.2%
+[libx264 @ 0x122eb180] coded y,uvDC,uvAC intra: 1.6% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x122eb180] i16 v,h,dc,p: 80%  0% 20%  0%
+[libx264 @ 0x122eb180] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x122eb180] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x122eb180] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x122eb180] kb/s:9.10
+[h264_nvenc @ 0x13982740] [Eval @ 0x1ffeffdb00] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x13982740] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x124e4f40] Cannot load libcuda.so.1
+[h264_qsv @ 0x120b4c80] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x120b4c80] Supported pixel formats:
+[h264_qsv @ 0x120b4c80]   nv12
+[h264_qsv @ 0x120b4c80]   qsv
+[h264_vaapi @ 0x1219c280] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x1219c280] Supported pixel formats:
+[h264_vaapi @ 0x1219c280]   vaapi
+[h264_v4l2m2m @ 0x125f3c00] Could not find a valid device
+[h264_v4l2m2m @ 0x125f3c00] can't configure encoder
+[libx264 @ 0x11f4bdc0] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x11f4bdc0] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x11f4bdc0] frame I:1     Avg QP:28.06  size:  2109
+[libx264 @ 0x11f4bdc0] frame P:19    Avg QP:23.40  size:    84
+[libx264 @ 0x11f4bdc0] frame B:10    Avg QP:21.87  size:    18
+[libx264 @ 0x11f4bdc0] consecutive B-frames: 33.3% 66.7%  0.0%
+[libx264 @ 0x11f4bdc0] mb I  I16..4: 46.2%  5.0% 48.8%
+[libx264 @ 0x11f4bdc0] mb P  I16..4:  0.1%  0.0%  0.0%  P16..4: 14.2%  5.9%  1.2%  0.0%  0.0%    skip:78.6%
+[libx264 @ 0x11f4bdc0] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  1.0%  0.0%  0.0%  direct: 1.4%  skip:97.6%  L0: 0.0% L1:100.0% BI: 0.0%
+[libx264 @ 0x11f4bdc0] 8x8 transform intra:4.9% inter:40.2%
+[libx264 @ 0x11f4bdc0] coded y,uvDC,uvAC intra: 33.3% 59.3% 50.6% inter: 1.2% 10.7% 2.3%
+[libx264 @ 0x11f4bdc0] i16 v,h,dc,p: 84% 13%  3%  0%
+[libx264 @ 0x11f4bdc0] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 19% 25% 44% 12%  0%  0%  0%  0%  0%
+[libx264 @ 0x11f4bdc0] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 50% 15% 26%  2%  2%  2%  0%  2%  0%
+[libx264 @ 0x11f4bdc0] i8c dc,h,v,p: 32% 16% 51%  1%
+[libx264 @ 0x11f4bdc0] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x11f4bdc0] kb/s:31.06
+[h264_nvenc @ 0x1206dac0] [Eval @ 0x1ffeffd880] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1206dac0] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11f6ef00] Cannot load libcuda.so.1
+[h264_qsv @ 0x12125c80] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x12125c80] Supported pixel formats:
+[h264_qsv @ 0x12125c80]   nv12
+[h264_qsv @ 0x12125c80]   qsv
+[h264_vaapi @ 0x12165200] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x12165200] Supported pixel formats:
+[h264_vaapi @ 0x12165200]   vaapi
+[h264_v4l2m2m @ 0x1217c440] Could not find a valid device
+[h264_v4l2m2m @ 0x1217c440] can't configure encoder
+[libx264 @ 0x1219cb40] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x1219cb40] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x1219cb40] frame I:1     Avg QP:30.27  size:  1981
+[libx264 @ 0x1219cb40] frame P:39    Avg QP:24.86  size:    83
+[libx264 @ 0x1219cb40] frame B:20    Avg QP:23.36  size:    17
+[libx264 @ 0x1219cb40] consecutive B-frames: 33.3% 66.7%  0.0%
+[libx264 @ 0x1219cb40] mb I  I16..4: 43.8% 12.5% 43.8%
+[libx264 @ 0x1219cb40] mb P  I16..4:  0.2%  0.1%  0.0%  P16..4: 13.9%  5.5%  0.6%  0.0%  0.0%    skip:79.8%
+[libx264 @ 0x1219cb40] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  1.0%  0.1%  0.0%  direct: 1.1%  skip:97.8%  L0: 0.0% L1:100.0% BI: 0.0%
+[libx264 @ 0x1219cb40] 8x8 transform intra:13.8% inter:39.8%
+[libx264 @ 0x1219cb40] coded y,uvDC,uvAC intra: 27.3% 65.5% 50.6% inter: 1.2% 10.4% 2.4%
+[libx264 @ 0x1219cb40] i16 v,h,dc,p: 78% 18%  5%  0%
+[libx264 @ 0x1219cb40] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 29% 17% 38%  8%  2%  0%  2%  0%  4%
+[libx264 @ 0x1219cb40] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 52% 14% 23%  3%  2%  2%  0%  2%  1%
+[libx264 @ 0x1219cb40] i8c dc,h,v,p: 30% 20% 49%  1%
+[libx264 @ 0x1219cb40] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x1219cb40] kb/s:22.20
+[aac @ 0x123e08c0] Qavg: 13211.919
+[h264_nvenc @ 0x1243d280] [Eval @ 0x1ffeffdb00] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1243d280] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11d88180] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e3ac40] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e3ac40] Supported pixel formats:
+[h264_qsv @ 0x11e3ac40]   nv12
+[h264_qsv @ 0x11e3ac40]   qsv
+[h264_vaapi @ 0x11f4bdc0] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11f4bdc0] Supported pixel formats:
+[h264_vaapi @ 0x11f4bdc0]   vaapi
+[h264_v4l2m2m @ 0x11f6ef00] Could not find a valid device
+[h264_v4l2m2m @ 0x11f6ef00] can't configure encoder
+[libx264 @ 0x120b4c80] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x120b4c80] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x120b4c80] frame I:1     Avg QP:22.00  size:   771
+[libx264 @ 0x120b4c80] frame P:20    Avg QP:23.20  size:    14
+[libx264 @ 0x120b4c80] frame B:39    Avg QP:25.51  size:    13
+[libx264 @ 0x120b4c80] consecutive B-frames:  1.7%  3.3% 95.0%
+[libx264 @ 0x120b4c80] mb I  I16..4: 98.8%  0.0%  1.2%
+[libx264 @ 0x120b4c80] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x120b4c80] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x120b4c80] 8x8 transform intra:0.0%
+[libx264 @ 0x120b4c80] coded y,uvDC,uvAC intra: 0.3% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x120b4c80] i16 v,h,dc,p: 89%  0% 11%  0%
+[libx264 @ 0x120b4c80] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x120b4c80] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x120b4c80] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x120b4c80] kb/s:6.22
+[aac @ 0x12165200] Qavg: 20394.420
+mInvalid
+[  OK  ] ReferenceStyle.DescribeRhythmInvalid
+[ RUN  ] TransitionRender.CrossDissolveMidpoint
+[  OK  ] TransitionRender.CrossDissolveMidpoint
+[ RUN  ] TransitionRender.CrossDissolveEndpoints
+[  OK  ] TransitionRender.CrossDissolveEndpoints
+[ RUN  ] TransitionRender.ProgressClamped
+[  OK  ] TransitionRender.ProgressClamped
+[ RUN  ] TransitionRender.RejectsNull
+[  OK  ] TransitionRender.RejectsNull
+[ RUN  ] TransitionRender.FadeToBlackMiddles
+[  OK  ] TransitionRender.FadeToBlackMiddles
+[ RUN  ] TransitionRender.FlashWhitePeaksAtMiddle
+[  OK  ] TransitionRender.FlashWhitePeaksAtMiddle
+[ RUN  ] TransitionRender.WipeLeftSpacial
+[  OK  ] TransitionRender.WipeLeftSpacial
+[ RUN  ] TransitionRender.ProgressHelper
+[  OK  ] TransitionRender.ProgressHelper
+[ RUN  ] AutoEdit.InsertsClipsInTransaction
+[  OK  ] AutoEdit.InsertsClipsInTransaction
+[ RUN  ] AutoEdit.UndoRevertsWholeAutoEdit
+[  OK  ] AutoEdit.UndoRevertsWholeAutoEdit
+[ RUN  ] AutoEdit.AppliesColorEffects
+[  OK  ] AutoEdit.AppliesColorEffects
+[ RUN  ] AutoEdit.RejectsNonEmptyTrack
+[  OK  ] AutoEdit.RejectsNonEmptyTrack
+[ RUN  ] AutoEdit.RejectsInvalidProfile
+[  OK  ] AutoEdit.RejectsInvalidProfile
+[ RUN  ] AutoEdit.RejectsEmptyMaterial
+[  OK  ] AutoEdit.RejectsEmptyMaterial
+[ RUN  ] AutoEdit.RejectsLockedTrack
+[  OK  ] AutoEdit.RejectsLockedTrack
+[ RUN  ] AutoEdit.NoColorWhenDisabled
+[  OK  ] AutoEdit.NoColorWhenDisabled
+[ RUN  ] Boundary.HugeTimeValues
+[  OK  ] Boundary.HugeTimeValues
+[ RUN  ] Boundary.PrecisionFraction
+[  OK  ] Boundary.PrecisionFraction
+[ RUN  ] Boundary.InsertAtVeryLargeTime
+[  OK  ] Boundary.InsertAtVeryLargeTime
+[ RUN  ] Boundary.ZeroDurationClipRejected
+[  OK  ] Boundary.ZeroDurationClipRejected
+[ RUN  ] SceneDetect.EmptyInputReturnsEmpty
+[  OK  ] SceneDetect.EmptyInputReturnsEmpty
+[ RUN  ] SceneDetect.SingleShotNoCuts
+[  OK  ] SceneDetect.SingleShotNoCuts
+[ RUN  ] SceneDetect.DetectsOneCut
+[  OK  ] SceneDetect.DetectsOneCut
+[ RUN  ] SceneDetect.MinDurationSuppressesFlicker
+[  OK  ] SceneDetect.MinDurationSuppressesFlicker
+[ RUN  ] SceneDetect.MotionScoreFromMaxDiff
+[  OK  ] SceneDetect.MotionScoreFromMaxDiff
+[ RUN  ] E2E.FullUserWorkflow
+[  OK  ] E2E.FullUserWorkflow
+[ RUN  ] MediaFFmpeg.ProbeRealFile
+[  OK  ] MediaFFmpeg.ProbeRealFile
+[ RUN  ] MediaFFmpeg.OpenNonexistentFails
+[  OK  ] MediaFFmpeg.OpenNonexistentFails
+[ RUN  ] MediaFFmpeg.DecodeVideoFrames
+[  OK  ] MediaFFmpeg.DecodeVideoFrames
+[ RUN  ] MediaFFmpeg.SeekAndDecode
+[  OK  ] MediaFFmpeg.SeekAndDecode
+[ RUN  ] MediaFFmpeg.DecodeAudioBlocks
+[  OK  ] MediaFFmpeg.DecodeAudioBlocks
+[ RUN  ] MediaFFmpeg.AvailableFlag
+[  OK  ] MediaFFmpeg.AvailableFlag
+[ RUN  ] MediaFFmpeg.AudioSeekLandingAccuracy
+[  OK  ] MediaFFmpeg.AudioSeekLandingAccuracy
+[ RUN  ] MediaWriter.MockLifecycle
+[  OK  ] MediaWriter.MockLifecycle
+[ RUN  ] MediaWriter.MockRejectsInvalid
+[  OK  ] MediaWriter.MockRejectsInvalid
+[ RUN  ] MediaWriter.MockFactoryCreates
+[  OK  ] MediaWriter.MockFactoryCreates
+[ RUN  ] MediaWriter.FFmpegEncodeVideoOnly
+[  OK  ] MediaWriter.FFmpegEncodeVideoOnly
+[ RUN  ] MediaWriter.FFmpegEncodeWithAudio
+[  OK  ] MediaWriter.FFmpegEncodeWithAudio
+[ RUN  ] MediaWriter.FFmpegAbortLeavesNoTrailer
+[  OK  ] MediaWriter.FFmpegAbortLeavesNoTrailer
+[ RUN  ] MediaWriter.ResamplesPlanarPerChannelPointers
+[  OK  ] MediaWriter.ResamplesPlanarPerChannelPointers
+[ RUN  ] ExportRunner.SuccessfulExport
+[  OK  ] ExportRunner.SuccessfulExport
+[ RUN  ] ExportRunner.CancelledExportAborts
+[  OK  ] ExportRunner.CancelledExportAborts
+[ RUN  ] ExportRunner.WriterOpenFailurePropagates
+[  OK  ] ExportRunner.WriterOpenFailurePropagates
+[ RUN  ] ExportRunner.RealEncodeEndToEnd
+[  OK  ] ExportRunner.RealEncodeEndToEnd
+[ RUN  ] ExportRunner.RealDecodeWithFFmpegSource
+[  OK  ] ExportRunner.RealDecodeWithFFmpegSource
+[ RUN  ] ExportRunner.RealAudioMixToEncodedFile
+[  OK  ] ExportRunner.RealAudioMixToEncodedFile
+[ RUN  ] ExportRunner.AudioGainAndFadeApplied
+[  OK  ] ExportRunner.AudioGainAndFadeApplied
+[ RUN  ] ExportRunner.SubtitlesAttachedToFrames
+[  OK  ] ExportRunner.SubtitlesAttachedToFrames
+[ RUN  ] ExportRunner.Opacity[h264_nvenc @ 0x1206da40] [Eval @ 0x1ffeffd950] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1206da40] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11e9e240] Cannot load libcuda.so.1
+[h264_qsv @ 0x11f6ef00] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11f6ef00] Supported pixel formats:
+[h264_qsv @ 0x11f6ef00]   nv12
+[h264_qsv @ 0x11f6ef00]   qsv
+[h264_vaapi @ 0x11db4c00] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11db4c00] Supported pixel formats:
+[h264_vaapi @ 0x11db4c00]   vaapi
+[h264_v4l2m2m @ 0x1359f140] Could not find a valid device
+[h264_v4l2m2m @ 0x1359f140] can't configure encoder
+[libx264 @ 0x1b058900] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x1b058900] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x1b058900] frame I:2     Avg QP:29.06  size:  1730
+[libx264 @ 0x1b058900] frame P:58    Avg QP:26.50  size:    81
+[libx264 @ 0x1b058900] frame B:30    Avg QP:25.48  size:    15
+[libx264 @ 0x1b058900] consecutive B-frames: 33.3% 66.7%  0.0%
+[libx264 @ 0x1b058900] mb I  I16..4: 40.6% 10.0% 49.4%
+[libx264 @ 0x1b058900] mb P  I16..4:  0.3%  0.0%  0.0%  P16..4: 13.1%  6.5%  0.8%  0.0%  0.0%    skip:79.3%
+[libx264 @ 0x1b058900] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  1.0%  0.0%  0.0%  direct: 0.8%  skip:98.2%  L0: 0.0% L1:100.0% BI: 0.0%
+[libx264 @ 0x1b058900] 8x8 transform intra:9.3% inter:39.7%
+[libx264 @ 0x1b058900] coded y,uvDC,uvAC intra: 27.0% 64.5% 47.7% inter: 1.2% 10.3% 2.3%
+[libx264 @ 0x1b058900] i16 v,h,dc,p: 82%  8% 10%  0%
+[libx264 @ 0x1b058900] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 25% 22% 41%  9%  0%  0%  2%  0%  2%
+[libx264 @ 0x1b058900] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 50% 15% 24%  3%  2%  2%  0%  2%  0%
+[libx264 @ 0x1b058900] i8c dc,h,v,p: 40% 13% 47%  1%
+[libx264 @ 0x1b058900] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x1b058900] kb/s:23.00
+AnimationApplied
+[  OK  ] ExportRunner.OpacityAnimationApplied
+[ RUN  ] ExportRunner.SpeedCurveAffectsSourceMapping
+[  OK  ] ExportRunner.SpeedCurveAffectsSourceMapping
+[ RUN  ] ExportRunner.MultiVideoTrackTopWins
+[  OK  ] ExportRunner.MultiVideoTrackTopWins
+[ RUN  ] ExportRunner.MultiLayerAlphaBlend
+[  OK  ] ExportRunner.MultiLayerAlphaBlend
+[ RUN  ] ExportRunner.AiLabelAttachedWhenRequested
+[  OK  ] ExportRunner.AiLabelAttachedWhenRequested
+[ RUN  ] ExportRunner.NoAiLabelWhenNotRequested
+[  OK  ] ExportRunner.NoAiLabelWhenNotRequested
+[ RUN  ] PreviewFFmpeg.RendersRealPixels
+[  OK  ] PreviewFFmpeg.RendersRealPixels
+[ RUN  ] Thumbnail.DownscaleKeepsAspect
+[  OK  ] Thumbnail.DownscaleKeepsAspect
+[ RUN  ] Thumbnail.DownscaleRejectsNoop
+[  OK  ] Thumbnail.DownscaleRejectsNoop
+[ RUN  ] Thumbnail.GeneratesRequestedCount
+[  OK  ] Thumbnail.GeneratesRequestedCount
+[ RUN  ] Thumbnail.EmptyDurationReturnsEmpty
+[  OK  ] Thumbnail.EmptyDurationReturnsEmpty
+[ RUN  ] Thumbnail.FFmpegRealVideo
+[  OK  ] Thumbnail.FFmpegRealVideo
+[ RUN  ] AiLabel.BuildsItemWithDefaults
+[  OK  ] AiLabel.BuildsItemWithDefaults
+[ RUN  ] AiLabel.ParsesHexColors
+[  OK  ] AiLabel.ParsesHexColors
+[ RUN  ] AiLabel.InvalidColorFallsBackToWhite
+[  OK  ] AiLabel.InvalidColorFallsBackToWhite
+[ RUN  ] AiLabel.RequiresLabelLogic
+[  OK  ] AiLabel.RequiresLabelLogic
+[ RUN  ] AiLabel.CustomTextPreserved
+[  OK  ] AiLabel.CustomTextPreserved
+[ RUN  ] Waveform.EmptyInputReturnsEmpty
+[  OK  ] Waveform.EmptyInputReturnsEmpty
+[ RUN  ] Waveform.ConstantSignal
+[  OK  ] Waveform.ConstantSignal
+[ RUN  ] Waveform.MixedSignalMinMax
+[  OK  ] Waveform.MixedSignalMinMax
+[ RUN  ] Waveform.StereoMonoMixdown
+[  OK  ] Waveform.StereoMonoMixdown
+[ RUN  ] Waveform.SilenceDetection
+[  OK  ] Waveform.SilenceDetection
+[ RUN  ] Waveform.DurationComputed
+[  OK  ] Waveform.DurationComputed
+[ RUN  ] ReferenceWorkflowFFmpeg.FullRealPipeline
+[  OK  ] ReferenceWorkflowFFmpeg.FullRealPipeline
+[ RUN  ] ExportStress.HundredClips
+  [压力] 100 片段 / 1500 帧导出耗时 328 ms\n[  OK  ] ExportStress.HundredClips
+[ RUN  ] ExportStress.LongTimelineSeekPattern
+[  OK  ] ExportStress.LongTimelineSeekPattern
+[ RUN  ] SubtitleIo.ParseBasicSrt
+[  OK  ] SubtitleIo.ParseBasicSrt
+[ RUN  ] SubtitleIo.ParseTolerantFormats
+[  OK  ] SubtitleIo.ParseTolerantFormats
+[ RUN  ] SubtitleIo.ParseRejectsBadLines
+[  OK  ] SubtitleIo.ParseRejectsBadLines
+[ RUN  ] SubtitleIo.ExportSrtRoundTrip
+[  OK  ] SubtitleIo.ExportSrtRoundTrip
+[ RUN  ] SubtitleIo.ExportVttFormat
+[  OK  ] SubtitleIo.ExportVttFormat
+[ RUN  ] SubtitleIo.ParseVtt
+[  OK  ] SubtitleIo.ParseVtt
+[ RUN  ] ProjectDoctor.HealthyProjectNoIssues
+[  OK  ] ProjectDoctor.HealthyProjectNoIssues
+[ RUN  ] ProjectDoctor.DetectsDanglingAsset
+[  OK  ] ProjectDoctor.DetectsDanglingAsset
+[ RUN  ] ProjectDoctor.RepairsDanglingAssetByDisabling
+[  OK  ] ProjectDoctor.RepairsDanglingAssetByDisabling
+[ RUN  ] ProjectDoctor.RepairsOverlapByShifting
+[  OK  ] ProjectDoctor.RepairsOverlapByShifting
+[ RUN  ] ProjectDoctor.RemovesNonPositiveDuration
+[  OK  ] ProjectDoctor.RemovesNonPositiveDuration
+[ RUN  ] ProjectDoctor.RemovesDanglingTransition
+[  OK  ] ProjectDoctor.RemovesDanglingTransition
+[ RUN  ] ProjectDoctor.AdvancesIdAllocator
+[  OK  ] ProjectDoctor.AdvancesIdAllocator
+[ RUN  ] ProjectDoctor.NoSequencesWarning
+[  OK  ] ProjectDoctor.NoSequencesWarning
+[ RUN  ] ExportExecutor.OutputsFramesForWholeTimeline
+[  OK  ] ExportExecutor.OutputsFramesForWholeTimeline
+[ RUN  ] ExportExecutor.BlackFramesForGaps
+[  OK  ] ExportExecutor.BlackFramesForGaps
+[ RUN  ] ExportExecutor.ProgressCanCancel
+[  OK  ] ExportExecutor.ProgressCanCancel
+[ RUN  ] ExportExecutor.MaxFramesLimit
+[  OK  ] ExportExecutor.MaxFramesLimit
+[ RUN  ] ExportExecutor.EmptyTimelineNoFrames
+[  OK  ] ExportExecutor.EmptyTimelineNoFrames
+[ RUN  ] ExportExecutor.ReaderOpenedOncePerAsset
+[  OK  ] ExportExecutor.ReaderOpenedOncePerAsset
+[ RUN  ] ExportExecutor.MarksTransitionFrames
+[  OK  ] ExportExecutor.MarksTransitionFrames
+[ RUN  ] ExportExecutor.TransitionFramesContainBlendedPixels
+[  OK  ] ExportExecutor.TransitionFramesContainBlendedPixels
+[ RUN  ] Ripple.DeleteShiftsFollowingClips
+[  OK  ] Ripple.DeleteShiftsFollowingClips
+[ RUN  ] Ripple.DeleteMiddleClip
+[  OK  ] Ripple.DeleteMiddleClip
+[ RUN  ] Ripple.UndoRestoresTimeline
+[  OK  ] Ripple.UndoRestoresTimeline
+[ RUN  ] Ripple.BatchDelete
+[  OK  ] Ripple.BatchDelete
+[ RUN  ] Ripple.DeleteMissingClipRejected
+[  OK  ] Ripple.DeleteMissingClipRejected
+[ RUN  ] Ripple.InsertEditShiftsAndSplits
+[  OK  ] Ripple.InsertEditShiftsAndSplits
+[ RUN  ] Ripple.InsertEditUndo
+[  OK  ] Ripple.InsertEditUndo
+[ RUN  ] FrameFit.FitLetterboxesWideSource
+[  OK  ] FrameFit.FitLetterboxesWideSource
+[ RUN  ] FrameFit.FitPillarboxesTallSource
+[  OK  ] FrameFit.FitPillarboxesTallSource
+[ RUN  ] FrameFit.FitSameAspectFillsCanvas
+[  OK  ] FrameFit.FitSameAspectFillsCanvas
+[ RUN  ] FrameFit.FillCoversCanvasAndCrops
+[  OK  ] FrameFit.FillCoversCanvasAndCrops
+[ RUN  ] FrameFit.CropTakesCenterOneToOne
+[  OK  ] FrameFit.CropTakesCenterOneToOne
+[ RUN  ] FrameFit.RectRejectsInvalidSizes
+[  OK  ] FrameFit.RectRejectsInvalidSizes
+[ RUN  ] FrameFit.RenderFitAddsBlackBars
+[  OK  ] FrameFit.RenderFitAddsBlackBars
+[ RUN  ] FrameFit.RenderFillCropsNoBars
+[  OK  ] FrameFit.RenderFillCropsNoBars
+[ RUN  ] FrameFit.RenderFillPreservesLeftRightOrientation
+[  OK  ] FrameFit.RenderFillPreservesLeftRightOrientation
+[ RUN  ] FrameFit.RenderCropIsCenterExact
+[  OK  ] FrameFit.RenderCropIsCenterExact
+[ RUN  ] FrameFit.RenderFitBackgroundColorConfigurable
+[  OK  ] FrameFit.RenderFitBackgroundColorConfigurable
+[ RUN  ] FrameFit.RenderHandlesStride
+[  OK  ] FrameFit.RenderHandlesStride
+[ RUN  ] FrameFit.RenderRejectsBadArgs
+[  OK  ] FrameFit.RenderRejectsBadArgs
+[ RUN  ] FrameFit.NamesAndParsing
+[  OK  ] FrameFit.NamesAndParsing
+[ RUN  ] FrameFit.SerializationRoundtripsFrameFit
+[  OK  ] FrameFit.SerializationRoundtripsFrameFit
+[ RUN  ] FrameFit.DefaultIsFitAndOmittedFromFile
+[  OK  ] FrameFit.DefaultIsFitAndOmittedFromFile
+[ RUN  ] FrameFit.ExportPlanCarriesSequenceSettings
+[  OK  ] FrameFit.ExportPlanCarriesSequenceSettings
+[ RUN  ] FrameFit.ExportExecutorAppliesFillToMismatchedSource
+[  OK  ] FrameFit.ExportExecutorAppliesFillToMismatchedSource
+[ RUN  ] FrameFit.ExportExecutorAppliesFitLetterboxToMismatchedSource
+[  OK  ] FrameFit.ExportExecutorAppliesFitLetterboxToMismatchedSource
+[ RUN  ] BeatDetect.EstimatesKnownBpm120
+[  OK  ] BeatDetect.EstimatesKnownBpm120
+[ RUN  ] BeatDetect.EstimatesKnownBpm90
+[  OK  ] BeatDetect.EstimatesKnownBpm90
+[ RUN  ] BeatDetect.BeatSpacingMatchesTempo
+[  OK  ] BeatDetect.BeatSpacingMatchesTempo
+[ RUN  ] BeatDetect.BeatsAreTimeOrdered
+[  OK  ] BeatDetect.BeatsAreTimeOrdered
+[ RUN  ] BeatDetect.ConfidencePositiveForClearTrack
+[  OK  ] BeatDetect.ConfidencePositiveForClearTrack
+[ RUN  ] BeatDetect.OriginRespected
+[  OK  ] BeatDetect.OriginRespected
+[ RUN  ] BeatDetect.EmptyInputIsInvalidWithNote
+[  OK  ] BeatDetect.EmptyInputIsInvalidWithNote
+[ RUN  ] BeatDetect.TooShortInputIsInvalid
+[  OK  ] BeatDetect.TooShortInputIsInvalid
+[ RUN  ] BeatDetect.SilenceYieldsNoBeats
+[  OK  ] BeatDetect.SilenceYieldsNoBeats
+[ RUN  ] BeatDetect.MaxBeatsCapRespected
+[  OK  ] BeatDetect.MaxBeatsCapRespected
+[ RUN  ] BeatGrid.GeneratesExpectedPoints
+[  OK  ] BeatGrid.GeneratesExpectedPoints
+[ RUN  ] BeatGrid.RejectsInvalidInput
+[  OK  ] BeatGrid.RejectsInvalidInput
+[ RUN  ] SnapCuts.SnapsToNearbyBeat
+[  OK  ] SnapCuts.SnapsToNearbyBeat
+[ RUN  ] SnapCuts.LeavesFarCutsUnchanged
+[  OK  ] SnapCuts.LeavesFarCutsUnchanged
+[ RUN  ] SnapCuts.ZeroRadiusReturnsOriginal
+[  OK  ] SnapCuts.ZeroRadiusReturnsOriginal
+[ RUN  ] SnapCuts.PreservesAscendingOrder
+[  OK  ] SnapCuts.PreservesAscendingOrder
+[ RUN  ] BeatSync.PlansCutsAlignedToBeats
+[  OK  ] BeatSync.PlansCutsAlignedToBeats
+[ RUN  ] BeatSync.RespectsMaterialExhaustion
+[  OK  ] BeatSync.RespectsMaterialExhaustion
+[ RUN  ] BeatSync.LoopsMultipleMaterialSegments
+[  OK  ] BeatSync.LoopsMultipleMaterialSegments
+[ RUN  ] BeatSync.RejectsInvalidAnalysis
+[  OK  ] BeatSync.RejectsInvalidAnalysis
+[ RUN  ] BeatSync.RejectsEmptyMaterial
+[  OK  ] BeatSync.RejectsEmptyMaterial
+[ RUN  ] BeatSync.RejectsInvalidMaterialSegment
+[  OK  ] BeatSync.RejectsInvalidMaterialSegment
+[ RUN  ] BeatSync.FiltersTooShortSpans
+[  OK  ] BeatSync.FiltersTooShortSpans
+[ RUN  ] BeatSync.SplitsTooLongSpans
+[  OK  ] BeatSync.SplitsTooLongSpans
+[ RUN  ] BeatSync.ReportsStrongBeatStatistics
+[  OK  ] BeatSync.ReportsStrongBeatStatistics
+[ RUN  ] BeatSyncApply.InsertsClipsAlignedToBeats
+[  OK  ] BeatSyncApply.InsertsClipsAlignedToBeats
+[ RUN  ] BeatSyncApply.UndoRestoresEmptyTrack
+[  OK  ] BeatSyncApply.UndoRestoresEmptyTrack
+[ RUN  ] BeatSyncApply.RejectsNonEmptyTrack
+[  OK  ] BeatSyncApply.RejectsNonEmptyTrack
+[ RUN  ] BeatSyncApply.RejectsLockedTrack
+[  OK  ] BeatSyncApply.RejectsLockedTrack
+[ RUN  ] BeatSyncApply.HistoryNameIsBeatSync
+[  OK  ] BeatSyncApply.HistoryNameIsBeatSync
+[ RUN  ] AutoDuck.DetectsVoiceWindow
+[  OK  ] AutoDuck.DetectsVoiceWindow
+[ RUN  ] AutoDuck.MergesShortGapsWithHold
+[  OK  ] AutoDuck.MergesShortGapsWithHold
+[ RUN  ] AutoDuck.KeepsLongGapsSeparate
+[  OK  ] AutoDuck.KeepsLongGapsSeparate
+[ RUN  ] AutoDuck.AttackReleaseExpandRegion
+[  OK  ] AutoDuck.AttackReleaseExpandRegion
+[ RUN  ] AutoDuck.SensitivityAffectsDetection
+[  OK  ] AutoDuck.SensitivityAffectsDetection
+[ RUN  ] AutoDuck.EmptyInputIsInvalidWithNote
+[  OK  ] AutoDuck.EmptyInputIsInvalidWithNote
+[ RUN  ] AutoDuck.SilenceYieldsNoRegions
+[  OK  ] AutoDuck.SilenceYieldsNoRegions
+[ RUN  ] AutoDuck.TooShortInputIsInvalid
+[  OK  ] AutoDuck.TooShortInputIsInvalid
+[ RUN  ] AutoDuck.GainAtQueriesRegions
+[  OK  ] AutoDuck.GainAtQueriesRegions
+[ RUN  ] AutoDuck.TargetGainFromSettings
+[  OK  ] AutoDuck.TargetGainFromSettings
+[ RUN  ] AutoDuck.EditorSetAndUndo
+[  OK  ] AutoDuck.EditorSetAndUndo
+[ RUN  ] AutoDuck.EditorRejectsInvalidSettings
+[  OK  ] AutoDuck.EditorRejectsInvalidSettings
+[ RUN  ] AutoDuck.EditorRejectsVideoTrack
+[  OK  ] AutoDuck.EditorRejectsVideoTrack
+[ RUN  ] AutoDuck.SerializationRoundtrip
+[  OK  ] AutoDuck.SerializationRoundtrip
+[ RUN  ] AutoDuck.DefaultOmittedFromFile
+[  OK  ] AutoDuck.DefaultOmittedFromFile
+[ RUN  ] AutoDuckMixer.DucksMusicDuringVoice
+[  OK  ] AutoDuckMixer.DucksMusicDuringVoice
+[ RUN  ] AutoDuckMixer.DisabledDuckLeavesMusicUnchanged
+[  OK  ] AutoDuckMixer.DisabledDuckLeavesMusicUnchanged
+[ RUN  ] Compound.CreatePacksClipsIntoNestedSequence
+[  OK  ] Compound.CreatePacksClipsIntoNestedSequence
+[ RUN  ] Compound.CreateUndoRestoresOriginal
+[  OK  ] Compound.CreateUndoRestoresOriginal
+[ RUN  ] Compound.CreateRejectsNonContiguousSelection
+[  OK  ] Compound.CreateRejectsNonContiguousSelection
+[ RUN  ] Compound.CreateRejectsEmptySelection
+[  OK  ] Compound.CreateRejectsEmptySelection
+[ RUN  ] Compound.CreateRejectsMissingClip
+[  OK  ] Compound.CreateRejectsMissingClip
+[ RUN  ] Compound.CreateRejectsLockedTrack
+[  OK  ] Compound.CreateRejectsLockedTrack
+[ RUN  ] Compound.UnwrapRestoresInnerClips
+[  OK  ] Compound.UnwrapRestoresInnerClips
+[ RUN  ] Compound.UnwrapUndoRestoresCompound
+[  OK  ] Compound.UnwrapUndoRestoresCompound
+[ RUN  ] Compound.UnwrapRejectsNormalClip
+[  OK  ] Compound.UnwrapRejectsNormalClip
+[ RUN  ] Compound.UnwrapRejectsMissingClip
+[  OK  ] Compound.UnwrapRejectsMissingClip
+[ RUN  ] Compound.SerializationRoundtrip
+[  OK  ] Compound.SerializationRoundtrip
+[ RUN  ] Compound.DanglingNestedSequenceRejected
+[  OK  ] Compound.DanglingNestedSequenceRejected
+[ RUN  ] Compound.DefaultClipOmitsNestedFields
+[  OK  ] Compound.DefaultClipOmitsNestedFields
+[ RUN  ] MixerConsole.TrackGainAttenuates
+[  OK  ] MixerConsole.TrackGainAttenuates
+[ RUN  ] MixerConsole.TrackGainBoost
+[  OK  ] MixerConsole.TrackGainBoost
+[ RUN  ] MixerConsole.TrackGainRejectsOutOfRange
+[  OK  ] MixerConsole.TrackGainRejectsOutOfRange
+[ RUN  ] MixerConsole.MuteSilencesTrack
+[  OK  ] MixerConsole.MuteSilencesTrack
+[ RUN  ] MixerConsole.SoloIsolatesTrack
+[  OK  ] MixerConsole.SoloIsolatesTrack
+[ RUN  ] MixerConsole.MasterGainScalesAllTracks
+[  OK  ] MixerConsole.MasterGainScalesAllTracks
+[ RUN  ] MixerConsole.MasterGainRejectsOutOfRange
+[  OK  ] MixerConsole.MasterGainRejectsOutOfRange
+[ RUN  ] MixerConsole.SoloWithMuteBothApplied
+[  OK  ] MixerConsole.SoloWithMuteBothApplied
+[ RUN  ] MixerConsole.TrackAudibleQuery
+[  OK  ] MixerConsole.TrackAudibleQuery
+[ RUN  ] MixerConsole.UndoRedoAllControls
+[  OK  ] MixerConsole.UndoRedoAllControls
+[ RUN  ] MixerConsole.SerializationRoundtrip
+[  OK  ] MixerConsole.SerializationRoundtrip
+[ RUN  ] MixerConsole.DefaultsOmittedFromFile
+[  OK  ] MixerConsole.DefaultsOmittedFromFile
+[ RUN  ] MixerConsole.LoadClampsOutOfRangeGain
+[  OK  ] MixerConsole.LoadClampsOutOfRangeGain
+[ RUN  ] Watermark.GeometryAt1080p
+[  OK  ] Watermark.GeometryAt1080p
+[ RUN  ] Watermark.GeometryVerticalFrame
+[  OK  ] Watermark.GeometryVerticalFrame
+[ RUN  ] Watermark.GeometryScalesMarginWithShortSide
+[  OK  ] Watermark.GeometryScalesMarginWithShortSide
+[ RUN  ] Watermark.GeometryRejectsInvalidSizes
+[  OK  ] Watermark.GeometryRejectsInvalidSizes
+[ RUN  ] Watermark.GeometryClampsToFrameForTinyFrames
+[  OK  ] Watermark.GeometryClampsToFrameForTinyFrames
+[ RUN  ] Watermark.DrawsMarkAndKeepsOutsideUntouched
+[  OK  ] Watermark.DrawsMarkAndKeepsOutsideUntouched
+[ RUN  ] Watermark.OutlineVisibleOnWhiteBackground
+[  OK  ] Watermark.OutlineVisibleOnWhiteBackground
+[ RUN  ] Watermark.EmitsCaptionDescriptor
+[  OK  ] Watermark.EmitsCaptionDescriptor
+[ RUN  ] Watermark.NullItemsAllowed
+[  OK  ] Watermark.NullItemsAllowed
+[ RUN  ] Watermark.RejectsInvalidArgs
+[  OK  ] Watermark.RejectsInvalidArgs
+[ RUN  ] Watermark.DisabledSpecStillRendersWhenCalled
+[  OK  ] Watermark.DisabledSpecStillRendersWhenCalled
+[ RUN  ] Entitlement.FreeTierLimits
+[  OK  ] Entitlement.FreeTierLimits
+[ RUN  ] Entitlement.ProTierLimits
+[  OK  ] Entitlement.ProTierLimits
+[ RUN  ] Entitlement.TrackGateTrigger
+[  OK  ] Entitlement.TrackGateTrigger
+[ RUN  ] Entitlement.ProActiveAtRespectsExpiry
+[  OK  ] Entitlement.ProActiveAtRespectsExpiry
+[ RUN  ] Entitlement.ClampSizeToShortSide
+[  OK  ] Entitlement.ClampSizeToShortSide
+[ RUN  ] Entitlement.MakeExportPolicy
+[  OK  ] Entitlement.MakeExportPolicy
+[ RUN  ] Entitlement.FreePolicyClampsAndWatermarks
+[  OK  ] Entitlement.FreePolicyClampsAndWatermarks
+[ RUN  ] Entitlement.ProPolicyKeepsResolutionAndNoWatermark
+[  OK  ] Entitlement.ProPolicyKeepsResolutionAndNoWatermark
+[ RUN  ] Entitlement.DefaultPolicyNoGating
+[  OK  ] Entitlement.DefaultPolicyNoGating
+[ RUN  ] Entitlement.WatermarkAppliedToClampedFrames
+[  OK  ] Entitlement.WatermarkAppliedToClampedFrames
+[ RUN  ] AiCheck.DetectsSubtitleOverlap
+[  OK  ] AiCheck.DetectsSubtitleOverlap
+[ RUN  ] AiCheck.AdjacentSubtitlesNotFlagged
+[  OK  ] AiCheck.AdjacentSubtitlesNotFlagged
+[ RUN  ] AiCheck.ToleranceAbsorbsTinyOverlap
+[  OK  ] AiCheck.ToleranceAbsorbsTinyOverlap
+[ RUN  ] AiCheck.DetectsMultipleOverlaps
+[  OK  ] AiCheck.DetectsMultipleOverlaps
+[ RUN  ] AiCheck.IgnoresDisabledCues
+[  OK  ] AiCheck.IgnoresDisabledCues
+[ RUN  ] AiCheck.DetectsTooShortSubtitle
+[  OK  ] AiCheck.DetectsTooShortSubtitle
+[ RUN  ] AiCheck.DetectsEmptySubtitle
+[  OK  ] AiCheck.DetectsEmptySubtitle
+[ RUN  ] AiCheck.NotesWhenNoSubtitles
+[  OK  ] AiCheck.NotesWhenNoSubtitles
+[ RUN  ] AiCheck.DetectsClippingPeaks
+[  OK  ] AiCheck.DetectsClippingPeaks
+[ RUN  ] AiCheck.NormalLevelsNoClippingIssue
+[  OK  ] AiCheck.NormalLevelsNoClippingIssue
+[ RUN  ] AiCheck.NotesWhenNoDecoder
+[  OK  ] AiCheck.NotesWhenNoDecoder
+[ RUN  ] AiCheck.DetectsSilentClip
+[  OK  ] AiCheck.DetectsSilentClip
+[ RUN  ] AiCheck.DetectsVideoGap
+[  OK  ] AiCheck.DetectsVideoGap
+[ RUN  ] AiCheck.SmallGapsIgnored
+[  OK  ] AiCheck.SmallGapsIgnored
+[ RUN  ] AiCheck.SummaryText
+[  OK  ] AiCheck.SummaryText
+[ RUN  ] AiCheck.IssuesSortedBySeverityThenTime
+[  OK  ] AiCheck.IssuesSortedBySeverityThenTime
+[ RUN  ] AiCheck.InvalidConfigRejected
+[  OK  ] AiCheck.InvalidConfigRejected
+[ RUN  ] AiCheck.MissingSequenceReturnsReport
+[  OK  ] AiCheck.MissingSequenceReturnsReport
+[ RUN  ] AiCheckFix.FixesSubtitleOverlap
+[  OK  ] AiCheckFix.FixesSubtitleOverlap
+[ RUN  ] AiCheckFix.FixesClippingWithPreciseGain
+[  OK  ] AiCheckFix.FixesClippingWithPreciseGain
+[ RUN  ] AiCheckFix.UnsupportedTypesRejected
+[  OK  ] AiCheckFix.UnsupportedTypesRejected
+[ RUN  ] AiCheckFix.FixAllGroupsIntoOneHistoryEntry
+[  OK  ] AiCheckFix.FixAllGroupsIntoOneHistoryEntry
+[ RUN  ] AiCheckFix.FixAllCountsSkipped
+[  OK  ] AiCheckFix.FixAllCountsSkipped
+[ RUN  ] AiCheck.TypeNames
+[  OK  ] AiCheck.TypeNames
+[ RUN  ] Proxy.TargetSizeHalves
+[  OK  ] Proxy.TargetSizeHalves
+[ RUN  ] Proxy.TargetSizeNeverUpscales
+[  OK  ] Proxy.TargetSizeNeverUpscales
+[ RUN  ] Proxy.TargetSizeRejectsInvalid
+[  OK  ] Proxy.TargetSizeRejectsInvalid
+[ RUN  ] Proxy.TargetSizeMinimumIsOne
+[  OK  ] Proxy.TargetSizeMinimumIsOne
+[ RUN  ] Proxy.HighResolutionDetection
+[  OK  ] Proxy.HighResolutionDetection
+[ RUN  ] Proxy.ImportCheckManualModeSuggests
+[  OK  ] Proxy.ImportCheckManualModeSuggests
+[ RUN  ] Proxy.ImportCheckAutoModeGenerates
+[  OK  ] Proxy.ImportCheckAutoModeGenerates
+[ RUN  ] Proxy.ImportCheckNeverModeSkips
+[  OK  ] Proxy.ImportCheckNeverModeSkips
+[ RUN  ] Proxy.ImportCheckLowResSkipped
+[  OK  ] Proxy.ImportCheckLowResSkipped
+[ RUN  ] Proxy.ImportCheckExistingProxySkips
+[  OK  ] Proxy.ImportCheckExistingProxySkips
+[ RUN  ] Proxy.ImportCheckEstimatesScaleWithDuration
+[  OK  ] Proxy.ImportCheckEstimatesScaleWithDuration
+[ RUN  ] Proxy.PreviewUsesProxyWhenReady
+[  OK  ] Proxy.PreviewUsesProxyWhenReady
+[ RUN  ] Proxy.PreviewFallsBackToOriginal
+[  OK  ] Proxy.PreviewFallsBackToOriginal
+[ RUN  ] Proxy.RegistryTotalsAndCleanup
+[  OK  ] Proxy.RegistryTotalsAndCleanup
+[ RUN  ] Proxy.RegistryUpsertReplacesSameAsset
+[  OK  ] Proxy.RegistryUpsertReplacesSameAsset
+[ RUN  ] Proxy.GenerateWritesScaledFrames
+[  OK  ] Proxy.GenerateWritesScaledFrames
+[ RUN  ] Proxy.GenerateScalesPixelsBilinear
+[  OK  ] Proxy.GenerateScalesPixelsBilinear
+[ RUN  ] Proxy.GenerateRespectsMaxFrames
+[  OK  ] Proxy.GenerateRespectsMaxFrames
+[ RUN  ] Proxy.GenerateCancelsViaProgress
+[  OK  ] Proxy.GenerateCancelsViaProgress
+[ RUN  ] Proxy.GenerateRejectsUnopenedInputs
+[  OK  ] Proxy.GenerateRejectsUnopenedInputs
+[ RUN  ] Proxy.GenerateSameSizeReusesSourcePixels
+[  OK  ] Proxy.GenerateSameSizeReusesSourcePixels
+[ RUN  ] Proxy.SerializationRoundtrip
+[  OK  ] Proxy.SerializationRoundtrip
+[ RUN  ] Proxy.SerializationOmitsEmptyRegistry
+[  OK  ] Proxy.SerializationOmitsEmptyRegistry
+[ RUN  ] Proxy.LoadResetsGeneratingStatus
+[  OK  ] Proxy.LoadResetsGeneratingStatus
+[ RUN  ] Proxy.LoadDropsRecordForMissingAsset
+[  OK  ] Proxy.LoadDropsRecordForMissingAsset
+[ RUN  ] Proxy.ExportAlwaysUsesOriginalMedia
+[  OK  ] Proxy.ExportAlwaysUsesOriginalMedia
+[ RUN  ] ExportPreset.PerformanceTuningModes
+[  OK  ] ExportPreset.PerformanceTuningModes
+[ RUN  ] ExportPreset.PerformanceTuningUnknownCores
+[  OK  ] ExportPreset.PerformanceTuningUnknownCores
+[ RUN  ] ExportPreset.PerformanceModeNames
+[  OK  ] ExportPreset.PerformanceModeNames
+[ RUN  ] ExportPreset.BuiltinListCoversDocument
+[  OK  ] ExportPreset.BuiltinListCoversDocument
+[ RUN  ] ExportPreset.PresetNamesAndParsing
+[  OK  ] ExportPreset.PresetNamesAndParsing
+[ RUN  ] ExportEstimate.ComputesSizeAndTime
+[  OK  ] ExportEstimate.ComputesSizeAndTime
+[ RUN  ] ExportEstimate.DerivesBitrateWhenNotProvided
+[  OK  ] ExportEstimate.DerivesBitrateWhenNotProvided
+[ RUN  ] ExportEstimate.AudioOptional
+[  OK  ] ExportEstimate.AudioOptional
+[ RUN  ] ExportEstimate.RejectsInvalidInput
+[  OK  ] ExportEstimate.RejectsInvalidInput
+[ RUN  ] ExportEstimate.FriendlyTextFormats
+[  OK  ] ExportEstimate.FriendlyTextFormats
+[ RUN  ] ExportEstimate.CustomRenderThroughput
+[  OK  ] ExportEstimate.CustomRenderThroughput
+[ RUN  ] ExportPresetSetup.FreeDowngrades4K
+[  OK  ] ExportPresetSetup.FreeDowngrades4K
+[ RUN  ] ExportPresetSetup.ProKeeps4K
+[  OK  ] ExportPresetSetup.ProKeeps4K
+[ RUN  ] ExportPresetSetup.VerticalPresetsUnaffectedByGate
+[  OK  ] ExportPresetSetup.VerticalPresetsUnaffectedByGate
+[ RUN  ] ExportPresetSetup.WriterConfigPopulated
+[  OK  ] ExportPresetSetup.WriterConfigPopulated
+[ RUN  ] ExportPresetSetup.EcoModeWriterConfig
+[  OK  ] ExportPresetSetup.EcoModeWriterConfig
+[ RUN  ] ExportPresetSetup.ExpiredProDowngrades
+[  OK  ] ExportPresetSetup.ExpiredProDowngrades
+[ RUN  ] ExportPresetSetup.ApplyPresetToPlan
+[  OK  ] ExportPresetSetup.ApplyPresetToPlan
+[ RUN  ] ExportPresetSetup.ApplyCustomKeepsPlanSettings
+[  OK  ] ExportPresetSetup.ApplyCustomKeepsPlanSettings
+[ RUN  ] SpeechCut.DetectsSpeechWindow
+[  OK  ] SpeechCut.DetectsSpeechWindow
+[ RUN  ] SpeechCut.KeepsShortPausesMerged
+[  OK  ] SpeechCut.KeepsShortPausesMerged
+[ RUN  ] SpeechCut.RemovesLongSilence
+[  OK  ] SpeechCut.RemovesLongSilence
+[ RUN  ] SpeechCut.PaddingExpandsBoundaries
+[  OK  ] SpeechCut.PaddingExpandsBoundaries
+[ RUN  ] SpeechCut.MaxKeepSplitsLongSpeech
+[  OK  ] SpeechCut.MaxKeepSplitsLongSpeech
+[ RUN  ] SpeechCut.EmptyInputInvalid
+[  OK  ] SpeechCut.EmptyInputInvalid
+[ RUN  ] SpeechCut.SilenceTrackInvalid
+[  OK  ] SpeechCut.SilenceTrackInvalid
+[ RUN  ] SpeechCut.TooShortInvalid
+[  OK  ] SpeechCut.TooShortInvalid
+[ RUN  ] SpeechCut.InvalidConfigRejected
+[  OK  ] SpeechCut.InvalidConfigRejected
+[ RUN  ] SpeechCut.PlanMapsSegmentsToTimeline
+[  OK  ] SpeechCut.PlanMapsSegmentsToTimeline
+[ RUN  ] SpeechCut.PlanRespectsClipSourceRange
+[  OK  ] SpeechCut.PlanRespectsClipSourceRange
+[ RUN  ] SpeechCut.PlanRejectsSegmentWithoutSpeech
+[  OK  ] SpeechCut.PlanRejectsSegmentWithoutSpeech
+[ RUN  ] SpeechCut.PlanRejectsInvalidActivity
+[  OK  ] SpeechCut.PlanRejectsInvalidActivity
+[ RUN  ] SpeechCutApply.ReplacesClipWithKeptSegments
+[  OK  ] SpeechCutApply.ReplacesClipWithKeptSegments
+[ RUN  ] SpeechCutApply.UndoRestoresOriginal
+[  OK  ] SpeechCutApply.UndoRestoresOriginal
+[ RUN  ] SpeechCutApply.HistoryNameIsSpeechCut
+[  OK  ] SpeechCutApply.HistoryNameIsSpeechCut
+[ RUN  ] SpeechCutApply.RejectsLockedTrack
+[  OK  ] SpeechCutApply.RejectsLockedTrack
+[ RUN  ] SpeechCutApply.RejectsMissingClip
+[  OK  ] SpeechCutApply.RejectsMissingClip
+[ RUN  ] SpeechCutApply.RejectsInvalidActivity
+[  OK  ] SpeechCutApply.RejectsInvalidActivity
+[ RUN  ] SpeechCutApply.ProcessesWholeTrackByDefault
+[  OK  ] SpeechCutApply.ProcessesWholeTrackByDefault
+[ RUN  ] SpeechCut.AnalyzeAssetUsesDecoder
+[  OK  ] SpeechCut.AnalyzeAssetUsesDecoder
+[ RUN  ] SpeechCut.AnalyzeAssetWithoutDecoderNotes
+[  OK  ] SpeechCut.AnalyzeAssetWithoutDecoderNotes
+[ RUN  ] SpeechCut.PlanForTrackKeepsGaps
+[  OK  ] SpeechCut.PlanForTrackKeepsGaps
+[ RUN  ] BatchOps.DeleteRemovesAllSelected
+[  OK  ] BatchOps.DeleteRemovesAllSelected
+[ RUN  ] BatchOps.DeleteCrossTrack
+[  OK  ] BatchOps.DeleteCrossTrack
+[ RUN  ] BatchOps.DeleteRippleShiftsFollowing
+[  OK  ] BatchOps.DeleteRippleShiftsFollowing
+[ RUN  ] BatchOps.DeleteUndoRestoresAll
+[  OK  ] BatchOps.DeleteUndoRestoresAll
+[ RUN  ] BatchOps.DeletePartialFailureReported
+[  OK  ] BatchOps.DeletePartialFailureReported
+[ RUN  ] BatchOps.DeleteEmptySelectionRejected
+[  OK  ] BatchOps.DeleteEmptySelectionRejected
+[ RUN  ] BatchOps.DeleteLockedTrackFails
+[  OK  ] BatchOps.DeleteLockedTrackFails
+[ RUN  ] BatchOps.ApplyTransitionsBetweenAdjacent
+[  OK  ] BatchOps.ApplyTransitionsBetweenAdjacent
+[ RUN  ] BatchOps.ApplyTransitionsShrinksToGap
+[  OK  ] BatchOps.ApplyTransitionsShrinksToGap
+[ RUN  ] BatchOps.ApplyTransitionsSkipsZeroGapWithoutShift
+[  OK  ] BatchOps.ApplyTransitionsSkipsZeroGapWithoutShift
+[ RUN  ] BatchOps.ApplyTransitionsShiftsToMakeRoom
+[  OK  ] BatchOps.ApplyTransitionsShiftsToMakeRoom
+[ RUN  ] BatchOps.ApplyTransitionsSkipsOccupied
+[  OK  ] BatchOps.ApplyTransitionsSkipsOccupied
+[ RUN  ] BatchOps.ApplyTransitionsRejectsTooFew
+[  OK  ] BatchOps.ApplyTransitionsRejectsTooFew
+[ RUN  ] BatchOps.ApplyTransitionsMaxCount
+[  OK  ] BatchOps.ApplyTransitionsMaxCount
+[ RUN  ] BatchOps.ApplyTransitionsUndoRestores
+[  OK  ] BatchOps.ApplyTransitionsUndoRestores
+[ RUN  ] BatchOps.SetAudioGainAll
+[  OK  ] BatchOps.SetAudioGainAll
+[ RUN  ] BatchOps.SetAudioClampsOutOfRange
+[  OK  ] BatchOps.SetAudioClampsOutOfRange
+[ RUN  ] BatchOps.SetAudioRejectsOutOfRangeWithoutClamp
+[  OK  ] BatchOps.SetAudioRejectsOutOfRangeWithoutClamp
+[ RUN  ] BatchOps.SetAudioFadesScaleToFit
+[  OK  ] BatchOps.SetAudioFadesScaleToFit
+[ RUN  ] BatchOps.SetAudioRequiresSomeOption
+[  OK  ] BatchOps.SetAudioRequiresSomeOption
+[ RUN  ] BatchOps.SetAudioUndoRestores
+[  OK  ] BatchOps.SetAudioUndoRestores
+[ RUN  ] BatchOps.SetSpeedAll
+[  OK  ] BatchOps.SetSpeedAll
+[ RUN  ] BatchOps.SetSpeedRejectsInvalid
+[  OK  ] BatchOps.SetSpeedRejectsInvalid
+[ RUN  ] BatchOps.SetSpeedReportsOverlap
+[  OK  ] BatchOps.SetSpeedReportsOverlap
+[ RUN  ] BatchOps.AlignToEarliestStart
+[  OK  ] BatchOps.AlignToEarliestStart
+[ RUN  ] BatchOps.AlignToExplicitTarget
+[  OK  ] BatchOps.AlignToExplicitTarget
+[ RUN  ] BatchOps.AlignRejectsNegativeTarget
+[  OK  ] BatchOps.AlignRejectsNegativeTarget
+[ RUN  ] BatchOps.AlignReportsSameTrackCollision
+[  OK  ] BatchOps.AlignReportsSameTrackCollision
+[ RUN  ] BatchOps.AlignUndoRestores
+[  OK  ] BatchOps.AlignUndoRestores
+[ RUN  ] BatchOps.HistoryNamesPopulated
+[  OK  ] BatchOps.HistoryNamesPopulated
+[ RUN  ] Mask.ShapeNamesAndParsing
+[  OK  ] Mask.ShapeNamesAndParsing
+[ RUN  ] Mask.RectangleCenterVisibleCornersHidden
+[  OK  ] Mask.RectangleCenterVisibleCornersHidden
+[ RUN  ] Mask.RectangleInvertSwaps
+[  OK  ] Mask.RectangleInvertSwaps
+[ RUN  ] Mask.CircleRoundAndEllipse
+[  OK  ] Mask.CircleRoundAndEllipse
+[ RUN  ] Mask.MirrorKeepsBand
+[  OK  ] Mask.MirrorKeepsBand
+[ RUN  ] Mask.LinearHalfPlane
+[  OK  ] Mask.LinearHalfPlane
+[ RUN  ] Mask.FeatherCreatesGradient
+[  OK  ] Mask.FeatherCreatesGradient
+[ RUN  ] Mask.RotationRotatesRectangle
+[  OK  ] Mask.RotationRotatesRectangle
+[ RUN  ] Mask.CornerRadiusShrinksCorners
+[  OK  ] Mask.CornerRadiusShrinksCorners
+[ RUN  ] Mask.CoverageRejectsInvalidParams
+[  OK  ] Mask.CoverageRejectsInvalidParams
+[ RUN  ] MaskApply.BackgroundModeFillsOutside
+[  OK  ] MaskApply.BackgroundModeFillsOutside
+[ RUN  ] MaskApply.CustomBackgroundColor
+[  OK  ] MaskApply.CustomBackgroundColor
+[ RUN  ] MaskApply.TransparentModeZeroesAlpha
+[  OK  ] MaskApply.TransparentModeZeroesAlpha
+[ RUN  ] MaskApply.FeatherProducesGradientInFrame
+[  OK  ] MaskApply.FeatherProducesGradientInFrame
+[ RUN  ] MaskApply.RejectsInvalidArgs
+[  OK  ] MaskApply.RejectsInvalidArgs
+[ RUN  ] MaskApply.FullVisibleIsNoOp
+[  OK  ] MaskApply.FullVisibleIsNoOp
+[ RUN  ] Mask.CoverageRatioComputation
+[  OK  ] Mask.CoverageRatioComputation
+[ RUN  ] MaskPipeline.EditorSetAndUndo
+[  OK  ] MaskPipeline.EditorSetAndUndo
+[ RUN  ] MaskPipeline.EditorRejectsInvalidAndLocked
+[  OK  ] MaskPipeline.EditorRejectsInvalidAndLocked
+[ RUN  ] MaskPipeline.ExportPlanCarriesMask
+[  OK  ] MaskPipeline.ExportPlanCarriesMask
+[ RUN  ] MaskPipeline.ExportAppliesMaskToFrames
+[  OK  ] MaskPipeline.ExportAppliesMaskToFrames
+[ RUN  ] MaskPipeline.PreviewAppliesMask
+[  OK  ] MaskPipeline.PreviewAppliesMask
+[ RUN  ] MaskPipeline.SerializationRoundtrip
+[  OK  ] MaskPipeline.SerializationRoundtrip
+[ RUN  ] MaskPipeline.DefaultOmitsMaskFromFile
+[  OK  ] MaskPipeline.DefaultOmitsMaskFromFile
+[ RUN  ] MaskPipeline.NoneShapeClearsMask
+[  OK  ] MaskPipeline.NoneShapeClearsMask
+[ RUN  ] ChromaKey.ColorParsing
+[  OK  ] ChromaKey.ColorParsing
+[ RUN  ] ChromaKey.PureGreenRemoved
+[  OK  ] ChromaKey.PureGreenRemoved
+[ RUN  ] ChromaKey.OppositeColorsPreserved
+[  OK  ] ChromaKey.OppositeColorsPreserved
+[ RUN  ] ChromaKey.ShadowGreenPartiallyProtected
+[  OK  ] ChromaKey.ShadowGreenPartiallyProtected
+[ RUN  ] ChromaKey.YellowGreenClothMostlyPreserved
+[  OK  ] ChromaKey.YellowGreenClothMostlyPreserved
+[ RUN  ] ChromaKey.BlueScreenKeying
+[  OK  ] ChromaKey.BlueScreenKeying
+[ RUN  ] ChromaKey.MagentaScreenKeying
+[  OK  ] ChromaKey.MagentaScreenKeying
+[ RUN  ] ChromaKey.ThresholdBandMonotonicity
+[  OK  ] ChromaKey.ThresholdBandMonotonicity
+[ RUN  ] ChromaKey.SpillSuppressionReducesGreenCast
+[  OK  ] ChromaKey.SpillSuppressionReducesGreenCast
+[ RUN  ] ChromaKey.SpillSuppressionDisabled
+[  OK  ] ChromaKey.SpillSuppressionDisabled
+[ RUN  ] ChromaKeyApply.TransparentModeZeroesAlpha
+[  OK  ] ChromaKeyApply.TransparentModeZeroesAlpha
+[ RUN  ] ChromaKeyApply.BackgroundModeFillsBackground
+[  OK  ] ChromaKeyApply.BackgroundModeFillsBackground
+[ RUN  ] ChromaKeyApply.RejectsInvalidArgs
+[  OK  ] ChromaKeyApply.RejectsInvalidArgs
+[ RUN  ] ChromaKeyApply.CoverageRatioComputation
+[  OK  ] ChromaKeyApply.CoverageRatioComputation
+[ RUN  ] ChromaKeyApply.AlreadyTransparentPreserved
+[  OK  ] ChromaKeyApply.AlreadyTransparentPreserved
+[ RUN  ] ChromaKey.QualityNamesAndParsing
+[  OK  ] C[h264_nvenc @ 0x1b12bbc0] [Eval @ 0x1ffeffdc30] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1b12bbc0] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11c3a480] Cannot load libcuda.so.1
+[h264_qsv @ 0x11d18600] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11d18600] Supported pixel formats:
+[h264_qsv @ 0x11d18600]   nv12
+[h264_qsv @ 0x11d18600]   qsv
+[h264_vaapi @ 0x11e3ac40] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11e3ac40] Supported pixel formats:
+[h264_vaapi @ 0x11e3ac40]   vaapi
+[h264_v4l2m2m @ 0x11f4bdc0] Could not find a valid device
+[h264_v4l2m2m @ 0x11f4bdc0] can't configure encoder
+[libx264 @ 0x120b4c80] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x120b4c80] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x120b4c80] frame I:1     Avg QP:11.62  size:107039
+[libx264 @ 0x120b4c80] frame P:10    Avg QP:17.34  size: 10684
+[libx264 @ 0x120b4c80] frame B:19    Avg QP:19.93  size:  2530
+[libx264 @ 0x120b4c80] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x120b4c80] mb I  I16..4: 57.5% 13.2% 29.3%
+[libx264 @ 0x120b4c80] mb P  I16..4:  0.0%  0.9%  0.7%  P16..4:  5.5%  2.3%  1.5%  0.0%  0.0%    skip:89.1%
+[libx264 @ 0x120b4c80] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  3.3%  1.0%  0.3%  direct: 1.1%  skip:94.3%  L0:52.0% L1:39.6% BI: 8.4%
+[libx264 @ 0x120b4c80] 8x8 transform intra:19.5% inter:59.9%
+[libx264 @ 0x120b4c80] coded y,uvDC,uvAC intra: 45.5% 51.7% 51.1% inter: 1.5% 5.0% 2.2%
+[libx264 @ 0x120b4c80] i16 v,h,dc,p: 96%  2%  1%  0%
+[libx264 @ 0x120b4c80] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 44% 38%  3%  1%  4%  2%  4%  2%  3%
+[libx264 @ 0x120b4c80] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 38% 32%  2%  3%  6%  5%  5%  5%  3%
+[libx264 @ 0x120b4c80] i8c dc,h,v,p: 52% 17% 19% 11%
+[libx264 @ 0x120b4c80] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x120b4c80] kb/s:2095.66
+[h264_nvenc @ 0x12e4c380] [Eval @ 0x1ffeffdc30] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x12e4c380] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11f729c0] Cannot load libcuda.so.1
+[h264_qsv @ 0x12302f80] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x12302f80] Supported pixel formats:
+[h264_qsv @ 0x12302f80]   nv12
+[h264_qsv @ 0x12302f80]   qsv
+[h264_vaapi @ 0x133f5680] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x133f5680] Supported pixel formats:
+[h264_vaapi @ 0x133f5680]   vaapi
+[h264_v4l2m2m @ 0x1230a040] Could not find a valid device
+[h264_v4l2m2m @ 0x1230a040] can't configure encoder
+[libx264 @ 0x124b3200] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x124b3200] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x124b3200] frame I:1     Avg QP:12.16  size:118398
+[libx264 @ 0x124b3200] frame P:10    Avg QP:17.64  size: 14459
+[libx264 @ 0x124b3200] frame B:19    Avg QP:19.62  size:  3670
+[libx264 @ 0x124b3200] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x124b3200] mb I  I16..4: 63.9%  5.8% 30.3%
+[libx264 @ 0x124b3200] mb P  I16..4:  0.5%  0.5%  1.0%  P16..4:  5.8%  1.7%  1.1%  0.0%  0.0%    skip:89.3%
+[libx264 @ 0x124b3200] mb B  I16..4:  0.1%  0.0%  0.1%  B16..8:  3.2%  0.9%  0.3%  direct: 1.0%  skip:94.5%  L0:52.5% L1:38.9% BI: 8.7%
+[libx264 @ 0x124b3200] 8x8 transform intra:9.4% inter:34.4%
+[libx264 @ 0x124b3200] coded y,uvDC,uvAC intra: 36.3% 53.9% 53.3% inter: 1.7% 4.6% 2.8%
+[libx264 @ 0x124b3200] i16 v,h,dc,p: 88% 10%  2%  0%
+[libx264 @ 0x124b3200] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45% 39%  9%  1%  1%  1%  2%  1%  2%
+[libx264 @ 0x124b3200] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 51% 34%  4%  1%  3%  2%  2%  2%  2%
+[libx264 @ 0x124b3200] i8c dc,h,v,p: 51% 20% 24%  5%
+[libx264 @ 0x124b3200] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x124b3200] kb/s:2661.69
+[h264_nvenc @ 0x1b12bbc0] [Eval @ 0x1ffeffdc30] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1b12bbc0] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11d88180] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e1e880] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e1e880] Supported pixel formats:
+[h264_qsv @ 0x11e1e880]   nv12
+[h264_qsv @ 0x11e1e880]   qsv
+[h264_vaapi @ 0x11f4bdc0] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11f4bdc0] Supported pixel formats:
+[h264_vaapi @ 0x11f4bdc0]   vaapi
+[h264_v4l2m2m @ 0x12165200] Could not find a valid device
+[h264_v4l2m2m @ 0x12165200] can't configure encoder
+[libx264 @ 0x1217c440] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x1217c440] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x1217c440] frame I:1     Avg QP:12.24  size:129323
+[libx264 @ 0x1217c440] frame P:10    Avg QP:17.57  size: 15706
+[libx264 @ 0x1217c440] frame B:19    Avg QP:20.92  size:  4129
+[libx264 @ 0x1217c440] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x1217c440] mb I  I16..4: 63.7%  3.7% 32.5%
+[libx264 @ 0x1217c440] mb P  I16..4:  0.5%  0.3%  1.0%  P16..4:  5.9%  1.7%  1.2%  0.0%  0.0%    skip:89.4%
+[libx264 @ 0x1217c440] mb B  I16..4:  0.1%  0.0%  0.1%  B16..8:  3.2%  0.9%  0.4%  direct: 0.9%  skip:94.5%  L0:52.5% L1:38.6% BI: 8.9%
+[libx264 @ 0x1217c440] 8x8 transform intra:5.5% inter:31.6%
+[libx264 @ 0x1217c440] coded y,uvDC,uvAC intra: 37.5% 53.0% 52.0% inter: 1.8% 4.6% 2.9%
+[libx264 @ 0x1217c440] i16 v,h,dc,p: 87% 11%  2%  0%
+[libx264 @ 0x1217c440] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 42% 39% 11%  1%  1%  1%  2%  2%  2%
+[libx264 @ 0x1217c440] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 51% 36%  4%  1%  2%  1%  2%  1%  2%
+[libx264 @ 0x1217c440] i8c dc,h,v,p: 51% 20% 24%  5%
+[libx264 @ 0x1217c440] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x1217c440] kb/s:2918.67
+[h264_nvenc @ 0x1206da00] [Eval @ 0x1ffeffdcd0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1206da00] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11e3ac40] Cannot load libcuda.so.1
+[h264_qsv @ 0x11b92a00] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11b92a00] Supported pixel formats:
+[h264_qsv @ 0x11b92a00]   nv12
+[h264_qsv @ 0x11b92a00]   qsv
+[h264_vaapi @ 0x11f4bdc0] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11f4bdc0] Supported pixel formats:
+[h264_vaapi @ 0x11f4bdc0]   vaapi
+[h264_v4l2m2m @ 0x11f6ef00] Could not find a valid device
+[h264_v4l2m2m @ 0x11f6ef00] can't configure encoder
+[libx264 @ 0x120b4c80] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x120b4c80] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x120b4c80] frame I:1     Avg QP:11.84  size:113263
+[libx264 @ 0x120b4c80] frame P:10    Avg QP:16.64  size: 14267
+[libx264 @ 0x120b4c80] frame B:19    Avg QP:19.50  size:  3466
+[libx264 @ 0x120b4c80] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x120b4c80] mb I  I16..4: 61.7%  8.7% 29.6%
+[libx264 @ 0x120b4c80] mb P  I16..4:  0.4%  0.7%  1.1%  P16..4:  5.2%  1.8%  1.1%  0.0%  0.0%    skip:89.6%
+[libx264 @ 0x120b4c80] mb B  I16..4:  0.0%  0.0%  0.1%  B16..8:  3.2%  0.9%  0.3%  direct: 0.9%  skip:94.6%  L0:52.9% L1:39.9% BI: 7.2%
+[libx264 @ 0x120b4c80] 8x8 transform intra:13.5% inter:38.8%
+[libx264 @ 0x120b4c80] coded y,uvDC,uvAC intra: 41.3% 54.6% 54.0% inter: 1.8% 4.4% 2.6%
+[libx264 @ 0x120b4c80] i16 v,h,dc,p: 91%  7%  2%  0%
+[libx264 @ 0x120b4c80] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 42% 38%  7%  2%  2%  2%  2%  2%  2%
+[libx264 @ 0x120b4c80] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 49% 34%  4%  1%  3%  2%  3%  2%  2%
+[libx264 @ 0x120b4c80] i8c dc,h,v,p: 51% 20% 25%  5%
+[libx264 @ 0x120b4c80] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x120b4c80] kb/s:2574.34
+[h264_nvenc @ 0x1b10d2c0] [Eval @ 0x1ffeffdcd0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1b10d2c0] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11c3a480] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e3ac40] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e3ac40] Supported pixel formats:
+[h264_qsv @ 0x11e3ac40]   nv12
+[h264_qsv @ 0x11e3ac40]   qsv
+[h264_vaapi @ 0x11f4bdc0] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11f4bdc0] Supported pixel formats:
+[h264_vaapi @ 0x11f4bdc0]   vaapi
+[h264_v4l2m2m @ 0x11f6ef00] Could not find a valid device
+[h264_v4l2m2m @ 0x11f6ef00] can't configure encoder
+[libx264 @ 0x12165200] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x12165200] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x12165200] frame I:1     Avg QP:12.16  size:118398
+[libx264 @ 0x12165200] frame P:10    Avg QP:17.64  size: 14459
+[libx264 @ 0x12165200] frame B:19    Avg QP:19.62  size:  3670
+[libx264 @ 0x12165200] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x12165200] mb I  I16..4: 63.9%  5.8% 30.3%
+[libx264 @ 0x12165200] mb P  I16..4:  0.5%  0.5%  1.0%  P16..4:  5.8%  1.7%  1.1%  0.0%  0.0%    skip:89.3%
+[libx264 @ 0x12165200] mb B  I16..4:  0.1%  0.0%  0.1%  B16..8:  3.2%  0.9%  0.3%  direct: 1.0%  skip:94.5%  L0:52.5% L1:38.9% BI: 8.7%
+[libx264 @ 0x12165200] 8x8 transform intra:9.4% inter:34.4%
+[libx264 @ 0x12165200] coded y,uvDC,uvAC intra: 36.3% 53.9% 53.3% inter: 1.7% 4.6% 2.8%
+[libx264 @ 0x12165200] i16 v,h,dc,p: 88% 10%  2%  0%
+[libx264 @ 0x12165200] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45% 39%  9%  1%  1%  1%  2%  1%  2%
+[libx264 @ 0x12165200] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 51% 34%  4%  1%  3%  2%  2%  2%  2%
+[libx264 @ 0x12165200] i8c dc,h,v,p: 51% 20% 24%  5%
+[libx264 @ 0x12165200] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x12165200] kb/s:2661.69
+hromaKey.QualityNamesAndParsing
+[ RUN  ] ChromaKey.QualityAdjustments
+[  OK  ] ChromaKey.QualityAdjustments
+[ RUN  ] ChromaKey.AccessGatingFailClosed
+[  OK  ] ChromaKey.AccessGatingFailClosed
+[ RUN  ] ChromaPipeline.EditorSetUndoRedo
+[  OK  ] ChromaPipeline.EditorSetUndoRedo
+[ RUN  ] ChromaPipeline.EditorRejectsInvalidAndLocked
+[  OK  ] ChromaPipeline.EditorRejectsInvalidAndLocked
+[ RUN  ] ChromaPipeline.ClearCommand
+[  OK  ] ChromaPipeline.ClearCommand
+[ RUN  ] ChromaPipeline.ExportPlanCarriesChromaKey
+[  OK  ] ChromaPipeline.ExportPlanCarriesChromaKey
+[ RUN  ] ChromaPipeline.ExportAppliesChromaKeySingleLayer
+[  OK  ] ChromaPipeline.ExportAppliesChromaKeySingleLayer
+[ RUN  ] ChromaPipeline.PreviewAppliesChromaKey
+[  OK  ] ChromaPipeline.PreviewAppliesChromaKey
+[ RUN  ] ChromaPipeline.SerializationRoundtrip
+[  OK  ] ChromaPipeline.SerializationRoundtrip
+[ RUN  ] ChromaPipeline.DefaultOmitsChromaKeyFromFile
+[  OK  ] ChromaPipeline.DefaultOmitsChromaKeyFromFile
+[ RUN  ] ChromaPipeline.MalformedChromaKeyDegradesGracefully
+[  OK  ] ChromaPipeline.MalformedChromaKeyDegradesGracefully
+[ RUN  ] ChromaPipeline.ChromaKeyCountedInRegenerationImpact
+[  OK  ] ChromaPipeline.ChromaKeyCountedInRegenerationImpact
+[ RUN  ] ChromaPipeline.ExportAppliesChromaKeyMultiLayerComposite
+[  OK  ] ChromaPipeline.ExportAppliesChromaKeyMultiLayerComposite
+[ RUN  ] SpatialEffects.VignetteDarkensCornersKeepsCenter
+[  OK  ] SpatialEffects.VignetteDarkensCornersKeepsCenter
+[ RUN  ] SpatialEffects.VignetteStrengthMonotonicAndZeroNoOp
+[  OK  ] SpatialEffects.VignetteStrengthMonotonicAndZeroNoOp
+[ RUN  ] SpatialEffects.BlurReducesEdgeEnergyAndPreservesMean
+[  OK  ] SpatialEffects.BlurReducesEdgeEnergyAndPreservesMean
+[ RUN  ] SpatialEffects.BlurRadiusMonotonicAndZeroNoOp
+[  OK  ] SpatialEffects.BlurRadiusMonotonicAndZeroNoOp
+[ RUN  ] SpatialEffects.SharpenIncreasesEdgeContrast
+[  OK  ] SpatialEffects.SharpenIncreasesEdgeContrast
+[ RUN  ] SpatialEffects.SharpenZeroNoOpAndMonotonic
+[  OK  ] SpatialEffects.SharpenZeroNoOpAndMonotonic
+[ RUN  ] SpatialEffects.GrainDisturbsPixelsAndIsDeterministic
+[  OK  ] SpatialEffects.GrainDisturbsPixelsAndIsDeterministic
+[ RUN  ] SpatialEffects.GrainVariesAcrossFrames
+[  OK  ] SpatialEffects.GrainVariesAcrossFrames
+[ RUN  ] SpatialEffects.GrainZeroNoOpAndAmplitudeScales
+[  OK  ] SpatialEffects.GrainZeroNoOpAndAmplitudeScales
+[ RUN  ] SpatialEffects.StackAppliesColorThenSpatialInOrder
+[  OK  ] SpatialEffects.StackAppliesColorThenSpatialInOrder
+[ RUN  ] SpatialEffects.StackSkipsDisabledAndEmpty
+[  OK  ] SpatialEffects.StackSkipsDisabledAndEmpty
+[ RUN  ] SpatialEffects.RejectsInvalidArgs
+[  OK  ] SpatialEffects.RejectsInvalidArgs
+[ RUN  ] SpatialEffectsPipeline.ExportAppliesVignette
+[  OK  ] SpatialEffectsPipeline.ExportAppliesVignette
+[ RUN  ] SpatialEffectsPipeline.ExportAppliesGaussianBlurAndSharpen
+[  OK  ] SpatialEffectsPipeline.ExportAppliesGaussianBlurAndSharpen
+[ RUN  ] SpatialEffectsPipeline.ExportAppliesGrainDeterministically
+[  OK  ] SpatialEffectsPipeline.ExportAppliesGrainDeterministically
+[ RUN  ] SpatialEffectsPipeline.PreviewAppliesSpatialEffects
+[  OK  ] SpatialEffectsPipeline.PreviewAppliesSpatialEffects
+[ RUN  ] SpatialEffectsPipeline.SerializationRoundtrip
+[  OK  ] SpatialEffectsPipeline.SerializationRoundtrip
+[ RUN  ] SpatialEffectsE2E.BlurAndSharpenChangeGradientEnergy
+[实测] 梯度能量：清晰=264.0 模糊=34.9 锐化=395.0
+[  OK  ] SpatialEffectsE2E.BlurAndSharpenChangeGradientEnergy
+[ RUN  ] SpatialEffectsE2E.VignetteDarkensContentCornersOnRealExport
+[实测] 角落 120.6→29.9 中心 238.2→240.9
+[  OK  ] SpatialEffectsE2E.VignetteDarkensContentCornersOnRealExport
+[ RUN  ] ScreenEffects.AllEffectsZeroIntensityNoOp
+[  OK  ] ScreenEffects.AllEffectsZeroIntensityNoOp
+[ RUN  ] ScreenEffects.AllEffectsChangeImageAtFullIntensity
+[  OK  ] ScreenEffects.AllEffectsChangeImageAtFullIntensity
+[ RUN  ] ScreenEffects.DeterministicAcrossRuns
+[  OK  ] ScreenEffects.DeterministicAcrossRuns
+[ RUN  ] ScreenEffects.GlitchAndRgbSplitVaryAcrossFrames
+[  OK  ] ScreenEffects.GlitchAndRgbSplitVaryAcrossFrames
+[ RUN  ][h264_nvenc @ 0x1243d280] [Eval @ 0x1ffeffdcd0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1243d280] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11b92a00] Cannot load libcuda.so.1
+[h264_qsv @ 0x11c3a480] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11c3a480] Supported pixel formats:
+[h264_qsv @ 0x11c3a480]   nv12
+[h264_qsv @ 0x11c3a480]   qsv
+[h264_vaapi @ 0x11d18600] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11d18600] Supported pixel formats:
+[h264_vaapi @ 0x11d18600]   vaapi
+[h264_v4l2m2m @ 0x11e1e880] Could not find a valid device
+[h264_v4l2m2m @ 0x11e1e880] can't configure encoder
+[libx264 @ 0x11ff6840] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x11ff6840] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x11ff6840] frame I:1     Avg QP:13.77  size:128433
+[libx264 @ 0x11ff6840] frame P:13    Avg QP:18.82  size: 28874
+[libx264 @ 0x11ff6840] frame B:16    Avg QP:23.36  size: 12494
+[libx264 @ 0x11ff6840] consecutive B-frames: 16.7% 13.3% 70.0%
+[libx264 @ 0x11ff6840] mb I  I16..4: 57.1%  6.3% 36.6%
+[libx264 @ 0x11ff6840] mb P  I16..4:  4.1%  0.9%  2.5%  P16..4:  9.4%  4.8%  3.7%  0.0%  0.0%    skip:74.6%
+[libx264 @ 0x11ff6840] mb B  I16..4:  0.4%  0.1%  0.1%  B16..8: 11.2%  5.4%  1.8%  direct: 1.7%  skip:79.4%  L0:42.3% L1:44.7% BI:13.1%
+[libx264 @ 0x11ff6840] 8x8 transform intra:9.0% inter:16.7%
+[libx264 @ 0x11ff6840] coded y,uvDC,uvAC intra: 35.3% 43.7% 43.2% inter: 4.8% 8.9% 6.3%
+[libx264 @ 0x11ff6840] i16 v,h,dc,p: 85% 12%  3%  0%
+[libx264 @ 0x11ff6840] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 35% 37% 15%  2%  3%  2%  3%  2%  3%
+[libx264 @ 0x11ff6840] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 40% 30% 13%  2%  3%  3%  3%  3%  3%
+[libx264 @ 0x11ff6840] i8c dc,h,v,p: 60% 17% 18%  4%
+[libx264 @ 0x11ff6840] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x11ff6840] kb/s:5629.52
+[h264_nvenc @ 0x1243d280] [Eval @ 0x1ffeffdcd0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1243d280] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11e075c0] Cannot load libcuda.so.1
+[h264_qsv @ 0x11c3a480] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11c3a480] Supported pixel formats:
+[h264_qsv @ 0x11c3a480]   nv12
+[h264_qsv @ 0x11c3a480]   qsv
+[h264_vaapi @ 0x11e294c0] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11e294c0] Supported pixel formats:
+[h264_vaapi @ 0x11e294c0]   vaapi
+[h264_v4l2m2m @ 0x11e3ac40] Could not find a valid device
+[h264_v4l2m2m @ 0x11e3ac40] can't configure encoder
+[libx264 @ 0x11f6ef00] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x11f6ef00] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x11f6ef00] frame I:1     Avg QP:12.16  size:118398
+[libx264 @ 0x11f6ef00] frame P:10    Avg QP:17.64  size: 14459
+[libx264 @ 0x11f6ef00] frame B:19    Avg QP:19.62  size:  3670
+[libx264 @ 0x11f6ef00] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x11f6ef00] mb I  I16..4: 63.9%  5.8% 30.3%
+[libx264 @ 0x11f6ef00] mb P  I16..4:  0.5%  0.5%  1.0%  P16..4:  5.8%  1.7%  1.1%  0.0%  0.0%    skip:89.3%
+[libx264 @ 0x11f6ef00] mb B  I16..4:  0.1%  0.0%  0.1%  B16..8:  3.2%  0.9%  0.3%  direct: 1.0%  skip:94.5%  L0:52.5% L1:38.9% BI: 8.7%
+[libx264 @ 0x11f6ef00] 8x8 transform intra:9.4% inter:34.4%
+[libx264 @ 0x11f6ef00] coded y,uvDC,uvAC intra: 36.3% 53.9% 53.3% inter: 1.7% 4.6% 2.8%
+[libx264 @ 0x11f6ef00] i16 v,h,dc,p: 88% 10%  2%  0%
+[libx264 @ 0x11f6ef00] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45% 39%  9%  1%  1%  1%  2%  1%  2%
+[libx264 @ 0x11f6ef00] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 51% 34%  4%  1%  3%  2%  2%  2%  2%
+[libx264 @ 0x11f6ef00] i8c dc,h,v,p: 51% 20% 24%  5%
+[libx264 @ 0x11f6ef00] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x11f6ef00] kb/s:2661.69
+ ScreenEffects.MirrorSwapsSides
+[  OK  ] ScreenEffects.MirrorSwapsSides
+[ RUN  ] ScreenEffects.ScanlinesDarkenAlternateRows
+[  OK  ] ScreenEffects.ScanlinesDarkenAlternateRows
+[ RUN  ] ScreenEffects.SplitScreenShowsFullFrameInEachQuadrant
+[  OK  ] ScreenEffects.SplitScreenShowsFullFrameInEachQuadrant
+[ RUN  ] ScreenEffects.RejectsInvalidArgs
+[  OK  ] ScreenEffects.RejectsInvalidArgs
+[ RUN  ] BlendModes.StandardFormulasExact
+[  OK  ] BlendModes.StandardFormulasExact
+[ RUN  ] BlendModes.NamesAndParsing
+[  OK  ] BlendModes.NamesAndParsing
+[ RUN  ] BlendModes.FrameBlendRespectsAlpha
+[  OK  ] BlendModes.FrameBlendRespectsAlpha
+[ RUN  ] BlendModes.FrameBlendRejectsInvalid
+[  OK  ] BlendModes.FrameBlendRejectsInvalid
+[ RUN  ] RenderEngine.ExportQualityRequiresFullPrecision
+[  OK  ] RenderEngine.ExportQualityRequiresFullPrecision
+[ RUN  ] RenderEngine.PreviewQualityAllowsOptimization
+[  OK  ] RenderEngine.PreviewQualityAllowsOptimization
+[ RUN  ] RenderEngine.KernelRadiusAndSampleCountScale
+[  OK  ] RenderEngine.KernelRadiusAndSampleCountScale
+[ RUN  ] RenderEngine.RadialBlurUsesQualityGrading
+[  OK  ] RenderEngine.RadialBlurUsesQualityGrading
+[ RUN  ] MaskShapes.StarAndHeartParsing
+[  OK  ] MaskShapes.StarAndHeartParsing
+[ RUN  ] MaskShapes.StarGeometry
+[  OK  ] MaskShapes.StarGeometry
+[ RUN  ] MaskShapes.HeartGeometry
+[  OK  ] MaskShapes.HeartGeometry
+[ RUN  ] ScreenPipeline.BlendModeCommandsWithUndo
+[  OK  ] ScreenPipeline.BlendModeCommandsWithUndo
+[ RUN  ] ScreenPipeline.ExportPlanCarriesBlendMode
+[  OK  ] ScreenPipeline.ExportPlanCarriesBlendMode
+[ RUN  ] ScreenPipeline.SerializationRoundtrip
+[  OK  ] ScreenPipeline.SerializationRoundtrip
+[ RUN  ] ScreenPipeline.DefaultOmitsBlendModeFromFile
+[  OK  ] ScreenPipeline.DefaultOmitsBlendModeFromFile
+[ RUN  ] ScreenPipeline.CapisBlendModeSetGet
+[  OK  ] ScreenPipeline.CapisBlendModeSetGet
+[ RUN  ] ScreenPipeline.BlendModeAppliesInMultiLayerExport
+[实测] 多层混合: normal=100 screen=222 darken=100 overlay=188 hardLight=157
+[  OK  ] ScreenPipeline.BlendModeAppliesInMultiLayerExport
+[ RUN  ] ParticleEngine.DeterministicSampling
+[  OK  ] ParticleEngine.DeterministicSampling
+[ RUN  ] ParticleEngine.LifecycleLoops
+[  OK  ] ParticleEngine.LifecycleLoops
+[ RUN  ] ParticleEngine.RejectsInvalidConfig
+[  OK  ] ParticleEngine.RejectsInvalidConfig
+[ RUN  ] AtmosphereEffects.ZeroIntensityNoOp
+[  OK  ] AtmosphereEffects.ZeroIntensityNoOp
+[ RUN  ] AtmosphereEffects.EffectsChangeImage
+[  OK  ] AtmosphereEffects.EffectsChangeImage
+[ RUN  ] AtmosphereEffects.SnowRainDeterministicAndTimeVarying
+[  OK  ] AtmosphereEffects.SnowRainDeterministicAndTimeVarying
+[ RUN  ] AtmosphereEffects.SnowFallsDownward
+[  OK  ] AtmosphereEffects.SnowFallsDownward
+[ RUN  ] AtmosphereEffects.LightLeakFlickers
+[  OK  ] AtmosphereEffects.LightLeakFlickers
+[ RUN  ] AtmosphereEffects.StarburstNeedsHighlights
+[  OK  ] AtmosphereEffects.StarburstNeedsHighlights
+[ RUN  ] AtmosphereEffects.OldFilmScratchesAndJitter
+[  OK  ] AtmosphereEffects.OldFilmScratchesAndJitter
+[ RUN  ] MotionEffects.ZeroIntensityNoOp
+[  OK  ] MotionEffects.ZeroIntensityNoOp
+[ RUN  ] MotionEffects.ZoomPunchPulsesOverTime
+[  OK  ] MotionEffects.ZoomPunchPulsesOverTime
+[ RUN  ] MotionEffects.WhipPanDirectionalBlur
+[  OK  ] MotionEffects.WhipPanDirectionalBlur
+[ RUN  ] MotionEffects.BeatDrivenEffectsRequireBeats
+[  OK  ] MotionEffects.BeatDrivenEffectsRequireBeats
+[ RUN  ] MotionEffects.MotionBlurShutterAngleMapping
+[  OK  ] MotionEffects.MotionBlurShutterAngleMapping
+[ RUN  ] MotionEffects.MotionBlurWeightedBlend
+[  OK  ] MotionEffects.MotionBlurWeightedBlend
+[ RUN  ] AtmosphereMotionPipeline.EffectTypeSpecsRegistered
+[  OK  ] AtmosphereMotionPipeline.EffectTypeSpecsRegistered
+[ RUN  ] AtmosphereMotionPipeline.StackIntegration
+[  OK  ] AtmosphereMotionPipeline.StackIntegration
+[ RUN  ] AtmosphereMotionPipeline.SerializationRoundtrip
+[  OK  ] AtmosphereMotionPipeline.SerializationRoundtrip
+[ RUN  ] AtmosphereMotionE2E.SnowBrightensDarkAreas
+[实测] 雪花端到端：32125/81969 采样点更亮
+[  OK  ] AtmosphereMotionE2E.SnowBrightensDarkAreas
+[ RUN  [h264_nvenc @ 0x1243d280] [Eval @ 0x1ffeffdcd0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1243d280] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11e1e880] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e294c0] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e294c0] Supported pixel formats:
+[h264_qsv @ 0x11e294c0]   nv12
+[h264_qsv @ 0x11e294c0]   qsv
+[h264_vaapi @ 0x1217c440] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x1217c440] Supported pixel formats:
+[h264_vaapi @ 0x1217c440]   vaapi
+[h264_v4l2m2m @ 0x1219cb40] Could not find a valid device
+[h264_v4l2m2m @ 0x1219cb40] can't configure encoder
+[libx264 @ 0x122eb180] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x122eb180] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x122eb180] frame I:1     Avg QP:13.01  size:112018
+[libx264 @ 0x122eb180] frame P:11    Avg QP:14.26  size: 52348
+[libx264 @ 0x122eb180] frame B:18    Avg QP:21.01  size: 23186
+[libx264 @ 0x122eb180] consecutive B-frames: 10.0%  0.0% 90.0%
+[libx264 @ 0x122eb180] mb I  I16..4: 59.8%  6.2% 33.9%
+[libx264 @ 0x122eb180] mb P  I16..4:  7.1%  1.8%  5.2%  P16..4: 18.6%  9.7%  3.0%  0.0%  0.0%    skip:54.7%
+[libx264 @ 0x122eb180] mb B  I16..4:  3.0%  0.8%  0.8%  B16..8: 18.5%  8.6%  1.2%  direct: 6.1%  skip:61.2%  L0:51.3% L1:39.9% BI: 8.8%
+[libx264 @ 0x122eb180] 8x8 transform intra:11.8% inter:32.8%
+[libx264 @ 0x122eb180] coded y,uvDC,uvAC intra: 37.8% 69.9% 67.4% inter: 8.9% 24.9% 12.8%
+[libx264 @ 0x122eb180] i16 v,h,dc,p: 75% 23%  2%  0%
+[libx264 @ 0x122eb180] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 43% 41% 11%  1%  1%  0%  1%  1%  2%
+[libx264 @ 0x122eb180] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 48% 37%  8%  1%  2%  1%  1%  1%  1%
+[libx264 @ 0x122eb180] i8c dc,h,v,p: 33% 29% 32%  5%
+[libx264 @ 0x122eb180] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x122eb180] kb/s:8841.53
+[h264_nvenc @ 0x11d8c580] [Eval @ 0x1ffeffdcd0] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x11d8c580] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11b92a00] Cannot load libcuda.so.1
+[h264_qsv @ 0x11c3a480] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11c3a480] Supported pixel formats:
+[h264_qsv @ 0x11c3a480]   nv12
+[h264_qsv @ 0x11c3a480]   qsv
+[h264_vaapi @ 0x12125c80] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x12125c80] Supported pixel formats:
+[h264_vaapi @ 0x12125c80]   vaapi
+[h264_v4l2m2m @ 0x122eb180] Could not find a valid device
+[h264_v4l2m2m @ 0x122eb180] can't configure encoder
+[libx264 @ 0x1230a040] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x1230a040] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x1230a040] frame I:1     Avg QP:12.16  size:118398
+[libx264 @ 0x1230a040] frame P:10    Avg QP:17.64  size: 14459
+[libx264 @ 0x1230a040] frame B:19    Avg QP:19.62  size:  3670
+[libx264 @ 0x1230a040] consecutive B-frames:  3.3%  6.7% 90.0%
+[libx264 @ 0x1230a040] mb I  I16..4: 63.9%  5.8% 30.3%
+[libx264 @ 0x1230a040] mb P  I16..4:  0.5%  0.5%  1.0%  P16..4:  5.8%  1.7%  1.1%  0.0%  0.0%    skip:89.3%
+[libx264 @ 0x1230a040] mb B  I16..4:  0.1%  0.0%  0.1%  B16..8:  3.2%  0.9%  0.3%  direct: 1.0%  skip:94.5%  L0:52.5% L1:38.9% BI: 8.7%
+[libx264 @ 0x1230a040] 8x8 transform intra:9.4% inter:34.4%
+[libx264 @ 0x1230a040] coded y,uvDC,uvAC intra: 36.3% 53.9% 53.3% inter: 1.7% 4.6% 2.8%
+[libx264 @ 0x1230a040] i16 v,h,dc,p: 88% 10%  2%  0%
+[libx264 @ 0x1230a040] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45% 39%  9%  1%  1%  1%  2%  1%  2%
+[libx264 @ 0x1230a040] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 51% 34%  4%  1%  3%  2%  2%  2%  2%
+[libx264 @ 0x1230a040] i8c dc,h,v,p: 51% 20% 24%  5%
+[libx264 @ 0x1230a040] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x1230a040] kb/s:2661.69
+[h264_nvenc @ 0x1243d280] [Eval @ 0x1ffeffe720] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x1243d280] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11d88180] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e1e880] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e1e880] Supported pixel formats:
+[h264_qsv @ 0x11e1e880]   nv12
+[h264_qsv @ 0x11e1e880]   qsv
+[h264_vaapi @ 0x11e3ac40] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11e3ac40] Supported pixel formats:
+[h264_vaapi @ 0x11e3ac40]   vaapi
+[h264_v4l2m2m @ 0x11f4bdc0] Could not find a valid device
+[h264_v4l2m2m @ 0x11f4bdc0] can't configure encoder
+[libx264 @ 0x120b4c80] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x120b4c80] profile High, level 1.0, 4:2:0, 8-bit
+[libx264 @ 0x120b4c80] frame I:1     Avg QP:10.00  size:   753
+[libx264 @ 0x120b4c80] frame P:13    Avg QP:11.31  size:    15
+[libx264 @ 0x120b4c80] frame B:26    Avg QP:13.50  size:    13
+[libx264 @ 0x120b4c80] consecutive B-frames:  2.5%  0.0% 97.5%
+[libx264 @ 0x120b4c80] mb I  I16..4: 91.7%  8.3%  0.0%
+[libx264 @ 0x120b4c80] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x120b4c80] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x120b4c80] 8x8 transform intra:8.3%
+[libx264 @ 0x120b4c80] coded y,uvDC,uvAC intra: 2.1% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x120b4c80] i16 v,h,dc,p: 73%  0% 27%  0%
+[libx264 @ 0x120b4c80] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x120b4c80] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x120b4c80] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x120b4c80] kb/s:7.69
+[aac @ 0x12165200] Qavg: 52143.863
+[h264_nvenc @ 0x12fe3500] [Eval @ 0x1ffeffe720] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x12fe3500] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11d18600] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e033c0] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e033c0] Supported pixel formats:
+[h264_qsv @ 0x11e033c0]   nv12
+[h264_qsv @ 0x11e033c0]   qsv
+[h264_vaapi @ 0x11e294c0] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x11e294c0] Supported pixel formats:
+[h264_vaapi @ 0x11e294c0]   vaapi
+[h264_v4l2m2m @ 0x1219c280] Could not find a valid device
+[h264_v4l2m2m @ 0x1219c280] can't configure encoder
+[libx264 @ 0x12302f80] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x12302f80] profile High, level 1.0, 4:2:0, 8-bit
+[libx264 @ 0x12302f80] frame I:1     Avg QP:10.00  size:   753
+[libx264 @ 0x12302f80] frame P:13    Avg QP:11.31  size:    15
+[libx264 @ 0x12302f80] frame B:26    Avg QP:13.50  size:    13
+[libx264 @ 0x12302f80] consecutive B-frames:  2.5%  0.0% 97.5%
+[libx264 @ 0x12302f80] mb I  I16..4: 91.7%  8.3%  0.0%
+[libx264 @ 0x12302f80] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x12302f80] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x12302f80] 8x8 transform intra:8.3%
+[libx264 @ 0x12302f80] coded y,uvDC,uvAC intra: 2.1% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x12302f80] i16 v,h,dc,p: 73%  0% 27%  0%
+[libx264 @ 0x12302f80] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x12302f80] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x12302f80] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x12302f80] kb/s:7.69
+[aac @ 0x1219cb40] Qavg: 65536.000
+[h264_nvenc @ 0x13e47f80] [Eval @ 0x1ffeffe560] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x13e47f80] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x12165200] Cannot load libcuda.so.1
+[h264_qsv @ 0x11e294c0] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x11e294c0] Supported pixel formats:
+[h264_qsv @ 0x11e294c0]   nv12
+[h264_qsv @ 0x11e294c0]   qsv
+[h264_vaapi @ 0x12125c80] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x12125c80] Supported pixel formats:
+[h264_vaapi @ 0x12125c80]   vaapi
+[h264_v4l2m2m @ 0x1217c440] Could not find a valid device
+[h264_v4l2m2m @ 0x1217c440] can't configure encoder
+[libx264 @ 0x1219c280] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x1219c280] profile High, level 1.0, 4:2:0, 8-bit
+[libx264 @ 0x1219c280] frame I:1     Avg QP:10.00  size:   753
+[libx264 @ 0x1219c280] frame P:13    Avg QP:11.31  size:    15
+[libx264 @ 0x1219c280] frame B:26    Avg QP:13.50  size:    13
+[libx264 @ 0x1219c280] consecutive B-frames:  2.5%  0.0% 97.5%
+[libx264 @ 0x1219c280] mb I  I16..4: 91.7%  8.3%  0.0%
+[libx264 @ 0x1219c280] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+[libx264 @ 0x1219c280] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x1219c280] 8x8 transform intra:8.3%
+[libx264 @ 0x1219c280] coded y,uvDC,uvAC intra: 2.1% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+[libx264 @ 0x1219c280] i16 v,h,dc,p: 73%  0% 27%  0%
+[libx264 @ 0x1219c280] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 100%  0%  0%  0%  0%  0%  0%
+[libx264 @ 0x1219c280] i8c dc,h,v,p: 100%  0%  0%  0%
+[libx264 @ 0x1219c280] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x1219c280] kb/s:7.69
+[aac @ 0x12302f80] Qavg: 65536.000
+] AtmosphereMotionE2E.ZoomPunchChangesFrameAtPulsePeak
+[实测] 缩放冲击端到端：8020 采样点差异
+[  OK  ] AtmosphereMotionE2E.ZoomPunchChangesFrameAtPulsePeak
+[ RUN  ] AiEngine.AvailabilityAndInfo
+[  OK  ] AiEngine.AvailabilityAndInfo
+[ RUN  ] AiEngine.BackendNamesAndParsing
+[  OK  ] AiEngine.BackendNamesAndParsing
+[ RUN  ] AiEngine.BackendAvailabilityFailClosed
+[  OK  ] AiEngine.BackendAvailabilityFailClosed
+[ RUN  ] AiEngine.TensorElementCountAndValidity
+[  OK  ] AiEngine.TensorElementCountAndValidity
+[ RUN  ] AiEngine.PreprocessHwcToChwAndNormalization
+[  OK  ] AiEngine.PreprocessHwcToChwAndNormalization
+[ RUN  ] AiEngine.PreprocessRejectsInvalid
+[  OK  ] AiEngine.PreprocessRejectsInvalid
+[ RUN  ] AiEngine.PreprocessQuantizedOutput
+[  OK  ] AiEngine.PreprocessQuantizedOutput
+[ RUN  ] AiEngine.PostprocessMaskUpsamplesAndMaps
+[  OK  ] AiEngine.PostprocessMaskUpsamplesAndMaps
+[ RUN  ] AiEngine.PostprocessRejectsInvalid
+[  OK  ] AiEngine.PostprocessRejectsInvalid
+[ RUN  ] AiEngine.SessionFailsClosedWithoutModel
+[  OK  ] AiEngine.SessionFailsClosedWithoutModel
+[ RUN  ] AiEngine.SessionRealInferenceOnTinyModel
+[  OK  ] AiEngine.SessionRealInferenceOnTinyModel
+[ RUN  ] CodecPolicy.LicenseClassification
+[  OK  ] CodecPolicy.LicenseClassification
+[ RUN  ] CodecPolicy.HardwarePreferred
+[  OK  ] CodecPolicy.HardwarePreferred
+[ RUN  ] CodecPolicy.PermissivePreferredOverGpl
+[  OK  ] CodecPolicy.PermissivePreferredOverGpl
+[ RUN  ] CodecPolicy.FailClosedWithoutCompliantEncoder
+[  OK  ] CodecPolicy.FailClosedWithoutCompliantEncoder
+[ RUN  ] CodecPolicy.HevcDeniedEntirely
+[  OK  ] CodecPolicy.HevcDeniedEntirely
+[ RUN  ] CodecPolicy.RoyaltyFreeCodecsAllowed
+[  OK  ] CodecPolicy.RoyaltyFreeCodecsAllowed
+[ RUN  ] CodecPolicy.UnknownEncoderSkipped
+[  OK  ] CodecPolicy.UnknownEncoderSkipped
+[ RUN  ] CodecPolicy.CandidateRankingOrder
+[  OK  ] CodecPolicy.CandidateRankingOrder
+[ RUN  ] CodecPolicy.AudioEncoderSelection
+[  OK  ] CodecPolicy.AudioEncoderSelection
+[ RUN  ] CodecPolicy.EncoderAllowedProxy
+[  OK  ] CodecPolicy.EncoderAllowedProxy
+[ RUN  ] CodecPolicy.ComplianceStatementMentionsKeyRules
+[  OK  ] CodecPolicy.ComplianceStatementMentionsKeyRules
+[ RUN  ] CodecPolicy.BuildFlagDefaults
+[  OK  ] CodecPolicy.BuildFlagDefaults
+[ RUN  ] AiMarking.MetadataBuildAndParse
+[  OK  ] AiMarking.MetadataBuildAndParse
+[ RUN  ] AiMarking.MetadataDeterministicAndNoProducedBy
+[  OK  ] AiMarking.MetadataDeterministicAndNoProducedBy
+[ RUN  ] AiMarking.ToneGeneration
+[  OK  ] AiMarking.ToneGeneration
+[ RUN  ] AiMarking.ApplyMarksToBuffer
+[  OK  ] AiMarking.ApplyMarksToBuffer
+[ RUN  ] AiMarking.ComplianceStatementAndRoleSeparation
+[  OK  ] AiMarking.ComplianceStatementAndRoleSeparation
+[ RUN  ] AiMarkingE2E.ToneMarksWrittenToRealFile
+[实测] 起始段 RMS：有提示音=0.1767 无提示音=0.0000
+[  OK  ] AiMarkingE2E.ToneMarksWrittenToRealFile
+[ RUN  ] AiMarkingE2E.MetadataReadableFromRealFile
+[  OK  ] AiMarkingE2E.MetadataReadableFromRealFile
+[ RUN  ] Reframe.SaliencyFindsSubjectPosition
+[  OK  ] Reframe.SaliencyFindsSubjectPosition
+[ RUN  ] Reframe.SaliencyFindsRightSubject
+[  OK  ] Reframe.SaliencyFindsRightSubject
+[ RUN  ] Reframe.FlatImageHasLowEnergy
+[  OK  ] Reframe.FlatImageHasLowEnergy
+[ RUN  ] Reframe.SaliencyRejectsBadArgs
+[  OK  ] Reframe.SaliencyRejectsBadArgs
+[ RUN  ] Reframe.MotionContributesToSaliency
+[  OK  ] Reframe.MotionContributesToSaliency
+[ RUN  ] Reframe.PlanProducesKeyframesPerFrame
+[  OK  ] Reframe.PlanProducesKeyframesPerFrame
+[ RUN  ] Reframe.PlanClampsWindowInsideSource
+[  OK  ] Reframe.PlanClampsWindowInsideSource
+[ RUN  ] Reframe.PlanSmoothsJitter
+[  OK  ] Reframe.PlanSmoothsJitter
+[ RUN  ] Reframe.PlanLimitsPanSpeed
+[  OK  ] Reframe.PlanLimitsPanSpeed
+[ RUN  ] Reframe.PlanNoSubjectFallsBackToCenter
+[  OK  ] Reframe.PlanNoSubjectFallsBackToCenter
+[ RUN  ] Reframe.PlanRejectsEmptyOrBadSizes
+[  OK  ] Reframe.PlanRejectsEmptyOrBadSizes
+[ RUN  ] Reframe.AtInterpolatesBetweenKeyframes
+[  OK  ] Reframe.AtInterpolatesBetweenKeyframes
+[ RUN  ] Reframe.AtClampsOutsideRange
+[  OK  ] Reframe.AtClampsOutsideRange
+[ RUN  ] Reframe.AtRejectsEmptyTrack
+[  OK  ] Reframe.AtRejectsEmptyTrack
+[ RUN  ] Reframe.CropWindowFitsInsideSource
+[  OK  ] Reframe.CropWindowFitsInsideSource
+[ RUN  ] Reframe.CropWindowRejectsBadArgs
+[  OK  ] Reframe.CropWindowRejectsBadArgs
+[ RUN  ] Reframe.RenderCropsToTargetSize
+[  OK  ] Reframe.RenderCropsToTargetSize
+[ RUN  ] Reframe.RenderRejectsMismatchedSource
+[  OK  ] Reframe.RenderRejectsMismatchedSource
+[ RUN  ] Reframe.DirectionLandscapeToPortrait
+[  OK  ] Reframe.DirectionLandscapeToPortrait
+[ RUN  ] Reframe.DirectionPortraitToLandscape
+[  OK  ] Reframe.DirectionPortraitToLandscape
+[ RUN  ] Reframe.DirectionSameOrientation
+[  OK  ] Reframe.DirectionSameOrientation
+[ RUN  ] Reframe.ConfigSensitivityMapping
+[  OK  ] Reframe.ConfigSensitivityMapping
+[ RUN  ] ReframeSer.RoundtripPersistsTrack
+[  OK  ] ReframeSer.RoundtripPersistsTrack
+[ RUN  ] ReframeSer.DisabledOmittedFromFile
+[  OK  ] ReframeSer.DisabledOmittedFromFile
+[ RUN  ] ReframeSer.ExportPlanCarriesReframe
+[  OK  ] ReframeSer.ExportPlanCarriesReframe
+[ RUN  ] ReframeSer.ExportExecutorAppliesReframeCrop
+[  OK  ] ReframeSer.ExportExecutorAppliesReframeCrop
+[ RUN  ] Crypto.Sha256EmptyString
+[  OK  ] Crypto.Sha256EmptyString
+[ RUN  ] Crypto.Sha256Abc
+[  OK  ] Crypto.Sha256Abc
+[ RUN  ] Crypto.Sha256LongMessage448Bits
+[  OK  ] Crypto.Sha256LongMessage448Bits
+[ RUN  ] Crypto.Sha256MillionA
+[  OK  ] Crypto.Sha256MillionA
+[ RUN  ] Crypto.Sha256IncrementalMatchesOneShot
+[  OK  ] Crypto.Sha256IncrementalMatchesOneShot
+[ RUN  ] Crypto.Sha256ResetReusable
+[  OK  ] Crypto.Sha256ResetReusable
+[ RUN  ] Crypto.Sha256HexRoundTrip
+[  OK  ] Crypto.Sha256HexRoundTrip
+[ RUN  ] Crypto.Sha256FromHexRejectsInvalid
+[  OK  ] Crypto.Sha256FromHexRejectsInvalid
+[ RUN  ] Crypto.ConstantTimeEquals
+[  OK  ] Crypto.ConstantTimeEquals
+[ RUN  ] Crypto.Aes256EncryptBlockFipsVector
+[  OK  ] Crypto.Aes256EncryptBlockFipsVector
+[ RUN  ] Crypto.Aes256KnownAnswerFromSpec
+[  OK  ] Crypto.Aes256KnownAnswerFromSpec
+[ RUN  ] Crypto.Aes256CtrNistSp800_38a
+[  OK  ] Crypto.Aes256CtrNistSp800_38a
+[ RUN  ] Crypto.Aes256CtrStreamingAcrossBlocks
+[  OK  ] Crypto.Aes256CtrStreamingAcrossBlocks
+[ RUN  ] Crypto.Aes256CtrAtOffsetMatchesPrefix
+[  OK  ] Crypto.Aes256CtrAtOffsetMatchesPrefix
+[ RUN  ] Crypto.AesCtrCounterAdvancesByOffset
+[  OK  ] Crypto.AesCtrCounterAdvancesByOffset
+[ RUN  ] Crypto.Aes256CtrRejectsNullKey
+[  OK  ] Crypto.Aes256CtrRejectsNullKey
+[ RUN  ] Crypto.Aes256CtrResetRepeatsKeystream
+[  OK  ] Crypto.Aes256CtrResetRepeatsKeystream
+[ RUN  ] Crypto.SecureRandomFailsClosedWithoutProvider
+[  OK  ] Crypto.SecureRandomFailsClosedWithoutProvider
+[ RUN  ] Crypto.SecureRandomUsesInjectedProvider
+[  OK  ] Crypto.SecureRandomUsesInjectedProvider
+[ RUN  ] Chapter.RejectsInvalidConfig
+[  OK  ] Chapter.RejectsInvalidConfig
+[ RUN  ] Chapter.RejectsEmptyDuration
+[  OK  ] Chapter.RejectsEmptyDuration
+[ RUN  ] Chapter.NoBoundariesYieldsSingleChapter
+[  OK  ] Chapter.NoBoundariesYieldsSingleChapter
+[ RUN  ] Chapter.FirstChapterAlwaysStartsAtZero
+[  OK  ] Chapter.FirstChapterAlwaysStartsAtZero
+[ RUN  ] Chapter.SceneBoundariesProduceChapters
+[  OK  ] Chapter.SceneBoundariesProduceChapters
+[ RUN  ] Chapter.MinChapterMergesShortBoundaries
+[  OK  ] Chapter.MinChapterMergesShortBoundaries
+[ RUN  ] Chapter.MaxChapterForcesHardCut
+[  OK  ] Chapter.MaxChapterForcesHardCut
+[ RUN  ] Chapter.MaxChaptersLimitDropsWeakest
+[  OK  ] Chapter.MaxChaptersLimitDropsWeakest
+[ RUN  ] Chapter.SilenceBoundariesFromSpeechGaps
+[  OK  ] Chapter.SilenceBoundariesFromSpeechGaps
+[ RUN  ] Chapter.ShortSilenceDoesNotCreateBoundary
+[  OK  ] Chapter.ShortSilenceDoesNotCreateBoundary
+[ RUN  ] Chapter.SilenceDetectionCanBeDisabled
+[  OK  ] Chapter.SilenceDetectionCanBeDisabled
+[ RUN  ] Chapter.SceneDetectionCanBeDisabled
+[  OK  ] Chapter.SceneDetectionCanBeDisabled
+[ RUN  ] Chapter.SceneAndSilenceMergeToBoth
+[  OK  ] Chapter.SceneAndSilenceMergeToBoth
+[ RUN  ] Chapter.ChaptersCoverFullDuration
+[  OK  ] Chapter.ChaptersCoverFullDuration
+[ RUN  ] Chapter.BoundaryBeyondDurationIgnored
+[  OK  ] Chapter.BoundaryBeyondDurationIgnored
+[ RUN  ] Chapter.AutoTitleFormat
+[  OK  ] Chapter.AutoTitleFormat
+[ RUN  ] Chapter.AutoTitleWithClues
+[  OK  ] Chapter.AutoTitleWithClues
+[ RUN  ] Chapter.ManualTitleNotRecognizedAsAuto
+[  OK  ] Chapter.ManualTitleNotRecognizedAsAuto
+[ RUN  ] Chapter.RenameChapter
+[  OK  ] Chapter.RenameChapter
+[ RUN  ] Chapter.SuggestTitlesKeepsManualEdit
+[  OK  ] Chapter.SuggestTitlesKeepsManualEdit
+[ RUN  ] Chapter.DetectFromFeaturesWithSceneCuts
+[  OK  ] Chapter.DetectFromFeaturesWithSceneCuts
+[ RUN  ] Chapter.DetectFromFeaturesWithAudio
+[  OK  ] Chapter.DetectFromFeaturesWithAudio
+[ RUN  ] Chapter.ApplyWritesMarkers
+[  OK  ] Chapter.ApplyWritesMarkers
+[ RUN  ] Chapter.ApplyIsIdempotentOnRegenerate
+[  OK  ] Chapter.ApplyIsIdempotentOnRegenerate
+[ RUN  ] Chapter.ApplyUpdatesTitleOnRename
+[  OK  ] Chapter.ApplyUpdatesTitleOnRename
+[ RUN  ] Chapter.ApplyRejectsEmptyChapters
+[  OK  ] Chapter.ApplyRejectsEmptyChapters
+[ RUN  ] Chapter.ApplyRejectsMissingSequence
+[  OK  ] Chapter.ApplyRejectsMissingSequence
+[ RUN  ] Chapter.ApplyUndoRedoRoundTrip
+[  OK  ] Chapter.ApplyUndoRedoRoundTrip
+[ RUN  ] Chapter.ReadChaptersFromSequence
+[  OK  ] Chapter.ReadChaptersFromSequence
+[ RUN  ] Chapter.ReadIgnoresNonChapterMarkers
+[  OK  ] Chapter.ReadIgnoresNonChapterMarkers
+[ RUN  ] Chapter.RealMediaEndToEnd
+[  OK  ] Chapter.RealMediaEndToEnd
+[ RUN  ] ExportQueue.StateNameRoundTrip
+[  OK  ] ExportQueue.StateNameRoundTrip
+[ RUN  ] ExportQueue.TransitionRules
+[  OK  ] ExportQueue.TransitionRules
+[ RUN  ] ExportQueue.JobStateHelpers
+[  OK  ] ExportQueue.JobStateHelpers
+[ RUN  ] ExportQueue.PolicyTurboExclusive
+[  OK  ] ExportQueue.PolicyTurboExclusive
+[ RUN  ] ExportQueue.PolicyBalancedParallel
+[  OK  ] ExportQueue.PolicyBalancedParallel
+[ RUN  ] ExportQueue.PolicyEcoSingle
+[  OK  ] ExportQueue.PolicyEcoSingle
+[ RUN  ] ExportQueue.EnqueueAssignsIdsAndSequence
+[  OK  ] ExportQueue.EnqueueAssignsIdsAndSequence
+[ RUN  ] ExportQueue.EnqueueRejectsInvalidArguments
+[  OK  ] ExportQueue.EnqueueRejectsInvalidArguments
+[ RUN  ] ExportQueue.FreeTierLimitOne
+[  OK  ] ExportQueue.FreeTierLimitOne
+[ RUN  ] ExportQueue.ProTierLimitFive
+[  OK  ] ExportQueue.ProTierLimitFive
+[ RUN  ] ExportQueue.TerminalJobsFreeQuota
+[  OK  ] ExportQueue.TerminalJobsFreeQuota
+[ RUN  ] ExportQueue.PausedJobStillOccupiesQuota
+[  OK  ] ExportQueue.PausedJobStillOccupiesQuota
+[ RUN  ] ExportQueue.PollNextChoosesOldestQueued
+[  OK  ] ExportQueue.PollNextChoosesOldestQueued
+[ RUN  ] ExportQueue.PollNextRespectsConcurrency
+[  OK  ] ExportQueue.PollNextRespectsConcurrency
+[ RUN  ] ExportQueue.PollNextSkipsPaused
+[  OK  ] ExportQueue.PollNextSkipsPaused
+[ RUN  ] ExportQueue.PollNextEmptyWhenAllTerminal
+[  OK  ] ExportQueue.PollNextEmptyWhenAllTerminal
+[ RUN  ] ExportQueue.ProgressMonotonicAndClamped
+[  OK  ] ExportQueue.ProgressMonotonicAndClamped
+[ RUN  ] ExportQueue.CompleteRequiresRunning
+[  OK  ] ExportQueue.CompleteRequiresRunning
+[ RUN  ] ExportQueue.FailFromRunningAndPaused
+[  OK  ] ExportQueue.FailFromRunningAndPaused
+[ RUN  ] ExportQueue.PauseResumeKeepsProgress
+[  OK  ] ExportQueue.PauseResumeKeepsProgress
+[ RUN  ] ExportQueue.PauseQueuedAllowedButResumeOnlyFromPaused
+[  OK  ] ExportQueue.PauseQueuedAllowedButResumeOnlyFromPaused
+[ RUN  ] ExportQueue.RemoveTerminalAndActive
+[  OK  ] ExportQueue.RemoveTerminalAndActive
+[ RUN  ] ExportQueue.MissingJobOperationsFail
+[  OK  ] ExportQueue.MissingJobOperationsFail
+[ RUN  ] ExportQueue.DuplicateStartRejected
+[  OK  ] ExportQueue.DuplicateStartRejected
+[ RUN  ] ExportQueue.CancelAllMarksCancelled
+[  OK  ] ExportQueue.CancelAllMarksCancelled
+[ RUN  ] ExportQueue.ClearResetsEverything
+[  OK  ] ExportQueue.ClearResetsEverything
+[ RUN  ] ExportQueue.CountsReflectStates
+[  OK  ] ExportQueue.CountsReflectStates
+[ RUN  ] SmartMovie.ReferenceStyleRequiresPro
+[  OK  ] SmartMovie.ReferenceStyleRequiresPro
+[ RUN  ] SmartMovie.ReferenceStyleExpiryDowngrades
+[  OK  ] SmartMovie.ReferenceStyleExpiryDowngrades
+[ RUN  ] SmartMovie.VersionCountGate
+[  OK  ] SmartMovie.VersionCountGate
+[ RUN  ] SmartMovie.RejectsInvalidInput
+[  OK  ] SmartMovie.RejectsInvalidInput
+[ RUN  ] SmartMovie.Si[h264_nvenc @ 0x12ee3a40] [Eval @ 0x1ffeffe820] Undefined constant or missing '(' in 'veryfast'
+[h264_nvenc @ 0x12ee3a40] Unable to parse option value "veryfast"
+[h264_nvenc @ 0x11c5e540] Cannot load libcuda.so.1
+[h264_qsv @ 0x121c3f00] Specified pixel format yuv420p is not supported by the h264_qsv encoder.
+[h264_qsv @ 0x121c3f00] Supported pixel formats:
+[h264_qsv @ 0x121c3f00]   nv12
+[h264_qsv @ 0x121c3f00]   qsv
+[h264_vaapi @ 0x122a7a40] Specified pixel format yuv420p is not supported by the h264_vaapi encoder.
+[h264_vaapi @ 0x122a7a40] Supported pixel formats:
+[h264_vaapi @ 0x122a7a40]   vaapi
+[h264_v4l2m2m @ 0x120e95c0] Could not find a valid device
+[h264_v4l2m2m @ 0x120e95c0] can't configure encoder
+[libx264 @ 0x120b0f00] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x120b0f00] profile High, level 1.3, 4:2:0, 8-bit
+[libx264 @ 0x120b0f00] frame I:1     Avg QP:18.96  size: 35071
+[libx264 @ 0x120b0f00] frame P:3     Avg QP:21.05  size:    23
+[libx264 @ 0x120b0f00] frame B:6     Avg QP:23.50  size:    13
+[libx264 @ 0x120b0f00] consecutive B-frames: 10.0%  0.0% 90.0%
+[libx264 @ 0x120b0f00] mb I  I16..4: 21.0% 68.0% 11.0%
+[libx264 @ 0x120b0f00] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.8%  0.0%  0.0%  0.0%  0.0%    skip:99.2%
+[libx264 @ 0x120b0f00] mb B  I16..4:  0.0%  0.0%  0.0%  B16..8:  0.0%  0.0%  0.0%  direct: 0.0%  skip:100.0%
+[libx264 @ 0x120b0f00] 8x8 transform intra:68.0% inter:0.0%
+[libx264 @ 0x120b0f00] coded y,uvDC,uvAC intra: 100.0% 87.7% 54.3% inter: 0.0% 0.2% 0.0%
+[libx264 @ 0x120b0f00] i16 v,h,dc,p:  0%  0% 57% 43%
+[libx264 @ 0x120b0f00] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  0%  0% 65%  1%  2%  0%  2%  0% 28%
+[libx264 @ 0x120b0f00] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu:  1%  0% 82%  4%  2%  1%  1%  4%  5%
+[libx264 @ 0x120b0f00] i8c dc,h,v,p: 14%  5%  1% 80%
+[libx264 @ 0x120b0f00] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x120b0f00] kb/s:845.21
+ngleVersionReference
+[  OK  ] SmartMovie.SingleVersionReference
+[ RUN  ] SmartMovie.FiveVersionsHaveRealDifferences
+[  OK  ] SmartMovie.FiveVersionsHaveRealDifferences
+[ RUN  ] SmartMovie.PaceFactorAffectsShotDuration
+[  OK  ] SmartMovie.PaceFactorAffectsShotDuration
+[ RUN  ] SmartMovie.TargetDurationConstrainsShotCount
+[  OK  ] SmartMovie.TargetDurationConstrainsShotCount
+[ RUN  ] SmartMovie.MaterialExhaustionSkipsVersions
+[  OK  ] SmartMovie.MaterialExhaustionSkipsVersions
+[ RUN  ] SmartMovie.TransitionPlanRespectsMaxCap
+[  OK  ] SmartMovie.TransitionPlanRespectsMaxCap
+[ RUN  ] SmartMovie.ApplySingleVersion
+[  OK  ] SmartMovie.ApplySingleVersion
+[ RUN  ] SmartMovie.ApplyWithTransitionsCreatesRealGapsAndTransitions
+[  OK  ] SmartMovie.ApplyWithTransitionsCreatesRealGapsAndTransitions
+[ RUN  ] SmartMovie.ApplyRejectsNonEmptyTrack
+[  OK  ] SmartMovie.ApplyRejectsNonEmptyTrack
+[ RUN  ] SmartMovie.ApplyRejectsInvalidInputs
+[  OK  ] SmartMovie.ApplyRejectsInvalidInputs
+[ RUN  ] SmartMovie.BatchApplyWithPartialFailure
+[  OK  ] SmartMovie.BatchApplyWithPartialFailure
+[ RUN  ] SmartMovie.BatchApplyAllSucceed
+[  OK  ] SmartMovie.BatchApplyAllSucceed
+[ RUN  ] SmartMovie.ApplyColorEffects
+[  OK  ] SmartMovie.ApplyColorEffects
+[ RUN  ] SmartMovie.ImpactAnalysisCountsRealState
+[  OK  ] SmartMovie.ImpactAnalysisCountsRealState
+[ RUN  ] SmartMovie.ImpactAnalysisScopeSequenceKeepsSubtitles
+[  OK  ] SmartMovie.ImpactAnalysisScopeSequenceKeepsSubtitles
+[ RUN  ] SmartMovie.ImpactAnalysisMissingSequence
+[  OK  ] SmartMovie.ImpactAnalysisMissingSequence
+[ RUN  ] SmartMovie.ClearPreservesLockedTrack
+[  OK  ] SmartMovie.ClearPreservesLockedTrack
+[ RUN  ] SmartMovie.ClearScopeSequenceKeepsSubtitles
+[  OK  ] SmartMovie.ClearScopeSequenceKeepsSubtitles
+[ RUN  ] SmartMovie.ClearMissingSequenceFails
+[  OK  ] SmartMovie.ClearMissingSequenceFails
+[ RUN  ] SmartMovie.RegenerationWorkflowEndToEnd
+[  OK  ] SmartMovie.RegenerationWorkflowEndToEnd
+[ RUN  ] InvisibleWatermark.Crc16KnownVector
+[  OK  ] InvisibleWatermark.Crc16KnownVector
+[ RUN  ] InvisibleWatermark.PayloadFinalizeAndValidate
+[  OK  ] InvisibleWatermark.PayloadFinalizeAndValidate
+[ RUN  ] InvisibleWatermark.AccountHashDeterministic
+[  OK  ] InvisibleWatermark.AccountHashDeterministic
+[ RUN  ] InvisibleWatermark.CapacityComputation
+[  OK  ] InvisibleWatermark.CapacityComputation
+[ RUN  ] InvisibleWatermark.RoundTripLossless
+[  OK  ] InvisibleWatermark.RoundTripLossless
+[ RUN  ] InvisibleWatermark.DetectOnCleanImageFails
+[  OK  ] InvisibleWatermark.DetectOnCleanImageFails
+[ RUN  ] InvisibleWatermark.SurvivesPixelNoise
+[  OK  ] InvisibleWatermark.SurvivesPixelNoise
+[ RUN  ] InvisibleWatermark.SurvivesBrightnessShift
+[  OK  ] InvisibleWatermark.SurvivesBrightnessShift
+[ RUN  ] InvisibleWatermark.DifferentKeysAreIncompatible
+[  OK  ] InvisibleWatermark.DifferentKeysAreIncompatible
+[ RUN  ] InvisibleWatermark.SurvivesSaturatedLetterboxRegions
+[  OK  ] InvisibleWatermark.SurvivesSaturatedLetterboxRegions
+[ RUN  ] InvisibleWatermark.OverwriteExistingPayload
+[  OK  ] InvisibleWatermark.OverwriteExistingPayload
+[ RUN  ] InvisibleWatermark.RejectsInvalidArguments
+[  OK  ] InvisibleWatermark.RejectsInvalidArguments
+[ RUN  ] InvisibleWatermark.RejectsInsufficientCapacity
+[  OK  ] InvisibleWatermark.RejectsInsufficientCapacity
+[ RUN  ] InvisibleWatermark.ConfigVariations
+[  OK  ] InvisibleWatermark.ConfigVariations
+[ RUN  ] InvisibleWatermark.MultiFrameConsistency
+[  OK  ] InvisibleWatermark.MultiFrameConsistency
+[ RUN  ] InvisibleWatermark.SurvivesH264RoundTrip
+[实测] H.264 CRF18 往返：detected=1 agreement=0.991 note=检出有效水印（账号哈希 2882400001，导出序号 42）
+[  OK  ] InvisibleWatermark.SurvivesH264RoundTrip
+[ RUN  ] Heartbeat.TriggerNameRoundTrip
+[  OK  ] Heartbeat.TriggerNameRoundTrip
+[ RUN  ] Heartbeat.VerdictNames
+[  OK  ] Heartbeat.VerdictNames
+[ RUN  ] Heartbeat.PeriodicDue
+[  OK  ] Heartbeat.PeriodicDue
+[ RUN  ] Heartbeat.NormalResponseUpdatesEntitlement
+[  OK  ] Heartbeat.NormalResponseUpdatesEntitlement
+[ RUN  ] Heartbeat.NetworkErrorKeepsState
+[  OK  ] Heartbeat.NetworkErrorKeepsState
+[ RUN  ] Heartbeat.WarningGivesChanceToCorrect
+[  OK  ] Heartbeat.WarningGivesChanceToCorrect
+[ RUN  ] Heartbeat.WarningsEscalateToLock
+[  OK  ] Heartbeat.WarningsEscalateToLock
+[ RUN  ] Heartbeat.ServerLockedImmediately
+[  OK  ] Heartbeat.ServerLockedImmediately
+[ RUN  ] Heartbeat.SignatureInvalidWarns
+[  OK  ] Heartbeat.SignatureInvalidWarns
+[ RUN  ] Heartbeat.RecoveringFromWarningResetsCount
+[  OK  ] Heartbeat.RecoveringFromWarningResetsCount
+[ RUN  ] Heartbeat.ClockSkewDetection
+[  OK  ] Heartbeat.ClockSkewDetection
+[ RUN  ] Heartbeat.ClockSkewWarnsThroughResponse
+[  OK  ] Heartbeat.ClockSkewWarnsThroughResponse
+[ RUN  ] Heartbeat.ClearLockAndReset
+[  OK  ] Heartbeat.ClearLockAndReset
+[ RUN  ] Heartbeat.InvalidConfigRejected
+[  OK  ] Heartbeat.InvalidConfigRejected
+[ RUN  ] Heartbeat.DeviceLimitDisabledWhenZero
+[  OK  ] Heartbeat.DeviceLimitDisabledWhenZero
+[ RUN  ] MediaOffline.StatusNameRoundTrip
+[  OK  ] MediaOffline.StatusNameRoundTrip
+[ RUN  ] MediaOffline.ScanNoProbeReturnsUnverified
+[  OK  ] MediaOffline.ScanNoProbeReturnsUnverified
+[ RUN  ] MediaOffline.ScanMissingFile
+[  OK  ] MediaOffline.ScanMissingFile
+[ RUN  ] MediaOffline.ScanOnlineWithDigestMatch
+[  OK  ] MediaOffline.ScanOnlineWithDigestMatch
+[ RUN  ] MediaOffline.ScanDigestMismatchFailsClosed
+[  OK  ] MediaOffline.ScanDigestMismatchFailsClosed
+[ RUN  ] MediaOffline.ScanDigestUnreadableIsMismatch
+[  OK  ] MediaOffline.ScanDigestUnreadableIsMismatch
+[ RUN  ] MediaOffline.ScanWithoutDigestSkipsDigestCheck
+[  OK  ] MediaOffline.ScanWithoutDigestSkipsDigestCheck
+[ RUN  ] MediaOffline.ScanEmptyPathIsMissing
+[  OK  ] MediaOffline.ScanEmptyPathIsMissing
+[ RUN  ] MediaOffline.ScanMultipleAssetsMixed
+[  OK  ] MediaOffline.ScanMultipleAssetsMixed
+[ RUN  ] MediaOffline.ApplyFlagsSyncsOfflineState
+[  OK  ] MediaOffline.ApplyFlagsSyncsOfflineState
+[ RUN  ] MediaOffline.FindCandidatesByFileName
+[  OK  ] MediaOffline.FindCandidatesByFileName
+[ RUN  ] MediaOffline.FindCandidatesDigestMismatchSortedLast
+[  OK  ] MediaOffline.FindCandidatesDigestMismatchSortedLast
+[ RUN  ] MediaOffline.FindCandidatesCaseInsensitiveFileName
+[  OK  ] MediaOffline.FindCandidatesCaseInsensitiveFileName
+[ RUN  ] MediaOffline.FindCandidatesNoProbeOrNoDirs
+[  OK  ] MediaOffline.FindCandidatesNoProbeOrNoDirs
+[ RUN  ] MediaOffline.RelinkSingleWithDigestVerify
+[  OK  ] MediaOffline.RelinkSingleWithDigestVerify
+[ RUN  ] MediaOffline.RelinkRejectsDigestMismatch
+[  OK  ] MediaOffline.RelinkRejectsDigestMismatch
+[ RUN  ] MediaOffline.RelinkRejectsMissingFile
+[  OK  ] MediaOffline.RelinkRejectsMissingFile
+[ RUN  ] MediaOffline.RelinkRejectsOccupiedPath
+[  OK  ] MediaOffline.RelinkRejectsOccupiedPath
+[ RUN  ] MediaOffline.RelinkWithoutProbeFailsClosedWhenDigestExpected
+[  OK  ] MediaOffline.RelinkWithoutProbeFailsClosedWhenDigestExpected
+[ RUN  ] MediaOffline.RelinkUndoRedoRoundTrip
+[  OK  ] MediaOffline.RelinkUndoRedoRoundTrip
+[ RUN  ] MediaOffline.RelinkMissingAssetFails
+[  OK  ] MediaOffline.RelinkMissingAssetFails
+[ RUN  ] MediaOffline.RelinkBatchAllSucceed
+[  OK  ] MediaOffline.RelinkBatchAllSucceed
+[ RUN  ] MediaOffline.RelinkBatchPartialFailure
+[  OK  ] MediaOffline.RelinkBatchPartialFailure
+[ RUN  ] MediaOffline.RelinkBatchAllFail
+[  OK  ] MediaOffline.RelinkBatchAllFail
+[ RUN  ] MediaOffline.RelinkBatchEmptyRejected
+[  OK  ] MediaOffline.RelinkBatchEmptyRejected
+[ RUN  ] MediaOffline.SetDigestValidates
+[  OK  ] MediaOffline.SetDigestValidates
+[ RUN  ] MediaOffline.DigestSerializationRoundTrip
+[  OK  ] MediaOffline.DigestSerializationRoundTrip
+[ RUN  ] MediaOffline.MalformedDigestDowngradesOnLoad
+[  OK  ] MediaOffline.MalformedDigestDowngradesOnLoad
+[ RUN  ] MediaOffline.OfflineBadgeText
+[  OK  ] MediaOffline.OfflineBadgeText
+[ RUN  ] ModelManager.CatalogHasExpectedEntries
+[  OK  ] ModelManager.CatalogHasExpectedEntries
+[ RUN  ] ModelManager.CatalogEntriesAreValid
+[  OK  ] ModelManager.CatalogEntriesAreValid
+[ RUN  ] ModelManager.CatalogSizesMatchDocument
+[  OK  ] ModelManager.CatalogSizesMatchDocument
+[ RUN  ] ModelManager.CapabilityNameRoundTrip
+[  OK  ] ModelManager.CapabilityNameRoundTrip
+[ RUN  ] ModelManager.HighPrecisionMattingRequiresPro
+[  OK  ] ModelManager.HighPrecisionMattingRequiresPro
+[ RUN  ] ModelManager.FrameInterpolationRequiresPro
+[  OK  ] ModelManager.FrameInterpolationRequiresPro
+[ RUN  ] ModelManager.FreeCapabilitiesAllowedLocally
+[  OK  ] ModelManager.FreeCapabilitiesAllowedLocally
+[ RUN  ] ModelManager.PhaseTransitionsValid
+[  OK  ] ModelManager.PhaseTransitionsValid
+[ RUN  ] ModelManager.PhaseNameRoundTrip
+[  OK  ] ModelManager.PhaseNameRoundTrip
+[ RUN  ] ModelManager.StatusNameRoundTrip
+[  OK  ] ModelManager.StatusNameRoundTrip
+[ RUN  ] ModelManager.BeginRejectsInvalidArguments
+[  OK  ] ModelManager.BeginRejectsInvalidArguments
+[ RUN  ] ModelManager.ProgressMonotonicAndClamped
+[  OK  ] ModelManager.ProgressMonotonicAndClamped
+[ RUN  ] ModelManager.ProgressRejectedOutsideDownloading
+[  OK  ] ModelManager.ProgressRejectedOutsideDownloading
+[ RUN  ] ModelManager.PauseResumeKeepsBreakpoint
+[  OK  ] ModelManager.PauseResumeKeepsBreakpoint
+[ RUN  ] ModelManager.CancelKeepsResumeAbility
+[  OK  ] ModelManager.CancelKeepsResumeAbility
+[ RUN  ] ModelManager.FullLifecycleToCompleted
+[  OK  ] ModelManager.FullLifecycleToCompleted
+[ RUN  ] ModelManager.FinishWithoutDownloadingRejected
+[  OK  ] ModelManager.FinishWithoutDownloadingRejected
+[ RUN  ] ModelManager.FailRecordsReasonAndAllowsRetry
+[  OK  ] ModelManager.FailRecordsReasonAndAllowsRetry
+[ RUN  ] ModelManager.MissingTaskOperationsFail
+[  OK  ] ModelManager.MissingTaskOperationsFail
+[ RUN  ] ModelManager.RemoveAndClear
+[  OK  ] ModelManager.RemoveAndClear
+[ RUN  ] ModelManager.DeriveCounterDeterministic
+[  OK  ] ModelManager.DeriveCounterDeterministic
+[ RUN  ] ModelManager.ResumePlanCoordinates
+[  OK  ] ModelManager.ResumePlanCoordinates
+[ RUN  ] ModelManager.ResumeDecryptMatchesFullDecrypt
+[  OK  ] ModelManager.ResumeDecryptMatchesFullDecrypt
+[ RUN  ] ModelManager.EncryptDecryptRoundTripMultipleModels
+[  OK  ] ModelManager.EncryptDecryptRoundTripMultipleModels
+[ RUN  ] ModelManager.EncryptRejectsInvalidArguments
+[  OK  ] ModelManager.EncryptRejectsInvalidArguments
+[ RUN  ] ModelManager.VerifyAcceptsValidPayload
+[  OK  ] ModelManager.VerifyAcceptsValidPayload
+[ RUN  ] ModelManager.VerifyRejectsTamperedPayload
+[  OK  ] ModelManager.VerifyRejectsTamperedPayload
+[ RUN  ] ModelManager.VerifyRejectsWrongSize
+[  OK  ] ModelManager.VerifyRejectsWrongSize
+[ RUN  ] ModelManager.VerifyFailsClosedWithoutExpectedDigest
+[  OK  ] ModelManager.VerifyFailsClosedWithoutExpectedDigest
+[ RUN  ] ModelManager.StoreUpsertAndRemove
+[  OK  ] ModelManager.StoreUpsertAndRemove
+[ RUN  ] ModelManager.StoreStatusOfIncludesVersionUpdate
+[  OK  ] ModelManager.StoreStatusOfIncludesVersionUpdate
+[ RUN  ] ModelManager.StoreCorruptNotCountedInBytes
+[  OK  ] ModelManager.StoreCorruptNotCountedInBytes
+[ RUN  ] ModelManager.StorageStatsRoomCheck
+[  OK  ] ModelManager.StorageStatsRoomCheck
+[ RUN  ] ModelManager.FormatBytesTextUnits
+[  OK  ] ModelManager.FormatBytesTextUnits
+[ RUN  ] ModelManager.SignedUrlValidatesExpiry
+[  OK  ] ModelManager.SignedUrlValidatesExpiry
+[ RUN  ] ModelManager.SignedUrlFailClosed
+[  OK  ] ModelManager.SignedUrlFailClosed
+[ RUN  ] ModelManager.StoreJsonRoundTrip
+[  OK  ] ModelManager.StoreJsonRoundTrip
+[ RUN  ] ModelManager.StoreJsonRejectsMalformed
+[  OK  ] ModelManager.StoreJsonRejectsMalformed
+[ RUN  ] ModelManager.StoreJsonSkipsInvalidRecords
+[  OK  ] ModelManager.StoreJsonSkipsInvalidRecords
+[ RUN  ] ModelManager.StoreJsonDowngradesRuntimeStates
+[  OK  ] ModelManager.StoreJsonDowngradesRuntimeStates
+[ RUN  ] DeviceTier.ClassificationRules
+[  OK  ] DeviceTier.ClassificationRules
+[ RUN  ] DeviceTier.QuantizationRecommendation
+[  OK  ] DeviceTier.QuantizationRecommendation
+[ RUN  ] DeviceTier.NamesAndParsing
+[  OK  ] DeviceTier.NamesAndParsing
+[ RUN  ] DeviceTier.DownloadRequestAssembly
+[  OK  ] DeviceTier.DownloadRequestAssembly
+[ RUN  ] BlendModes.CountAndLegacyValuesStable
+[  OK  ] BlendModes.CountAndLegacyValuesStable
+[ RUN  ] BlendModes.EveryModeHasNameRoundtrip
+[  OK  ] BlendModes.EveryModeHasNameRoundtrip
+[ RUN  ] BlendModes.Multiply
+[  OK  ] BlendModes.Multiply
+[ RUN  ] BlendModes.Lighten
+[  OK  ] BlendModes.Lighten
+[ RUN  ] BlendModes.ColorDodge
+[  OK  ] BlendModes.ColorDodge
+[ RUN  ] BlendModes.ColorBurn
+[  OK  ] BlendModes.ColorBurn
+[ RUN  ] BlendModes.LinearBurnAndDodge
+[  OK  ] BlendModes.LinearBurnAndDodge
+[ RUN  ] BlendModes.SoftLight
+[  OK  ] BlendModes.SoftLight
+[ RUN  ] BlendModes.LinearLight
+[  OK  ] BlendModes.LinearLight
+[ RUN  ] BlendModes.PinLight
+[  OK  ] BlendModes.PinLight
+[ RUN  ] BlendModes.DifferenceAndExclusion
+[  OK  ] BlendModes.DifferenceAndExclusion
+[ RUN  ] BlendModes.AllModesStayInUnitRange
+[  OK  ] BlendModes.AllModesStayInUnitRange
+[ RUN  ] BlendModes.InputsOutsideRangeAreClamped
+[  OK  ] BlendModes.InputsOutsideRangeAreClamped
+[ RUN  ] BlendModes.FrameBlendUsesNewMode
+[  OK  ] BlendModes.FrameBlendUsesNewMode
+[ RUN  ] Shake.SameParamsProduceBitIdenticalFrames
+[  OK  ] Shake.SameParamsProduceBitIdenticalFrames
+[ RUN  ] Shake.DeterminismAcrossManyFrames
+[  OK  ] Shake.DeterminismAcrossManyFrames
+[ RUN  ] Shake.AllTrajectoriesAreDeterministic
+[  OK  ] Shake.AllTrajectoriesAreDeterministic
+[ RUN  ] Shake.DifferentSeedsGiveDifferentRandomOffsets
+[  OK  ] Shake.DifferentSeedsGiveDifferentRandomOffsets
+[ RUN  ] Shake.AmplitudeScalesWithShortSide
+[  OK  ] Shake.AmplitudeScalesWithShortSide
+[ RUN  ] Shake.HorizontalOnlyMovesX
+[  OK  ] Shake.HorizontalOnlyMovesX
+[ RUN  ] Shake.VerticalOnlyMovesY
+[  OK  ] Shake.VerticalOnlyMovesY
+[ RUN  ] Shake.CircularKeepsRadius
+[  OK  ] Shake.CircularKeepsRadius
+[ RUN  ] Shake.DecayMakesOffsetShrinkOverTime
+[  OK  ] Shake.DecayMakesOffsetShrinkOverTime
+[ RUN  ] Shake.ZeroIntensityIsNoOp
+[  OK  ] Shake.ZeroIntensityIsNoOp
+[ RUN  ] Shake.ZeroAmplitudeIsNoOp
+[  OK  ] Shake.ZeroAmplitudeIsNoOp
+[ RUN  ] Shake.AlphaIsPreserved
+[  OK  ] Shake.AlphaIsPreserved
+[ RUN  ] Shake.InvalidParamsRejected
+[  OK  ] Shake.InvalidParamsRejected
+[ RUN  ] Shake.NoBlackBordersFromMirrorPadding
+[  OK  ] Shake.NoBlackBordersFromMirrorPadding
+[ RUN  ] Lut.IdentityCubeRoundtrip
+[  OK  ] Lut.IdentityCubeRoundtrip
+[ RUN  ] Lut.ChannelOrderIsRedFastest
+[  OK  ] Lut.ChannelOrderIsRedFastest
+[ RUN  ] Lut.TrilinearInterpolationIsLinearInSmoothLut
+[  OK  ] Lut.TrilinearInterpolationIsLinearInSmoothLut
+[ RUN  ] Lut.Supports17And33
+[  OK  ] Lut.Supports17And33
+[ RUN  ] Lut.CommentsAndBlankLinesIgnored
+[  OK  ] Lut.CommentsAndBlankLinesIgnored
+[ RUN  ] Lut.RejectsMissingSize
+[  OK  ] Lut.RejectsMissingSize
+[ RUN  ] Lut.RejectsSizeOutOfRange
+[  OK  ] Lut.RejectsSizeOutOfRange
+[ RUN  ] Lut.RejectsWrongDataCount
+[  OK  ] Lut.RejectsWrongDataCount
+[ RUN  ] Lut.RejectsNonNumericData
+[  OK  ] Lut.RejectsNonNumericData
+[ RUN  ] Lut.RejectsWrongFieldCount
+[  OK  ] Lut.RejectsWrongFieldCount
+[ RUN  ] Lut.Rejects1DLutExplicitly
+[  OK  ] Lut.Rejects1DLutExplicitly
+[ RUN  ] Lut.RejectsDuplicateSize
+[  OK  ] Lut.RejectsDuplicateSize
+[ RUN  ] Lut.FailedParseLeavesOutputUntouched
+[  OK  ] Lut.FailedParseLeavesOutputUntouched
+[ RUN  ] Lut.DomainMinMaxRespected
+[  OK  ] Lut.DomainMinMaxRespected
+[ RUN  ] Lut.StrengthBlendsBetweenOriginalAndLut
+[  OK  ] Lut.StrengthBlendsBetweenOriginalAndLut
+[ RUN  ] Lut.ApplyPreservesAlpha
+[  OK  ] Lut.ApplyPreservesAlpha
+[ RUN  ] Lut.InvalidLutRejectedByApply
+[  OK  ] Lut.InvalidLutRejectedByApply
+[ RUN  ] Lut.LoadMissingFileFails
+[  OK  ] Lut.LoadMissingFileFails
+[ RUN  ] Lut.ClipDefaultsToNoLut
+[  OK  ] Lut.ClipDefaultsToNoLut
+[ RUN  ] Lut.ClipLutValidity
+[  OK  ] Lut.ClipLutValidity
+[ RUN  ] Lut.ClipLutSurvivesSerialization
+[  OK  ] Lut.ClipLutSurvivesSerialization
+[ RUN  ] Lut.NoLutOmitsField
+[  OK  ] Lut.NoLutOmitsField
+[ RUN  ] Lut.OutOfRangeStrengthIsClampedOnLoad
+[  OK  ] Lut.OutOfRangeStrengthIsClampedOnLoad
+[ RUN  ] TrackGroups.CreateCrossTypeGroup
+[  OK  ] TrackGroups.CreateCrossTypeGroup
+[ RUN  ] TrackGroups.CreateIsUndoable
+[  OK  ] TrackGroups.CreateIsUndoable
+[ RUN  ] TrackGroups.RejectsEmptyGroup
+[  OK  ] TrackGroups.RejectsEmptyGroup
+[ RUN  ] TrackGroups.RejectsNonexistentTrack
+[  OK  ] TrackGroups.RejectsNonexistentTrack
+[ RUN  ] TrackGroups.TrackCannotBelongToTwoGroups
+[  OK  ] TrackGroups.TrackCannotBelongToTwoGroups
+[ RUN  ] TrackGroups.RemoveGroupIsUndoable
+[  OK  ] TrackGroups.RemoveGroupIsUndoable
+[ RUN  ] TrackGroups.GroupMuteIsLinkedAndSingleUndo
+[  OK  ] TrackGroups.GroupMuteIsLinkedAndSingleUndo
+[ RUN  ] TrackGroups.GroupMuteRestoresMixedOriginalStates
+[  OK  ] TrackGroups.GroupMuteRestoresMixedOriginalStates
+[ RUN  ] TrackGroups.GroupHiddenAndLocked
+[  OK  ] TrackGroups.GroupHiddenAndLocked
+[ RUN  ] TrackGroups.GroupOfFindsMembership
+[  OK  ] TrackGroups.GroupOfFindsMembership
+[ RUN  ] TrackGroups.InvariantsRejectDanglingMember
+[  OK  ] TrackGroups.InvariantsRejectDanglingMember
+[ RUN  ] TrackGroups.Roundtrip
+[  OK  ] TrackGroups.Roundtrip
+[ RUN  ] TrackGroups.EmptyGroupsOmitField
+[  OK  ] TrackGroups.EmptyGroupsOmitField
+[ RUN  ] TrackGroups.DanglingGroupDroppedOnLoad
+[  OK  ] TrackGroups.DanglingGroupDroppedOnLoad
+[ RUN  ] RenderBaseline.FramesActuallyDifferAcrossTime
+[  OK  ] RenderBaseline.FramesActuallyDifferAcrossTime
+[ RUN  ] RenderBaseline.SpecificKnownRegionIsStable
+[  OK  ] RenderBaseline.SpecificKnownRegionIsStable
+[ RUN  ] RenderBaseline.ExportIsDeterministic
+[  OK  ] RenderBaseline.ExportIsDeterministic
+[ RUN  ] RenderBaseline.DigestDetectsSinglePixelChange
+[  OK  ] RenderBaseline.DigestDetectsSinglePixelChange
+[ RUN  ] RenderBaseline.DiffReportsFrameCountMismatch
+[  OK  ] RenderBaseline.DiffReportsFrameCountMismatch
+[ RUN  ] RenderBaseline.DiffReportsFirstDifferingFrame
+[  OK  ] RenderBaseline.DiffReportsFirstDifferingFrame
+[ RUN  ] RenderBaseline.IdenticalDigestsReportNoDiff
+[  OK  ] RenderBaseline.IdenticalDigestsReportNoDiff
+[ RUN  ] RenderBaseline.FilterChangesOutputPixels
+[  OK  ] RenderBaseline.FilterChangesOutputPixels
+[ RUN  ] AdjustmentLayer.AllFrameDigestsMatchPreFeatureBaseline
+[  OK  ] AdjustmentLayer.AllFrameDigestsMatchPreFeatureBaseline
+[ RUN  ] AdjustmentLayer.NoAdjustmentKeepsOutputIdentical
+[  OK  ] AdjustmentLayer.NoAdjustmentKeepsOutputIdentical
+[ RUN  ] AdjustmentLayer.EmptyAdjustmentTrackChangesNothing
+[  OK  ] AdjustmentLayer.EmptyAdjustmentTrackChangesNothing
+[ RUN  ] AdjustmentLayer.EffectsApplyToLowerTracks
+[  OK  ] AdjustmentLayer.EffectsApplyToLowerTracks
+[ RUN  ] AdjustmentLayer.GrayscaleActuallyRemovesColor
+[  OK  ] AdjustmentLayer.GrayscaleActuallyRemovesColor
+[ RUN  ] AdjustmentLayer.HiddenAdjustmentIsSkipped
+[  OK  ] AdjustmentLayer.HiddenAdjustmentIsSkipped
+[ RUN  ] FreezeFrame.FrozenSegmentHasIdenticalPixels
+[  OK  ] FreezeFrame.FrozenSegmentHasIdenticalPixels
+[ RUN  ] FreezeFrame.NonFrozenClipDoesVaryAcrossFrames
+[  OK  ] FreezeFrame.NonFrozenClipDoesVaryAcrossFrames
+[ RUN  ] FreezeFrame.FreezeUsesSourceIn
+[  OK  ] FreezeFrame.FreezeUsesSourceIn
+[ RUN  ] FreezeFrame.EmptyFreezeLongSegmentStaysFrozen
+[  OK  ] FreezeFrame.EmptyFreezeLongSegmentStaysFrozen
+[ RUN  ] FreezeFrame.ClipValidWithFreeze
+[  OK  ] FreezeFrame.ClipValidWithFreeze
+[ RUN  ] FreezeFrame.FreezeOverridesReverseAndCurve
+[  OK  ] FreezeFrame.FreezeOverridesReverseAndCurve
+[ RUN  ] FreezeFrame.SerializationRoundtrip
+[  OK  ] FreezeFrame.SerializationRoundtrip
+[ RUN  ] FreezeFrame.NotFrozenOmitsField
+[  OK  ] FreezeFrame.NotFrozenOmitsField
+[ RUN  ] Bloom.DarkImageIsUnchanged
+[  OK  ] Bloom.DarkImageIsUnchanged
+[ RUN  ] Bloom.HighlightSpreadsToNeighbors
+[  OK  ] Bloom.HighlightSpreadsToNeighbors
+[ RUN  ] Bloom.MidToneRegionDoesNotGlow
+[  OK  ] Bloom.MidToneRegionDoesNotGlow
+[ RUN  ] Bloom.HighlightItselfGetsBrighterOrSaturates
+[  OK  ] Bloom.HighlightItselfGetsBrighterOrSaturates
+[ RUN  ] Bloom.HigherThresholdMeansLessSpread
+[  OK  ] Bloom.HigherThresholdMeansLessSpread
+[ RUN  ] Bloom.ZeroIntensityOrRadiusIsNoOp
+[  OK  ] Bloom.ZeroIntensityOrRadiusIsNoOp
+[ RUN  ] Bloom.InvalidParamsRejected
+[  OK  ] Bloom.InvalidParamsRejected
+[ RUN  ] Bloom.AlphaPreserved
+[  OK  ] Bloom.AlphaPreserved
+[ RUN  ] LensFlare.AddsLightAtSource
+[  OK  ] LensFlare.AddsLightAtSource
+[ RUN  ] LensFlare.WarmTintFavorsRed
+[  OK  ] LensFlare.WarmTintFavorsRed
+[ RUN  ] LensFlare.CoolTintFavorsBlue
+[  OK  ] LensFlare.CoolTintFavorsBlue
+[ RUN  ] LensFlare.GhostsAppearAlongAxis
+[  OK  ] LensFlare.GhostsAppearAlongAxis
+[ RUN  ] LensFlare.ZeroIntensityIsNoOp
+[  OK  ] LensFlare.ZeroIntensityIsNoOp
+[ RUN  ] LensFlare.InvalidParamsRejected
+[  OK  ] LensFlare.InvalidParamsRejected
+[ RUN  ] LensFlare.BrightnessDoesNotOverflow
+[  OK  ] LensFlare.BrightnessDoesNotOverflow
+[ RUN  ] LensFlare.Deterministic
+[  OK  ] LensFlare.Deterministic
+[ RUN  ] DirectionalBlur.ZeroVelocityIsNoOp
+[  OK  ] DirectionalBlur.ZeroVelocityIsNoOp
+[ RUN  ] DirectionalBlur.ZeroShutterIsNoOp
+[  OK  ] DirectionalBlur.ZeroShutterIsNoOp
+[ RUN  ] DirectionalBlur.HorizontalMotionBlursHorizontally
+[  OK  ] DirectionalBlur.HorizontalMotionBlursHorizontally
+[ RUN  ] DirectionalBlur.HorizontalMotionDoesNotBlurVertically
+[  OK  ] DirectionalBlur.HorizontalMotionDoesNotBlurVertically
+[ RUN  ] DirectionalBlur.VerticalMotionBlursVertically
+[  OK  ] DirectionalBlur.VerticalMotionBlursVertically
+[ RUN  ] DirectionalBlur.LongerShutterBlursMore
+[  OK  ] DirectionalBlur.LongerShutterBlursMore
+[ RUN  ] DirectionalBlur.MaxLengthClampsExtremeMotion
+[  OK  ] DirectionalBlur.MaxLengthClampsExtremeMotion
+[ RUN  ] DirectionalBlur.AlphaPreserved
+[  OK  ] DirectionalBlur.AlphaPreserved
+[ RUN  ] DirectionalBlur.Deterministic
+[  OK  ] DirectionalBlur.Deterministic
+[ RUN  ] DirectionalBlur.InvalidParamsRejected
+[  OK  ] DirectionalBlur.InvalidParamsRejected
+[ RUN  ] DirectionalBlur.VelocityFromPositionsConvertsUnits
+[  OK  ] DirectionalBlur.VelocityFromPositionsConvertsUnits
+[ RUN  ] DirectionalBlur.NegativeVelocityBlursOtherDirection
+[  OK  ] DirectionalBlur.NegativeVelocityBlursOtherDirection
+[ RUN  ] CapiError.NullEditorGivesReadableReason
+[  OK  ] CapiError.NullEditorGivesReadableReason
+[ RUN  ] CapiError.NullStringArgIsDistinguishedFromNullHandle
+[  OK  ] CapiError.NullStringArgIsDistinguishedFromNullHandle
+[ RUN  ] CapiError.ReasonMentionsSpecificInvalidValue
+[  OK  ] CapiError.ReasonMentionsSpecificInvalidValue
+[ RUN  ] CapiError.SuccessDoesNotClearPreviousError
+[  OK  ] CapiError.SuccessDoesNotClearPreviousError
+[ RUN  ] CapiError.ResultMessageIsPropagated
+[  OK  ] CapiError.ResultMessageIsPropagated
+[ RUN  ] CapiError.EveryFailurePathSetsReason
+[  OK  ] CapiError.EveryFailurePathSetsReason
+[ RUN  ] CapiError.LastErrorIsThreadLocal
+[  OK  ] CapiError.LastErrorIsThreadLocal
+[ RUN  ] CapiError.NoFailureMeansEmptyOrNull
+[  OK  ] CapiError.NoFailureMeansEmptyOrNull
+[ RUN  ] CapiOwnership.ErrorStringIsHeapAllocated
+[  OK  ] CapiOwnership.ErrorStringIsHeapAllocated
+[ RUN  ] CapiOwnership.NullOutParamIsAccepted
+[  OK  ] CapiOwnership.NullOutParamIsAccepted
+[ RUN  ] CapiOwnership.FailureLeavesOutParamUsable
+[  OK  ] CapiOwnership.FailureLeavesOutParamUsable
+[ RUN  ] CapiOwnership.LastErrorNeedsNoFree
+[  OK  ] CapiOwnership.LastErrorNeedsNoFree
+[ RUN  ] AssetReorder.MovesForward
+[  OK  ] AssetReorder.MovesForward
+[ RUN  ] AssetReorder.MovesBackward
+[  OK  ] AssetReorder.MovesBackward
+[ RUN  ] AssetReorder.MoveToSameIndexIsNoOp
+[  OK  ] AssetReorder.MoveToSameIndexIsNoOp
+[ RUN  ] AssetReorder.MoveToFirstAndLast
+[  OK  ] AssetReorder.MoveToFirstAndLast
+[ RUN  ] AssetReorder.RejectsOutOfRange
+[  OK  ] AssetReorder.RejectsOutOfRange
+[ RUN  ] AssetReorder.EmptyProjectRejectsAnyMove
+[  OK  ] AssetReorder.EmptyProjectRejectsAnyMove
+[ RUN  ] AssetReorder.SingleAssetOnlyAllowsSelfMove
+[  OK  ] AssetReorder.SingleAssetOnlyAllowsSelfMove
+[ RUN  ] AssetReorder.UndoRestoresOriginalOrder
+[  OK  ] AssetReorder.UndoRestoresOriginalOrder
+[ RUN  ] AssetReorder.RedoReappliesMove
+[  OK  ] AssetReorder.RedoReappliesMove
+[ RUN  ] AssetReorder.MultipleUndoInReverseOrder
+[  OK  ] AssetReorder.MultipleUndoInReverseOrder
+[ RUN  ] AssetReorder.UndoAfterInterleavedMove
+[  OK  ] AssetReorder.UndoAfterInterleavedMove
+[ RUN  ] AssetReorder.NoOpDoesNotEnableUndo
+[  OK  ] AssetReorder.NoOpDoesNotEnableUndo
+[ RUN  ] AssetReorder.OrderSurvivesSerializationRoundTrip
+[  OK  ] AssetReorder.OrderSurvivesSerializationRoundTrip
+[ RUN  ] AssetReorder.UnchangedOrderRoundTrips
+[  OK  ] AssetReorder.UnchangedOrderRoundTrips
+[ RUN  ] AssetReorder.AssetIdsPreservedAfterRoundTrip
+[  OK  ] AssetReorder.AssetIdsPreservedAfterRoundTrip
+[ RUN  ] AssetReorder.ReorderDoesNotAffectClipReferences
+[  OK  ] AssetReorder.ReorderDoesNotAffectClipReferences
+[ RUN  ] AssetReorder.SequenceInvariantsHoldAfterReorder
+[  OK  ] AssetReorder.SequenceInvariantsHoldAfterReorder
+[ RUN  ] TrackGroupMove.UngroupedMovesOnlyItself
+[  OK  ] TrackGroupMove.UngroupedMovesOnlyItself
+[ RUN  ] TrackGroupMove.MovingMemberMovesWholeGroup
+[  OK  ] TrackGroupMove.MovingMemberMovesWholeGroup
+[ RUN  ] TrackGroupMove.GroupKeepsRelativeOrderWhenMovingDown
+[  OK  ] TrackGroupMove.GroupKeepsRelativeOrderWhenMovingDown
+[ RUN  ] TrackGroupMove.DraggingGroupByLatterMemberWorks
+[  OK  ] TrackGroupMove.DraggingGroupByLatterMemberWorks
+[ RUN  ] TrackGroupMove.GroupClipsAndEffectsFollowTrack
+[  OK  ] TrackGroupMove.GroupClipsAndEffectsFollowTrack
+[ RUN  ] TrackGroupMove.UndoRestoresWholeGroup
+[  OK  ] TrackGroupMove.UndoRestoresWholeGroup
+[ RUN  ] TrackGroupMove.RedoReappliesWholeGroup
+[  OK  ] TrackGroupMove.RedoReappliesWholeGroup
+[ RUN  ] TrackGroupMove.GroupNeverSplitsAcrossOthers
+[  OK  ] TrackGroupMove.GroupNeverSplitsAcrossOthers
+[ RUN  ] TrackGroupMove.InvariantsHoldAfterGroupMove
+[  OK  ] TrackGroupMove.InvariantsHoldAfterGroupMove
+[ RUN  ] TrackGroupMove.GroupMoveDoesNotLoseTracks
+[  OK  ] TrackGroupMove.GroupMoveDoesNotLoseTracks
+[ RUN  ] BoundsAudit.NegativeTrackIndexRejected
+[  OK  ] BoundsAudit.NegativeTrackIndexRejected
+[ RUN  ] BoundsAudit.HugeTrackIndexRejected
+[  OK  ] BoundsAudit.HugeTrackIndexRejected
+[ RUN  ] BoundsAudit.ClipIndexOutOfRangeRejected
+[  OK  ] BoundsAudit.ClipIndexOutOfRangeRejected
+[ RUN  ] BoundsAudit.UnknownClipIdRejected
+[  OK  ] BoundsAudit.UnknownClipIdRejected
+[ RUN  ] BoundsAudit.AssetIndexOutOfRangeRejected
+[  OK  ] BoundsAudit.AssetIndexOutOfRangeRejected
+[ RUN  ] BoundsAudit.NullEditorNeverCrashes
+[  OK  ] BoundsAudit.NullEditorNeverCrashes
+[ RUN  ] BoundsAudit.ZeroLengthInsertRejectedOrSane
+[  OK  ] BoundsAudit.ZeroLengthInsertRejectedOrSane
+[ RUN  ] EditTemplate.BuiltinTemplatesAreValid
+[  OK  ] EditTemplate.BuiltinTemplatesAreValid
+[ RUN  ] EditTemplate.BuiltinIdsAreUnique
+[  OK  ] EditTemplate.BuiltinIdsAreUnique
+[ RUN  ] EditTemplate.FindBuiltinByIdWorks
+[  OK  ] EditTemplate.FindBuiltinByIdWorks
+[ RUN  ] EditTemplate.TotalDurationEqualsSlotSum
+[  OK  ] EditTemplate.TotalDurationEqualsSlotSum
+[ RUN  ] EditTemplate.RejectsInconsistentTotalDuration
+[  OK  ] EditTemplate.RejectsInconsistentTotalDuration
+[ RUN  ] EditTemplate.RejectsZeroDurationSlot
+[  OK  ] EditTemplate.RejectsZeroDurationSlot
+[ RUN  ] EditTemplate.RejectsTransitionLongerThanSlot
+[  OK  ] EditTemplate.RejectsTransitionLongerThanSlot
+[ RUN  ] EditTemplate.RejectsCutWithNonZeroTransitionDuration
+[  OK  ] EditTemplate.RejectsCutWithNonZeroTransitionDuration
+[ RUN  ] EditTemplate.RejectsOutOfRangeShake
+[  OK  ] EditTemplate.RejectsOutOfRangeShake
+[ RUN  ] EditTemplate.RejectsNegativeShake
+[  OK  ] EditTemplate.RejectsNegativeShake
+[ RUN  ] EditTemplate.RejectsInvalidEffectValue
+[  OK  ] EditTemplate.RejectsInvalidEffectValue
+[ RUN  ] EditTemplate.RejectsEmptyTemplate
+[  OK  ] EditTemplate.RejectsEmptyTemplate
+[ RUN  ] EditTemplate.SerializationRoundtrip
+[  OK  ] EditTemplate.SerializationRoundtrip
+[ RUN  ] EditTemplate.BuiltinTemplatesRoundtrip
+[  OK  ] EditTemplate.BuiltinTemplatesRoundtrip
+[ RUN  ] EditTemplate.FailedParseDoesNotModifyOutput
+[  OK  ] EditTemplate.FailedParseDoesNotModifyOutput
+[ RUN  ] EditTemplate.ParseErrorMentionsProblem
+[  OK  ] EditTemplate.ParseErrorMentionsProblem
+[ RUN  ] EditTemplate.LayerRoleKeysRoundtrip
+[  OK  ] EditTemplate.LayerRoleKeysRoundtrip
+[ RUN  ] EditTemplate.RejectsInvalidRoleKey
+[  OK  ] EditTemplate.RejectsInvalidRoleKey
+[ RUN  ] EditTemplate.OmitsDefaultFieldsInJson
+[  OK  ] EditTemplate.OmitsDefaultFieldsInJson
+[ RUN  ] TemplateFill.FillsEverySlotWhenEnoughMaterial
+[  OK  ] TemplateFill.FillsEverySlotWhenEnoughMaterial
+[ RUN  ] TemplateFill.TooShortAssetIsHardFiltered
+[  OK  ] TemplateFill.TooShortAssetIsHardFiltered
+[ RUN  ] TemplateFill.ImageIsNeverFilteredByDuration
+[  OK  ] TemplateFill.ImageIsNeverFilteredByDuration
+[ RUN  ] TemplateFill.PrefersLongerAssetForSlack
+[  OK  ] TemplateFill.PrefersLongerAssetForSlack
+[ RUN  ] TemplateFill.ReusePenaltyAvoidsUnnecessaryRepeats
+[  OK  ] TemplateFill.ReusePenaltyAvoidsUnnecessaryRepeats
+[ RUN  ] TemplateFill.ReusesWhenMaterialIsScarce
+[  OK  ] TemplateFill.ReusesWhenMaterialIsScarce
+[ RUN  ] TemplateFill.ReusePenaltyZeroAllowsStickingToOne
+[  OK  ] TemplateFill.ReusePenaltyZeroAllowsStickingToOne
+[ RUN  ] TemplateFill.ColorHarmonyPrefersSimilarToPrevious
+[  OK  ] TemplateFill.ColorHarmonyPrefersSimilarToPrevious
+[ RUN  ] TemplateFill.MissingFeaturesAreNeutralNotPenalized
+[  OK  ] TemplateFill.MissingFeaturesAreNeutralNotPenalized
+[ RUN  ] TemplateFill.NoCandidateReportsReason
+[  OK  ] TemplateFill.NoCandidateReportsReason
+[ RUN  ] TemplateFill.EmptyTemplateYieldsEmptyResult
+[  OK  ] TemplateFill.EmptyTemplateYieldsEmptyResult
+[ RUN  ] TemplateFill.Deterministic
+[  OK  ] TemplateFill.Deterministic
+[ RUN  ] TemplateFill.ConvenienceOverloadMatchesCandidates
+[  OK  ] TemplateFill.ConvenienceOverloadMatchesCandidates
+[ RUN  ] TemplateFill.DescribeAssignmentIsReadable
+[  OK  ] TemplateFill.DescribeAssignmentIsReadable
+[ RUN  ] TemplateFill.WorksWithBuiltinTemplates
+[  OK  ] TemplateFill.WorksWithBuiltinTemplates
+[ RUN  ] TemplateApply.InsertsAllSlots
+[  OK  ] TemplateApply.InsertsAllSlots
+[ RUN  ] TemplateApply.SlotsAreLaidOutBackToBack
+[  OK  ] TemplateApply.SlotsAreLaidOutBackToBack
+[ RUN  ] TemplateApply.UndoRestoresProjectExactly
+[  OK  ] TemplateApply.UndoRestoresProjectExactly
+[ RUN  ] TemplateApply.SingleUndoStepForWholeTemplate
+[  OK  ] TemplateApply.SingleUndoStepForWholeTemplate
+[ RUN  ] TemplateApply.RedoReappliesTemplate
+[  OK  ] TemplateApply.RedoReappliesTemplate
+[ RUN  ] TemplateApply.ForegroundSlotsGetOwnTrack
+[  OK  ] TemplateApply.ForegroundSlotsGetOwnTrack
+[ RUN  ] TemplateApply.EffectsAreAdded
+[  OK  ] TemplateApply.EffectsAreAdded
+[ RUN  ] TemplateApply.TransitionsBetweenAdjacentClips
+[  OK  ] TemplateApply.TransitionsBetweenAdjacentClips
+[ RUN  ] TemplateApply.MissingAssignmentIsSkippedWithWarning
+[  OK  ] TemplateApply.MissingAssignmentIsSkippedWithWarning
+[ RUN  ] TemplateApply.UnknownAssetIsRejected
+[  OK  ] TemplateApply.UnknownAssetIsRejected
+[ RUN  ] TemplateApply.InvalidSlotIndexIsRejected
+[  OK  ] TemplateApply.InvalidSlotIndexIsRejected
+[ RUN  ] TemplateApply.DuplicateSlotAssignmentIsRejected
+[  OK  ] TemplateApply.DuplicateSlotAssignmentIsRejected
+[ RUN  ] TemplateApply.InvalidTemplateIsRejected
+[  OK  ] TemplateApply.InvalidTemplateIsRejected
+[ RUN  ] TemplateApply.AssignmentsFromFillWorks
+[  OK  ] TemplateApply.AssignmentsFromFillWorks
+[ RUN  ] TemplateApply.DescribeResultIsReadable
+[  OK  ] TemplateApply.DescribeResultIsReadable
+[ RUN  ] TemplateApply.WorksWithBuiltinTemplate
+[  OK  ] TemplateApply.WorksWithBuiltinTemplate
+[ RUN  ] CapiTemplate.ListReturnsJsonWithAllTemplates
+[  OK  ] CapiTemplate.ListReturnsJsonWithAllTemplates
+[ RUN  ] CapiTemplate.SlotCountMatchesTemplate
+[  OK  ] CapiTemplate.SlotCountMatchesTemplate
+[ RUN  ] CapiTemplate.ApplyFillsAndReturnsSummary
+[  OK  ] CapiTemplate.ApplyFillsAndReturnsSummary
+[ RUN  ] CapiTemplate.ApplyIsUndoableInOneStep
+[  OK  ] CapiTemplate.ApplyIsUndoableInOneStep
+[ RUN  ] CapiTemplate.UnknownTemplateGivesReason
+[  OK  ] CapiTemplate.UnknownTemplateGivesReason
+[ RUN  ] CapiTemplate.NullArgsGivesReason
+[  OK  ] CapiTemplate.NullArgsGivesReason
+[ RUN  ] CapiTemplate.UnknownMaterialIdsAreRejected
+[  OK  ] CapiTemplate.UnknownMaterialIdsAreRejected
+[ RUN  ] CapiTemplate.ApplySlotsWithExplicitMapping
+[  OK  ] CapiTemplate.ApplySlotsWithExplicitMapping
+[ RUN  ] CapiTemplate.ApplySlotsRejectsNegativeIndex
+[  OK  ] CapiTemplate.ApplySlotsRejectsNegativeIndex
+[ RUN  ] CapiTemplate.OutputStringsAreHeapAllocated
+[  OK  ] CapiTemplate.OutputStringsAreHeapAllocated
+[ RUN  ] CapiTemplate.NullOutParamsAccepted
+[  OK  ] CapiTemplate.NullOutParamsAccepted
+[ RUN  ] CapiTemplate.LastErrorSetOnTemplateFailure
+[  OK  ] CapiTemplate.LastErrorSetOnTemplateFailure
+[ RUN  ] PlacementQuery.VideoTrackAcceptsVideoAndImage
+[  OK  ] PlacementQuery.VideoTrackAcceptsVideoAndImage
+[ RUN  ] PlacementQuery.AudioTrackAcceptsAudioAndVideo
+[  OK  ] PlacementQuery.AudioTrackAcceptsAudioAndVideo
+[ RUN  ] PlacementQuery.SubtitleAndAdjustmentRejectEverything
+[  OK  ] PlacementQuery.SubtitleAndAdjustmentRejectEverything
+[ RUN  ] PlacementQuery.UnknownMediaIsTolerated
+[  OK  ] PlacementQuery.UnknownMediaIsTolerated
+[ RUN  ] PlacementQuery.CapiAcceptsMatchesCoreTable
+[  OK  ] PlacementQuery.CapiAcceptsMatchesCoreTable
+[ RUN  ] PlacementQuery.CapiRejectsInvalidEnums
+[  OK  ] PlacementQuery.CapiRejectsInvalidEnums
+[ RUN  ] PlacementQuery.ReasonExplainsWhyRejected
+[  OK  ] PlacementQuery.ReasonExplainsWhyRejected
+[ RUN  ] PlacementQuery.ReasonForAllowedIsNull
+[  OK  ] PlacementQuery.ReasonForAllowedIsNull
+[ RUN  ] PlacementQuery.ReasonForUnknownExplainsTolerance
+[  OK  ] PlacementQuery.ReasonForUnknownExplainsTolerance
+[ RUN  ] PlacementQuery.ReasonRejectsInvalidEnums
+[  OK  ] PlacementQuery.ReasonRejectsInvalidEnums
+[ RUN  ] PlacementQuery.LabelsAreReadable
+[  OK  ] PlacementQuery.LabelsAreReadable
+[ RUN  ] PlacementQuery.ConsistentWithActualInsert
+[  OK  ] PlacementQuery.ConsistentWithActualInsert
+[ RUN  ] ClipShake.DefaultHasNoShake
+[  OK  ] ClipShake.DefaultHasNoShake
+[ RUN  ] ClipShake.DefaultClipDoesNotShake
+[  OK  ] ClipShake.DefaultClipDoesNotShake
+[ RUN  ] ClipShake.SerializationRoundtrip
+[  OK  ] ClipShake.SerializationRoundtrip
+[ RUN  ] ClipShake.NoShakeOmitsField
+[  OK  ] ClipShake.NoShakeOmitsField
+[ RUN  ] ClipShake.OutOfRangeValuesClampedOnLoad
+[  OK  ] ClipShake.OutOfRangeValuesClampedOnLoad
+[ RUN  ] ClipShake.TemplateApplyWritesShake
+[  OK  ] ClipShake.TemplateApplyWritesShake
+[ RUN  ] ClipShake.TemplateApplyUndoRemovesShake
+[  OK  ] ClipShake.TemplateApplyUndoRemovesShake
+[ RUN  ] ShakeExport.ShakeChangesOutputPixels
+[  OK  ] ShakeExport.ShakeChangesOutputPixels
+[ RUN  ] ShakeExport.ZeroAmplitudeIsNoOp
+[  OK  ] ShakeExport.ZeroAmplitudeIsNoOp
+[ RUN  ] ShakeExport.ShakeIsDeterministic
+[  OK  ] ShakeExport.ShakeIsDeterministic
+[ RUN  ] ShakeExport.DifferentSeedsGiveDifferentOutput
+[  OK  ] ShakeExport.DifferentSeedsGiveDifferentOutput
+[ RUN  ] ShakeExport.LargerAmplitudeChangesMore
+[  OK  ] ShakeExport.LargerAmplitudeChangesMore
+[ RUN  ] ClipLutExport.LutChangesOutputPixels
+[  OK  ] ClipLutExport.LutChangesOutputPixels
+[ RUN  ] ClipLutExport.ZeroStrengthIsNoOp
+[  OK  ] ClipLutExport.ZeroStrengthIsNoOp
+[ RUN  ] ClipLutExport.LutIsDeterministic
+[  OK  ] ClipLutExport.LutIsDeterministic
+[ RUN  ] ClipLutExport.HalfStrengthDiffersFromFullAndFromNone
+[  OK  ] ClipLutExport.HalfStrengthDiffersFromFullAndFromNone
+[ RUN  ] ClipLutExport.MissingFileDoesNotCrashAndIsWarned
+[  OK  ] ClipLutExport.MissingFileDoesNotCrashAndIsWarned
+[ RUN  ] CapiLut.SetAndGetRoundtrip
+[  OK  ] CapiLut.SetAndGetRoundtrip
+[ RUN  ] CapiLut.DefaultsToEmptyAndFullStrength
+[  OK  ] CapiLut.DefaultsToEmptyAndFullStrength
+[ RUN  ] CapiLut.NullPathClearsLut
+[  OK  ] CapiLut.NullPathClearsLut
+[ RUN  ] CapiLut.RejectsStrengthOutOfRange
+[  OK  ] CapiLut.RejectsStrengthOutOfRange
+[ RUN  ] CapiLut.RejectsNaNAndInfinity
+[  OK  ] CapiLut.RejectsNaNAndInfinity
+[ RUN  ] CapiLut.BadTrackOrClipIsReported
+[  OK  ] CapiLut.BadTrackOrClipIsReported
+[ RUN  ] CapiLut.NullEditorIsRejected
+[  OK  ] CapiLut.NullEditorIsRejected
+[ RUN  ] CapiLut.IsUndoable
+[  OK  ] CapiLut.IsUndoable
+[ RUN  ] CapiLut.LockedTrackRejectsLutChange
+[  OK  ] CapiLut.LockedTrackRejectsLutChange
+[ RUN  ] CapiLut.ValidateAcceptsRealCube
+[  OK  ] CapiLut.ValidateAcceptsRealCube
+[ RUN  ] CapiLut.ValidateExplainsFailure
+[  OK  ] CapiLut.ValidateExplainsFailure
+[ RUN  ] CapiLut.ValidateRejects1DLut
+[  OK  ] CapiLut.ValidateRejects1DLut
+[ RUN  ] CapiLut.NoBuiltinPresetsIsHonest
+[  OK  ] CapiLut.NoBuiltinPresetsIsHonest
+
+===== 1490 cases | 0 failed | 0 checks failed =====
