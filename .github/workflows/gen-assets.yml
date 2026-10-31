@@ -48,6 +48,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 必须取完整历史。默认 fetch-depth: 1 是浅克隆，在这种仓库上
+          # git commit 会因为没有共同祖先而生成**孤儿根提交**，
+          # git push 于是把 main 的历史整条替换掉。
+          # 实测后果：2026-10-31 的 4639f10 就是这样一个孤儿提交，
+          # 989 个文件 / 13.3 万行「新增」，实际内容与当时 HEAD 相同，
+          # 只是父提交丢了 —— 之后所有提交都无法快进推送。
+          fetch-depth: 0
 
       - name: 安装 Pillow
         run: |
@@ -147,4 +155,19 @@ jobs:
             exit 0
           fi
           git commit -m 'chore(assets): 重新生成宫格缩略图 [skip ci]'
+
+          # 推送前拦截「孤儿提交」：没有父提交说明这次 commit 建在了
+          # 空的/不连通的历史上，push 会替换掉远端 main 的全部历史。
+          # 宁可让 job 失败也不要污染主线（4639f10 就是这么来的）。
+          if [ "$(git rev-list --parents -n1 HEAD | wc -w)" -lt 2 ]; then
+            echo "::error title=拒绝推送孤儿提交::HEAD 没有父提交，说明 checkout 是浅克隆或历史不连通。已阻止 push。"
+            exit 1
+          fi
+
+          # 再确认 HEAD 能追到远端 main 的祖先链上
+          if ! git merge-base --is-ancestor "origin/$GITHUB_REF_NAME" HEAD 2>/dev/null; then
+            echo "::warning::HEAD 与 origin/$GITHUB_REF_NAME 没有共同祖先，尝试 rebase 后推送"
+            git pull --rebase --autostash "origin" "$GITHUB_REF_NAME" || true
+          fi
+
           git push
