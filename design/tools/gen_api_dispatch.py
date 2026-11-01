@@ -249,9 +249,25 @@ def gen():
                   f'jnumArrayF({pname}, static_cast<int32_t>(jint(args, "count", 0)), '
                   f'jint(args, "{pname.replace("out_", "")}_count", 0)));')
             elif expr == '__numarray__':
-                w(f'        out.result.set("{pname}", '
-                  f'jnumArray({pname}, static_cast<int32_t>(jint(args, "count", 0)), '
-                  f'jint(args, "{pname.replace("out_", "")}_count", 0)));')
+                # 数组长度必须优先用引擎回填的计数（入参 count 是期望值，
+                # 引擎实际写入的条数可能更少）。
+                #
+                # 计数出参的名字未必是 "<数组名去 out_>_count"：
+                # 例如 out_boundaries（复数）对应 out_boundary_count（单数），
+                # 无法由拼写推导，所以这里按「同函数内唯一的 *_count 出参」匹配；
+                # 只有一个就用它，多于一个才退回入参 count（避免猜错）。
+                count_outs = [c for c, _ in writes
+                              if c.startswith('out_') and c.endswith('_count')
+                              and c != pname]
+                cnt = count_outs[0] if len(count_outs) == 1 else None
+                if cnt is not None:
+                    # 边界数组每 2 个 double 一组 [start_s, end_s]：元素数 = 条数 * 2
+                    mult = ' * 2' if pname == 'out_boundaries' else ''
+                    w(f'        out.result.set("{pname}", '
+                      f'jnumArray({pname}, {cnt}{mult}, 0));')
+                else:
+                    w(f'        out.result.set("{pname}", '
+                      f'jnumArray({pname}, static_cast<int32_t>(jint(args, "count", 0)), 0));')
             else:
                 w(f'        out.result.set("{pname}", {expr.format(v=pname)});')
         w('        return true;')

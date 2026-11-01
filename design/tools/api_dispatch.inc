@@ -1,5 +1,5 @@
 // ===========================================================================
-// 自动生成的调度表（生成器已移除，此文件为权威产物，如需改动请手工编辑）
+// 自动生成，请勿手工编辑：design/tools/gen_api_dispatch.py
 // 来源：core/include/nairoclip/core/capi.h
 // 用途：/api/call 通用派发，前端 {"fn":"nc_xxx","args":{...}} 调用任意 C ABI
 // ===========================================================================
@@ -168,6 +168,12 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
     }
+    if (fn == "nc_asset_reorder") {
+        const auto ret = nc_asset_reorder(gEditor, static_cast<int32_t>(jint(args, "from_index", 0)), static_cast<int32_t>(jint(args, "to_index", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
     if (fn == "nc_import_asset") {
         const auto ret = nc_import_asset(gEditor, jstr(args, "name").c_str(), jstr(args, "path").c_str(), static_cast<int32_t>(jint(args, "type", 0)), static_cast<std::int64_t>(jint(args, "duration_us", 0)));
         out.code = NC_OK;
@@ -220,6 +226,22 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("out_gain_db", JsonValue::number(out_gain_db));
         return true;
     }
+    if (fn == "nc_track_get_view") {
+        int32_t out_height_px = 0;
+        int32_t out_collapsed = 0;
+        const auto ret = nc_track_get_view(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), &out_height_px, &out_collapsed);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_height_px", JsonValue::integer(out_height_px));
+        out.result.set("out_collapsed", JsonValue::integer(out_collapsed));
+        return true;
+    }
+    if (fn == "nc_set_track_view") {
+        const auto ret = nc_set_track_view(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<int32_t>(jint(args, "height_px", 0)), static_cast<int32_t>(jint(args, "collapsed", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
     if (fn == "nc_remove_track") {
         const auto ret = nc_remove_track(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)));
         out.code = ret;
@@ -228,6 +250,12 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
     }
     if (fn == "nc_rename_track") {
         const auto ret = nc_rename_track(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), jstr(args, "new_name").c_str());
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_move_track") {
+        const auto ret = nc_move_track(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<int32_t>(jint(args, "new_index", 0)));
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
@@ -312,6 +340,18 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
     }
     if (fn == "nc_reverse_clip") {
         const auto ret = nc_reverse_clip(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_clip_is_reversed") {
+        const auto ret = nc_clip_is_reversed(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_clip_is_frozen") {
+        const auto ret = nc_clip_is_frozen(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)));
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
@@ -441,6 +481,14 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("out_name", JsonValue::string(takeString(out_name)));
         return true;
     }
+    if (fn == "nc_transition_get_id") {
+        std::uint64_t out_id = 0;
+        const auto ret = nc_transition_get_id(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<int32_t>(jint(args, "index", 0)), &out_id);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_id", JsonValue::integer(static_cast<std::int64_t>(out_id)));
+        return true;
+    }
     if (fn == "nc_transition_type_count") {
         const auto ret = nc_transition_type_count();
         out.code = ret;
@@ -512,9 +560,20 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.code = NC_OK;
         return true;
     }
-    if (fn == "nc_preview_invalidate") {
-        nc_preview_invalidate(gEditor);
-        out.code = NC_OK;
+    if (fn == "nc_preview_cache_stats") {
+        int64_t out_frame_hits = 0;
+        int64_t out_frame_misses = 0;
+        int64_t out_reader_opens = 0;
+        int32_t out_cached_frames = 0;
+        int32_t out_capacity = 0;
+        const auto ret = nc_preview_cache_stats(gEditor, &out_frame_hits, &out_frame_misses, &out_reader_opens, &out_cached_frames, &out_capacity);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_frame_hits", JsonValue::integer(out_frame_hits));
+        out.result.set("out_frame_misses", JsonValue::integer(out_frame_misses));
+        out.result.set("out_reader_opens", JsonValue::integer(out_reader_opens));
+        out.result.set("out_cached_frames", JsonValue::integer(out_cached_frames));
+        out.result.set("out_capacity", JsonValue::integer(out_capacity));
         return true;
     }
     if (fn == "nc_thumbnail_generate") {
@@ -575,11 +634,7 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         out.result.set("out_boundary_count", JsonValue::integer(out_boundary_count));
-        // 长度必须用引擎回填的 out_boundary_count：调用方事先并不知道有几条边界，
-        // 依赖入参 count 会把结果裁成空数组（此前即为此问题）。
-        // 该数组每 2 个 double 一组 [start_s, end_s]，故元素数为 count*2。
-        out.result.set("out_boundaries",
-                       jnumArray(out_boundaries, out_boundary_count * 2, 0));
+        out.result.set("out_boundaries", jnumArray(out_boundaries, out_boundary_count * 2, 0));
         return true;
     }
     if (fn == "nc_beat_detect") {
@@ -593,7 +648,6 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("out_bpm", JsonValue::number(out_bpm));
         out.result.set("out_confidence", JsonValue::number(out_confidence));
         out.result.set("out_beat_count", JsonValue::integer(out_beat_count));
-        // 同上：长度用引擎回填值，不依赖调用方入参。
         out.result.set("out_beats", jnumArray(out_beats, out_beat_count, 0));
         return true;
     }
@@ -939,6 +993,83 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("out_error", JsonValue::string(takeString(out_error)));
         return true;
     }
+    if (fn == "nc_superres_load") {
+        char* out_error = nullptr;
+        const auto ret = nc_superres_load(gEditor, jstr(args, "model_path").c_str(), &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
+    if (fn == "nc_superres_unload") {
+        const auto ret = nc_superres_unload(gEditor);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_superres_loaded") {
+        const auto ret = nc_superres_loaded(gEditor);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_superres_upscale") {
+        uint8_t* out_rgba = nullptr;
+        int32_t out_width = 0;
+        int32_t out_height = 0;
+        int32_t out_tiles = 0;
+        int32_t out_fallbacks = 0;
+        char* out_error = nullptr;
+        const auto ret = nc_superres_upscale(gEditor, jvecByte(args, "rgba").data(), static_cast<int32_t>(jint(args, "width", 0)), static_cast<int32_t>(jint(args, "height", 0)), static_cast<int32_t>(jint(args, "scale", 0)), &out_rgba, &out_width, &out_height, &out_tiles, &out_fallbacks, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_width", JsonValue::integer(out_width));
+        out.result.set("out_height", JsonValue::integer(out_height));
+        out.result.set("out_tiles", JsonValue::integer(out_tiles));
+        out.result.set("out_fallbacks", JsonValue::integer(out_fallbacks));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
+    if (fn == "nc_translate_load") {
+        char* out_error = nullptr;
+        const auto ret = nc_translate_load(gEditor, jstr(args, "encoder_path").c_str(), jstr(args, "decoder_path").c_str(), jstr(args, "decoder_with_past_path").c_str(), jstr(args, "tokenizer_json_path").c_str(), &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
+    if (fn == "nc_translate_unload") {
+        const auto ret = nc_translate_unload(gEditor);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_translate_loaded") {
+        const auto ret = nc_translate_loaded(gEditor);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_translate_text") {
+        char* out_text = nullptr;
+        char* out_error = nullptr;
+        const auto ret = nc_translate_text(gEditor, jstr(args, "text").c_str(), &out_text, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_text", JsonValue::string(takeString(out_text)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
+    if (fn == "nc_translate_subtitles") {
+        char* out_json = nullptr;
+        char* out_error = nullptr;
+        const auto ret = nc_translate_subtitles(gEditor, &out_json, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_json", JsonValue::string(takeString(out_json)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
     if (fn == "nc_matting_load") {
         char* out_error = nullptr;
         const auto ret = nc_matting_load(gEditor, jstr(args, "model_path").c_str(), &out_error);
@@ -1012,6 +1143,12 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
     }
+    if (fn == "nc_update_effect") {
+        const auto ret = nc_update_effect(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<std::uint64_t>(jint(args, "effect_id", 0)), static_cast<int32_t>(jint(args, "type", 0)), jnum(args, "value", 0.0));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
     if (fn == "nc_remove_effect") {
         const auto ret = nc_remove_effect(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<std::uint64_t>(jint(args, "effect_id", 0)));
         out.code = ret;
@@ -1025,15 +1162,29 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         return true;
     }
     if (fn == "nc_effect_get") {
+        std::uint64_t out_effect_id = 0;
         int32_t out_type = 0;
         double out_value = 0.0;
         int32_t out_enabled = 0;
-        const auto ret = nc_effect_get(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<int32_t>(jint(args, "index", 0)), &out_type, &out_value, &out_enabled);
+        const auto ret = nc_effect_get(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<int32_t>(jint(args, "index", 0)), &out_effect_id, &out_type, &out_value, &out_enabled);
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_effect_id", JsonValue::integer(static_cast<std::int64_t>(out_effect_id)));
         out.result.set("out_type", JsonValue::integer(out_type));
         out.result.set("out_value", JsonValue::number(out_value));
         out.result.set("out_enabled", JsonValue::integer(out_enabled));
+        return true;
+    }
+    if (fn == "nc_set_effect_enabled") {
+        const auto ret = nc_set_effect_enabled(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<std::uint64_t>(jint(args, "effect_id", 0)), static_cast<int32_t>(jint(args, "enabled", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_move_effect") {
+        const auto ret = nc_move_effect(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<std::uint64_t>(jint(args, "effect_id", 0)), static_cast<int32_t>(jint(args, "direction", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
     }
     if (fn == "nc_insert_keyframe") {
@@ -1428,10 +1579,60 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
     }
+    if (fn == "nc_blend_mode_count") {
+        const auto ret = nc_blend_mode_count();
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_blend_mode_name") {
+        out.result.set("value", JsonValue::string(std::string(nc_blend_mode_name(static_cast<int32_t>(jint(args, "mode", 0))))));
+        out.code = NC_OK;
+        return true;
+    }
     if (fn == "nc_get_clip_blend_mode") {
         const auto ret = nc_get_clip_blend_mode(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)));
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_set_clip_lut") {
+        const auto ret = nc_set_clip_lut(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), jstr(args, "path").c_str(), jnum(args, "strength", 0.0));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_get_clip_lut") {
+        char* out_path = nullptr;
+        double out_strength = 0.0;
+        const auto ret = nc_get_clip_lut(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), &out_path, &out_strength);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_path", JsonValue::string(takeString(out_path)));
+        out.result.set("out_strength", JsonValue::number(out_strength));
+        return true;
+    }
+    if (fn == "nc_lut_validate_file") {
+        int32_t out_size = 0;
+        char* out_title = nullptr;
+        char* out_message = nullptr;
+        const auto ret = nc_lut_validate_file(jstr(args, "path").c_str(), &out_size, &out_title, &out_message);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_size", JsonValue::integer(out_size));
+        out.result.set("out_title", JsonValue::string(takeString(out_title)));
+        out.result.set("out_message", JsonValue::string(takeString(out_message)));
+        return true;
+    }
+    if (fn == "nc_lut_preset_count") {
+        const auto ret = nc_lut_preset_count();
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_lut_preset_name") {
+        out.result.set("value", JsonValue::string(std::string(nc_lut_preset_name(static_cast<int32_t>(jint(args, "index", 0))))));
+        out.code = NC_OK;
         return true;
     }
     if (fn == "nc_model_catalog") {
@@ -1878,6 +2079,63 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         const auto ret = nc_heartbeat_clear_lock(gEditor);
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_last_error") {
+        out.result.set("value", JsonValue::string(std::string(nc_last_error())));
+        out.code = NC_OK;
+        return true;
+    }
+    if (fn == "nc_template_list") {
+        char* out_json = nullptr;
+        char* out_error = nullptr;
+        const auto ret = nc_template_list(&out_json, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_json", JsonValue::string(takeString(out_json)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
+    if (fn == "nc_template_slot_count") {
+        const auto ret = nc_template_slot_count(jstr(args, "template_id").c_str());
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_track_accepts_media") {
+        const auto ret = nc_track_accepts_media(static_cast<int32_t>(jint(args, "track_type", 0)), static_cast<int32_t>(jint(args, "media_type", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_track_placement_reason") {
+        char* out_reason = nullptr;
+        char* out_error = nullptr;
+        const auto ret = nc_track_placement_reason(static_cast<int32_t>(jint(args, "track_type", 0)), static_cast<int32_t>(jint(args, "media_type", 0)), &out_reason, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_reason", JsonValue::string(takeString(out_reason)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
+    if (fn == "nc_template_apply") {
+        char* out_summary = nullptr;
+        char* out_error = nullptr;
+        const auto ret = nc_template_apply(gEditor, jstr(args, "template_id").c_str(), jvecU64(args, "material_ids").data(), static_cast<int32_t>(jint(args, "count", 0)), &out_summary, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_summary", JsonValue::string(takeString(out_summary)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
+    if (fn == "nc_template_apply_slots") {
+        char* out_summary = nullptr;
+        char* out_error = nullptr;
+        const auto ret = nc_template_apply_slots(gEditor, jstr(args, "template_id").c_str(), jvecI32(args, "slot_indices").data(), jvecU64(args, "material_ids").data(), static_cast<int32_t>(jint(args, "count", 0)), &out_summary, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_summary", JsonValue::string(takeString(out_summary)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
         return true;
     }
     return false;

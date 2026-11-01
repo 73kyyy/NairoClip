@@ -86,6 +86,30 @@ std::string JStrField(const std::string& json, const std::string& key) {
     return out;
 }
 
+/// 读取 uint64 数组（如 "material_ids": [1,2,3]）。
+/// 只支持扁平整数数组：本桥的入参是桥自己序列化的，不含嵌套对象。
+/// 返回 false 表示键不存在或不是数组。
+bool JVecU64(const std::string& json, const std::string& key,
+             std::vector<uint64_t>* out) {
+    if (out == nullptr) return false;
+    out->clear();
+    size_t p = 0;
+    if (!FindKey(json, key, &p)) return false;
+    while (p < json.size() && (json[p] == ' ' || json[p] == '\t')) ++p;
+    if (p >= json.size() || json[p] != '[') return false;
+    ++p;
+    while (p < json.size() && json[p] != ']') {
+        // 跳过空白与逗号
+        if (json[p] == ' ' || json[p] == '\t' || json[p] == ',') { ++p; continue; }
+        char* end = nullptr;
+        const unsigned long long v = std::strtoull(json.c_str() + p, &end, 10);
+        if (end == json.c_str() + p) break;  // 非数字：停止，避免死循环
+        out->push_back(static_cast<uint64_t>(v));
+        p = static_cast<size_t>(end - json.c_str());
+    }
+    return !out->empty();
+}
+
 std::string JEsc(const std::string& in) {
     std::string o;
     o.reserve(in.size() + 8);
@@ -537,6 +561,125 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
 
     // ---- AI 任务框架（core 管状态机，平台层执行推理）----
     // ---- 素材 / 片段（编辑器导入与插入链路必需）----
+    if (op == "nc_remove_asset") {
+        // int32_t nc_remove_asset(editor, asset_id)
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "asset_id", 0));
+        const int32_t rc = nc_remove_asset(ed, id);
+        *out = rc == NC_OK ? Ok("") : Err("删除素材失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_asset_is_referenced") {
+        // int32_t nc_asset_is_referenced(editor, asset_id)
+        // 返回 1=已被片段引用 0=未引用 -1=参数错误。
+        // 注意：这与 Ok/Err 的 ok 语义不同，不能把 rc 直接当状态码；
+        // -1 才走 Err，0/1 都是有效结果，原样放进 result。
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "asset_id", 0));
+        const int32_t rc = nc_asset_is_referenced(ed, id);
+        if (rc < 0) {
+            *out = Err("查询素材引用失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"referenced\":" + std::to_string(rc) +
+                  ",\"value\":" + std::to_string(rc) + "}");
+        return true;
+    }
+    if (op == "nc_asset_reorder") {
+        // int32_t nc_asset_reorder(editor, from_index, to_index)
+        // to_index 是移动后的目标位置；from == to 由 core 当 no-op。
+        const int32_t rc = nc_asset_reorder(
+            ed, static_cast<int32_t>(JInt(a, "from_index", 0)),
+            static_cast<int32_t>(JInt(a, "to_index", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("素材排序失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_set_track_view") {
+        // int32_t nc_set_track_view(editor, track_index, height_px, collapsed)
+        const int32_t rc = nc_set_track_view(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<int32_t>(JInt(a, "height_px", 0)),
+            static_cast<int32_t>(JInt(a, "collapsed", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("调整轨道视图失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_template_list") {
+        // int32_t nc_template_list(out_json, out_error)
+        // 无 editor 参数；返回内置模板数组的 JSON 文本，前端期望 result 是数组。
+        char* json = nullptr;
+        char* err = nullptr;
+        const int32_t rc = nc_template_list(&json, &err);
+        if (rc != NC_OK) {
+            const std::string msg = err ? std::string(err) : ("错误码 " + std::to_string(rc));
+            if (err) nc_free_string(err);
+            if (json) nc_free_string(json);
+            *out = Err("读取模板列表失败：" + msg);
+            return true;
+        }
+        // out_json 本身就是数组文本，直接作为 result 内联（不再包一层字符串，
+        // 否则前端要二次 JSON.parse，与其 Array.isArray 的用法不符）。
+        *out = Ok(json ? std::string(json) : std::string("[]"));
+        if (err) nc_free_string(err);
+        if (json) nc_free_string(json);
+        return true;
+    }
+    if (op == "nc_template_apply") {
+        // int32_t nc_template_apply(editor, template_id, material_ids, count,
+        //                           out_summary, out_error)
+        const std::string templateId = JStrField(a, "template_id");
+        if (templateId.empty()) {
+            *out = Err("template_id 为空");
+            return true;
+        }
+        std::vector<uint64_t> ids;
+        if (!JVecU64(a, "material_ids", &ids) || ids.empty()) {
+            *out = Err("material_ids 为空");
+            return true;
+        }
+        int32_t count = static_cast<int32_t>(JInt(a, "count", static_cast<int64_t>(ids.size())));
+        if (count <= 0) count = static_cast<int32_t>(ids.size());
+        if (count > static_cast<int32_t>(ids.size())) count = static_cast<int32_t>(ids.size());
+        char* summary = nullptr;
+        char* err = nullptr;
+        const int32_t rc = nc_template_apply(ed, templateId.c_str(), ids.data(), count,
+                                             &summary, &err);
+        if (rc != NC_OK) {
+            const std::string msg = err ? std::string(err)
+                                        : ("错误码 " + std::to_string(rc));
+            if (err) nc_free_string(err);
+            if (summary) nc_free_string(summary);
+            *out = Err("套用模板失败：" + msg);
+            return true;
+        }
+        *out = Ok("{\"summary\":\"" + JEsc(summary ? summary : "") + "\"}");
+        if (err) nc_free_string(err);
+        if (summary) nc_free_string(summary);
+        return true;
+    }
+    if (op == "nc_lut_validate_file") {
+        // int32_t nc_lut_validate_file(path, out_size, out_title, out_message)
+        // 无 editor 参数；只读文件，不改工程状态。
+        const std::string path = JStrField(a, "path");
+        if (path.empty()) {
+            *out = Err("LUT 路径为空");
+            return true;
+        }
+        int32_t size = 0;
+        char* title = nullptr;
+        char* message = nullptr;
+        const int32_t rc = nc_lut_validate_file(path.c_str(), &size, &title, &message);
+        if (rc != NC_OK) {
+            const std::string msg = message ? std::string(message)
+                                            : ("错误码 " + std::to_string(rc));
+            *out = Err("LUT 校验失败：" + msg);
+        } else {
+            std::string j = "{\"size\":" + std::to_string(size);
+            j += ",\"title\":\"" + JEsc(title ? title : "") + "\"";
+            j += ",\"message\":\"" + JEsc(message ? message : "") + "\"}";
+            *out = Ok(j);
+        }
+        if (title) nc_free_string(title);
+        if (message) nc_free_string(message);
+        return true;
+    }
     if (op == "nc_import_asset") {
         // uint64_t nc_import_asset(editor, name, path, type, duration_us)
         // 返回素材 ID（0 = 失败）

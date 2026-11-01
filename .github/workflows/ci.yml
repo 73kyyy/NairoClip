@@ -75,6 +75,14 @@ jobs:
         # 放在 Configure 之前：纯文件读取，失败得早，不浪费编译时间。
         run: python3 tools/check_mobile_frontend.py .
 
+      - name: C ABI 调用点检查
+        # 真实事故（已发生 3 次）：给 nc_* 加参数后只改了声明和部分调用点，
+        # 漏掉的那处要等 CI 编译十几分钟才暴露，且 Android Cross-Compile
+        # 不编译 design/tools 与 tests，所以「绿」也可能漏。
+        # 最隐蔽的一例在 design/tools/api_dispatch.inc（被 #include 的片段，
+        # 后缀不是 .cpp），此前扫描范围没覆盖它。
+        run: python3 tools/check_capi_calls.py .
+
       - name: Configure
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \

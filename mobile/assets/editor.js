@@ -2120,7 +2120,16 @@ function showImageSheet() {
       del.addEventListener('click', async (ev) => {
         ev.stopPropagation();
         const refd = engineCall('nc_asset_is_referenced', { asset_id: a.id });
-        const isRef = !!(refd && (refd.result === 1 || refd.value === 1));
+        // 桥统一把出参包成 result 对象（{referenced, value}），
+        // 直接比较 result === 1 永远不成立，会放过“已被引用”的素材。
+        // 这里兼容三种形态：裸数值 / {value} / {referenced}。
+        const refVal = (refd && refd.result !== null && typeof refd.result === 'object')
+          ? (refd.result.referenced !== undefined ? refd.result.referenced : refd.result.value)
+          : (refd ? (refd.result !== undefined ? refd.result : refd.value) : undefined);
+        const isRef = Number(refVal) === 1;
+        if (Number(refVal) < 0 || !(refd && refd.ok !== false)) {
+          return toast(`无法确认引用状态：${(refd && refd.message) || '引擎未返回'}`, 3000);
+        }
         if (isRef) return toast('该图片已被时间轴引用，请先删除片段', 3000);
         if (!window.confirm(`删除图片「${a.name}」？`)) return;
         const r = engineCall('nc_remove_asset', { asset_id: a.id });
