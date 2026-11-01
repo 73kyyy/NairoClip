@@ -1861,6 +1861,83 @@ uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, 
     return r.isOk() ? e.id.value : 0;
 }
 
+int32_t nc_update_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         uint64_t effect_id, int32_t type, double value) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (type <= 0 || type > 35) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "特效类型超出范围");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道下标越界");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    }
+    // 必须确认这条 effect 真的在这个片段上，否则会把 ID 写到别处
+    const Effect* existing = clip->effects.find(EffectId{effect_id});
+    if (existing == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "该片段上没有这个特效");
+    }
+    Effect e;
+    e.id = EffectId{effect_id};
+    e.type = static_cast<EffectType>(type);
+    e.value = value;
+    e.enabled = existing->enabled;   // 保留隐藏状态，改参数不该顺手把它显示出来
+    // 复用 AddEffectCommand：同 ID 命中 replace 分支并记录 previous_，
+    // 撤销能正确恢复到改之前的数值。
+    const Result r = editor->editor->addEffect(main->id, track.id, ClipId{clip_id}, e);
+    return r.isOk() ? NC_OK : failResult(r);
+}
+
+int32_t nc_set_effect_enabled(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              uint64_t effect_id, int32_t enabled) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道下标越界");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    }
+    const Effect* existing = clip->effects.find(EffectId{effect_id});
+    if (existing == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "该片段上没有这个特效");
+    }
+    Effect e = *existing;              // 复制，保留 type/value
+    e.enabled = (enabled != 0);
+    const Result r = editor->editor->addEffect(main->id, track.id, ClipId{clip_id}, e);
+    return r.isOk() ? NC_OK : failResult(r);
+}
+
+int32_t nc_move_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                       uint64_t effect_id, int32_t direction) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道下标越界");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    // 顺序调整也走编辑栈（可撤销）。EffectStack 的 moveUp/moveDown
+    // 是幂等实现：已在端点时返回 false 但不改变内容，这里视为成功。
+    const Result r = editor->editor->moveEffect(main->id, trackId, ClipId{clip_id},
+                                                EffectId{effect_id}, direction);
+    if (!r.isOk()) {
+        return failResult(r);
+    }
+    return NC_OK;
+}
+
 int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                          uint64_t effect_id) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
@@ -1888,8 +1965,8 @@ int32_t nc_effect_count(const NcEditor* editor, int32_t track_index, uint64_t cl
 }
 
 int32_t nc_effect_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
-                      int32_t index, int32_t* out_type, double* out_value,
-                      int32_t* out_enabled) {
+                      int32_t index, uint64_t* out_effect_id, int32_t* out_type,
+                      double* out_value, int32_t* out_enabled) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || index < 0) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -1906,6 +1983,7 @@ int32_t nc_effect_get(const NcEditor* editor, int32_t track_index, uint64_t clip
         return failNc(NC_ERROR_OUT_OF_RANGE, "clip 为空");
     }
     const Effect& e = clip->effects.effects()[static_cast<std::size_t>(index)];
+    if (out_effect_id != nullptr) *out_effect_id = e.id.value;
     if (out_type != nullptr) *out_type = static_cast<int32_t>(e.type);
     if (out_value != nullptr) *out_value = e.value;
     if (out_enabled != nullptr) *out_enabled = e.enabled ? 1 : 0;
@@ -3540,7 +3618,7 @@ void nc_preview_invalidate(NcEditor* editor) {
 
 int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
                                 int64_t* out_frame_misses, int64_t* out_reader_opens,
-                                int32_t* out_cached_frames) {
+                                int32_t* out_cached_frames, int32_t* out_capacity) {
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -3550,6 +3628,7 @@ int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
         if (out_frame_misses != nullptr) *out_frame_misses = 0;
         if (out_reader_opens != nullptr) *out_reader_opens = 0;
         if (out_cached_frames != nullptr) *out_cached_frames = 0;
+        if (out_capacity != nullptr) *out_capacity = 0;
         return NC_OK;
     }
     const PreviewRenderer::CacheStats st = editor->previewRenderer->cacheStats();
@@ -3557,6 +3636,9 @@ int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
     if (out_frame_misses != nullptr) *out_frame_misses = static_cast<int64_t>(st.frameMisses);
     if (out_reader_opens != nullptr) *out_reader_opens = static_cast<int64_t>(st.readerOpens);
     if (out_cached_frames != nullptr) *out_cached_frames = static_cast<int32_t>(st.cachedFrames);
+    if (out_capacity != nullptr) {
+        *out_capacity = static_cast<int32_t>(editor->previewRenderer->cacheCapacity());
+    }
     return NC_OK;
 }
 

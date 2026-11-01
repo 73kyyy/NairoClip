@@ -182,22 +182,49 @@ std::string BuildState(NcEditor* ed) {
         j += ",\"clips\":[";
         const int32_t cn = nc_clip_count(ed, ti);
         for (int32_t ci = 0; ci < cn; ++ci) {
-            if (ci) j += ",";
             uint64_t cid = 0, aid = 0;
             int64_t start = 0, dur = 0, sn = 1, sd = 1;
             int32_t enabled = 1;
             if (nc_clip_info(ed, ti, static_cast<uint32_t>(ci), &cid, &start, &dur,
                              &aid, &sn, &sd, &enabled) != NC_OK) {
+                // 读失败仍然占一个槽位（{}），保持 index 与引擎一致；
+                // 逗号在写入前统一补，避免失败分支留下 ",," 这种非法 JSON。
+                if (ci) j += ",";
                 j += "{}";
                 continue;
             }
+            if (ci) j += ",";
             j += "{\"id\":" + std::to_string(cid);
             j += ",\"asset_id\":" + std::to_string(aid);
             j += ",\"start_us\":" + std::to_string(start);
             j += ",\"duration_us\":" + std::to_string(dur);
             j += ",\"speed_num\":" + std::to_string(sn);
             j += ",\"speed_den\":" + std::to_string(sd);
-            j += ",\"enabled\":" + std::to_string(enabled) + "}";
+            j += ",\"enabled\":" + std::to_string(enabled);
+            // 特效栈：前端要靠这份数据渲染「已添加效果列表」。
+            // 只给 id/type/value/enabled —— 名称由前端按 type 映射，
+            // 协议里不传中文字符串（省字节，改名也不必动后端）。
+            j += ",\"effects\":[";
+            const int32_t enCount = nc_effect_count(ed, ti);
+            int32_t enWritten = 0;   // 用独立计数控制逗号：读失败时跳过，不能留下多余逗号
+            for (int32_t ei = 0; ei < enCount; ++ei) {
+                uint64_t eid = 0;
+                int32_t etype = 0;
+                int32_t een = 1;
+                double eval = 0.0;
+                if (nc_effect_get(ed, ti, cid, ei, &eid, &etype, &eval, &een) != NC_OK) {
+                    continue;
+                }
+                if (enWritten > 0) {
+                    j += ",";
+                }
+                j += "{\"id\":" + std::to_string(eid);
+                j += ",\"type\":" + std::to_string(etype);
+                j += ",\"value\":" + Num(eval);
+                j += ",\"enabled\":" + std::to_string(een) + "}";
+                ++enWritten;
+            }
+            j += "]}";
         }
         j += "]}";
     }
@@ -384,6 +411,36 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const uint64_t id = nc_add_effect(ed, ti, cid, type, value);
         *out = id ? Ok("{\"value\":" + std::to_string(id) + "}")
                   : Err("添加特效失败");
+        return true;
+    }
+    if (op == "effect_update") {
+        // 拖强度滑块必须走这里：传已有 effect_id 原地更新。
+        // 若走 effect_add，每拖一次都会新增一条，一次拖动留下几十个重复特效。
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "effect_id", 0));
+        const int32_t type = static_cast<int32_t>(JInt(a, "type", 0));
+        const double value = JNum(a, "value", 0.0);
+        const int32_t rc = nc_update_effect(ed, ti, cid, id, type, value);
+        *out = rc == NC_OK ? Ok("") : Err("更新特效失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "effect_enabled") {
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "effect_id", 0));
+        const int32_t on = static_cast<int32_t>(JInt(a, "enabled", 1));
+        const int32_t rc = nc_set_effect_enabled(ed, ti, cid, id, on);
+        *out = rc == NC_OK ? Ok("") : Err("切换特效失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "effect_move") {
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "effect_id", 0));
+        const int32_t dir = static_cast<int32_t>(JInt(a, "direction", 0));
+        const int32_t rc = nc_move_effect(ed, ti, cid, id, dir);
+        *out = rc == NC_OK ? Ok("") : Err("调整特效顺序失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "effect_remove") {
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "effect_id", 0));
+        const int32_t rc = nc_remove_effect(ed, ti, cid, id);
+        *out = rc == NC_OK ? Ok("") : Err("删除特效失败，错误码 " + std::to_string(rc));
         return true;
     }
     if (op == "mask") {
@@ -693,8 +750,8 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         //                                out_reader_opens, out_cached_frames)
         // 供前端渲染按钮显示真实命中率，不做假进度。
         int64_t hits = 0, misses = 0, opens = 0;
-        int32_t cached = 0;
-        const int32_t rc = nc_preview_cache_stats(ed, &hits, &misses, &opens, &cached);
+        int32_t cached = 0, capacity = 0;
+        const int32_t rc = nc_preview_cache_stats(ed, &hits, &misses, &opens, &cached, &capacity);
         if (rc != NC_OK) {
             *out = Err("读取预览缓存统计失败，错误码 " + std::to_string(rc));
             return true;
@@ -702,7 +759,8 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         std::string j = "{\"frame_hits\":" + std::to_string(hits);
         j += ",\"frame_misses\":" + std::to_string(misses);
         j += ",\"reader_opens\":" + std::to_string(opens);
-        j += ",\"cached_frames\":" + std::to_string(cached) + "}";
+        j += ",\"cached_frames\":" + std::to_string(cached);
+        j += ",\"capacity\":" + std::to_string(capacity) + "}";
         *out = Ok(j);
         return true;
     }

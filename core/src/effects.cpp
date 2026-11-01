@@ -110,6 +110,38 @@ bool EffectStack::moveDown(EffectId id) {
     return false;
 }
 
+bool EffectStack::indexOf(EffectId id, std::size_t* outIndex) const {
+    for (std::size_t i = 0; i < effects_.size(); ++i) {
+        if (effects_[i].id == id) {
+            if (outIndex != nullptr) {
+                *outIndex = i;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+bool EffectStack::moveTo(EffectId id, std::size_t toIndex) {
+    std::size_t from = 0;
+    if (!indexOf(id, &from)) {
+        return false;
+    }
+    if (effects_.empty()) {
+        return false;
+    }
+    const std::size_t last = effects_.size() - 1;
+    const std::size_t to = toIndex > last ? last : toIndex;
+    if (from == to) {
+        return false;
+    }
+    // 取出后插入：等价于「整段位移」，中间元素相对顺序保持不变。
+    Effect moved = effects_[from];
+    effects_.erase(effects_.begin() + static_cast<std::ptrdiff_t>(from));
+    effects_.insert(effects_.begin() + static_cast<std::ptrdiff_t>(to), moved);
+    return true;
+}
+
 void EffectStack::clear() { effects_.clear(); }
 
 Effect* EffectStack::find(EffectId id) {

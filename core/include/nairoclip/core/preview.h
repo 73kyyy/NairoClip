@@ -61,10 +61,17 @@ struct PreviewFrame {
 ///     真正的流畅播放依赖帧率对齐，由上层按时间网格请求。
 class PreviewRenderer {
 public:
-    /// 帧缓存容量（帧数）。按 1080x1920 RGBA 计算约 8MB/帧，
-    /// 32 帧 ≈ 265MB —— 超出移动端预算，故取 12 帧（≈100MB 上限），
-    /// 同时保证「来回拖动 ±几帧」都能命中。
-    static constexpr std::size_t kFrameCacheCapacity = 12;
+    /// 帧缓存**字节预算**（不是固定帧数）。
+    ///
+    /// 为什么按字节而不是按帧数：上一版固定 12 帧，
+    /// 1080p（约 8MB/帧）是 96MB 还能接受，
+    /// 但 4K（约 33MB/帧）就是 400MB —— 移动端会被系统直接杀掉。
+    /// 用户可以选择任意分辨率与帧率，所以容量必须随画幅自适应。
+    static constexpr std::size_t kFrameCacheBudgetBytes = 96u * 1024u * 1024u;
+    /// 帧数下限（保证小画幅下也有基本的来回拖动命中）
+    static constexpr std::size_t kFrameCacheMinFrames = 4;
+    /// 帧数上限（避免 240p 之类极小画幅把缓存堆成几万帧）
+    static constexpr std::size_t kFrameCacheMaxFrames = 48;
 
     PreviewRenderer(const Project& project, MediaReaderFactory& readerFactory);
     ~PreviewRenderer();
@@ -94,6 +101,10 @@ public:
     /// 清空帧缓存（保留已打开的解码器）。
     /// 用于「解码器仍在、但画面变了」的场景（如仅叠加层变化）。
     void clearFrameCache();
+
+    /// 当前画幅下的有效帧缓存容量（由字节预算 ÷ 单帧字节算出）。
+    /// 画幅未知（还没渲染过）时返回上限值，首次渲染后自动收敛。
+    std::size_t cacheCapacity() const;
 
 private:
     /// 不做缓存查询的实际渲染（renderAt 命中缓存时不会走到这里）。

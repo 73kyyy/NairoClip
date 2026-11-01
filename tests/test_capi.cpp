@@ -211,10 +211,12 @@ NC_TEST(Capi, EffectCrud) {
     NC_CHECK(eid != 0);
     NC_CHECK_EQ(nc_effect_count(editor, 0, clipId), 1);
     // 读取
+    std::uint64_t readEid = 0;
     std::int32_t type = -1;
     double value = 0.0;
     std::int32_t enabled = 0;
-    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &type, &value, &enabled), NC_OK);
+    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &readEid, &type, &value, &enabled), NC_OK);
+    NC_CHECK_EQ(readEid, eid);          // 出参必须回传真实 id，否则前端删/移会指错条目
     NC_CHECK_EQ(type, 1);
     NC_CHECK(std::abs(value - 0.25) < 1e-9);
     NC_CHECK_EQ(enabled, 1);
@@ -225,6 +227,62 @@ NC_TEST(Capi, EffectCrud) {
     NC_CHECK_EQ(nc_effect_count(editor, 0, clipId), 0);
     nc_editor_destroy(editor);
 }
+/// 特效栈的「重复添加 vs 原地更新」语义。
+/// 背景：拖强度滑块原先走 nc_add_effect，每拖一次新增一条，
+/// 一次拖动能留下几十个重复特效。nc_update_effect 就是为这条路准备的。
+NC_TEST(Capi, EffectStackSemantics) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clipId = nc_insert_clip(editor, 0, assetId, 0, 5000000);
+    NC_CHECK(clipId != 0);
+
+    // 同一 type 可以加多次（用户可叠两个「雪花」）
+    const std::uint64_t a = nc_add_effect(editor, 0, clipId, 5, 0.3);
+    const std::uint64_t b = nc_add_effect(editor, 0, clipId, 5, 0.7);
+    NC_CHECK(a != 0 && b != 0);
+    NC_CHECK(a != b);                       // 必须是两条独立条目
+    NC_CHECK_EQ(nc_effect_count(editor, 0, clipId), 2);
+
+    // 原地更新：数量不变，值改变
+    NC_CHECK_EQ(nc_update_effect(editor, 0, clipId, a, 5, 0.9), NC_OK);
+    NC_CHECK_EQ(nc_effect_count(editor, 0, clipId), 2);
+    std::uint64_t eid = 0;
+    std::int32_t type = 0, en = 0;
+    double val = 0.0;
+    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &eid, &type, &val, &en), NC_OK);
+    NC_CHECK_EQ(eid, a);
+    NC_CHECK(std::abs(val - 0.9) < 1e-9);
+
+    // 隐藏：条目保留，enabled=0
+    NC_CHECK_EQ(nc_set_effect_enabled(editor, 0, clipId, a, 0), NC_OK);
+    NC_CHECK_EQ(nc_effect_count(editor, 0, clipId), 2);
+    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &eid, &type, &val, &en), NC_OK);
+    NC_CHECK_EQ(en, 0);
+
+    // 更新参数不应把隐藏状态顺手改回显示
+    NC_CHECK_EQ(nc_update_effect(editor, 0, clipId, a, 5, 0.4), NC_OK);
+    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &eid, &type, &val, &en), NC_OK);
+    NC_CHECK_EQ(en, 0);
+
+    // 顺序：把 b 移到最前
+    NC_CHECK_EQ(nc_move_effect(editor, 0, clipId, b, -1), NC_OK);
+    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &eid, &type, &val, &en), NC_OK);
+    NC_CHECK_EQ(eid, b);
+    // 已在最前再上移：幂等成功，不报错
+    NC_CHECK_EQ(nc_move_effect(editor, 0, clipId, b, -1), NC_OK);
+
+    // 撤销顺序调整应回到原样
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_effect_get(editor, 0, clipId, 0, &eid, &type, &val, &en), NC_OK);
+    NC_CHECK_EQ(eid, a);
+
+    // 更新不存在的 id：明确报错，不静默成功
+    NC_CHECK_EQ(nc_update_effect(editor, 0, clipId, 999999, 5, 0.1), NC_ERROR_NOT_FOUND);
+
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(Capi, KeyframeAndAudio) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);

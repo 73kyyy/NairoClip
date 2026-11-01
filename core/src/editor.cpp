@@ -506,6 +506,41 @@ Result TimelineEditor::removeEffect(SequenceId sequenceId, TrackId trackId, Clip
         std::make_unique<RemoveEffectCommand>(sequenceId, trackId, clipId, effectId));
 }
 
+Result TimelineEditor::moveEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                  EffectId effectId, int32_t direction) {
+    // 先算出「当前下标」和「目标下标」，再交给命令执行。
+    // 端点处直接返回 ok（幂等）：用户连点上移到底不该弹错误。
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const Clip* clip = track->findClip(clipId);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    std::size_t from = 0;
+    if (!clip->effects.indexOf(effectId, &from)) {
+        return Result::fail(ErrorCode::NotFound, "特效不存在");
+    }
+    const std::size_t count = clip->effects.size();
+    std::size_t to = from;
+    if (direction < 0) {
+        if (from == 0) {
+            return Result::ok();           // 已在最前
+        }
+        to = from - 1;
+    } else if (direction > 0) {
+        if (from + 1 >= count) {
+            return Result::ok();           // 已在最后
+        }
+        to = from + 1;
+    } else {
+        return Result::fail(ErrorCode::InvalidArgument, "方向非法");
+    }
+    return commit(std::make_unique<MoveEffectCommand>(sequenceId, trackId, clipId, effectId,
+                                                      from, to));
+}
+
 Result TimelineEditor::setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                                      double gainDb, const Time& fadeIn, const Time& fadeOut) {
     return commit(std::make_unique<SetClipAudioCommand>(sequenceId, trackId, clipId, gainDb,

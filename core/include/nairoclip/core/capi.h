@@ -375,11 +375,13 @@ void nc_preview_invalidate(NcEditor* editor);
 /// 读取预览缓存统计（供 UI 展示真实命中率 / 诊断「为什么还是卡」）。
 /// - out_frame_hits/out_frame_misses：帧缓存命中与未命中次数（累计）；
 /// - out_reader_opens：真正 open 解码器的次数（同一素材只算一次）；
-/// - out_cached_frames：当前缓存中的帧数（上限见 PreviewRenderer::kFrameCacheCapacity）；
+/// - out_cached_frames：当前缓存中的帧数；
+/// - out_capacity：当前画幅下的容量上限（按字节预算自适应，随分辨率变化；
+///   前端据此显示「已缓存 X/Y」，不要写死数字）；
 /// 出参均可空。返回 NC_OK；句柄为空返回 NC_ERROR_INVALID_ARGUMENT。
 int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
                                 int64_t* out_frame_misses, int64_t* out_reader_opens,
-                                int32_t* out_cached_frames);
+                                int32_t* out_cached_frames, int32_t* out_capacity);
 
 // ---- 缩略图（文档 Part 2-B「时间轴胶片条」/ 素材库预览）----
 
@@ -830,21 +832,47 @@ int32_t nc_speech_mel(const float* samples, int64_t frame_count, int32_t sample_
 // ---- 特效 ----
 
 /// 给片段添加特效（type/value 见 core::EffectType / effectSpec 范围）。
-/// 返回 >0（EffectId）或 0。
+///
+/// effect_id 语义（为什么这样设计）：
+///   · effect_id == 0（默认）→ **新增**一条，分配新 ID 并返回。
+///     同一 type 可以加多次（用户可以叠两个「雪花」），这是允许的。
+///   · effect_id != 0 → **原地更新**该条目的 type/value，不新增。
+///     拖强度滑块必须走这条路径：否则每拖一次都新增一条，
+///     一次拖动会留下几十个重复特效（真实 bug）。
+///
+/// 返回 >0（EffectId）或 0（失败）。
 uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, int32_t type,
                        double value);
+
+/// 更新已有特效的参数（等价于 nc_add_effect 传非 0 effect_id，语义更明确）。
+/// 返回 NC_OK；effect_id 不存在返回 NC_ERROR_NOT_FOUND。
+int32_t nc_update_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                         uint64_t effect_id, int32_t type, double value);
 
 /// 删除片段特效。
 int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                          uint64_t effect_id);
 
-/// 读取片段特效数量。
+/// 读取片段特效数量（含已隐藏的；无上限）。
 int32_t nc_effect_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
 
-/// 读取第 index 个特效（类型/数值/启用状态）。
+/// 读取第 index 个特效。
+/// - out_effect_id：出参（可空）该条目的 ID（前端做删除/移动/隐藏必须靠它，
+///   仅靠 index 在乱序后会指错条目）；
+/// - out_type / out_value / out_enabled：出参（可空）。
 int32_t nc_effect_get(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
-                      int32_t index, int32_t* out_type, double* out_value,
-                      int32_t* out_enabled);
+                      int32_t index, uint64_t* out_effect_id, int32_t* out_type,
+                      double* out_value, int32_t* out_enabled);
+
+/// 启用 / 隐藏特效（小眼睛）。隐藏后条目不删除、不参与渲染。
+/// enabled：1 = 显示，0 = 隐藏。
+int32_t nc_set_effect_enabled(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              uint64_t effect_id, int32_t enabled);
+
+/// 调整特效在栈中的顺序（顺序影响结果，如「模糊→锐化」≠「锐化→模糊」）。
+/// direction：-1 上移，+1 下移。已到端点返回 NC_OK（幂等，不算错误）。
+int32_t nc_move_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                       uint64_t effect_id, int32_t direction);
 
 // ---- 关键帧 ----
 

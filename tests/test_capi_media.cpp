@@ -270,8 +270,8 @@ NC_TEST(CapiMedia, PreviewFrameCacheAvoidsReDecode) {
     nc_free_buffer(a);
 
     int64_t hits = 0, misses = 0, opens = 0;
-    int32_t cached = 0;
-    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits, &misses, &opens, &cached), NC_OK);
+    int32_t cached = 0, cap = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits, &misses, &opens, &cached, &cap), NC_OK);
     const int64_t opensAfterFirst = opens;
     NC_CHECK_EQ(misses, std::int64_t(1));
     NC_CHECK_EQ(hits, std::int64_t(0));
@@ -288,7 +288,8 @@ NC_TEST(CapiMedia, PreviewFrameCacheAvoidsReDecode) {
     nc_free_buffer(b);
 
     int64_t hits2 = 0, misses2 = 0, opens2 = 0;
-    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits2, &misses2, &opens2, &cached), NC_OK);
+    int32_t cap2 = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits2, &misses2, &opens2, &cached, &cap2), NC_OK);
     NC_CHECK_EQ(hits2, std::int64_t(1));          // 命中了一次
     NC_CHECK_EQ(misses2, std::int64_t(1));        // 未命中仍是 1
     NC_CHECK_EQ(opens2, opensAfterFirst);         // 没有重复 open 解码器
@@ -300,7 +301,8 @@ NC_TEST(CapiMedia, PreviewFrameCacheAvoidsReDecode) {
                 NC_OK);
     nc_free_buffer(c);
     int64_t hits3 = 0, misses3 = 0, opens3 = 0;
-    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits3, &misses3, &opens3, &cached), NC_OK);
+    int32_t cap3 = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits3, &misses3, &opens3, &cached, &cap3), NC_OK);
     NC_CHECK_EQ(misses3, std::int64_t(2));
     // 同一素材跨时刻仍复用同一个解码器
     NC_CHECK_EQ(opens3, opensAfterFirst);
@@ -331,8 +333,8 @@ NC_TEST(CapiMedia, PreviewCacheInvalidatedByUndo) {
 
     // 撤销后必须未命中（缓存已在签名变化时清空）
     int64_t hits = 0, misses = 0, opens = 0;
-    int32_t cached = 0;
-    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits, &misses, &opens, &cached), NC_OK);
+    int32_t cached = 0, cap = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits, &misses, &opens, &cached, &cap), NC_OK);
     NC_CHECK_EQ(cached, std::int32_t(0));
 
     // 再渲染：应命中新内容而不是旧缓存

@@ -103,6 +103,11 @@ public:
     /// 上移/下移（调整应用顺序）。
     bool moveUp(EffectId id);
     bool moveDown(EffectId id);
+    /// 把指定特效挪到 toIndex（0 = 最前 = 最先应用）。
+    /// toIndex 超出范围时钳制到端点。返回是否真的发生了移动。
+    bool moveTo(EffectId id, std::size_t toIndex);
+    /// 查某特效当前所在下标；不存在返回 false。
+    bool indexOf(EffectId id, std::size_t* outIndex) const;
     void clear();
 
     bool empty() const { return effects_.empty(); }

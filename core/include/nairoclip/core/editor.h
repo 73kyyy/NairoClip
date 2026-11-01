@@ -139,6 +139,9 @@ public:
     Result addEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, Effect effect);
     /// 删除片段特效。
     Result removeEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, EffectId effectId);
+    /// 调整特效顺序（direction：-1 上移 / +1 下移；已到端点时幂等成功）。
+    Result moveEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, EffectId effectId,
+                      int32_t direction);
     // ---- 蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）----
     /// 设置片段蒙版（shape=None 等价于清除蒙版）；参数非法/片段不存在时失败且不入撤销栈。
     Result setClipMask(SequenceId sequenceId, TrackId trackId, ClipId clipId, Mask mask);

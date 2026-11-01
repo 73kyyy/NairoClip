@@ -731,8 +731,29 @@ private:
 };
 
 
-/// 导入素材（进入撤销栈）。
-class ImportAssetCommand : public Command {
+/// 调整特效在栈中的顺序（顺序影响渲染结果：模糊→锐化 ≠ 锐化→模糊）。
+///
+/// 为什么用「from/to 下标」而不是「上移/下移」：
+///   上移/下移是相对的，撤销时要反着再移一次，嵌套撤销容易错位；
+///   记住具体下标，revert 时直接移回原位，语义唯一。
+class MoveEffectCommand : public Command {
+public:
+    MoveEffectCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId, EffectId effectId,
+                      std::size_t fromIndex, std::size_t toIndex);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "调整特效顺序"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    EffectId effectId_;
+    std::size_t fromIndex_;
+    std::size_t toIndex_;
+};
+
 public:
     ImportAssetCommand(AssetId assetId, MediaAsset asset);
 

@@ -77,6 +77,31 @@ void PreviewRenderer::clearFrameCache() {
     stats_.cachedFrames = 0;
 }
 
+std::size_t PreviewRenderer::cacheCapacity() const {
+    // 用最近一帧的实际尺寸算单帧字节；还没渲染过就用画布尺寸估算。
+    std::size_t w = 0;
+    std::size_t h = 0;
+    if (!frames_.empty()) {
+        const PreviewFrame& any = frames_.begin()->second.frame;
+        w = static_cast<std::size_t>(any.width);
+        h = static_cast<std::size_t>(any.height);
+    } else {
+        const Sequence* seq = project_.mainSequence();
+        if (seq != nullptr && seq->width > 0 && seq->height > 0) {
+            w = static_cast<std::size_t>(seq->width);
+            h = static_cast<std::size_t>(seq->height);
+        }
+    }
+    if (w == 0 || h == 0) {
+        return kFrameCacheMaxFrames;   // 未知画幅：先按上限，首次渲染后自动收敛
+    }
+    const std::size_t frameBytes = w * h * 4;
+    std::size_t cap = kFrameCacheBudgetBytes / frameBytes;
+    if (cap < kFrameCacheMinFrames) cap = kFrameCacheMinFrames;
+    if (cap > kFrameCacheMaxFrames) cap = kFrameCacheMaxFrames;
+    return cap;
+}
+
 PreviewRenderer::CacheStats PreviewRenderer::cacheStats() const {
     CacheStats copy = stats_;
     copy.cachedFrames = frames_.size();
@@ -169,7 +194,10 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
     PreviewFrame frame = renderUncached(timelineTime);
 
     // ---- 写入缓存（LRU 淘汰）----
-    if (frames_.size() >= kFrameCacheCapacity && !lru_.empty()) {
+    // 至少保留 1 帧，否则 while 在 capacity==0 时会退化成清空缓存
+    std::size_t capacity = cacheCapacity();
+    if (capacity == 0) capacity = 1;
+    while (frames_.size() >= capacity && !lru_.empty()) {
         const std::int64_t victim = lru_.back();
         lru_.pop_back();
         frames_.erase(victim);

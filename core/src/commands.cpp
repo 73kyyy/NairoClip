@@ -2146,6 +2146,39 @@ Result RemoveEffectCommand::revert(Project& project) {
 }
 
 
+// ---------------- 调整特效顺序 ----------------
+
+MoveEffectCommand::MoveEffectCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                     EffectId effectId, std::size_t fromIndex,
+                                     std::size_t toIndex)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      effectId_(effectId),
+      fromIndex_(fromIndex),
+      toIndex_(toIndex) {}
+
+Result MoveEffectCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!clip->effects.moveTo(effectId_, toIndex_)) {
+        // 已经是目标位置（或 id 不存在）——不产生历史，也不算失败。
+        return Result::ok();
+    }
+    return Result::ok();
+}
+
+Result MoveEffectCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    clip->effects.moveTo(effectId_, fromIndex_);
+    return Result::ok();
+}
+
 // ---------------- 素材命令 ----------------
 
 ImportAssetCommand::ImportAssetCommand(AssetId assetId, MediaAsset asset)
