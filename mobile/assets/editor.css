@@ -191,6 +191,14 @@ body { -webkit-text-size-adjust: 100%; }
 .fh { height: var(--fh-h, var(--row-h)); }
 .trow.collapsed { background: rgba(255,255,255,.04); border-radius: 4px; }
 
+/* ---- 轨道重排（长按拖动）----
+   长按武装后给把手一点视觉反馈，落点行高亮。
+   高亮用 outline 而不是 border：border 会改变盒模型，导致行高跳动、
+   落点判定（getBoundingClientRect）在拖动中反复抖动。 */
+.fh .row.reordering { color: var(--accent-pick); cursor: grabbing; }
+.fh.drag-over { outline: 1px solid var(--accent-pick); outline-offset: -1px;
+               border-radius: 4px; background: rgba(180, 244, 97, .08); }
+
 /* 高度拖拽把手：贴在轨道头下边缘的一条细热区。
    热区做成 12px 高（视觉上只有 2px 线），手指才够得着；
    直接给 2px 的话 touch 目标太小，实测几乎拖不动。 */

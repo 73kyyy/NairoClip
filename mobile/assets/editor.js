@@ -1009,6 +1009,7 @@ function renderHeads() {
     });
     row.appendChild(fold);
 
+    attachTrackReorder(row, tr);   // 长按 .row 拖动改轨道顺序
     g.appendChild(row);
     const nm = document.createElement('span');
     nm.className = 'fname';
@@ -1059,6 +1060,102 @@ function setTrackView(tr, heightPx, collapsed) {
   } catch (err) {
     toast(`刷新失败：${err.message}`, 3000);
   }
+}
+
+/* 给定屏幕 Y，返回命中的轨道头 {track, index}（找不到返回 null）。
+ *
+ * 用 t.index 而不是数组下标：index 是引擎给的真实轨道序号，
+ * S.tracks 的排列顺序理论上与之一致，但一旦某处只做了前端排序、
+ * 没走引擎，两者就会错位 —— 按 index 取能把这种不一致暴露成「没高亮」，
+ * 而不是悄悄把轨道移到错误位置。
+ */
+function hitTrackHead(clientY) {
+  const gs = E.heads.querySelectorAll('.fh');
+  for (const t of S.tracks) {
+    const g = gs[t.index];
+    if (!g) continue;
+    const b = g.getBoundingClientRect();
+    if (clientY >= b.top && clientY <= b.bottom) return t;
+  }
+  return null;
+}
+
+/* 长按轨道头拖动排序。
+ *
+ * 为什么不复用素材区的 beginDrag：那一套算的是「片段在时间轴上的秒数」，
+ * 参数是 (tr, c, e)，服务的是 move / move_to_track 两个 op；
+ * 轨道排序只关心「落到第几行」，走的是 nc_move_track，两者没有交集。
+ * 硬合并会把两套坐标计算和历史语义绞在一起，故独立实现。
+ *
+ * 手势：按下后 420ms 未移动才武装 —— 与效果列表 fxGesture 的长按时长一致。
+ * 未武装就抬手视为普通点击（不拦截），轨道头按钮的 click 照常触发。
+ */
+function attachTrackReorder(handle, tr) {
+  let timer = 0, armed = false, startY = 0, fromIndex = -1;
+
+  const cleanup = () => {
+    clearTimeout(timer);
+    timer = 0;
+    armed = false;
+    handle.classList.remove('reordering');
+    document.querySelectorAll('.fh.drag-over').forEach((el) => el.classList.remove('drag-over'));
+  };
+
+  const onMove = (e) => {
+    if (!armed) {
+      // 武装前明显移动 → 用户不是要长按排序，取消计时
+      if (Math.abs(e.clientY - startY) > 8) cleanup();
+      return;
+    }
+    e.preventDefault();
+    // 高亮落点行：只做视觉，真正的下标在 onUp 里按几何重算，
+    // 避免拖动中轨道行被重绘导致缓存的元素引用失效
+    const hit = hitTrackHead(e.clientY);
+    document.querySelectorAll('.fh.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    if (hit) {
+      const gs = E.heads.querySelectorAll('.fh');
+      if (gs[hit.index]) gs[hit.index].classList.add('drag-over');
+    }
+  };
+
+  const onUp = (e) => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    if (!armed) { cleanup(); return; }
+
+    const hit = hitTrackHead(e.clientY);
+    cleanup();
+    if (!hit || hit.index === fromIndex) return;
+    const target = hit.index;
+
+    if (!Engine.online) return toast('未连接引擎，无法调整轨道顺序');
+    const r = engineCall('nc_move_track', { track_index: fromIndex, new_index: target });
+    if (!r || !r.ok) return toast(`排序失败：${(r && r.message) || '未知错误'}`, 3000);
+    try {
+      applyState(fetchState());
+      renderAll();
+    } catch (err) {
+      toast(`刷新失败：${err.message}`, 3000);
+    }
+  };
+
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    // 按在按钮上时交给按钮自己处理，长按不生效
+    if (e.target.closest('button')) return;
+    startY = e.clientY;
+    fromIndex = tr.index;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      armed = true;
+      handle.classList.add('reordering');
+      buzz();
+    }, 420);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
 }
 
 /* 拖动轨道头下边缘调整高度。
