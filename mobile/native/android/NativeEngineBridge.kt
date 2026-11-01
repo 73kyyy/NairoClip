@@ -27,10 +27,27 @@ import org.json.JSONObject
  * JavascriptInterface 方法跑在 WebView 的 JavaBridge 线程，所有 nc_* 调用
  * 都在该线程串行执行，符合「平台层串行化」契约。
  */
-class NativeEngineBridge(private val appContext: android.content.Context? = null) {
+class NativeEngineBridge(
+    private val appContext: android.content.Context? = null,
+    /**
+     * 面板层级回调。JS 侧 push 当前层级，原生据此决定返回键是否消费。
+     * 用函数而不是持有 Activity：桥是长期对象，直接持有会泄漏 Activity。
+     */
+    private val onPanelDepth: ((Int) -> Unit)? = null
+) {
 
     /** C ABI 句柄。0 表示尚未创建。 */
     private var editor: Long = 0L
+
+    /**
+     * 面板层级。0 = 无面板；>0 = 面板开着。
+     * 由 JS 主动推送：evaluateJavascript 是异步的，
+     * 返回键处理里等不到 JS 的返回值，所以必须提前告知。
+     */
+    @JavascriptInterface
+    fun setPanelDepth(depth: Int) {
+        onPanelDepth?.invoke(depth)
+    }
 
     init {
         editor = nativeCreate()

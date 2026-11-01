@@ -416,9 +416,35 @@
     }
   };
 
+  /* type → 展示名 的反查表。
+     为什么要它：效果列表拿到的是引擎给的 type 数字，
+     需要在两处显示中文名（已添加列表、参数页标题），
+     而 EFFECTS 是按四大类分组、同一 type 只出现一次。
+     这里摊平一次做成 map，避免调用点各写一遍 find。 */
+  const EFFECT_NAME = (() => {
+    const m = {};
+    Object.values(EFFECTS).forEach((list) => {
+      (list || []).forEach((e) => { m[e.id] = e.name; });
+    });
+    return m;
+  })();
+
+  /* 基础调节类效果（1..12）不在宫格里，但也会出现在已添加列表上。
+     名称与「调节」二级菜单一致。 */
+  const BASE_EFFECT_NAME = {
+    1: '亮度', 2: '对比度', 3: '饱和度', 4: '色温', 5: '色调',
+    6: '灰度', 7: '复古', 8: '锐化', 9: '暗角', 10: '噪点',
+    11: '颗粒', 12: '褪色'
+  };
+
+  /* 取效果展示名；未知 type 回落成「效果 N」，不显示空白或 undefined。 */
+  const effectNameOf = (type) => EFFECT_NAME[type] || BASE_EFFECT_NAME[type] ||
+    `效果 ${type}`;
+
   window.L3_SPEC = {
     controls: C,
     spec: SPEC,
+    effectNameOf,
     adjustBase: ADJUST_BASE,
     curvePresets: CURVE_PRESETS,
     filters: FILTERS,

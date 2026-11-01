@@ -786,3 +786,116 @@ body { -webkit-text-size-adjust: 100%; }
 .sheet-ico { flex: none; width: 52px; height: 30px; border-radius: 4px;
              background: #2F3437; display: grid; place-items: center;
              color: #9AA0A6; font-size: 13px; }
+
+/* ==========================================================================
+   效果列表（三级面板 · 画面/氛围/动感/人物特效 共用）
+   --------------------------------------------------------------------------
+   结构（每行）：
+     ▶  实心三角   点击原地展开该效果的调节页
+     [icon] 名称 👑  Pro 标记（仅 Pro 效果）
+     ⋯   三点     复制特效 / 删除
+     👁   小眼睛   隐藏 / 显示
+     ☰   三条杠   多选 / 重置
+   配色全部取自 tokens.css，不引入参考稿的浅色底。
+   ========================================================================== */
+
+.fx-list { display: flex; flex-direction: column; margin: 10px 12px 0; }
+
+/* 效果行 */
+.fx-row { display: flex; align-items: center; gap: 8px;
+          min-height: 46px; padding: 6px 2px 6px 0;
+          border-bottom: 1px solid var(--line-1);
+          background: transparent; touch-action: pan-y; }
+.fx-row:last-child { border-bottom: 0; }
+/* 隐藏态：整行压暗，但条目仍在（用户能再点眼睛恢复） */
+.fx-row.off { opacity: .45; }
+/* 多选态选中的行 */
+.fx-row.picked { background: rgba(180, 244, 97, .07); }
+
+/* ① 实心三角 */
+.fx-tri { flex: none; width: 22px; height: 32px; border: 0; background: transparent;
+          color: var(--text-mid); display: grid; place-items: center; padding: 0; }
+.fx-tri svg { width: 11px; height: 11px; fill: currentColor; stroke: none;
+              transition: transform .18s var(--ease); }
+.fx-row.open .fx-tri svg { transform: rotate(90deg); }
+.fx-row.open .fx-tri { color: var(--text-hi); }
+
+/* ② 图标 + 名称 */
+.fx-ico { flex: none; width: 26px; height: 26px; border-radius: 7px;
+          background: #2A2E31; display: grid; place-items: center; color: #C8CDD2; }
+.fx-ico svg { width: 14px; height: 14px; }
+.fx-name { flex: 1 1 auto; min-width: 0; font-size: 14px; color: var(--text-hi);
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Pro 徽标：参考稿是亮绿皇冠，这里只借颜色，形态用我方 token */
+.fx-pro { flex: none; font-size: 9px; font-weight: 700; line-height: 1;
+          padding: 2px 4px; border-radius: 4px;
+          background: var(--accent-pro); color: #14171A; }
+
+/* ③④⑤ 右侧三个按钮 */
+.fx-btn { flex: none; width: 30px; height: 32px; border: 0; background: transparent;
+          color: var(--text-mid); display: grid; place-items: center; padding: 0; }
+.fx-btn svg { width: 17px; height: 17px; }
+.fx-btn:active { color: var(--text-hi); }
+.fx-btn.on { color: var(--accent-pro); }
+
+/* 多选勾选框（仅在多选态显示，占三角的位置） */
+.fx-box { flex: none; width: 18px; height: 18px; margin-left: 2px; border-radius: 4px;
+          border: 1.5px solid var(--line-2); display: grid; place-items: center; }
+.fx-box svg { width: 12px; height: 12px; color: #14171A; opacity: 0; }
+.fx-row.picked .fx-box { background: var(--accent-pro); border-color: var(--accent-pro); }
+.fx-row.picked .fx-box svg { opacity: 1; }
+
+/* 行内展开的调节区（▶ 点击后） */
+.fx-detail { padding: 4px 12px 10px 30px; border-bottom: 1px solid var(--line-1);
+             background: rgba(255, 255, 255, .02); }
+
+/* 底部浮动按钮组：只保留「粘贴」与「添加」 */
+.fx-dock { position: sticky; bottom: 0; display: flex; align-items: center;
+           gap: 10px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, var(--bg-timeline) 70%, transparent); }
+.fx-dock-btn { flex: none; width: 52px; height: 40px; border-radius: 12px;
+               border: 1px solid var(--line-2); background: var(--panel-2);
+               color: var(--text-mid); display: grid; place-items: center; padding: 0; }
+.fx-dock-btn svg { width: 20px; height: 20px; }
+/* 剪贴板有内容才点亮；空时置灰不可点 */
+.fx-dock-btn.hot { color: var(--text-hi); border-color: #4A4E51; }
+.fx-dock-btn[disabled] { opacity: .3; }
+/* 「添加」用大号圆形强调（与参考稿右下角一致的重心） */
+.fx-dock-add { margin-left: auto; width: 52px; height: 52px; border-radius: 16px;
+               border: 0; background: #F2F2F2; color: #14171A;
+               display: grid; place-items: center; }
+.fx-dock-add svg { width: 24px; height: 24px; }
+
+/* 多选态底部动作条 */
+.fx-bulk { display: flex; gap: 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+           border-top: 1px solid var(--line-1); background: var(--panel-3); }
+.fx-bulk button { flex: 1; height: 34px; border-radius: 9px;
+                  border: 1px solid var(--line-2); background: transparent;
+                  color: var(--text-mid); font-family: var(--font); font-size: 12px; }
+.fx-bulk button.danger { color: #E5484D; border-color: rgba(229, 72, 77, .38); }
+
+/* ⋯ / ☰ 的小菜单（锚定在点击按钮下方） */
+.fx-menu { position: fixed; z-index: 95; min-width: 132px;
+           background: var(--panel-3); border: 1px solid var(--line-2);
+           border-radius: 10px; padding: 4px;
+           box-shadow: 0 10px 28px rgba(0, 0, 0, .6); }
+.fx-menu button { display: block; width: 100%; text-align: left;
+                  padding: 10px 12px; border: 0; border-radius: 7px;
+                  background: transparent; color: var(--text-hi);
+                  font-family: var(--font); font-size: 13px; }
+.fx-menu button:active { background: rgba(255, 255, 255, .07); }
+.fx-menu button.danger { color: #E5484D; }
+
+/* 行内展开区里的强度滑块 */
+.fx-val { font: 600 11px/1 var(--font-num); color: var(--text-mid);
+          text-align: right; margin-bottom: 6px; }
+.fx-range { -webkit-appearance: none; appearance: none; width: 100%; height: 22px;
+            background: transparent; }
+.fx-range::-webkit-slider-runnable-track { height: 3px; border-radius: 2px;
+            background: var(--line-3); }
+.fx-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+            width: 16px; height: 16px; margin-top: -6.5px; border-radius: 50%;
+            background: #F2F2F2; border: 0; }
+.fx-range::-moz-range-track { height: 3px; border-radius: 2px; background: var(--line-3); }
+.fx-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%;
+            background: #F2F2F2; border: 0; }

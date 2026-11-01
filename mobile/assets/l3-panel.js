@@ -128,6 +128,14 @@
     ST.gridPick = null;
     ST.dirty = false;
     ST.curve = spec.curve ? { points: [], presetIdx: 0 } : null;
+    /* 效果列表的多选/展开态不能跨面板残留：
+       否则在「画面特效」里多选了 3 个，切到「氛围特效」还以为选着，
+       按删除会删到另一个片段的效果。clipboard 保留（跨面板粘贴要用）。 */
+    if (ST.fx) {
+      ST.fx.multi = false;
+      ST.fx.picked = {};
+      ST.fx.openId = 0;
+    }
     ST.open = true;
 
     const el = EL();
@@ -209,9 +217,64 @@
     const el = EL();
     el.panel.classList.remove('open');
     ST.open = false;
+    notifyDepth();
     setTimeout(() => {
       if (!ST.open) { el.panel.hidden = true; el.mask.hidden = true; }
     }, 280);
+  }
+
+  /* =========================================================================
+     返回一步（系统返回键 / 屏幕侧滑都走这里）
+     -------------------------------------------------------------------------
+     优先级（从内到外，每次只退一层）：
+       1. 行内展开的调节区   → 收起它
+       2. 多选态             → 退出多选
+       3. 宫格选中项（参数页）→ 回到宫格
+       4. 三级面板本身       → 关闭，回到二级工具栏
+       5. 都不是             → 交给系统（二级 → 一级 → 退出）
+     返回 true 表示「我处理了」，false 表示「该交给上一层」。
+     ========================================================================= */
+  function back() {
+    if (!ST.open) return false;
+    const st = ST.fx || {};
+
+    // 1. 行内展开
+    if (st.openId) {
+      st.openId = 0;
+      renderBody();
+      return true;
+    }
+    // 2. 多选
+    if (st.multi) {
+      st.multi = false;
+      st.picked = {};
+      renderBody();
+      return true;
+    }
+    // 3. 宫格选中项 → 参数页
+    if (ST.gridPick) {
+      ST.gridPick = null;
+      renderBody();
+      return true;
+    }
+    // 4. 关闭面板
+    close();
+    return true;
+  }
+
+  /* 把当前层级同步给原生，供返回键决策。
+     为什么由 JS 推、而不是原生拉：evaluateJavascript 是异步的，
+     原生在 onBackPressed 里等不到结果；推送则无需等待。 */
+  function notifyDepth() {
+    const bridge = window.NCEngine;
+    if (!bridge || typeof bridge.setPanelDepth !== 'function') return;
+    let d = 0;
+    if (ST.open) {
+      d = 1;                                   // 面板开着
+      const st = ST.fx || {};
+      if (ST.gridPick || st.multi || st.openId) d = 2;  // 还有内层可退
+    }
+    try { bridge.setPanelDepth(d); } catch (_) { /* 桥不可用时忽略 */ }
   }
 
   /* ---------------- 分段 ---------------- */
@@ -727,6 +790,10 @@
       /* 特效强度：type 必须用宫格里选中的那个特效，
          否则「雪花 / 下雨 / 老电影」等全部会被写成同一个（曾是 13=故障）。 */
       if (typeof v.fxamt === 'number') {
+        /* fxparam 页只服务「宫格里新选中的特效」这一条路径。
+           编辑已有条目走列表行内滑块（效果列表的 fx-detail），
+           那条路径带 effect_id，不会新增。这里保持新增语义：
+           宫格点选 = 加一个新效果（允许同类型叠加，按需求）。 */
         const picked = ST.gridPick && ST.gridPick.id;
         if (!picked) {
           toast('请先在宫格中选择一个特效');
@@ -897,6 +964,538 @@
     return box;
   }
 
+  /* =========================================================================
+     效果列表（画面 / 氛围 / 动感 / 人物特效 共用）
+     -------------------------------------------------------------------------
+     每行： ▶ 三角  [icon] 名称 👑  ⋯  👁  ☰
+     交互：
+       ▶      原地展开 / 收起该效果的调节区
+       ⋯      复制特效 / 删除
+       👁     隐藏 / 显示（条目保留）
+       ☰      多选 / 重置
+       长按左滑 删除；长按右滑 进多选并选中该行
+     底部：粘贴（剪贴板有内容才亮） + 添加（打开宫格）
+     ========================================================================= */
+
+  /* 各特效「重置」时写回的默认强度。
+     来源：core 的 effectSpec(type).defaultValue。前端拿不到 C++ 表，
+     所以在协议外维护一份镜像；新增特效类型时两处要同步。
+     保守策略：未知类型回落到 0.5（多数特效的中点），
+     宁可能看到「重置成中间值」也不要写成 0（0 往往是"完全无效"）。 */
+  const FX_DEFAULT = {
+    1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0, 6: 0.0, 7: 0.0,
+    8: 0.0, 9: 0.0, 10: 0.0, 11: 0.0, 12: 0.0,
+    13: 0.5, 14: 0.5, 15: 0.5, 16: 0.5, 17: 0.5, 18: 0.5,
+    19: 0.5, 20: 0.5, 21: 0.5, 22: 0.5, 23: 0.5,
+    29: 0.5, 30: 0.5
+  };
+
+  /* 当前面板正在管理哪个片段的效果（选片段 + 轨道下标） */
+  function fxTarget() {
+    const sel = currentSelection();
+    if (!sel || !sel.clip || !sel.track) return null;
+    return { track: sel.track.index, clip: sel.clip.id, effects: sel.clip.effects || [] };
+  }
+
+  /* 多选状态。放在 ST 里，切面板时清空，避免串到别的片段。 */
+  function fxState() {
+    if (!ST.fx) ST.fx = { picked: {}, multi: false, openId: 0, clipboard: null };
+    return ST.fx;
+  }
+
+  /* 复制到剪贴板（内存）。只存 type/value/enabled，不存 id：
+     id 是引擎分配的，粘到别的片段必须重新分配，否则会撞号。 */
+  function fxCopy(list) {
+    if (!list.length) return;
+    const st = fxState();
+    st.clipboard = list.map((e) => ({ type: e.type, value: e.value, enabled: e.enabled }));
+    toast(`已复制 ${list.length} 个效果，去别的片段点「粘贴」`);
+    renderBody();
+  }
+
+  /* 粘贴：追加到当前片段末尾（按需求，不替换）。
+     逐个 add，任一失败就停下并提示已经成功几个 —— 不谎报全部成功。 */
+  async function fxPaste() {
+    const h = host();
+    const t = fxTarget();
+    const st = fxState();
+    if (!t || !st.clipboard || !st.clipboard.length) return;
+    if (typeof h.edit !== 'function') return;
+    let done = 0;
+    for (const e of st.clipboard) {
+      try {
+        await h.edit({ op: 'effect_add', track: t.track, clip: t.clip,
+                       type: e.type, value: e.value });
+        done += 1;
+      } catch (_) {
+        break;
+      }
+    }
+    if (done) {
+      toast(done === st.clipboard.length
+        ? `已粘贴 ${done} 个效果`
+        : `只粘贴了 ${done}/${st.clipboard.length} 个（其余失败）`, 3000);
+      await refreshFxList();
+    } else {
+      toast('粘贴失败');
+    }
+  }
+
+  /* 引擎写完后重新拉状态并重绘。宿主提供 reload()。 */
+  async function refreshFxList() {
+    const h = host();
+    try {
+      // 优先用 refresh（只换数据，不重建时间轴）；
+      // 老宿主没有它时退回 reload。
+      if (typeof h.refresh === 'function') await h.refresh();
+      else if (typeof h.reload === 'function') await h.reload();
+    } catch (_) { /* 拉取失败就保持旧数据，下次操作再试 */ }
+    renderBody();
+  }
+
+  /* 行内菜单（⋯ / ☰）。锚定到按钮下方；点空白处关闭。 */
+  function fxMenu(anchorEl, items) {
+    document.querySelectorAll('.fx-menu').forEach((n) => n.remove());
+    const m = document.createElement('div');
+    m.className = 'fx-menu';
+    items.forEach((it) => {
+      const b = document.createElement('button');
+      b.textContent = it.label;
+      if (it.danger) b.className = 'danger';
+      if (it.disabled) b.disabled = true;
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        m.remove();
+        it.onPick();
+      });
+      m.appendChild(b);
+    });
+    document.body.appendChild(m);
+    // 定位：优先右对齐到按钮，超出屏幕则夹回来
+    const r = anchorEl.getBoundingClientRect();
+    const mw = m.offsetWidth || 132;
+    let left = r.right - mw;
+    if (left < 8) left = 8;
+    m.style.left = `${left}px`;
+    m.style.top = `${Math.min(r.bottom + 4, window.innerHeight - m.offsetHeight - 8)}px`;
+    // 点别处关闭（一次性，不污染全局）
+    const off = (ev) => {
+      if (m.contains(ev.target)) return;
+      m.remove();
+      document.removeEventListener('pointerdown', off, true);
+    };
+    setTimeout(() => document.addEventListener('pointerdown', off, true), 0);
+  }
+
+  /* 单个效果的操作 */
+  async function fxRemove(eid) {
+    const h = host();
+    const t = fxTarget();
+    if (!t || typeof h.edit !== 'function') return;
+    try {
+      await h.edit({ op: 'effect_remove', track: t.track, clip: t.clip, effect_id: eid });
+      toast('已删除效果');
+      await refreshFxList();
+    } catch (err) {
+      toast(`删除失败：${err.message || err}`, 3000);
+    }
+  }
+
+  async function fxToggle(eid, nextOn) {
+    const h = host();
+    const t = fxTarget();
+    if (!t || typeof h.edit !== 'function') return;
+    try {
+      await h.edit({ op: 'effect_enabled', track: t.track, clip: t.clip,
+                     effect_id: eid, enabled: nextOn ? 1 : 0 });
+      await refreshFxList();
+    } catch (err) {
+      toast(`操作失败：${err.message || err}`, 3000);
+    }
+  }
+
+  /* 重置：把 value 恢复成该特效的默认值，并恢复显示。
+     多选态重置所选；否则重置单条。 */
+  async function fxReset(list) {
+    const h = host();
+    const t = fxTarget();
+    if (!t || typeof h.edit !== 'function' || !list.length) return;
+    let done = 0;
+    for (const e of list) {
+      /* 默认值来自 core 的 effectSpec(type).defaultValue。
+         C ABI 没有「恢复默认」接口，所以前端维护一份镜像表 FX_DEFAULT，
+         用 effect_update 写回去。未知类型回落 0.5（多数特效的中点），
+         不写成 0 —— 0 通常意味着「完全没有效果」，看起来像坏了。 */
+      const def = FX_DEFAULT[e.type] != null ? FX_DEFAULT[e.type] : 0.5;
+      try {
+        await h.edit({ op: 'effect_update', track: t.track, clip: t.clip,
+                       effect_id: e.id, type: e.type, value: def });
+        if (e.enabled === 0) {
+          await h.edit({ op: 'effect_enabled', track: t.track, clip: t.clip,
+                         effect_id: e.id, enabled: 1 });
+        }
+        done += 1;
+      } catch (_) {
+        break;
+      }
+    }
+    if (done) {
+      toast(`已重置 ${done} 个效果`);
+      await refreshFxList();
+    } else {
+      toast('重置失败');
+    }
+  }
+
+  /* 一行效果 */
+  function fxRow(e, idx) {
+    const st = fxState();
+    const row = document.createElement('div');
+    row.className = 'fx-row';
+    if (e.enabled === 0) row.classList.add('off');
+    if (st.picked[e.id]) row.classList.add('picked');
+    if (st.openId === e.id) row.classList.add('open');
+
+    if (st.multi) {
+      // 多选态：最前面换成勾选框（三角暂时让位，避免一行两个可点区域）
+      const box = document.createElement('span');
+      box.className = 'fx-box';
+      box.innerHTML = '<svg><use href="#i-check"/></svg>';
+      row.appendChild(box);
+    } else {
+      // ① 实心三角：原地展开调节区
+      const tri = document.createElement('button');
+      tri.className = 'fx-tri';
+      tri.setAttribute('aria-label', st.openId === e.id ? '收起' : '展开调节');
+      tri.innerHTML = '<svg viewBox="0 0 12 12"><path d="M3 1.6 9.4 6 3 10.4z"/></svg>';
+      row.appendChild(tri);
+    }
+
+    // ② 图标 + 名称
+    const ico = document.createElement('span');
+    ico.className = 'fx-ico';
+    ico.innerHTML = '<svg><use href="#i-fx"/></svg>';
+    const nm = document.createElement('span');
+    nm.className = 'fx-name';
+    const nameOf = (window.L3_SPEC && window.L3_SPEC.effectNameOf) || ((t) => `效果 ${t}`);
+    nm.textContent = nameOf(e.type);
+    row.appendChild(ico);
+    row.appendChild(nm);
+
+    if (!st.multi) {
+      // ③ ⋯：复制 / 删除
+      const dots = document.createElement('button');
+      dots.className = 'fx-btn';
+      dots.setAttribute('aria-label', '更多');
+      dots.innerHTML = '<svg><use href="#i-dots"/></svg>';
+      dots.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        fxMenu(dots, [
+          { label: '复制特效', onPick: () => fxCopy([e]) },
+          { label: '删除', danger: true, onPick: () => fxRemove(e.id) },
+        ]);
+      });
+
+      // ④ 👁：隐藏 / 显示
+      const eye = document.createElement('button');
+      eye.className = 'fx-btn' + (e.enabled === 0 ? '' : ' on');
+      eye.setAttribute('aria-label', e.enabled === 0 ? '显示' : '隐藏');
+      eye.innerHTML = `<svg><use href="#i-${e.enabled === 0 ? 'eye-off' : 'eye'}"/></svg>`;
+      eye.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        fxToggle(e.id, e.enabled === 0);
+      });
+
+      // ⑤ ☰：多选 / 重置
+      const bars = document.createElement('button');
+      bars.className = 'fx-btn';
+      bars.setAttribute('aria-label', '管理');
+      bars.innerHTML = '<svg><use href="#i-menu"/></svg>';
+      bars.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        fxMenu(bars, [
+          {
+            label: '多选',
+            onPick: () => {
+              const s2 = fxState();
+              s2.multi = true;
+              s2.picked = { [e.id]: true };   // 进多选先选中当前行
+              renderBody();
+            },
+          },
+          {
+            label: '重置',
+            onPick: () => fxReset([e]),
+          },
+        ]);
+      });
+
+      row.appendChild(dots);
+      row.appendChild(eye);
+      row.appendChild(bars);
+    }
+
+    /* ▶ 展开区：原地插入该效果的强度滑块。
+       为什么不用「跳进 fxparam 页」：用户要对比多个效果时，
+       每次跳页都会丢掉上一个的上下文；原地展开能同时看到整列。 */
+    if (!st.multi && st.openId === e.id) {
+      const detail = document.createElement('div');
+      detail.className = 'fx-detail';
+
+      const cfg = (window.L3_SPEC.controls || {}).fxamt || { min: 0, max: 100, step: 1 };
+      const valEl = document.createElement('div');
+      valEl.className = 'fx-val';
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.className = 'fx-range';
+      slider.min = String(cfg.min);
+      slider.max = String(cfg.max);
+      slider.step = String(cfg.step);
+      slider.value = String(Math.round(e.value * 100));
+
+      let rafId = 0;          // 拖动合并：一帧最多写一次，避免桥被打爆
+      let pending = null;
+      const flush = async () => {
+        rafId = 0;
+        if (pending === null) return;
+        const v = pending;
+        pending = null;
+        const h = host();
+        const t2 = fxTarget();
+        if (!t2 || typeof h.edit !== 'function') return;
+        try {
+          await h.edit({ op: 'effect_update', track: t2.track, clip: t2.clip,
+                         effect_id: e.id, type: e.type, value: v });
+        } catch (err) {
+          toast(`写入失败：${err.message || err}`, 3000);
+        }
+      };
+
+      slider.addEventListener('input', () => {
+        const pct = Number(slider.value);
+        valEl.textContent = `${pct}%`;
+        e.value = pct / 100;               // 本地先更新，松手后由刷新同步
+        pending = pct / 100;
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      });
+      // 滑块上的任何事件都不许冒到 row：row 的 click 会重绘列表，
+      // 正在拖动的手会突然失去目标（滑块被替换成新节点）。
+      ['pointerdown', 'pointermove', 'pointerup', 'click'].forEach((evName) => {
+        slider.addEventListener(evName, (ev) => ev.stopPropagation());
+      });
+
+      // 松手立即落盘一次，保证最终值一定写进引擎
+      slider.addEventListener('change', () => {
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+        flush();
+      });
+
+      valEl.textContent = `${Math.round(e.value * 100)}%`;
+      detail.appendChild(valEl);
+      detail.appendChild(slider);
+      // 不能 append 进 row：row 是横向 flex，会把滑块挤成一条。
+      // 交给挂载方（fxPanel）插在 row 之后，形成「行 + 展开区」两段。
+      row._fxDetail = detail;
+    }
+
+    // 点击行本身：多选态切换勾选；否则展开/收起调节区
+    row.addEventListener('click', () => {
+      const s2 = fxState();
+      if (s2.multi) {
+        if (s2.picked[e.id]) delete s2.picked[e.id];
+        else s2.picked[e.id] = true;
+        renderBody();
+      } else {
+        s2.openId = s2.openId === e.id ? 0 : e.id;
+        renderBody();
+      }
+    });
+
+    // 长按 → 左右滑
+    fxGesture(row, e);
+
+    return row;
+  }
+
+  /* 长按后左右滑：左 = 删除，右 = 进多选。
+     为什么长按才响应：普通横向滑动要留给列表滚动与系统侧滑返回，
+     直接抢手势会让用户滚不动列表。 */
+  function fxGesture(row, e) {
+    let timer = 0;
+    let sx = 0;
+    let armed = false;
+    let moved = false;
+
+    const cancel = () => {
+      clearTimeout(timer);
+      timer = 0;
+      armed = false;
+      row.style.transform = '';
+    };
+
+    row.addEventListener('pointerdown', (ev) => {
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      sx = ev.clientX;
+      moved = false;
+      timer = setTimeout(() => {
+        armed = true;
+        row.style.transition = 'none';
+      }, 420);   // 420ms：低于这个值容易和点击/滚动混淆
+    });
+
+    row.addEventListener('pointermove', (ev) => {
+      if (!armed) {
+        // 还没长按就到别处去了：认定是滚动，放弃本次手势
+        if (Math.abs(ev.clientX - sx) > 8) cancel();
+        return;
+      }
+      const dx = ev.clientX - sx;
+      moved = true;
+      // 只允许小幅跟手，给「方向已确认」的反馈，不做整行拖走
+      row.style.transform = `translateX(${Math.max(-28, Math.min(28, dx * 0.35))}px)`;
+    });
+
+    row.addEventListener('pointerup', (ev) => {
+      const dx = ev.clientX - sx;
+      const wasArmed = armed;
+      cancel();
+      if (!wasArmed || Math.abs(dx) < 48) return;
+      if (dx < 0) {
+        fxRemove(e.id);                 // 左滑删除
+      } else {
+        const s2 = fxState();           // 右滑进多选
+        s2.multi = true;
+        s2.picked = { [e.id]: true };
+        renderBody();
+      }
+    });
+
+    row.addEventListener('pointercancel', cancel);
+  }
+
+  /* 效果列表主体 */
+  function fxPanel() {
+    const box = document.createElement('div');
+    const st = fxState();
+    const t = fxTarget();
+    const list = (t && t.effects) || [];
+
+    const wrap = document.createElement('div');
+    wrap.className = 'fx-list';
+    if (!list.length) {
+      const p = document.createElement('p');
+      p.className = 'chint';
+      p.textContent = '还没有添加效果，点右下角「＋」选择';
+      p.style.padding = '18px 0';
+      wrap.appendChild(p);
+    } else {
+      list.forEach((e, i) => {
+        const row = fxRow(e, i);
+        wrap.appendChild(row);
+        if (row._fxDetail) wrap.appendChild(row._fxDetail);
+      });
+    }
+    box.appendChild(wrap);
+
+    // 多选态：底部动作条（复制 / 删除 / 重置）
+    if (st.multi) {
+      const bulk = document.createElement('div');
+      bulk.className = 'fx-bulk';
+
+      const pickedList = list.filter((e) => st.picked[e.id]);
+
+      const bCopy = document.createElement('button');
+      bCopy.textContent = '复制';
+      bCopy.disabled = !pickedList.length;
+      bCopy.addEventListener('click', () => {
+        fxCopy(pickedList);
+        const s2 = fxState();
+        s2.multi = false;
+        s2.picked = {};
+        renderBody();
+      });
+
+      const bDel = document.createElement('button');
+      bDel.className = 'danger';
+      bDel.textContent = '删除';
+      bDel.disabled = !pickedList.length;
+      bDel.addEventListener('click', async () => {
+        if (!pickedList.length) return;
+        if (!window.confirm(`删除选中的 ${pickedList.length} 个效果？`)) return;
+        for (const e of pickedList) {
+          try { await fxRemoveSilent(e.id); } catch (_) { break; }
+        }
+        const s2 = fxState();
+        s2.multi = false;
+        s2.picked = {};
+        await refreshFxList();
+      });
+
+      const bReset = document.createElement('button');
+      bReset.textContent = '重置效果';
+      bReset.disabled = !pickedList.length;
+      bReset.addEventListener('click', async () => {
+        await fxReset(pickedList);
+        const s2 = fxState();
+        s2.multi = false;
+        s2.picked = {};
+        renderBody();
+      });
+
+      const bExit = document.createElement('button');
+      bExit.textContent = '完成';
+      bExit.addEventListener('click', () => {
+        const s2 = fxState();
+        s2.multi = false;
+        s2.picked = {};
+        renderBody();
+      });
+
+      bulk.appendChild(bCopy);
+      bulk.appendChild(bDel);
+      bulk.appendChild(bReset);
+      bulk.appendChild(bExit);
+      box.appendChild(bulk);
+    } else {
+      // 底部浮动：粘贴（剪贴板非空才亮） + 添加
+      const dock = document.createElement('div');
+      dock.className = 'fx-dock';
+
+      const paste = document.createElement('button');
+      paste.className = 'fx-dock-btn' + (st.clipboard && st.clipboard.length ? ' hot' : '');
+      paste.setAttribute('aria-label', '粘贴效果');
+      paste.innerHTML = '<svg><use href="#i-paste"/></svg>';
+      if (!st.clipboard || !st.clipboard.length) paste.disabled = true;
+      paste.addEventListener('click', fxPaste);
+
+      const add = document.createElement('button');
+      add.className = 'fx-dock-add';
+      add.setAttribute('aria-label', '添加效果');
+      add.innerHTML = '<svg><use href="#i-plus"/></svg>';
+      add.addEventListener('click', () => {
+        // 滚回宫格：宫格本来就在列表上方，这里用滚动提示位置
+        const grid = document.querySelector('.l3grid');
+        if (grid && grid.scrollIntoView) {
+          grid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+
+      dock.appendChild(paste);
+      dock.appendChild(add);
+      box.appendChild(dock);
+    }
+
+    return box;
+  }
+
+  /* 删除但不弹 toast（批量删除时逐条弹会刷屏） */
+  async function fxRemoveSilent(eid) {
+    const h = host();
+    const t = fxTarget();
+    if (!t || typeof h.edit !== 'function') return;
+    await h.edit({ op: 'effect_remove', track: t.track, clip: t.clip, effect_id: eid });
+  }
+
   /* ---------------- 宫格 ---------------- */
   function gridPanel() {
     const box = document.createElement('div');
@@ -1020,6 +1619,13 @@
       p.textContent = '本机暂无音频素材，先从「＋」导入';
       box.appendChild(p);
     }
+
+    /* 效果类宫格：宫格下方接「已添加效果列表」。
+       为什么放在宫格里而不是单独一层：用户在「选特效」和「管特效」
+       之间来回切换最频繁，放同一屏省一次返回。 */
+    if (ST.spec.gridKind === 'effect' && !ST.gridPick) {
+      box.appendChild(fxPanel());
+    }
     return box;
   }
 
@@ -1068,7 +1674,14 @@
   }
 
   /* ---------------- 主体路由 ---------------- */
+  /* 包装：内部有多个 return，用外壳统一做「层级同步」，
+     避免在每个 return 前都手写一次 notifyDepth（漏一个就不同步）。 */
   function renderBody() {
+    renderBodyInner();
+    notifyDepth();
+  }
+
+  function renderBodyInner() {
     const el = EL();
     el.body.innerHTML = '';
 
@@ -1153,6 +1766,9 @@
   window.L3VALUES = () => JSON.parse(JSON.stringify(ST.values || {}));
   window.L3OPEN = open;
   window.L3CLOSE = close;
+  /* 原生返回键/侧滑调它：退一层。
+     返回 true = 已处理；false = 没有可退的，交回系统。 */
+  window.NCL3BACK = back;
   /** 供其他模块（如导出确认、AI 任务提示）复用同一套法律跳转。 */
   window.L3LEGAL = bindLegalEntry;
   window.L3LEGAL_TARGET = legalTarget;

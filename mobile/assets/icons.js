@@ -77,6 +77,20 @@
     /* 会员：皇冠 + 底座（比 i-crown 多一道横线，视觉更「标识」） */
     'i-member': '<path d="M3.6 8l3.6 2.8L12 4.4l4.8 6.4L20.4 8l-1.4 9.6H5z"/>' +
       '<path d="M5 19.2h14"/>',
+    /* 三条杠：效果行的「管理」入口（多选 / 重置）。
+       三条等长横线，与 i-layers（斜叠层）区分。 */
+    'i-menu': '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    /* 效果行右侧「⋯」：三个实心点（参考稿的样式），
+       与 i-hash / i-close 区分开 */
+    'i-dots': '<circle cx="5.2" cy="12" r="1.7" fill="currentColor" stroke="none"/>' +
+      '<circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/>' +
+      '<circle cx="18.8" cy="12" r="1.7" fill="currentColor" stroke="none"/>',
+    /* 粘贴：两个叠放方块（左下实心边框 + 右上幽灵块），
+       用于效果列表左下角的浮动按钮 */
+    'i-paste': '<rect x="3.4" y="8.2" width="11.4" height="11.4" rx="2.2"/>' +
+      '<path d="M8.4 5.4h9.2a2.6 2.6 0 0 1 2.6 2.6v9.2" stroke-dasharray="2.4 2"/>',
+    /* 多选勾选：空心方框（未选）/ 带勾（选中由 CSS 加背景色区分） */
+    'i-check': '<path d="M5 12.6l4.6 4.6L19 6.6"/>',
     /* 三分线参考线：# 字网格（预览区构图辅助） */
     'i-grid3': '<rect x="3.6" y="3.6" width="16.8" height="16.8" rx="1.6"/>' +
       '<path d="M9.2 3.6v16.8M14.8 3.6v16.8M3.6 9.2h16.8M3.6 14.8h16.8"/>',

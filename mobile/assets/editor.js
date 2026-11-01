@@ -130,7 +130,16 @@ function applyState(st) {
         enabled: c.enabled, opacity: c.opacity,
         filterStyle: c.filter_style, filterIntensity: c.filter_intensity,
         reversed: !!c.reversed, frozen: !!c.frozen,
-        blendMode: typeof c.blend_mode === 'number' ? c.blend_mode : 0
+        blendMode: typeof c.blend_mode === 'number' ? c.blend_mode : 0,
+        /* 特效栈：三级面板的「已添加效果列表」完全依赖这一项。
+           后端只给 id/type/value/enabled，名称由 L3_SPEC.effectNameOf 映射。
+           缺省成空数组（不是 undefined），否则调用方要处处判空。 */
+        effects: (c.effects || []).map((e) => ({
+          id: e.id,
+          type: e.type,
+          value: typeof e.value === 'number' ? e.value : 0,
+          enabled: e.enabled === 0 ? 0 : 1
+        }))
       };
     }),
     // 转场：交界标记需要（from/to 是片段 id，at 是交界时刻）
@@ -325,7 +334,7 @@ function renderBar(animate = true) {
     const back = document.createElement('button');
     back.className = 'l2-back';
     back.innerHTML = '<svg class="i"><use href="#i-chevron"/></svg><span>返回</span>';
-    back.addEventListener('click', () => { S.level = 1; S.activeL1 = null; renderBar(); });
+    back.addEventListener('click', backToL1);
     p2.appendChild(back);
 
     const scroller = document.createElement('div');
@@ -628,6 +637,22 @@ function drawRuler() {
     E.ruler.appendChild(d);
   }
 }
+
+/// 二级 → 一级工具栏。l2-back 按钮与系统返回键共用这一条路径，
+/// 避免两处实现漂移（曾经按钮改了返回键没跟上）。
+function backToL1() {
+  S.level = 1;
+  S.activeL1 = null;
+  renderBar();
+}
+
+/// 供原生返回键调用：退一级工具栏。
+/// 返回 true = 已处理（当前在二级），false = 已在最外层，交给系统。
+window.NCBARBACK = function () {
+  if (S.level !== 2) return false;
+  backToL1();
+  return true;
+};
 
 /// 重入保护：renderTracks 会被 25+ 处调用（含 resize / rAF 回调）。
 /// 若两次调用交错（第一次已清空、正在逐行 append 时第二次进来又清空），
@@ -2801,6 +2826,10 @@ window.L3_HOST = {
   callNative: (fn, args) => engineCall(fn, args),
   apiBase: () => Engine.apiBase(),
   reload: async () => { applyState(await fetchState()); renderAll(); },
+  /* 只刷新数据、不重绘时间轴。
+     面板里改效果值/删除/隐藏后用它：需要的是新的 effects 数组，
+     不是整条时间轴重建（那会让面板后面的轨道闪一下）。 */
+  refresh: async () => { applyState(await fetchState()); },
   nowUs: () => Math.round(S.time * 1e6),
   clipDur: () => { const s = selClip(); return s ? s.clip.dur : 0; },
   /* 轨道快照（只读）：转场需要知道同轨道上的下一个片段 */

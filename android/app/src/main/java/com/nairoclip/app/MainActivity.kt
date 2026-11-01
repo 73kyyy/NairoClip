@@ -2,6 +2,7 @@ package com.nairoclip.app
 
 import android.os.Bundle
 import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
@@ -20,6 +21,21 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private var engine: NativeEngineBridge? = null
+
+    /**
+     * 面板层级（由 JS 通过 NCEngine.setPanelDepth 推送）。
+     * 0 = 没有面板；>0 = 面板开着，返回键应先交给页面处理。
+     *
+     * 为什么用「JS 推」而不是「原生问 JS」：
+     * evaluateJavascript 是异步的，onBackPressed 里等不到结果；
+     * 而返回值必须同步决定（消费掉还是交给系统）。
+     */
+    @Volatile
+    private var panelDepth: Int = 0
+
+    fun updatePanelDepth(depth: Int) {
+        panelDepth = depth.coerceAtLeast(0)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +62,7 @@ class MainActivity : AppCompatActivity() {
             ) = assetLoader.shouldInterceptRequest(request.url)
         }
 
-        val eng = NativeEngineBridge(applicationContext)
+        val eng = NativeEngineBridge(applicationContext, ::updatePanelDepth)
         engine = eng
         webView.addJavascriptInterface(eng, "NCEngine")
         webView.addJavascriptInterface(NativeAuthBridge(this, webView), "NCAndroid")
@@ -58,6 +74,36 @@ class MainActivity : AppCompatActivity() {
            才有真实的编辑/预览/导出能力。
            两者都在 assets 里：pages/ 由 Gradle 的 syncMobileUi 从 mobile/ 同步。 */
         webView.loadUrl("https://appassets.androidplatform.net/assets/pages/01-home.html")
+
+        /* 返回键 / 侧滑返回。
+           语义：面板开着时先关面板（退一层），关到没有面板才让系统退出。
+           侧滑手势与导航返回键在 Android 上都汇聚到 OnBackPressedCallback，
+           所以这里一处拦截即可覆盖两种入口。 */
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                /* 按层级由内到外退：三级面板 → 二级工具栏 → 系统退出。
+                   一次只退一层，符合用户对「返回上一步」的预期。 */
+                if (panelDepth > 0) {
+                    // 面板自己退一层；退完它会重新推送新的 depth
+                    webView.evaluateJavascript("window.NCL3BACK && window.NCL3BACK()", null)
+                    return
+                }
+                /* 面板已关：可能是二级工具栏。用返回字符串判断
+                   （evaluateJavascript 异步，但这里只需要「稍后」执行一次，
+                   不必等它的结果来决定是否退出——若它处理了，
+                   下一次按返回时 panelDepth 仍为 0，会再走这条分支，
+                   NCBARBACK 返回 false 后自然落到退出）。 */
+                webView.evaluateJavascript(
+                    "window.NCBARBACK ? window.NCBARBACK() : false"
+                ) { result ->
+                    if (result != "true") {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
+            }
+        })
 
         setContentView(webView)
     }
