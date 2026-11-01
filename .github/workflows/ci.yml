@@ -60,6 +60,13 @@ jobs:
           tar -xzf ort.tgz -C ort --strip-components=1
           test -f ort/include/onnxruntime_cxx_api.h && echo "ORT 头文件就绪"
 
+      - name: C++ 头文件结构检查
+        # 真实事故：在 commands.h 插入新类时吃掉了下一个类的声明头，
+        # 成员裸露在类外 →「override specifier is not allowed outside
+        # a class definition」，编译到 11% 才失败，一轮反馈 6~10 分钟。
+        # 这个检查毫秒级就能抓到同类问题。
+        run: python3 tools/check_cpp_headers.py .
+
       - name: 前端静态检查
         # CI 此前只编译 C++/Kotlin，mobile/assets/*.js|css 与 pages/*.html
         # 完全没有验证。这个检查补上三类高频事故：图标 <use> 引用了

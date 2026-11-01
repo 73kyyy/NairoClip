@@ -754,6 +754,8 @@ private:
     std::size_t toIndex_;
 };
 
+/// 导入素材（进入撤销栈）。
+class ImportAssetCommand : public Command {
 public:
     ImportAssetCommand(AssetId assetId, MediaAsset asset);
 
