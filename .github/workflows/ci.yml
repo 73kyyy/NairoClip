@@ -312,9 +312,18 @@ jobs:
           echo "---------------- abort/assert 关键字 ----------------"
           grep -n -E 'assert|Assertion|terminate|bad_alloc|invalid size|corrupt|malloc|free\(\)' \
             /tmp/test_output.txt | head -20 || echo "无"
+          # 断言失败与崩溃不同：进程继续跑完，[FAIL] 行留在中段，
+          # 被 tail -40 截断，下面的「最后一个 RUN 之后」也取不到。
+          # 这条必须单独抓：它同时给出失败用例名与断言行号，一次定位。
+          echo "---------------- 失败断言（[FAIL] 行）----------------"
+          grep -n '\[FAIL\]' /tmp/test_output.txt | head -10 || echo "无 [FAIL] 行"
           # 走 annotation 通道：public 仓库的日志/artifact 需要认证，
           # 但 check-run annotation 可匿名读取，是唯一能带出细节的出口。
           echo "::error title=TEST_EXIT::exit=$rc bytes=$(stat -c%s /tmp/test_output.txt)"
+          FAILS=$(grep -c '\[FAIL\]' /tmp/test_output.txt 2>/dev/null || echo 0)
+          FAILDETAIL=$(grep -E '\[FAIL\]' /tmp/test_output.txt | tr '\n' '~' | cut -c1-1800)
+          echo "::error title=FAIL_COUNT::${FAILS:-0}"
+          echo "::error title=FAIL_DETAIL::${FAILDETAIL:-none}"
           LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1)
           SUM=$(grep -E '^=====' /tmp/test_output.txt | tail -1)
           echo "::error title=LAST_RUN::${LAST:-none}"
