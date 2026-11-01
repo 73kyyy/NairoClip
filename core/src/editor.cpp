@@ -101,6 +101,13 @@ Result TimelineEditor::setTrackHeight(SequenceId sequenceId, TrackId trackId, in
         std::make_unique<SetTrackHeightCommand>(sequenceId, trackId, heightPx, collapsed));
 }
 
+Result TimelineEditor::setAdjustment(SequenceId sequenceId, TrackId trackId,
+                                     EffectStack effects, std::string lutPath,
+                                     double lutStrength) {
+    return commit(std::make_unique<SetAdjustmentCommand>(
+        sequenceId, trackId, std::move(effects), std::move(lutPath), lutStrength));
+}
+
 Result TimelineEditor::renameTrack(SequenceId sequenceId, TrackId trackId,
                                     const std::string& newName) {
     return commit(std::make_unique<SetTrackCommand>(sequenceId, trackId, SetTrackCommand::Field::Name,

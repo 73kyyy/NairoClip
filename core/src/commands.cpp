@@ -69,8 +69,11 @@ PlacementCompat trackAcceptsClipType(TrackType trackType, MediaType mediaType) {
             // 字幕走 SubtitleEvent，不接受任何 Clip
             return PlacementCompat::Rejected;
         case TrackType::Adjustment:
-            // 调整图层尚未实现渲染（B2-6），创建后放入的内容不会生效。
-            // 故此处拒绝任何 Clip，避免用户以为「放了就会有效果」。
+            // 调整图层不接受任何 Clip —— 这不是「还没做」，而是它的语义：
+            // 效果与 LUT 挂在**轨道**上（Track::adjustmentEffects /
+            // adjustmentLutPath），作用于「下方所有轨道合成后的整帧」，
+            // 而不是某一段素材。放片段进来反而会产生「这段素材代表什么」的歧义。
+            // 渲染已在 preview.cpp 与 export_executor.cpp 双端实现。
             return PlacementCompat::Rejected;
     }
     return PlacementCompat::Rejected;
@@ -408,6 +411,60 @@ void MoveTrackCommand::mergeFrom(const Command& other) {
 SetTrackHeightCommand::SetTrackHeightCommand(SequenceId sequenceId, TrackId trackId,
                                              int heightPx, bool collapsed)
     : sequenceId_(sequenceId), trackId_(trackId), heightPx_(heightPx), collapsed_(collapsed) {}
+
+SetAdjustmentCommand::SetAdjustmentCommand(SequenceId sequenceId, TrackId trackId,
+                                           EffectStack effects, std::string lutPath,
+                                           double lutStrength)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      effects_(std::move(effects)),
+      lutPath_(std::move(lutPath)),
+      lutStrength_(lutStrength) {}
+
+Result SetAdjustmentCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    Track* track = seq->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->type != TrackType::Adjustment) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "只有调整图层轨可以设置调整效果");
+    }
+    if (lutStrength_ < 0.0 || lutStrength_ > 1.0) {
+        return Result::fail(ErrorCode::InvalidArgument, "LUT 强度必须在 0..1");
+    }
+    if (!oldEffects_.has_value()) {
+        oldEffects_ = track->adjustmentEffects;
+        oldLutPath_ = track->adjustmentLutPath;
+        oldLutStrength_ = track->adjustmentLutStrength;
+    }
+    track->adjustmentEffects = effects_;
+    track->adjustmentLutPath = lutPath_;
+    track->adjustmentLutStrength = lutStrength_;
+    return Result::ok();
+}
+
+Result SetAdjustmentCommand::revert(Project& project) {
+    if (!oldEffects_.has_value() || !oldLutPath_.has_value() || !oldLutStrength_.has_value()) {
+        return Result::fail(ErrorCode::InvalidArgument, "缺少调整图层快照");
+    }
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    Track* track = seq->findTrack(trackId_);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    track->adjustmentEffects = *oldEffects_;
+    track->adjustmentLutPath = *oldLutPath_;
+    track->adjustmentLutStrength = *oldLutStrength_;
+    return Result::ok();
+}
 
 Result SetTrackHeightCommand::apply(Project& project) {
     Sequence* seq = project.findSequence(sequenceId_);

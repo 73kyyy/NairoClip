@@ -55,6 +55,11 @@ public:
 
     // ---- 轨道属性 ----
     /// 设置轨道显示高度与折叠状态（B2-10）。高度范围 [24, 200] 像素。可撤销。
+    /// 设置调整图层的内容（B2-6；effects + LUT，整体可撤销）。
+    /// 轨道不是 Adjustment 类型时返回 InvalidArgument。
+    Result setAdjustment(SequenceId sequenceId, TrackId trackId, EffectStack effects,
+                         std::string lutPath, double lutStrength);
+
     Result setTrackHeight(SequenceId sequenceId, TrackId trackId, int heightPx,
                           bool collapsed = false);
 

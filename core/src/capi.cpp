@@ -1938,6 +1938,129 @@ int32_t nc_move_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
     return NC_OK;
 }
 
+namespace {
+
+/// 取调整图层轨（校验存在 + 类型）。失败时写 *outError 并返回 nullptr。
+/// outSequenceId 回传所属主序列 ID —— Track 本身不记序列，命令需要它定位。
+Track* adjustmentTrackAt(NcEditor* editor, int32_t track_index, SequenceId* outSequenceId,
+                         const char** outError) {
+    if (editor == nullptr || track_index < 0) {
+        *outError = "editor 为空或索引为负";
+        return nullptr;
+    }
+    Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        *outError = "main 为空";
+        return nullptr;
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        *outError = "轨道索引超出范围";
+        return nullptr;
+    }
+    Track* track = &main->tracks[static_cast<std::size_t>(track_index)];
+    if (track->type != TrackType::Adjustment) {
+        *outError = "该轨道不是调整图层";
+        return nullptr;
+    }
+    *outSequenceId = main->id;
+    return track;
+}
+
+}  // namespace
+
+uint64_t nc_adjustment_add_effect(NcEditor* editor, int32_t track_index, int32_t type,
+                                  double value) {
+    const char* error = nullptr;
+    SequenceId sequenceId;
+    Track* track = adjustmentTrackAt(editor, track_index, &sequenceId, &error);
+    if (track == nullptr) {
+        return 0;
+    }
+    if (type <= 0 || type > 35) {
+        return 0;  // 0 = None 无效；1..35 与 nc_add_effect 一致
+    }
+    Effect e;
+    e.id = EffectId{editor->project.ids.next()};
+    e.type = static_cast<EffectType>(type);
+    e.value = value;
+    if (!e.valid()) {
+        return 0;  // 参数越界：不写入，避免非法值进入渲染
+    }
+    EffectStack stack = track->adjustmentEffects;
+    if (!stack.add(e).isOk()) {
+        return 0;
+    }
+    const Result r = editor->editor->setAdjustment(sequenceId, track->id, std::move(stack),
+                                                   track->adjustmentLutPath,
+                                                   track->adjustmentLutStrength);
+    return r.isOk() ? e.id.value : 0;
+}
+
+int32_t nc_adjustment_remove_effect(NcEditor* editor, int32_t track_index,
+                                   uint64_t effect_id) {
+    const char* error = nullptr;
+    SequenceId sequenceId;
+    Track* track = adjustmentTrackAt(editor, track_index, &sequenceId, &error);
+    if (track == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, error);
+    }
+    if (effect_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "effect_id 为 0");
+    }
+    EffectStack stack = track->adjustmentEffects;
+    if (!stack.remove(EffectId{effect_id})) {
+        return failNc(NC_ERROR_NOT_FOUND, "调整图层上没有该效果");
+    }
+    return failResult(editor->editor->setAdjustment(sequenceId, track->id, std::move(stack),
+                                                    track->adjustmentLutPath,
+                                                    track->adjustmentLutStrength));
+}
+
+int32_t nc_adjustment_set_lut(NcEditor* editor, int32_t track_index, const char* path,
+                             double strength) {
+    const char* error = nullptr;
+    SequenceId sequenceId;
+    Track* track = adjustmentTrackAt(editor, track_index, &sequenceId, &error);
+    if (track == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, error);
+    }
+    if (strength < 0.0 || strength > 1.0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "LUT 强度必须在 0..1");
+    }
+    const std::string lutPath = (path != nullptr) ? std::string(path) : std::string();
+    return failResult(editor->editor->setAdjustment(sequenceId, track->id,
+                                                    track->adjustmentEffects, lutPath, strength));
+}
+
+int32_t nc_adjustment_get(const NcEditor* editor, int32_t track_index,
+                          int32_t* out_effect_count, int32_t* out_has_lut,
+                          double* out_lut_strength, char** out_lut_path) {
+    if (editor == nullptr || track_index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或索引为负");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (track.type != TrackType::Adjustment) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "该轨道不是调整图层");
+    }
+    if (out_effect_count != nullptr) {
+        *out_effect_count = static_cast<int32_t>(track.adjustmentEffects.size());
+    }
+    const bool hasLut = !track.adjustmentLutPath.empty();
+    if (out_has_lut != nullptr) *out_has_lut = hasLut ? 1 : 0;
+    if (out_lut_strength != nullptr) {
+        *out_lut_strength = hasLut ? track.adjustmentLutStrength : 0.0;
+    }
+    if (out_lut_path != nullptr) *out_lut_path = dupString(track.adjustmentLutPath);
+    return NC_OK;
+}
+
 int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                          uint64_t effect_id) {
     if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {

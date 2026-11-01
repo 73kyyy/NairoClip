@@ -1187,6 +1187,38 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
     }
+    if (fn == "nc_adjustment_add_effect") {
+        const auto ret = nc_adjustment_add_effect(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<int32_t>(jint(args, "type", 0)), jnum(args, "value", 0.0));
+        out.code = NC_OK;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_adjustment_remove_effect") {
+        const auto ret = nc_adjustment_remove_effect(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "effect_id", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_adjustment_set_lut") {
+        const auto ret = nc_adjustment_set_lut(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), jstr(args, "path").c_str(), jnum(args, "strength", 0.0));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_adjustment_get") {
+        int32_t out_effect_count = 0;
+        int32_t out_has_lut = 0;
+        double out_lut_strength = 0.0;
+        char* out_lut_path = nullptr;
+        const auto ret = nc_adjustment_get(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), &out_effect_count, &out_has_lut, &out_lut_strength, &out_lut_path);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_effect_count", JsonValue::integer(out_effect_count));
+        out.result.set("out_has_lut", JsonValue::integer(out_has_lut));
+        out.result.set("out_lut_strength", JsonValue::number(out_lut_strength));
+        out.result.set("out_lut_path", JsonValue::string(takeString(out_lut_path)));
+        return true;
+    }
     if (fn == "nc_insert_keyframe") {
         const auto ret = nc_insert_keyframe(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<int32_t>(jint(args, "property", 0)), static_cast<std::int64_t>(jint(args, "time_us", 0)), jnum(args, "value", 0.0));
         out.code = ret;

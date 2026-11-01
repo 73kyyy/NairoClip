@@ -560,6 +560,54 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
     }
 
     // ---- AI 任务框架（core 管状态机，平台层执行推理）----
+    // ---- 调整图层（B2-6：效果/LUT 挂在轨道上，作用于下方所有轨道）----
+    if (op == "nc_adjustment_add_effect") {
+        // uint64_t nc_adjustment_add_effect(editor, track_index, type, value)
+        const uint64_t id = nc_adjustment_add_effect(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<int32_t>(JInt(a, "type", 0)), JNum(a, "value", 1.0));
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("添加调整效果失败");
+        return true;
+    }
+    if (op == "nc_adjustment_remove_effect") {
+        // int32_t nc_adjustment_remove_effect(editor, track_index, effect_id)
+        const int32_t rc = nc_adjustment_remove_effect(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<uint64_t>(JInt(a, "effect_id", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("删除调整效果失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_adjustment_set_lut") {
+        // int32_t nc_adjustment_set_lut(editor, track_index, path, strength)
+        // path 为空 = 清除 LUT。
+        const std::string path = JStrField(a, "path");
+        const int32_t rc = nc_adjustment_set_lut(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            path.empty() ? nullptr : path.c_str(), JNum(a, "strength", 1.0));
+        *out = rc == NC_OK ? Ok("") : Err("设置调整图层 LUT 失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_adjustment_get") {
+        // int32_t nc_adjustment_get(editor, track_index, out_effect_count, out_has_lut,
+        //                           out_lut_strength, out_lut_path)
+        int32_t count = 0, hasLut = 0;
+        double strength = 0.0;
+        char* path = nullptr;
+        const int32_t rc = nc_adjustment_get(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)), &count, &hasLut,
+            &strength, &path);
+        if (rc != NC_OK) {
+            *out = Err("读取调整图层失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string j = "{\"effect_count\":" + std::to_string(count);
+        j += ",\"has_lut\":" + std::to_string(hasLut);
+        j += ",\"lut_strength\":" + Num(strength);
+        j += ",\"lut_path\":\"" + JEsc(path ? path : "") + "\"}";
+        if (path) nc_free_string(path);
+        *out = Ok(j);
+        return true;
+    }
     // ---- 素材 / 片段（编辑器导入与插入链路必需）----
     if (op == "nc_remove_asset") {
         // int32_t nc_remove_asset(editor, asset_id)

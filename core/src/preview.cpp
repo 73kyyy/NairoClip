@@ -2,6 +2,7 @@
 #include "nairoclip/core/preview.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/lut.h"
 
 #include <algorithm>
 #include <utility>
@@ -340,7 +341,60 @@ PreviewFrame PreviewRenderer::renderUncached(const Time& timelineTime) {
                                   ChromaKeyBlendMode::Background, background);
         }
     }
+    applyAdjustmentLayers(frame, timelineTime);
     return frame;
+}
+
+const Lut3D* PreviewRenderer::adjustmentLutFor(const std::string& path) {
+    if (path.empty()) return nullptr;
+    auto it = adjustmentLuts_.find(path);
+    if (it == adjustmentLuts_.end()) {
+        LutCacheEntry entry;
+        std::string error;
+        entry.loaded = loadCubeLutFile(path, entry.lut, error);
+        it = adjustmentLuts_.emplace(path, std::move(entry)).first;
+    }
+    return it->second.loaded ? &it->second.lut : nullptr;
+}
+
+void PreviewRenderer::applyAdjustmentLayers(PreviewFrame& frame, const Time& timelineTime) {
+    // 调整图层（B2-6）：作用于「下方所有轨道合成后的整帧」。
+    //
+    // 顺序与导出保持一致（export_executor.cpp 的 finalizeFrame）：
+    // 先 effects，再 LUT。预览不画水印，故没有水印那一步。
+    // 没有调整图层、或调整图层无效果时直接返回 ——
+    // 此时输出与改动前逐像素一致（B2-6 的验收条件）。
+    if (frame.rgba.empty() || frame.width <= 0 || frame.height <= 0) return;
+    const Sequence* seq = project_.mainSequence();
+    if (seq == nullptr) return;
+
+    const std::size_t need = static_cast<std::size_t>(frame.width) *
+                             static_cast<std::size_t>(frame.height) * 4;
+    if (frame.rgba.size() < need) return;
+
+    // 预览用行内帧序号（量化到 30fps 网格）作时变种子，与片段特效取舍一致：
+    // 静止画面不闪噪点；用真实帧序号会让暂停时粒子持续跳动。
+    const std::int64_t frameIndex =
+        static_cast<std::int64_t>(std::floor(timelineTime.toDouble() * 30.0));
+
+    for (const auto& track : seq->tracks) {
+        if (track.type != TrackType::Adjustment || track.hidden) continue;
+        if (!track.hasAdjustment()) continue;
+
+        if (!track.adjustmentEffects.empty()) {
+            applyEffectStackToFrame(frame.rgba.data(), frame.width, frame.height,
+                                    track.adjustmentEffects, frameIndex,
+                                    RenderQuality::previewQuality(),
+                                    timelineTime.toDouble());
+        }
+        if (!track.adjustmentLutPath.empty()) {
+            const Lut3D* lut = adjustmentLutFor(track.adjustmentLutPath);
+            if (lut != nullptr) {
+                applyLutToRgba(frame.rgba.data(), frame.width, frame.height, *lut,
+                               track.adjustmentLutStrength);
+            }
+        }
+    }
 }
 
 }  // namespace core

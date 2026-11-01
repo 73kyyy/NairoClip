@@ -2,6 +2,7 @@
 
 #include "nairoclip/core/export_executor.h"
 #include "nairoclip/core/export_plan.h"
+#include "nairoclip/core/lut.h"
 #include "nairoclip/core/media_io.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/subtitle.h"
@@ -116,6 +117,8 @@ private:
                               const Time& timelineTime, double progress);
     /// 取（必要时创建）某素材的解码器。
     MediaReader* readerFor(AssetId asset);
+    /// 应用调整图层（B2-6）：对已合成的整帧依次应用 effects 与 LUT。
+    void applyAdjustmentLayers(PreviewFrame& frame, const Time& timelineTime);
 
     const Project& project_;
     MediaReaderFactory& readerFactory_;
@@ -130,6 +133,19 @@ private:
     std::map<std::int64_t, CacheEntry> frames_;
     std::list<std::int64_t> lru_;   ///< front = 最近使用
     mutable CacheStats stats_;
+
+    /// 调整图层 LUT 缓存（键 = 路径）。
+    ///
+    /// 为什么必须缓存：预览每帧都会走 renderUncached，一个 33³ .cube 文件
+    /// 是几十万行的文本，每帧重读会让拖动直接卡死。这里按路径保留解析结果，
+    /// 路径不变就永远只读一次盘（与导出端「LUT 只加载一次」的取舍一致）。
+    struct LutCacheEntry {
+        bool loaded = false;
+        Lut3D lut;
+    };
+    std::map<std::string, LutCacheEntry> adjustmentLuts_;
+    /// 取（必要时加载）调整图层 LUT；失败返回 nullptr（调用方跳过该图层）。
+    const Lut3D* adjustmentLutFor(const std::string& path);
 };
 
 }  // namespace core

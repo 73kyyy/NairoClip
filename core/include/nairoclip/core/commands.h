@@ -152,6 +152,33 @@ private:
     std::optional<bool> oldCollapsed_;
 };
 
+/// 设置调整图层的内容（B2-6）。
+///
+/// 调整图层没有片段，效果与 LUT 直接挂在轨道上（Track::adjustmentEffects /
+/// adjustmentLutPath）。为保持与其它编辑一致，这里走命令栈：
+/// 撤销后必须回到改动前的完整状态，所以 apply 时整份快照，
+/// 而不是只记「差量」——效果栈是顺序敏感的容器，差量恢复容易出错。
+class SetAdjustmentCommand : public Command {
+public:
+    SetAdjustmentCommand(SequenceId sequenceId, TrackId trackId, EffectStack effects,
+                         std::string lutPath, double lutStrength);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "调整图层"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    EffectStack effects_;
+    std::string lutPath_;
+    double lutStrength_;
+    // 快照（首次 apply 时记录）
+    std::optional<EffectStack> oldEffects_;
+    std::optional<std::string> oldLutPath_;
+    std::optional<double> oldLutStrength_;
+};
+
 /// 创建轨道组（B2-7）。
 ///
 /// 校验：group 必须非空、成员都存在、且成员不能已属于其它组

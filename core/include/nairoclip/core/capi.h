@@ -874,6 +874,39 @@ int32_t nc_set_effect_enabled(NcEditor* editor, int32_t track_index, uint64_t cl
 int32_t nc_move_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                        uint64_t effect_id, int32_t direction);
 
+// ---- 调整图层（B2-6）----
+//
+// 调整图层没有片段——它作用于「下方所有轨道合成后的整帧」，
+// 所以 effect/lut 挂在**轨道**上，而不是某个 clip 上
+// （见 track.h 的 adjustmentEffects / adjustmentLutPath 说明）。
+
+/// 给调整图层轨添加一个效果（追加到栈尾）。
+/// - track_index：必须是 TrackType::Adjustment 的轨道，否则 NC_ERROR_INVALID_ARGUMENT；
+/// - type / value：同 nc_add_effect。
+/// 返回 EffectId（>0）或 0（失败）。
+uint64_t nc_adjustment_add_effect(NcEditor* editor, int32_t track_index, int32_t type,
+                                  double value);
+
+/// 移除调整图层轨上的一个效果。返回 NC_OK；不存在返回 NC_ERROR_NOT_FOUND。
+int32_t nc_adjustment_remove_effect(NcEditor* editor, int32_t track_index,
+                                    uint64_t effect_id);
+
+/// 设置调整图层的 LUT。
+/// - path：.cube 文件路径；nullptr 或空串 = 清除 LUT；
+/// - strength：0..1（0 = 不生效，1 = 完整应用）；越界返回 NC_ERROR_INVALID_ARGUMENT。
+int32_t nc_adjustment_set_lut(NcEditor* editor, int32_t track_index, const char* path,
+                              double strength);
+
+/// 查询调整图层状态（出参均可空）。
+/// - out_effect_count：效果栈中的效果数；
+/// - out_has_lut：是否设置了 LUT（0/1）；
+/// - out_lut_strength：LUT 强度（无 LUT 时为 0）；
+/// - out_lut_path：LUT 路径（无则空串；需 nc_free_string）。
+/// 返回 NC_OK 或错误码。
+int32_t nc_adjustment_get(const NcEditor* editor, int32_t track_index,
+                          int32_t* out_effect_count, int32_t* out_has_lut,
+                          double* out_lut_strength, char** out_lut_path);
+
 // ---- 关键帧 ----
 
 /// 插入关键帧（property 见 ClipProperty 枚举值：0=Opacity..5=Volume）。
