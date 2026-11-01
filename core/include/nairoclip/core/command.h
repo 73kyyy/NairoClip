@@ -3,6 +3,7 @@
 #include "nairoclip/core/project.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -78,6 +79,14 @@ public:
     std::size_t redoCount() const { return commands_.size() - cursor_; }
     std::size_t size() const { return commands_.size(); }
 
+    /// 编辑栈版本号：任何会改变工程内容的操作都让它单调递增
+    /// （push / undo / redo / clear / 事务收尾）。
+    ///
+    /// 为什么需要：undoCount() + redoCount() 恒等于 size()，
+    /// 「编辑一次再撤销」的和不变，用它做缓存签名会让缓存在撤销后
+    /// 仍然命中，用户看到的是撤销前的画面。版本号没有这个缺陷。
+    std::uint64_t editRevision() const { return revision_; }
+
     /// 历史面板展示：已应用命令的名称（按时间顺序）。
     std::vector<std::string> undoHistoryNames() const;
 
@@ -112,6 +121,8 @@ private:
     void trimToMaxDepth();
     std::vector<std::unique_ptr<Command>> commands_;
     std::size_t cursor_ = 0;  // commands_[0, cursor) 处于「已应用」状态
+    /// 编辑栈版本号（见 editRevision()）。只在内容真正变化时递增。
+    std::uint64_t revision_ = 0;
     /// 最大历史深度（0 = 不限制）。
     std::size_t maxDepth_ = 0;
 

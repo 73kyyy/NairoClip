@@ -255,6 +255,95 @@ NC_TEST(CapiMedia, PreviewRenderRealFrame) {
     nc_editor_destroy(editor);
 }
 
+NC_TEST(CapiMedia, PreviewFrameCacheAvoidsReDecode) {
+    if (!testMediaExists()) return;
+    std::uint64_t asset = 0;
+    std::uint64_t clip = 0;
+    NcEditor* editor = makeVideoEditor(&asset, &clip);
+
+    // 第一次渲染某时刻：必然未命中（走完整渲染）
+    std::uint8_t* a = nullptr;
+    NC_CHECK_EQ(nc_preview_render(editor, 1000000, nullptr, nullptr, &a, nullptr, nullptr,
+                                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
+                NC_OK);
+    NC_CHECK(a != nullptr);
+    nc_free_buffer(a);
+
+    int64_t hits = 0, misses = 0, opens = 0;
+    int32_t cached = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits, &misses, &opens, &cached), NC_OK);
+    const int64_t opensAfterFirst = opens;
+    NC_CHECK_EQ(misses, std::int64_t(1));
+    NC_CHECK_EQ(hits, std::int64_t(0));
+    NC_CHECK(cached >= 1);
+    // 同一素材只应 open 一次解码器
+    NC_CHECK(opensAfterFirst >= 1);
+
+    // 同一时刻再渲染一次：必须命中帧缓存，且不再 open 新解码器
+    std::uint8_t* b = nullptr;
+    NC_CHECK_EQ(nc_preview_render(editor, 1000000, nullptr, nullptr, &b, nullptr, nullptr,
+                                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
+                NC_OK);
+    NC_CHECK(b != nullptr);
+    nc_free_buffer(b);
+
+    int64_t hits2 = 0, misses2 = 0, opens2 = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits2, &misses2, &opens2, &cached), NC_OK);
+    NC_CHECK_EQ(hits2, std::int64_t(1));          // 命中了一次
+    NC_CHECK_EQ(misses2, std::int64_t(1));        // 未命中仍是 1
+    NC_CHECK_EQ(opens2, opensAfterFirst);         // 没有重复 open 解码器
+
+    // 换一个时刻：未命中增加
+    std::uint8_t* c = nullptr;
+    NC_CHECK_EQ(nc_preview_render(editor, 2000000, nullptr, nullptr, &c, nullptr, nullptr,
+                                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
+                NC_OK);
+    nc_free_buffer(c);
+    int64_t hits3 = 0, misses3 = 0, opens3 = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits3, &misses3, &opens3, &cached), NC_OK);
+    NC_CHECK_EQ(misses3, std::int64_t(2));
+    // 同一素材跨时刻仍复用同一个解码器
+    NC_CHECK_EQ(opens3, opensAfterFirst);
+
+    nc_editor_destroy(editor);
+}
+
+/// 撤销必须让预览缓存失效。
+/// 回归背景：签名原来用 undoCount()+redoCount()，两者之和恒等于栈大小，
+/// 「编辑一次再撤销」的和不变 → 缓存不失效 → 用户看到撤销前的画面。
+NC_TEST(CapiMedia, PreviewCacheInvalidatedByUndo) {
+    if (!testMediaExists()) return;
+    std::uint64_t asset = 0;
+    std::uint64_t clip = 0;
+    NcEditor* editor = makeVideoEditor(&asset, &clip);
+
+    // 先渲染一帧建立缓存
+    std::uint8_t* a = nullptr;
+    NC_CHECK_EQ(nc_preview_render(editor, 500000, nullptr, nullptr, &a, nullptr, nullptr,
+                                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
+                NC_OK);
+    nc_free_buffer(a);
+
+    // 编辑：停用片段（进入编辑栈）
+    NC_CHECK_EQ(nc_set_clip_enabled(editor, 0, clip, 0), NC_OK);
+    // 撤销：恢复启用
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+
+    // 撤销后必须未命中（缓存已在签名变化时清空）
+    int64_t hits = 0, misses = 0, opens = 0;
+    int32_t cached = 0;
+    NC_CHECK_EQ(nc_preview_cache_stats(editor, &hits, &misses, &opens, &cached), NC_OK);
+    NC_CHECK_EQ(cached, std::int32_t(0));
+
+    // 再渲染：应命中新内容而不是旧缓存
+    std::uint64_t active = 0;
+    NC_CHECK_EQ(nc_preview_render(editor, 500000, nullptr, nullptr, nullptr, &active, nullptr,
+                                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
+                NC_OK);
+    NC_CHECK_EQ(active, clip);   // 片段已恢复启用，应被渲染
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(CapiMedia, PreviewSubtitles) {
     NcEditor* editor = nc_editor_create();
     // 无字幕 → 空字符串

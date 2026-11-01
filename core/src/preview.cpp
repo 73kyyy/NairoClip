@@ -4,6 +4,7 @@
 #include "nairoclip/core/effects.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace nairoclip {
 namespace core {
@@ -49,6 +50,39 @@ const Clip* findClipInTrack(const Track& track, ClipId id) {
 PreviewRenderer::PreviewRenderer(const Project& project, MediaReaderFactory& readerFactory)
     : project_(project), readerFactory_(readerFactory) {}
 
+PreviewRenderer::~PreviewRenderer() = default;
+
+MediaReader* PreviewRenderer::readerFor(AssetId asset) {
+    auto it = readers_.find(asset.value);
+    if (it != readers_.end()) {
+        return it->second.get();
+    }
+    const MediaAsset* found = project_.findAsset(asset);
+    if (found == nullptr) {
+        return nullptr;
+    }
+    auto reader = readerFactory_.create();
+    if (!reader || !reader->open(found->path).isOk()) {
+        return nullptr;
+    }
+    ++stats_.readerOpens;
+    MediaReader* raw = reader.get();
+    readers_.emplace(asset.value, std::move(reader));
+    return raw;
+}
+
+void PreviewRenderer::clearFrameCache() {
+    frames_.clear();
+    lru_.clear();
+    stats_.cachedFrames = 0;
+}
+
+PreviewRenderer::CacheStats PreviewRenderer::cacheStats() const {
+    CacheStats copy = stats_;
+    copy.cachedFrames = frames_.size();
+    return copy;
+}
+
 std::vector<std::string> PreviewRenderer::subtitlesAt(const Time& timelineTime) const {
     std::vector<std::string> result;
     const Sequence* seq = project_.mainSequence();
@@ -63,19 +97,10 @@ std::vector<std::string> PreviewRenderer::subtitlesAt(const Time& timelineTime) 
 
 bool PreviewRenderer::readClipSourceFrame(const Clip& clip, const Time& timelineTime,
                                          VideoFrame& out) {
-    auto it = readers_.find(clip.asset.value);
-    if (it == readers_.end()) {
-        const MediaAsset* asset = project_.findAsset(clip.asset);
-        if (asset == nullptr) {
-            return false;
-        }
-        auto reader = readerFactory_.create();
-        if (!reader->open(asset->path).isOk()) {
-            return false;
-        }
-        it = readers_.emplace(clip.asset.value, std::move(reader)).first;
+    MediaReader* reader = readerFor(clip.asset);
+    if (reader == nullptr) {
+        return false;
     }
-    MediaReader* reader = it->second.get();
     const Time sourceTime = clip.sourceTimeAtTimeline(timelineTime);
     if (!reader->seek(sourceTime).isOk()) {
         return false;
@@ -127,6 +152,39 @@ void PreviewRenderer::blendTransitionFrame(PreviewFrame& frame, const Clip& from
 }
 
 PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
+    // ---- 帧缓存查询 ----
+    // 键用微秒整数：Time 是比，转整数避免浮点比较误差导致的假未命中。
+    const std::int64_t key = static_cast<std::int64_t>(timelineTime.toDouble() * 1e6 + 0.5);
+    auto hit = frames_.find(key);
+    if (hit != frames_.end()) {
+        // LRU 提升到队首
+        lru_.erase(hit->second.lruIt);
+        lru_.push_front(key);
+        hit->second.lruIt = lru_.begin();
+        ++stats_.frameHits;
+        return hit->second.frame;
+    }
+    ++stats_.frameMisses;
+
+    PreviewFrame frame = renderUncached(timelineTime);
+
+    // ---- 写入缓存（LRU 淘汰）----
+    if (frames_.size() >= kFrameCacheCapacity && !lru_.empty()) {
+        const std::int64_t victim = lru_.back();
+        lru_.pop_back();
+        frames_.erase(victim);
+    }
+    lru_.push_front(key);
+    // 注意：这里必须拷贝进缓存（缓存要长期持有），
+    // 然后把局部对象 move 出去，避免返回时再拷一次大 buffer。
+    auto inserted = frames_.emplace(
+        key, CacheEntry{PreviewFrame{}, lru_.begin()});
+    inserted.first->second.frame = std::move(frame);
+    stats_.cachedFrames = frames_.size();
+    return inserted.first->second.frame;   // 返回缓存中的副本（调用方要独立持有）
+}
+
+PreviewFrame PreviewRenderer::renderUncached(const Time& timelineTime) {
     PreviewFrame frame;
     frame.timelineTime = timelineTime;
     const Sequence* seq = project_.mainSequence();
@@ -184,20 +242,11 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
     frame.posY = clip->animation.sample(ClipProperty::PositionY, local);
     frame.rotation = clip->animation.sample(ClipProperty::Rotation, local);
 
-    // 读取源帧（简化：Mock 路径按帧时间 seek+read）
-    auto it = readers_.find(clip->asset.value);
-    if (it == readers_.end()) {
-        const MediaAsset* asset = project_.findAsset(clip->asset);
-        if (asset == nullptr) {
-            return frame;
-        }
-        auto reader = readerFactory_.create();
-        if (!reader->open(asset->path).isOk()) {
-            return frame;
-        }
-        it = readers_.emplace(clip->asset.value, std::move(reader)).first;
+    // 读取源帧：解码器由 readerFor 复用（同一素材只 open 一次）
+    MediaReader* reader = readerFor(clip->asset);
+    if (reader == nullptr) {
+        return frame;
     }
-    MediaReader* reader = it->second.get();
     const Time sourceTime = clip->sourceTimeAtTimeline(timelineTime);
     if (!reader->seek(sourceTime).isOk()) {
         return frame;

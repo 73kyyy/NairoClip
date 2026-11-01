@@ -64,16 +64,37 @@ const viewW = () => E.tracks.clientWidth || 444;
 const center = () => viewW() / 2;
 const t2x = (t) => center() + (t - S.time) * S.pxPerSec;
 const x2t = (x) => Math.max(0, S.time + (x - center()) / S.pxPerSec);
+/* 时间码：MM:SS（左分钟、右秒，各自两位补齐）。
+   用户明确要求的就是这个格式，所以不再按缩放切成 0.1s 精度——
+   播放头读数在播放中必须稳定可读，位数跳动反而更难看清。
+   规则：
+     · 分钟不设上限（超过 99 分钟自然变三位，不做截断，避免显示错误时长）
+     · 秒始终两位（05、09、59）
+     · 只对「秒」向下取整：播放到 3.99s 显示 00:03，与「已播放」直觉一致 */
 const fmt = (t) => {
   const s = Math.max(0, t);
   const m = Math.floor(s / 60);
-  const sec = s % 60;
-  // 缩放足够大时显示到 0.1s
-  if (S.pxPerSec >= 60) return `${m}:${sec.toFixed(1).padStart(4, '0')}`;
-  return `${m}:${String(Math.floor(sec)).padStart(2, '0')}`;
+  const sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 };
 const seqEnd = () => S.tracks.reduce((m, tr) =>
   tr.clips.reduce((mm, c) => Math.max(mm, c.start + c.dur), m), 0);
+
+/* 刻度标签专用格式化：与 fmt（播放头读数 MM:SS）分开。
+   为什么必须分开：缩放到 0.1s / 0.2s 步长时，若刻度也用 MM:SS，
+   相邻两个标签会显示成同一个值（03:05、03:05），用户完全无法定位。
+   刻度需要「按当前步长显示足够精度」，播放头读数需要「稳定两位」。
+   这里按步长决定小数位：<1s 显示一位小数，>=1s 不显示小数。 */
+const fmtRuler = (t, step) => {
+  const s = Math.max(0, t);
+  const m = Math.floor(s / 60);
+  if (step < 1) {
+    const sec = (s % 60).toFixed(1).padStart(4, '0');
+    return `${String(m).padStart(2, '0')}:${sec}`;
+  }
+  const sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+};
 
 function toast(text, ms = 2200) {
   document.querySelectorAll('.toast').forEach((n) => n.remove());
@@ -603,7 +624,7 @@ function drawRuler() {
     const d = document.createElement('span');
     d.className = 'ruler-label';
     d.style.left = `${x}px`;
-    d.textContent = fmt(t);
+    d.textContent = fmtRuler(t, major);
     E.ruler.appendChild(d);
   }
 }
@@ -1534,25 +1555,107 @@ E.tracks.addEventListener('wheel', (e) => {
   renderTracks(); syncPreview();
 }, { passive: false });
 
-/* ---------------- 播放控制 ---------------- */
+/* ---------------- 播放控制 ----------------
+   性能约束（用户要求「丝滑无延迟」）：
+   原来 tick 每帧调 renderTracks()，而 renderTracksBody 会：
+     清空所有 .trow → 重建每条轨道 → 为每个片段重建 DOM（含缩略图 <img>）
+     再 renderHeads() + drawRuler() + updateStrip()
+   播放 60fps 时等于每秒重建 60 次整条时间轴。缩略图要重新解码，
+   内存与布局抖动叠加，观感就是卡、播放头读数和画面不同步。
+
+   现在把「每帧要做的事」压到最小：
+     · 时间码：直接改 textContent（一次字符串赋值）
+     · 播放头：时间轴是「播放头固定屏幕中央、内容滚动」模型，
+       故只需让内容偏移跟随，不移动播放头元素
+     · 刻度：只在跨过主刻度边界时重画
+     · 片段：只在真正需要时才（节流）重建
+   全量重建仍保留给编辑操作（那里必须反映结构变化）。
+*/
+
 let raf = 0;
 let last = 0;
+let lastTickSec = -1;      // 上次刷新刻度的整数秒
+let tickFrame = 0;
+let lastFullRender = 0;    // 上次全量重建的时间戳
+
 function setPlaying(on) {
   S.playing = on;
   E.play.innerHTML = `<svg class="i"><use href="#i-${on ? 'pause' : 'play'}"/></svg>`;
-  if (on) { last = 0; raf = requestAnimationFrame(tick); }
-  else cancelAnimationFrame(raf);
+  if (on) {
+    last = 0;
+    lastTickSec = -1;
+    raf = requestAnimationFrame(tick);
+  } else {
+    cancelAnimationFrame(raf);
+    // 停止时做一次完整同步，保证最终状态精确
+    renderTracks();
+    syncPreview();
+  }
 }
+
 function tick(ts) {
   if (!S.playing) return;
   if (!last) last = ts;
   S.time += (ts - last) / 1000;
   last = ts;
+
   const end = seqEnd();
-  if (end > 0 && S.time >= end) { S.time = end; setPlaying(false); }
-  renderTracks();
-  if (Math.round(S.time * FPS) % 2 === 0) syncPreview();
+  if (end > 0 && S.time >= end) {
+    S.time = end;
+    setPlaying(false);
+    return;
+  }
+
+  // ---- 轻量更新（每帧）----
+  updateStrip();                       // 时间码 + 播放进度条
+
+  // 刻度：只在秒数变化时重画（drawRuler 要清 canvas 并重排 label）
+  const sec = Math.floor(S.time);
+  if (sec !== lastTickSec) {
+    lastTickSec = sec;
+    drawRuler();
+  }
+
+  // 时间轴内容跟随：整体平移，不重建节点
+  scrollTimelineToTime();
+
+  // 画面：隔帧取，减轻桥与 PNG 编码压力（30fps 画面 / 60fps 时间码）
+  tickFrame++;
+  if ((tickFrame & 1) === 0) syncPreview();
+
+  // 兜底：每 1.5s 做一次全量重建，修正轻量更新可能的漂移
+  //（例如片段在播放中因其他原因改变）
+  if (ts - lastFullRender > 1500) {
+    lastFullRender = ts;
+    renderTracks();
+  }
+
   raf = requestAnimationFrame(tick);
+}
+
+/* 时间轴内容跟随播放头：所有片段与刻度的 x 都来自 t2x()，
+   它已经以 S.time 为中心。这里只需把每个片段的 left 更新为新的 t2x，
+   避免重建 DOM。找不到片段时静默跳过（下次全量重建会补齐）。*/
+function scrollTimelineToTime() {
+  const rows = E.tracks.querySelectorAll('.trow');
+  for (let i = 0; i < rows.length && i < S.tracks.length; i++) {
+    const tr = S.tracks[i];
+    const clipEls = rows[i].querySelectorAll('.clip');
+    for (let j = 0; j < clipEls.length && j < tr.clips.length; j++) {
+      const c = tr.clips[j];
+      const x = t2x(c.start);
+      const w = Math.max(2, c.dur * S.pxPerSec);
+      const el = clipEls[j];
+      el.style.left = `${x}px`;
+      el.style.width = `${w}px`;
+      /* 阈值必须与 buildClip 完全一致（±30px 余量），
+         否则轻量更新与全量重建会来回切换 visibility，边缘出现闪烁。 */
+      const vis = !(x + w < -30 || x > viewW() + 30);
+      const want = vis ? 'visible' : 'hidden';
+      if (el.style.visibility !== want) el.style.visibility = want;
+    }
+  }
+  // 播放头读数的横向位置由 .ph-read 居中在播放头上，无需跟随。
 }
 E.play.addEventListener('click', () => setPlaying(!S.playing));
 const prevBtn = document.getElementById('btn-prev');
@@ -1606,8 +1709,26 @@ E.circles.addEventListener('click', async (e) => {
   if (act === 'import') return openSheet();
   /* 2. 返回首页（退出当前工程回项目列表） */
   if (act === 'home') return goHome();
-  /* 3. 向左逐段跳 */
-  if (act === 'step-prev') return stepPrev();
+  /* 3. 向左逐段跳（双击 → 直接回到 00:00）
+     实现要点：双击必然会先派发一次 click，若在第一次 click 就执行
+     逐段跳，双击的效果会变成「先退一段再回零」——中间闪一下。
+     所以单击延迟 220ms 执行；期间若来第二次点击就取消单击、执行回零。
+     220ms 是 iOS/Android 双击判定的常用上限，再长点击会明显发钝。 */
+  if (act === 'step-prev') {
+    if (stepPrevTimer) {
+      clearTimeout(stepPrevTimer);
+      stepPrevTimer = 0;
+      b.classList.remove('on');
+      return jumpToStart();
+    }
+    b.classList.add('on');
+    stepPrevTimer = setTimeout(() => {
+      stepPrevTimer = 0;
+      b.classList.remove('on');
+      stepPrev();
+    }, 220);
+    return;
+  }
   /* 4. 标记点 */
   if (act === 'marker') {
     const name = `标记 ${S.markers.length + 1}`;
@@ -1654,6 +1775,9 @@ function goHome() {
    实现要点：终点集合是「所有片段的 start 与 end」，去重后从大到小；
    每次都跳到当前时间之前最近的一个端点。这与「一直跳到 0」不同，
    用户能明确停在前一段的结尾（编辑接缝时常要这个位置）。 */
+/* 单击/双击判定用的定时器 id（0 = 无待决单击）。 */
+let stepPrevTimer = 0;
+
 function timelineAnchors() {
   const pts = new Set([0]);
   allClips().forEach((c) => {
@@ -1672,35 +1796,73 @@ function stepPrev() {
     if (anchors[i] < nowUs - 1000) { target = anchors[i]; break; }
   }
   if (target === null) return toast('已经在最开头');
-  S.time = target / 1e6;
-  renderTracks();
-  drawRuler();
-  syncPreview();
-  updateStrip();
+  setPlaying(false);
+  seekToLight(target / 1e6);
 }
 
-/* ---------------- 5. 渲染（预览缓存）----------------
-   用户给的语义：「预览渲染 / 生成预览缓存 / 导出渲染，渲染时间线，
-   实时预览效果、预渲染片段，方便流畅播放预览」。
+/* 回到时间轴最开头（00:00 / 首帧）。
+   用户要求：单击第 3 个按钮 = 逐段后退，双击 = 直接跳回起点。 */
+function jumpToStart() {
+  if (S.time <= 0.0005) {
+    // 已经在开头：给一次轻反馈，避免用户以为按钮失灵
+    return toast('已在起始位置');
+  }
+  // 先停（setPlaying(false) 自带一次完整同步），再落位。
+  // 不能 setPlaying(false) + seekTo() 都全量重建 —— 双击时两次
+  // 重建叠加会明显掉帧，正是用户要避免的「不丝滑」。
+  setPlaying(false);
+  if (S.playing) return;      // 理论上不会到这里，防御
+  seekToLight(0);
+  toast('已回到 00:00');
+}
 
-   当前实现边界（如实说明，不假装有缓存）：
-   · 引擎侧**还没有**帧缓存 API（nc_preview_render 每次全量重渲染，
-     且 ensurePreviewRenderer 在任意编辑后会整个重建）。
-   · 所以这里做的是「**预热 + 进度反馈**」：按当前时间轴逐帧请求预览，
-     让用户看到进度，并把已解码的 reader 留在引擎里
-     （readers_ 是 PreviewRenderer 内部的 map，同一签名下会复用）。
-   · 真正的帧缓存要等 core 加接口，见 commit 说明与 backlog。
+/* seekTo 的轻量版：只更新播放头读数、刻度、画面与片段位置，
+   不销毁重建轨道 DOM（逐段跳/回零时结构没变，重建是浪费）。
+   编辑操作仍走 renderTracks()。 */
+function seekToLight(sec) {
+  S.time = Math.max(0, sec);
+  updateStrip();
+  drawRuler();
+  scrollTimelineToTime();
+  syncPreview();
+}
 
-   为什么不做假的「进度条动画」：那是假功能。进度必须来自
-   真实跑完的帧数 / 总帧数。 */
+/* ---------------- 5. 渲染（预览缓存预热）----------------
+   背景：core 原先没有帧缓存——每帧都 decode + 尺寸适配 + 特效栈，
+   任何编辑还会把渲染器整个重建（连解码器一起丢）。所以「按预览」
+   在真机上一直是卡的。
+
+   本轮的 core 改动（core/include/nairoclip/core/preview.h）：
+     · readers_ 按素材复用：同一素材只 open 一次
+     · frames_ 是 LRU 帧缓存（容量 12 帧），命中直接返回
+     · 编辑后只清帧缓存、保留解码器（不重建渲染器）
+     · 新增 nc_preview_cache_stats 暴露命中率
+
+   这个按钮现在做的是**真实预热**：按时间轴顺序把帧灌进缓存，
+   让后续拖动/播放直接命中。进度取自真实完成帧数，
+   结果展示真实命中率 —— 不再有编造的百分比。
+
+   为什么仍是「预热」而不是后台常驻预渲染：
+     缓存有容量上限（12 帧，约 100MB），长工程装不下全部帧。
+     真正的全时间轴预渲染需要落盘缓存（帧 → 磁盘），
+     那是另一个量级的改动，不在本轮范围。 */
+
 let renderJob = null;
 
+/// 预热采样帧数：按 10fps 覆盖整条时间轴，上限 240 帧。
+/// 上限存在的原因：帧缓存只有 12 帧，超过它的预热对「命中率」帮助很小，
+/// 但会实实在在占用 CPU 与桥调用时间。
 function renderFrameCount() {
   const end = seqEnd();
   if (!end) return 0;
-  // 与预览同步率对齐：按 12fps 采样（人眼在拖动时不需要 30fps 的缓存密度），
-  // 上限 600 帧，避免长工程把 UI 卡死。
-  return Math.min(600, Math.max(1, Math.round(end * 12)));
+  return Math.min(240, Math.max(1, Math.round(end * 10)));
+}
+
+/// 读取引擎侧缓存统计（失败返回 null，不伪造数字）。
+function readCacheStats() {
+  const r = engineCall('nc_preview_cache_stats', {});
+  if (!r || !r.ok || !r.result) return null;
+  return r.result;
 }
 
 async function toggleRender(btn) {
@@ -1709,30 +1871,37 @@ async function toggleRender(btn) {
     renderJob = null;
     btn.classList.remove('busy', 'on');
     if (E.stripRender) E.stripRender.style.width = '0%';
-    return toast('已取消渲染');
+    return toast('已取消预热');
   }
-  if (!Engine.online) return toast('未连接引擎，无法渲染');
+  if (!Engine.online) return toast('未连接引擎，无法预热');
 
   const total = renderFrameCount();
-  if (!total) return toast('时间轴为空，没有可渲染的片段');
+  if (!total) return toast('时间轴为空，没有可预热的片段');
 
+  const before = readCacheStats();
   btn.classList.add('busy', 'on');
   const job = { cancelled: false };
   renderJob = job;
   const end = seqEnd();
   let done = 0;
+  let fails = 0;
   const t0 = performance.now();
+
+  // 从播放头之后开始，绕一圈回到播放头：优先预热「接下来要看」的帧，
+  // 用户一按播放立刻有画面。
+  const startUs = Math.round(S.time * 1e6);
+  const spanUs = Math.round(end * 1e6);
 
   for (let i = 0; i < total; i++) {
     if (job.cancelled) break;
-    const us = Math.round((end * i / total) * 1e6);
-    // 直接请求预览帧：目的是让引擎解码并保留 reader，
-    // 同时把帧数据走一遍完整链路（能提前暴露解码失败）。
-    Engine.frameUrl(us, NEED.frameW);
+    const offset = Math.round((spanUs * i) / total);
+    const us = (startUs + offset) % Math.max(1, spanUs);
+    const url = Engine.frameUrl(us, NEED.frameW);
+    if (!url) fails++;
     done++;
     if ((i & 3) === 0) {
       if (E.stripRender) E.stripRender.style.width = `${(done / total) * 100}%`;
-      // 让出主线程，否则 UI 会卡住看不到进度
+      // 让出主线程，否则 UI 卡死看不到进度（也不响应取消）
       await new Promise((r) => setTimeout(r, 0));
     }
   }
@@ -1748,7 +1917,19 @@ async function toggleRender(btn) {
   if (E.stripRender) setTimeout(() => { E.stripRender.style.width = '0%'; }, 700);
   btn.classList.add('on');
   setTimeout(() => btn.classList.remove('on'), 600);
-  toast(`预览已预热 ${done} 帧（${secs}s）`, 3000);
+
+  // 报告真实数字：完成帧数、耗时、引擎侧命中统计
+  const after = readCacheStats();
+  const parts = [`已预热 ${done} 帧（${secs}s）`];
+  if (fails > 0) parts.push(`${fails} 帧无画面`);
+  if (after) {
+    const hits = Number(after.frame_hits || 0) - Number((before && before.frame_hits) || 0);
+    const miss = Number(after.frame_misses || 0) - Number((before && before.frame_misses) || 0);
+    const tot = hits + miss;
+    if (tot > 0) parts.push(`命中 ${hits}/${tot}（${Math.round((hits / tot) * 100)}%）`);
+    parts.push(`缓存 ${after.cached_frames}/12 帧`);
+  }
+  toast(parts.join(' · '), 4000);
 }
 
 /* ---------------- 6. 关键帧面板 ----------------

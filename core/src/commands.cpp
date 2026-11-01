@@ -851,6 +851,7 @@ Result UndoStack::push(Project& project, std::unique_ptr<Command> command) {
             return applied;
         }
         transactionCommands_.push_back(std::move(command));
+        ++revision_;   // 工程内容已变（虽未入历史，预览缓存仍须失效）
         return Result::ok();
     }
     return pushInternal(project, std::move(command));
@@ -866,6 +867,7 @@ Result UndoStack::pushInternal(Project& project, std::unique_ptr<Command> comman
                 return applied;
             }
             top.mergeFrom(*command);
+            ++revision_;   // 合并进栈顶也是内容变化
             return Result::ok();
         }
     }
@@ -883,6 +885,7 @@ Result UndoStack::pushInternal(Project& project, std::unique_ptr<Command> comman
     commands_.push_back(std::move(command));
     cursor_ = commands_.size();
     trimToMaxDepth();
+    ++revision_;   // 新命令已应用
     return Result::ok();
 }
 
@@ -1024,6 +1027,7 @@ Result UndoStack::undo(Project& project) {
         return reverted;
     }
     --cursor_;
+    ++revision_;   // 撤销也是内容变化（签名必须变，否则缓存命中旧画面）
     return Result::ok();
 }
 
@@ -1037,6 +1041,7 @@ Result UndoStack::redo(Project& project) {
         return applied;
     }
     ++cursor_;
+    ++revision_;
     return Result::ok();
 }
 
@@ -1052,6 +1057,7 @@ std::vector<std::string> UndoStack::undoHistoryNames() const {
 void UndoStack::clear() {
     commands_.clear();
     cursor_ = 0;
+    ++revision_;
 }
 
 // ---------------- MoveClipToTrackCommand ----------------

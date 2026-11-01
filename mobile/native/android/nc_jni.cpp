@@ -688,6 +688,29 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置背景色失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "nc_preview_cache_stats") {
+        // int32_t nc_preview_cache_stats(editor, out_hits, out_misses,
+        //                                out_reader_opens, out_cached_frames)
+        // 供前端渲染按钮显示真实命中率，不做假进度。
+        int64_t hits = 0, misses = 0, opens = 0;
+        int32_t cached = 0;
+        const int32_t rc = nc_preview_cache_stats(ed, &hits, &misses, &opens, &cached);
+        if (rc != NC_OK) {
+            *out = Err("读取预览缓存统计失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string j = "{\"frame_hits\":" + std::to_string(hits);
+        j += ",\"frame_misses\":" + std::to_string(misses);
+        j += ",\"reader_opens\":" + std::to_string(opens);
+        j += ",\"cached_frames\":" + std::to_string(cached) + "}";
+        *out = Ok(j);
+        return true;
+    }
+    if (op == "nc_preview_invalidate") {
+        nc_preview_invalidate(ed);
+        *out = Ok("");
+        return true;
+    }
     return false;  // 未知 op：由调用方报错，不静默成功
 }
 

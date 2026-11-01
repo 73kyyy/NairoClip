@@ -7,6 +7,7 @@
 #include "nairoclip/core/subtitle.h"
 
 #include <cstdint>
+#include <list>
 #include <map>
 #include <memory>
 #include <string>
@@ -47,29 +48,77 @@ struct PreviewFrame {
 };
 
 /// 预览渲染器。
+///
+/// 缓存设计（为什么这样分层）：
+///  1) readers_ 按 assetId 复用解码器 —— 解码器 open 一次可反复 seek，
+///     之前的实现把 reader 和渲染器绑在一起，渲染器一重建就要重新 open，
+///     这是"每一帧都慢"的主要来源之一。
+///  2) frames_ 是最近访问时刻的 RGBA 帧环形缓存 —— 拖动/播放时相邻帧
+///     常重复命中（同一片段内 seek 到同一源帧），命中就直接返回，
+///     不再走 decode + 尺寸适配 + 特效栈。
+///  3) 缓存键是精确的 timelineTime（微秒）。不做"就近取帧"式的模糊合并：
+///     那会让用户在静止画面上看到上一帧的画面，属于错误结果。
+///     真正的流畅播放依赖帧率对齐，由上层按时间网格请求。
 class PreviewRenderer {
 public:
+    /// 帧缓存容量（帧数）。按 1080x1920 RGBA 计算约 8MB/帧，
+    /// 32 帧 ≈ 265MB —— 超出移动端预算，故取 12 帧（≈100MB 上限），
+    /// 同时保证「来回拖动 ±几帧」都能命中。
+    static constexpr std::size_t kFrameCacheCapacity = 12;
+
     PreviewRenderer(const Project& project, MediaReaderFactory& readerFactory);
+    ~PreviewRenderer();
+
+    PreviewRenderer(const PreviewRenderer&) = delete;
+    PreviewRenderer& operator=(const PreviewRenderer&) = delete;
 
     /// 渲染指定时刻的一帧。
     /// - 视频：取第一个未隐藏视频轨在 t 时刻的片段
     /// - 字幕：取序列字幕轨中所有可见字幕
     /// - 动画：应用片段动画通道（透明度/缩放/位移/旋转）
+    /// 命中帧缓存时直接返回缓存副本（不重新解码）。
     PreviewFrame renderAt(const Time& timelineTime);
 
     /// 便捷：只取字幕。
     std::vector<std::string> subtitlesAt(const Time& timelineTime) const;
 
+    /// 缓存统计（供诊断与测试断言；不影响渲染结果）。
+    struct CacheStats {
+        std::size_t frameHits = 0;      ///< 命中帧缓存的次数
+        std::size_t frameMisses = 0;    ///< 未命中（走完整渲染）的次数
+        std::size_t readerOpens = 0;    ///< 真正 open 解码器的次数
+        std::size_t cachedFrames = 0;   ///< 当前缓存中的帧数
+    };
+    CacheStats cacheStats() const;
+
+    /// 清空帧缓存（保留已打开的解码器）。
+    /// 用于「解码器仍在、但画面变了」的场景（如仅叠加层变化）。
+    void clearFrameCache();
+
 private:
+    /// 不做缓存查询的实际渲染（renderAt 命中缓存时不会走到这里）。
+    PreviewFrame renderUncached(const Time& timelineTime);
     /// 读取片段在时间轴时刻对应的源帧（自动打开并缓存 reader）。
     bool readClipSourceFrame(const Clip& clip, const Time& timelineTime, VideoFrame& out);
     /// 转场混合：读取两路源帧，混合写回 frame（含尺寸初始化）。
     void blendTransitionFrame(PreviewFrame& frame, const Clip& from, const Clip& to,
                               const Time& timelineTime, double progress);
+    /// 取（必要时创建）某素材的解码器。
+    MediaReader* readerFor(AssetId asset);
 
     const Project& project_;
     MediaReaderFactory& readerFactory_;
     std::map<std::uint64_t, std::unique_ptr<MediaReader>> readers_;
+
+    /// 帧缓存：键 = 时间轴微秒。用 list 维护 LRU 顺序，
+    /// map 做 O(log n) 查找。容量固定，满时淘汰最久未用的。
+    struct CacheEntry {
+        PreviewFrame frame;
+        std::list<std::int64_t>::iterator lruIt;
+    };
+    std::map<std::int64_t, CacheEntry> frames_;
+    std::list<std::int64_t> lru_;   ///< front = 最近使用
+    mutable CacheStats stats_;
 };
 
 }  // namespace core

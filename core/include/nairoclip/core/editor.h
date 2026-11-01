@@ -3,6 +3,7 @@
 #include "nairoclip/core/command.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -204,6 +205,10 @@ public:
     bool canRedo() const { return undoStack_.canRedo(); }
     std::size_t undoCount() const { return undoStack_.undoCount(); }
     std::size_t redoCount() const { return undoStack_.redoCount(); }
+    /// 编辑栈版本号（任何内容变化都递增；供预览缓存签名使用）。
+    /// 不用 undoCount()+redoCount()：两者之和恒等于栈大小，
+    /// 撤销时一减一加不变，会导致缓存命中撤销前的画面。
+    std::uint64_t editRevision() const { return undoStack_.editRevision(); }
     std::vector<std::string> undoHistoryNames() const { return undoStack_.undoHistoryNames(); }
     /// 清空撤销历史（文档 Part 5(续) 第32节「栈清空时机」：
     /// 用户退出剪辑页重新进入同一项目时清空，不跨会话保留）。

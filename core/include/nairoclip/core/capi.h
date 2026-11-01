@@ -372,6 +372,15 @@ char* nc_preview_subtitles(const NcEditor* editor, int64_t time_us);
 /// 一般不必手动调用）。
 void nc_preview_invalidate(NcEditor* editor);
 
+/// 读取预览缓存统计（供 UI 展示真实命中率 / 诊断「为什么还是卡」）。
+/// - out_frame_hits/out_frame_misses：帧缓存命中与未命中次数（累计）；
+/// - out_reader_opens：真正 open 解码器的次数（同一素材只算一次）；
+/// - out_cached_frames：当前缓存中的帧数（上限见 PreviewRenderer::kFrameCacheCapacity）；
+/// 出参均可空。返回 NC_OK；句柄为空返回 NC_ERROR_INVALID_ARGUMENT。
+int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
+                                int64_t* out_frame_misses, int64_t* out_reader_opens,
+                                int32_t* out_cached_frames);
+
 // ---- 缩略图（文档 Part 2-B「时间轴胶片条」/ 素材库预览）----
 
 /// 为素材生成缩略图序列（真实解码）。

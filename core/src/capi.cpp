@@ -3409,9 +3409,17 @@ void nc_free_buffer(uint8_t* buffer) { delete[] buffer; }
 
 namespace {
 
-/// 预览缓存签名（编辑栈计数 + 载入 + 直接修改 + 画布尺寸）。
+/// 预览缓存签名。
+///
+/// 为什么不能只用 undoCount + redoCount（原来的写法有问题）：
+///   undoCount() == cursor_，redoCount() == commands_.size() - cursor_，
+///   两者之和恒等于 commands_.size()。于是「编辑 + 撤销」一减一加，
+///   和不变 → 签名不变 → 缓存不失效，用户会看到撤销前的画面。
+///
+/// 现在的做法：签名里混入「编辑栈版本号」，由 Editor 在每次
+/// 入栈/撤销/重做/清空时单调递增，撤销也一定变。
 std::uint64_t previewSignatureOf(const NcEditor* editor) {
-    const std::uint64_t edits = editor->editor->undoCount() + editor->editor->redoCount();
+    const std::uint64_t edits = editor->editor->editRevision();
     const Sequence* seq = editor->project.mainSequence();
     std::uint64_t canvas = 0;
     if (seq != nullptr) {
@@ -3423,18 +3431,28 @@ std::uint64_t previewSignatureOf(const NcEditor* editor) {
 }
 
 /// 取（必要时重建）预览渲染器。
+///
+/// 重建代价说明：重建会丢掉解码器缓存与帧缓存，所以只在
+/// 工程结构真的变了（签名变化）时重建。签名没变时直接复用，
+/// 这是「播放/拖动不反复 open 解码器」的关键。
 PreviewRenderer* ensurePreviewRenderer(NcEditor* editor) {
     if (editor == nullptr || editor->project.mainSequence() == nullptr) {
         return nullptr;
     }
     const std::uint64_t signature = previewSignatureOf(editor);
-    if (editor->previewRenderer == nullptr || editor->previewSignature != signature) {
-        // 重建（自带解码器缓存；旧缓存自然释放）
+    if (editor->previewRenderer == nullptr) {
         editor->previewRenderer.reset(new (std::nothrow)
                                           PreviewRenderer(editor->project,
                                                           *editor->previewFactory));
         editor->previewSignature = signature;
         editor->directEditCount = 0;  // 已并入签名（后续直接修改重新计数）
+        editor->loadCount = 0;
+    } else if (editor->previewSignature != signature) {
+        // 结构变化：解码器可能仍有效（素材路径未变），但帧缓存必须作废。
+        // 这里选择保留渲染器对象、只清帧缓存，避免重新 open 所有解码器。
+        editor->previewRenderer->clearFrameCache();
+        editor->previewSignature = signature;
+        editor->directEditCount = 0;
         editor->loadCount = 0;
     }
     return editor->previewRenderer.get();
@@ -3518,6 +3536,28 @@ void nc_preview_invalidate(NcEditor* editor) {
     }
     editor->previewRenderer.reset();
     ++editor->directEditCount;
+}
+
+int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
+                                int64_t* out_frame_misses, int64_t* out_reader_opens,
+                                int32_t* out_cached_frames) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    // 渲染器还没建立 = 还没渲染过任何帧，统计全 0（不是错误）
+    if (editor->previewRenderer == nullptr) {
+        if (out_frame_hits != nullptr) *out_frame_hits = 0;
+        if (out_frame_misses != nullptr) *out_frame_misses = 0;
+        if (out_reader_opens != nullptr) *out_reader_opens = 0;
+        if (out_cached_frames != nullptr) *out_cached_frames = 0;
+        return NC_OK;
+    }
+    const PreviewRenderer::CacheStats st = editor->previewRenderer->cacheStats();
+    if (out_frame_hits != nullptr) *out_frame_hits = static_cast<int64_t>(st.frameHits);
+    if (out_frame_misses != nullptr) *out_frame_misses = static_cast<int64_t>(st.frameMisses);
+    if (out_reader_opens != nullptr) *out_reader_opens = static_cast<int64_t>(st.readerOpens);
+    if (out_cached_frames != nullptr) *out_cached_frames = static_cast<int32_t>(st.cachedFrames);
+    return NC_OK;
 }
 
 // ---- 缩略图 ----
