@@ -35,67 +35,6 @@ std::string formatDouble(double value, int decimals) {
 
 }  // namespace
 
-// =============================================================================
-// 性能模式
-// =============================================================================
-
-PerformanceTuning performanceTuning(PerformanceMode mode, int cpuCores) {
-    const int cores = cpuCores > 0 ? cpuCores : 4;  // 未知按 4 核保守处理
-    PerformanceTuning tuning;
-    switch (mode) {
-        case PerformanceMode::Turbo:
-            tuning.encoderPreset = "ultrafast";
-            tuning.threads = cores;
-            tuning.pauseEditing = true;
-            tuning.description = "极速模式（暂停编辑，最快）";
-            break;
-        case PerformanceMode::Eco:
-            // 省电：单线程 + 常规预置（降速静默，减少发热与电量消耗）
-            tuning.encoderPreset = "veryfast";
-            tuning.threads = 1;
-            tuning.pauseEditing = false;
-            tuning.description = "省电模式（降速，后台静默）";
-            break;
-        case PerformanceMode::Balanced:
-        default:
-            // 平衡：保留 1 核给编辑交互（对应「可继续编辑其他项目」）
-            tuning.encoderPreset = "veryfast";
-            tuning.threads = std::max(1, cores - 1);
-            tuning.pauseEditing = false;
-            tuning.description = "平衡模式（可继续编辑其他项目）";
-            break;
-    }
-    return tuning;
-}
-
-const char* performanceModeName(PerformanceMode mode) {
-    switch (mode) {
-        case PerformanceMode::Turbo:
-            return "turbo";
-        case PerformanceMode::Balanced:
-            return "balanced";
-        case PerformanceMode::Eco:
-            return "eco";
-        default:
-            return "balanced";
-    }
-}
-
-bool performanceModeFromInt(int value, PerformanceMode& out) {
-    switch (value) {
-        case 0:
-            out = PerformanceMode::Turbo;
-            return true;
-        case 1:
-            out = PerformanceMode::Balanced;
-            return true;
-        case 2:
-            out = PerformanceMode::Eco;
-            return true;
-        default:
-            return false;
-    }
-}
 
 // =============================================================================
 // 导出预设
@@ -306,8 +245,7 @@ ExportEstimate estimateExport(int width, int height, int fps, double durationSec
 // =============================================================================
 
 PresetExportSetup setupPresetExport(ExportPresetId presetId, const Entitlement& entitlement,
-                                    std::int64_t nowUnix, PerformanceMode mode, int cpuCores,
-                                    int crf) {
+                                    std::int64_t nowUnix, int crf) {
     PresetExportSetup setup;
     const ExportPreset& preset = exportPreset(presetId);
     setup.ok = true;
@@ -337,10 +275,8 @@ PresetExportSetup setupPresetExport(ExportPresetId presetId, const Entitlement& 
         }
     }
 
-    // 性能模式 → 编码参数（真实作用于写入器）
-    const PerformanceTuning tuning = performanceTuning(mode, cpuCores);
-    setup.writer.preset = tuning.encoderPreset;
-    setup.writer.threads = tuning.threads;
+    // 编码参数：preset/threads 用 WriterConfig 默认值
+    // （veryfast / 0 = 编码器自动选线程），只覆盖用户可调的 CRF。
     setup.writer.crf = crf;
     if (setup.width > 0 && setup.height > 0) {
         setup.writer.width = setup.width;

@@ -781,7 +781,7 @@ NC_TEST(Capi, ExportSetupPresetGating) {
     char* presetName = nullptr;
     char* warning = nullptr;
     // Free + 4K 预设 → 降级 1080p + 警告
-    NC_CHECK_EQ(nc_export_setup_preset(editor, 5, 1, 4, 23, &w, &h, &fps, &downgraded,
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 5, 23, &w, &h, &fps, &downgraded,
                                        &presetName, &warning),
                 NC_OK);
     NC_CHECK_EQ(w, 1920);
@@ -793,29 +793,26 @@ NC_TEST(Capi, ExportSetupPresetGating) {
     nc_free_string(warning);
     // 升级 Pro → 不降级
     NC_CHECK_EQ(nc_set_entitlement(editor, 1, 0, 0), NC_OK);
-    NC_CHECK_EQ(nc_export_setup_preset(editor, 5, 1, 4, 23, &w, &h, &fps, &downgraded,
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 5, 23, &w, &h, &fps, &downgraded,
                                        nullptr, nullptr),
                 NC_OK);
     NC_CHECK_EQ(w, 3840);
     NC_CHECK_EQ(downgraded, 0);
-    // 竖屏预设 + 省电模式
-    NC_CHECK_EQ(nc_export_setup_preset(editor, 1, 2, 8, 25, &w, &h, &fps, &downgraded,
+    // 竖屏预设 + 自定义 CRF
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 1, 25, &w, &h, &fps, &downgraded,
                                        &presetName, nullptr),
                 NC_OK);
     NC_CHECK_EQ(w, 1080);
     NC_CHECK_EQ(h, 1920);
     NC_CHECK_EQ(fps, 30);
     NC_CHECK_EQ(downgraded, 0);
-    NC_CHECK_EQ(std::string(presetName), std::string("veryfast"));  // Eco 预置
+    NC_CHECK_EQ(std::string(presetName), std::string("veryfast"));  // 默认编码预置
     nc_free_string(presetName);
     // 错误路径
-    NC_CHECK_EQ(nc_export_setup_preset(nullptr, 1, 1, 4, 23, nullptr, nullptr, nullptr,
+    NC_CHECK_EQ(nc_export_setup_preset(nullptr, 1, 23, nullptr, nullptr, nullptr,
                                        nullptr, nullptr, nullptr),
                 NC_ERROR_INVALID_ARGUMENT);
-    NC_CHECK_EQ(nc_export_setup_preset(editor, 9, 1, 4, 23, nullptr, nullptr, nullptr,
-                                       nullptr, nullptr, nullptr),
-                NC_ERROR_INVALID_ARGUMENT);
-    NC_CHECK_EQ(nc_export_setup_preset(editor, 1, 9, 4, 23, nullptr, nullptr, nullptr,
+    NC_CHECK_EQ(nc_export_setup_preset(editor, 9, 23, nullptr, nullptr, nullptr,
                                        nullptr, nullptr, nullptr),
                 NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
@@ -1302,7 +1299,7 @@ NC_TEST(Capi, ExportQueueEnqueueAndLimits) {
     uint64_t jobA = 0;
     char* err = nullptr;
     // 免费版：第一个成功
-    NC_CHECK_EQ(nc_export_enqueue(editor, "春游Vlog", "/tmp/out_a.mp4", 0, 1, 1, 0, nullptr,
+    NC_CHECK_EQ(nc_export_enqueue(editor, "春游Vlog", "/tmp/out_a.mp4", 0, 1, 0, nullptr,
                                   &jobA, &err),
                 NC_OK);
     NC_CHECK(jobA != 0);
@@ -1314,35 +1311,32 @@ NC_TEST(Capi, ExportQueueEnqueueAndLimits) {
     NC_CHECK_EQ(active, 1);
     // 免费版上限 1 → 第二个被拒
     uint64_t jobB = 0;
-    NC_CHECK(nc_export_enqueue(editor, "产品宣传片", "/tmp/out_b.mp4", 0, 1, 1, 0, nullptr, &jobB,
+    NC_CHECK(nc_export_enqueue(editor, "产品宣传片", "/tmp/out_b.mp4", 0, 1, 0, nullptr, &jobB,
                                &err) != NC_OK);
     NC_CHECK(err != nullptr);
     NC_CHECK(std::string(err).find("上限") != std::string::npos);
     nc_free_string(err);
     err = nullptr;
     // 参数校验
-    NC_CHECK(nc_export_enqueue(nullptr, "x", "/tmp/x.mp4", 0, 1, 1, 0, nullptr, nullptr, nullptr) ==
+    NC_CHECK(nc_export_enqueue(nullptr, "x", "/tmp/x.mp4", 0, 1, 0, nullptr, nullptr, nullptr) ==
              NC_ERROR_INVALID_ARGUMENT);
-    NC_CHECK(nc_export_enqueue(editor, nullptr, "/tmp/x.mp4", 0, 1, 1, 0, nullptr, nullptr,
+    NC_CHECK(nc_export_enqueue(editor, nullptr, "/tmp/x.mp4", 0, 1, 0, nullptr, nullptr,
                                nullptr) == NC_ERROR_INVALID_ARGUMENT);
-    NC_CHECK(nc_export_enqueue(editor, "x", "/tmp/x.mp4", 0, 99, 1, 1, nullptr, nullptr,
-                               &err) == NC_ERROR_INVALID_ARGUMENT);  // 非法模式
-    nc_free_string(err);
     nc_editor_destroy(editor);
 }
 
 NC_TEST(Capi, ExportQueueSchedulingAndLifecycle) {
     NcEditor* editor = nc_editor_create();
     uint64_t jobId = 0;
-    NC_CHECK_EQ(nc_export_enqueue(editor, "任务1", "/tmp/job1.mp4", 1, 1, 1, 1, "AI 生成", &jobId,
+    NC_CHECK_EQ(nc_export_enqueue(editor, "任务1", "/tmp/job1.mp4", 1, 1, 1, "AI 生成", &jobId,
                                   nullptr),
                 NC_OK);
     // 调度：取到任务（返回 1）
     uint64_t polled = 0;
     char* outPath = nullptr;
-    int32_t preset = -1, mode = -1, includeAudio = -1, attachLabel = -1;
+    int32_t preset = -1, includeAudio = -1, attachLabel = -1;
     char* labelText = nullptr;
-    NC_CHECK_EQ(nc_export_poll_next(editor, &polled, &outPath, &preset, &mode, &includeAudio,
+    NC_CHECK_EQ(nc_export_poll_next(editor, &polled, &outPath, &preset, &includeAudio,
                                     &attachLabel, &labelText),
                 1);
     NC_CHECK_EQ(polled, jobId);
@@ -1386,7 +1380,7 @@ NC_TEST(Capi, ExportQueueProTierAndCancelAll) {
     for (int i = 0; i < 5; ++i) {
         uint64_t id = 0;
         NC_CHECK_EQ(nc_export_enqueue(editor, ("任务" + std::to_string(i)).c_str(), "/tmp/x.mp4",
-                                      0, 1, 1, 0, nullptr, &id, nullptr),
+                                      0, 1, 0, nullptr, &id, nullptr),
                     NC_OK);
     }
     int32_t active = -1;
@@ -1394,14 +1388,14 @@ NC_TEST(Capi, ExportQueueProTierAndCancelAll) {
     NC_CHECK_EQ(active, 5);
     // 第 6 个被拒
     uint64_t extra = 0;
-    NC_CHECK(nc_export_enqueue(editor, "第6个", "/tmp/x6.mp4", 0, 1, 1, 0, nullptr, &extra,
+    NC_CHECK(nc_export_enqueue(editor, "第6个", "/tmp/x6.mp4", 0, 1, 0, nullptr, &extra,
                                nullptr) != NC_OK);
     // 取消全部
     nc_export_queue_cancel_all(editor, 2000);
     NC_CHECK_EQ(nc_export_queue_summary(editor, nullptr, nullptr, &active), NC_OK);
     NC_CHECK_EQ(active, 0);
     // 取消后可重新入队
-    NC_CHECK_EQ(nc_export_enqueue(editor, "新任务", "/tmp/new.mp4", 0, 1, 1, 0, nullptr, nullptr,
+    NC_CHECK_EQ(nc_export_enqueue(editor, "新任务", "/tmp/new.mp4", 0, 1, 0, nullptr, nullptr,
                                   nullptr),
                 NC_OK);
     nc_editor_destroy(editor);

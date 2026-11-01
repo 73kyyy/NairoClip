@@ -64,27 +64,11 @@ bool exportJobTransitionAllowed(ExportJobState from, ExportJobState to) {
 // 调度策略
 // =============================================================================
 
-ExportQueuePolicy exportQueuePolicy(PerformanceMode mode, int deviceConcurrency) {
+ExportQueuePolicy exportQueuePolicy(int deviceConcurrency) {
     ExportQueuePolicy policy;
     const int concurrency = deviceConcurrency > 0 ? deviceConcurrency : 2;
-    switch (mode) {
-        case PerformanceMode::Turbo:
-            policy.maxConcurrent = 1;
-            policy.pauseEditing = true;
-            policy.description = "极速模式：全速导出（编辑暂停），单任务独占";
-            break;
-        case PerformanceMode::Balanced:
-            policy.maxConcurrent = std::max(1, std::min(2, concurrency));
-            policy.pauseEditing = false;
-            policy.description = "平衡模式：可继续编辑其他项目，最多并行 " +
-                                 std::to_string(policy.maxConcurrent) + " 个导出";
-            break;
-        case PerformanceMode::Eco:
-            policy.maxConcurrent = 1;
-            policy.pauseEditing = false;
-            policy.description = "省电模式：降速静默导出（单任务，减少发热与耗电）";
-            break;
-    }
+    policy.maxConcurrent = std::max(1, std::min(2, concurrency));
+    policy.description = "最多并行 " + std::to_string(policy.maxConcurrent) + " 个导出";
     return policy;
 }
 
@@ -93,7 +77,7 @@ ExportQueuePolicy exportQueuePolicy(PerformanceMode mode, int deviceConcurrency)
 // =============================================================================
 
 ExportQueueResult ExportQueue::enqueue(const std::string& name, const std::string& outputPath,
-                                       ExportPresetId preset, PerformanceMode mode,
+                                       ExportPresetId preset,
                                        const Entitlement& entitlement, std::int64_t nowUnix,
                                        bool includeAudio, bool attachAiLabel,
                                        const std::string& aiLabelText) {
@@ -116,7 +100,6 @@ ExportQueueResult ExportQueue::enqueue(const std::string& name, const std::strin
     job.name = name;
     job.outputPath = outputPath;
     job.preset = preset;
-    job.mode = mode;
     job.includeAudio = includeAudio;
     job.attachAiLabel = attachAiLabel;
     if (!aiLabelText.empty()) {

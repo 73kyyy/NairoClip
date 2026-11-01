@@ -13,10 +13,10 @@
 //   平衡模式（Balanced）——用户可切换到其他项目继续工作，导出完成后系统通知提醒。
 //
 // 本模块定位（纯状态机 + 调度决策，零线程/文件系统依赖）：
-//   · 队列结构：任务列表（id/名称/路径/预设/性能模式/状态/进度）；
+//   · 队列结构：任务列表（id/名称/路径/预设/状态/进度）；
 //   · 状态机：等待 → 运行 → 完成/失败/已暂停/已取消（合法迁移约束）；
-//   · 并发策略：性能模式决定「允许的同时运行数」（Turbo=独占、Balanced=可并行、
-//     Eco=单任务降速）；由平台层按 pollNext 调度真实执行；
+//   · 并发策略：按设备并行度决定「允许的同时运行数」，最多 2 个；
+//     由平台层按 pollNext 调度真实执行；
 //   · 权益限额：Free 1 / Pro 5（Entitlement::maxExportQueue，单一事实来源）；
 //   · 暂停/继续/取消/移除：真实作用于任务状态。
 //
@@ -81,8 +81,6 @@ struct ExportJob {
     std::string outputPath;
     /// 导出预设（决定分辨率/帧率/画质；Custom = 沿用序列设置）。
     ExportPresetId preset = ExportPresetId::Custom;
-    /// 性能模式（决定调度与编码参数）。
-    PerformanceMode mode = PerformanceMode::Balanced;
     /// 是否包含音频。
     bool includeAudio = true;
     /// 是否附加 AI 内容标识（合规开关；使用 AI 成片/TTS 时必须为 true）。
@@ -117,21 +115,16 @@ struct ExportJob {
     }
 };
 
-/// 队列调度策略（由性能模式派生；平台层按此决定并发）。
+/// 队列调度策略（平台层按此决定并发）。
 struct ExportQueuePolicy {
     /// 允许同时运行的任务数。
     int maxConcurrent = 1;
-    /// 是否应暂停编辑交互（Turbo = true；文档「极速模式(暂停编辑，最快)」）。
-    bool pauseEditing = false;
     /// 说明文案（供 UI 展示）。
     std::string description;
 };
 
-/// 由性能模式与设备并行度推导调度策略。
-/// - Turbo：1 个（全速独占，暂停编辑交互）；
-/// - Balanced：min(2, 设备并行度)（可继续编辑其他项目）；
-/// - Eco：1 个（单线程降速静默，减少发热与电量消耗）。
-ExportQueuePolicy exportQueuePolicy(PerformanceMode mode, int deviceConcurrency = 0);
+/// 由设备并行度推导调度策略（最多 2 个并发；未知并行度按 1 处理）。
+ExportQueuePolicy exportQueuePolicy(int deviceConcurrency = 0);
 
 /// 队列操作结果。
 struct ExportQueueResult {
@@ -148,7 +141,7 @@ public:
     /// - entitlement/nowUnix：限额校验（活动任务数达到 maxExportQueue 时拒绝，
     ///   返回 fail 与提示文案，供 UI 弹付费墙；文档 6.2 免费版上限 1 个）。
     ExportQueueResult enqueue(const std::string& name, const std::string& outputPath,
-                              ExportPresetId preset, PerformanceMode mode,
+                              ExportPresetId preset,
                               const Entitlement& entitlement, std::int64_t nowUnix,
                               bool includeAudio = true, bool attachAiLabel = false,
                               const std::string& aiLabelText = "AI 生成");

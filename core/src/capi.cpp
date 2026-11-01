@@ -2511,7 +2511,7 @@ int32_t nc_proxy_clear_records(NcEditor* editor) {
     return count;
 }
 
-// ---- 导出预设 / 资源预估 / 性能模式 ----
+// ---- 导出预设 / 资源预估 ----
 
 int32_t nc_export_presets(int32_t* out_ids, int32_t capacity, int32_t* out_count) {
     const auto& presets = builtinExportPresets();
@@ -2557,20 +2557,16 @@ int32_t nc_export_estimate(int32_t width, int32_t height, int32_t fps, int64_t d
     return NC_OK;
 }
 
-int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id, int32_t mode,
-                               int32_t cpu_cores, int32_t crf, int32_t* out_width,
+int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id,
+                               int32_t crf, int32_t* out_width,
                                int32_t* out_height, int32_t* out_fps, int32_t* out_downgraded,
                                char** out_preset_name, char** out_warning) {
-    if (editor == nullptr || preset_id < 0 || preset_id > 5 || mode < 0 || mode > 2) {
+    if (editor == nullptr || preset_id < 0 || preset_id > 5) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
-    }
-    PerformanceMode performanceMode;
-    if (!performanceModeFromInt(mode, performanceMode)) {
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
     }
     const PresetExportSetup setup = setupPresetExport(
         static_cast<ExportPresetId>(preset_id), editor->entitlement,
-        static_cast<std::int64_t>(std::time(nullptr)), performanceMode, cpu_cores,
+        static_cast<std::int64_t>(std::time(nullptr)),
         crf > 0 ? crf : 23);
     if (out_width != nullptr) *out_width = setup.width;
     if (out_height != nullptr) *out_height = setup.height;
@@ -5185,7 +5181,7 @@ int32_t nc_chapter_clear(NcEditor* editor, char** out_error) {
 // ---- 导出队列（文档第 6 部分「二、导出队列管理」+ 第 4 部分「后台导出」）----
 
 int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_path,
-                          int32_t preset_id, int32_t mode, int32_t include_audio,
+                          int32_t preset_id, int32_t include_audio,
                           int32_t attach_ai_label, const char* ai_label_text,
                           uint64_t* out_job_id, char** out_error) {
     if (editor == nullptr || name == nullptr || out_path == nullptr) {
@@ -5208,14 +5204,9 @@ int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_pa
             preset = ExportPresetId::Custom;
         }
     }
-    PerformanceMode performanceMode = PerformanceMode::Balanced;
-    if (!performanceModeFromInt(mode, performanceMode)) {
-        if (out_error != nullptr) *out_error = dupString("性能模式非法（0/1/2）");
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
-    }
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     const ExportQueueResult r = editor->exportQueue.enqueue(
-        name, out_path, preset, performanceMode, editor->entitlement, now,
+        name, out_path, preset, editor->entitlement, now,
         include_audio != 0, attach_ai_label != 0,
         ai_label_text != nullptr ? ai_label_text : "AI 生成");
     if (out_job_id != nullptr) {
@@ -5230,23 +5221,14 @@ int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_pa
 }
 
 int32_t nc_export_poll_next(NcEditor* editor, uint64_t* out_job_id, char** out_out_path,
-                            int32_t* out_preset, int32_t* out_mode,
+                            int32_t* out_preset,
                             int32_t* out_include_audio, int32_t* out_attach_ai_label,
                             char** out_ai_label_text) {
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    // 调度策略按「队列中最早等待任务」的性能模式推导（平台层切换模式时重新拉取）
-    ExportQueuePolicy policy = exportQueuePolicy(PerformanceMode::Balanced, 4);
-    bool havePolicy = false;
-    for (const auto& job : editor->exportQueue.jobs()) {
-        if (job.state == ExportJobState::Queued) {
-            policy = exportQueuePolicy(job.mode, 4);
-            havePolicy = true;
-            break;
-        }
-    }
-    (void)havePolicy;
+    // 调度策略按设备并行度推导
+    const ExportQueuePolicy policy = exportQueuePolicy(4);
     const std::uint64_t jobId = editor->exportQueue.pollNext(policy);
     if (jobId == 0) {
         return 0;
@@ -5258,7 +5240,6 @@ int32_t nc_export_poll_next(NcEditor* editor, uint64_t* out_job_id, char** out_o
     if (out_job_id != nullptr) *out_job_id = job->id;
     if (out_out_path != nullptr) *out_out_path = dupString(job->outputPath);
     if (out_preset != nullptr) *out_preset = static_cast<int32_t>(job->preset);
-    if (out_mode != nullptr) *out_mode = static_cast<int32_t>(job->mode);
     if (out_include_audio != nullptr) *out_include_audio = job->includeAudio ? 1 : 0;
     if (out_attach_ai_label != nullptr) *out_attach_ai_label = job->attachAiLabel ? 1 : 0;
     if (out_ai_label_text != nullptr) *out_ai_label_text = dupString(job->aiLabelText);

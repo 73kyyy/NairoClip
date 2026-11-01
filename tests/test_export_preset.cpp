@@ -19,51 +19,6 @@ Entitlement proEntitlement() {
 }  // namespace
 
 // =============================================================================
-// 性能模式（文档第 4 部分：极速/平衡/省电）
-// =============================================================================
-
-NC_TEST(ExportPreset, PerformanceTuningModes) {
-    // 极速：ultrafast + 全核 + 暂停编辑
-    const PerformanceTuning turbo = performanceTuning(PerformanceMode::Turbo, 8);
-    NC_CHECK_EQ(turbo.encoderPreset, std::string("ultrafast"));
-    NC_CHECK_EQ(turbo.threads, 8);
-    NC_CHECK(turbo.pauseEditing);
-    NC_CHECK(!turbo.description.empty());
-
-    // 平衡：veryfast + 保留 1 核给编辑 + 不暂停
-    const PerformanceTuning balanced = performanceTuning(PerformanceMode::Balanced, 8);
-    NC_CHECK_EQ(balanced.encoderPreset, std::string("veryfast"));
-    NC_CHECK_EQ(balanced.threads, 7);
-    NC_CHECK(!balanced.pauseEditing);
-
-    // 省电：单线程 + 不暂停
-    const PerformanceTuning eco = performanceTuning(PerformanceMode::Eco, 8);
-    NC_CHECK_EQ(eco.threads, 1);
-    NC_CHECK(!eco.pauseEditing);
-}
-
-NC_TEST(ExportPreset, PerformanceTuningUnknownCores) {
-    // 未知核心数（0）按 4 核保守处理
-    const PerformanceTuning balanced = performanceTuning(PerformanceMode::Balanced, 0);
-    NC_CHECK_EQ(balanced.threads, 3);
-    const PerformanceTuning turbo = performanceTuning(PerformanceMode::Turbo, 0);
-    NC_CHECK_EQ(turbo.threads, 4);
-}
-
-NC_TEST(ExportPreset, PerformanceModeNames) {
-    NC_CHECK_EQ(std::string(performanceModeName(PerformanceMode::Turbo)), std::string("turbo"));
-    NC_CHECK_EQ(std::string(performanceModeName(PerformanceMode::Balanced)),
-                std::string("balanced"));
-    NC_CHECK_EQ(std::string(performanceModeName(PerformanceMode::Eco)), std::string("eco"));
-    PerformanceMode mode;
-    NC_CHECK(performanceModeFromInt(0, mode));
-    NC_CHECK(mode == PerformanceMode::Turbo);
-    NC_CHECK(performanceModeFromInt(2, mode));
-    NC_CHECK(mode == PerformanceMode::Eco);
-    NC_CHECK(!performanceModeFromInt(9, mode));
-}
-
-// =============================================================================
 // 预设列表（文档：📱抖音9:16 📷Reels9:16 ▶️YouTube16:9 4K 🎵Shorts9:16 💬视频号9:16）
 // =============================================================================
 
@@ -176,7 +131,7 @@ NC_TEST(ExportEstimate, CustomRenderThroughput) {
 
 NC_TEST(ExportPresetSetup, FreeDowngrades4K) {
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::YouTube4K, freeEntitlement(), 0, PerformanceMode::Balanced);
+        ExportPresetId::YouTube4K, freeEntitlement(), 0);
     NC_CHECK(setup.ok);
     NC_CHECK(setup.requiresPro);
     NC_CHECK(setup.downgradedForFree);
@@ -189,7 +144,7 @@ NC_TEST(ExportPresetSetup, FreeDowngrades4K) {
 
 NC_TEST(ExportPresetSetup, ProKeeps4K) {
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::YouTube4K, proEntitlement(), 0, PerformanceMode::Balanced);
+        ExportPresetId::YouTube4K, proEntitlement(), 0);
     NC_CHECK(setup.ok);
     NC_CHECK(!setup.downgradedForFree);
     NC_CHECK_EQ(setup.width, 3840);
@@ -200,7 +155,7 @@ NC_TEST(ExportPresetSetup, ProKeeps4K) {
 NC_TEST(ExportPresetSetup, VerticalPresetsUnaffectedByGate) {
     // 竖屏预设（1080x1920）短边 1080，免费版无降级
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::Douyin, freeEntitlement(), 0, PerformanceMode::Balanced);
+        ExportPresetId::Douyin, freeEntitlement(), 0);
     NC_CHECK(!setup.downgradedForFree);
     NC_CHECK_EQ(setup.width, 1080);
     NC_CHECK_EQ(setup.height, 1920);
@@ -209,20 +164,21 @@ NC_TEST(ExportPresetSetup, VerticalPresetsUnaffectedByGate) {
 
 NC_TEST(ExportPresetSetup, WriterConfigPopulated) {
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::Douyin, freeEntitlement(), 0, PerformanceMode::Turbo, 8, 20);
+        ExportPresetId::Douyin, freeEntitlement(), 0, 20);
     NC_CHECK_EQ(setup.writer.width, 1080);
     NC_CHECK_EQ(setup.writer.height, 1920);
     NC_CHECK_EQ(setup.writer.crf, 20);
-    NC_CHECK_EQ(setup.writer.preset, std::string("ultrafast"));  // Turbo
-    NC_CHECK_EQ(setup.writer.threads, 8);
+    // 性能模式已移除：preset/threads 取 WriterConfig 默认值（veryfast / 自动线程）
+    NC_CHECK_EQ(setup.writer.preset, std::string("veryfast"));
+    NC_CHECK_EQ(setup.writer.threads, 0);
     NC_CHECK(setup.writer.frameRate == FrameRate::of(30));
 }
 
-NC_TEST(ExportPresetSetup, EcoModeWriterConfig) {
+NC_TEST(ExportPresetSetup, CrfDefaultsWhenZero) {
+    // crf <= 0 → 回落到默认 23
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::Reels, freeEntitlement(), 0, PerformanceMode::Eco, 8);
-    NC_CHECK_EQ(setup.writer.threads, 1);  // 省电单线程
-    NC_CHECK_EQ(setup.writer.preset, std::string("veryfast"));
+        ExportPresetId::Reels, freeEntitlement(), 0);
+    NC_CHECK_EQ(setup.writer.crf, 23);
 }
 
 NC_TEST(ExportPresetSetup, ExpiredProDowngrades) {
@@ -231,7 +187,7 @@ NC_TEST(ExportPresetSetup, ExpiredProDowngrades) {
     expired.tier = MembershipTier::Pro;
     expired.expiresAtUnix = 1000;  // 已过期
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::YouTube4K, expired, 2000, PerformanceMode::Balanced);
+        ExportPresetId::YouTube4K, expired, 2000);
     NC_CHECK(setup.downgradedForFree);
     NC_CHECK_EQ(setup.width, 1920);
 }
@@ -249,7 +205,7 @@ NC_TEST(ExportPresetSetup, ApplyPresetToPlan) {
 
     // 竖屏预设 → 覆盖尺寸/帧率/画幅适配
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::Douyin, freeEntitlement(), 0, PerformanceMode::Balanced);
+        ExportPresetId::Douyin, freeEntitlement(), 0);
     const ExportPlan applied = applyPresetToPlan(plan, setup);
     NC_CHECK_EQ(applied.width, 1080);
     NC_CHECK_EQ(applied.height, 1920);
@@ -265,7 +221,7 @@ NC_TEST(ExportPresetSetup, ApplyCustomKeepsPlanSettings) {
     plan.reframe.srcWidth = 2560;  // 存在重构图轨迹（非空即有效需 keyframes）
 
     const PresetExportSetup setup = setupPresetExport(
-        ExportPresetId::Custom, freeEntitlement(), 0, PerformanceMode::Balanced);
+        ExportPresetId::Custom, freeEntitlement(), 0);
     const ExportPlan applied = applyPresetToPlan(plan, setup);
     // Custom：尺寸/帧率/画幅适配保持原值
     NC_CHECK_EQ(applied.width, 2560);

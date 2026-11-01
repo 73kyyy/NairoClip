@@ -1470,7 +1470,7 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         int32_t out_downgraded = 0;
         char* out_preset_name = nullptr;
         char* out_warning = nullptr;
-        const auto ret = nc_export_setup_preset(gEditor, static_cast<int32_t>(jint(args, "preset_id", 0)), static_cast<int32_t>(jint(args, "mode", 0)), static_cast<int32_t>(jint(args, "cpu_cores", 0)), static_cast<int32_t>(jint(args, "crf", 0)), &out_width, &out_height, &out_fps, &out_downgraded, &out_preset_name, &out_warning);
+        const auto ret = nc_export_setup_preset(gEditor, static_cast<int32_t>(jint(args, "preset_id", 0)), static_cast<int32_t>(jint(args, "crf", 0)), &out_width, &out_height, &out_fps, &out_downgraded, &out_preset_name, &out_warning);
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         out.result.set("out_width", JsonValue::integer(out_width));
@@ -1885,7 +1885,7 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
     if (fn == "nc_export_enqueue") {
         std::uint64_t out_job_id = 0;
         char* out_error = nullptr;
-        const auto ret = nc_export_enqueue(gEditor, jstr(args, "name").c_str(), jstr(args, "out_path").c_str(), static_cast<int32_t>(jint(args, "preset_id", 0)), static_cast<int32_t>(jint(args, "mode", 0)), static_cast<int32_t>(jint(args, "include_audio", 0)), static_cast<int32_t>(jint(args, "attach_ai_label", 0)), jstr(args, "ai_label_text").c_str(), &out_job_id, &out_error);
+        const auto ret = nc_export_enqueue(gEditor, jstr(args, "name").c_str(), jstr(args, "out_path").c_str(), static_cast<int32_t>(jint(args, "preset_id", 0)), static_cast<int32_t>(jint(args, "include_audio", 0)), static_cast<int32_t>(jint(args, "attach_ai_label", 0)), jstr(args, "ai_label_text").c_str(), &out_job_id, &out_error);
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         out.result.set("out_job_id", JsonValue::integer(static_cast<std::int64_t>(out_job_id)));
@@ -1896,17 +1896,15 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         std::uint64_t out_job_id = 0;
         char* out_out_path = nullptr;
         int32_t out_preset = 0;
-        int32_t out_mode = 0;
         int32_t out_include_audio = 0;
         int32_t out_attach_ai_label = 0;
         char* out_ai_label_text = nullptr;
-        const auto ret = nc_export_poll_next(gEditor, &out_job_id, &out_out_path, &out_preset, &out_mode, &out_include_audio, &out_attach_ai_label, &out_ai_label_text);
+        const auto ret = nc_export_poll_next(gEditor, &out_job_id, &out_out_path, &out_preset, &out_include_audio, &out_attach_ai_label, &out_ai_label_text);
         out.code = ret;
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         out.result.set("out_job_id", JsonValue::integer(static_cast<std::int64_t>(out_job_id)));
         out.result.set("out_out_path", JsonValue::string(takeString(out_out_path)));
         out.result.set("out_preset", JsonValue::integer(out_preset));
-        out.result.set("out_mode", JsonValue::integer(out_mode));
         out.result.set("out_include_audio", JsonValue::integer(out_include_audio));
         out.result.set("out_attach_ai_label", JsonValue::integer(out_attach_ai_label));
         out.result.set("out_ai_label_text", JsonValue::string(takeString(out_ai_label_text)));

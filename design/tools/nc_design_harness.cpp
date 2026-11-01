@@ -1250,14 +1250,13 @@ int onExportProgress(double progress) {
     return gExportCancel.load() ? 0 : 1;
 }
 
-void runExport(std::string path, int presetId, int mode, int attachLabel) {
-    int cores = static_cast<int>(std::thread::hardware_concurrency());
+void runExport(std::string path, int presetId, int attachLabel) {
     int width = 0, height = 0, fps = 0, downgraded = 0;
     char* presetName = nullptr;
     char* warning = nullptr;
     {
         std::lock_guard<std::mutex> lock(gMutex);
-        nc_export_setup_preset(gEditor, presetId, mode, cores, 23, &width, &height, &fps, &downgraded,
+        nc_export_setup_preset(gEditor, presetId, 23, &width, &height, &fps, &downgraded,
                                &presetName, &warning);
         nc_free_string(presetName);
         nc_free_string(warning);
@@ -1383,8 +1382,6 @@ Response handleApi(const Request& req) {
     if (req.path == "/api/estimate") {
         // 真实资源预估 + 权益降级判定（nc_export_estimate / nc_would_clamp_export）
         const int presetId = req.query.count("preset") ? std::stoi(req.query.at("preset")) : 1;
-        const int mode = req.query.count("mode") ? std::stoi(req.query.at("mode")) : 1;
-        const int cores = static_cast<int>(std::thread::hardware_concurrency());
         int width = 0, height = 0, fps = 0, downgraded = 0;
         char* presetName = nullptr;
         char* warning = nullptr;
@@ -1394,7 +1391,7 @@ Response handleApi(const Request& req) {
             std::lock_guard<std::mutex> lock(gMutex);
             durationUs = nc_project_duration_us(gEditor);
             queueSeconds = durationUs;
-            nc_export_setup_preset(gEditor, presetId, mode, cores, 23, &width, &height, &fps,
+            nc_export_setup_preset(gEditor, presetId, 23, &width, &height, &fps,
                                    &downgraded, &presetName, &warning);
         }
         int clampWidth = 0, clampHeight = 0;
@@ -1786,7 +1783,6 @@ Response handleApi(const Request& req) {
         gExportPath = jstr(reqJson, "path", (rootDir + "/out/nairoclip_export.mp4").c_str());
         gExporting.store(true);
         std::thread(runExport, gExportPath, static_cast<int>(jint(reqJson, "preset", 1)),
-                    static_cast<int>(jint(reqJson, "mode", 1)),
                     jbool(reqJson, "attach_ai_label", true) ? 1 : 0)
             .detach();
         return jsonResponse("{\"ok\":true}");

@@ -1065,7 +1065,7 @@ int32_t nc_proxy_usage(const NcEditor* editor, int32_t* out_ready_count,
 /// 说明：core 不触碰文件系统，平台层据记录列表删除文件。
 int32_t nc_proxy_clear_records(NcEditor* editor);
 
-// ---- 导出预设 / 资源预估 / 性能模式（文档 6.1「导出页 & 快速导出预设库」）----
+// ---- 导出预设 / 资源预估（文档 6.1「导出页 & 快速导出预设库」）----
 
 /// 列举内置预设（供 UI 快速预设列表）。
 /// - out_ids：出参（可空）预设 ID 数组；capacity：数组容量；
@@ -1090,14 +1090,13 @@ int32_t nc_export_estimate(int32_t width, int32_t height, int32_t fps, int64_t d
                            int64_t* out_file_size_bytes, double* out_render_seconds,
                            char** out_size_text, char** out_time_text);
 
-/// 组装预设导出配置（含 4K 权益门控与性能模式）。
-/// - preset_id：预设 ID；mode：性能模式（0=极速 1=平衡 2=省电）；
-/// - cpu_cores：设备核心数（0 = 未知）；
+/// 组装预设导出配置（含 4K 权益门控）。
+/// - preset_id：预设 ID；
 /// - 出参均可空：out_width/out_height/out_fps/out_downgraded/out_crf/out_threads/
 ///   out_preset_name（编码预置名，需 nc_free_string）；
 /// - out_warning：出参（可空）降级提示（需 nc_free_string；无降级时为空串）。
-int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id, int32_t mode,
-                               int32_t cpu_cores, int32_t crf, int32_t* out_width,
+int32_t nc_export_setup_preset(NcEditor* editor, int32_t preset_id,
+                               int32_t crf, int32_t* out_width,
                                int32_t* out_height, int32_t* out_fps, int32_t* out_downgraded,
                                char** out_preset_name, char** out_warning);
 
@@ -1444,28 +1443,27 @@ int32_t nc_chapter_clear(NcEditor* editor, char** out_error);
 
 // ---- 导出队列（文档第 6 部分「二、导出队列管理」+ 第 4 部分「后台导出」）----
 
-/// 入队一个导出任务。参数同 nc_export_run，另加名称/预设/性能模式。
+/// 入队一个导出任务。参数同 nc_export_run，另加名称/预设。
 /// - name：任务展示名（如「春游Vlog」）；
 /// - preset_id：导出预设（0 = 自定义，其余见 nc_export_presets）；
-/// - mode：性能模式（0 极速 / 1 平衡 / 2 省电）；
 /// - include_audio / attach_ai_label / ai_label_text：同 nc_export_run；
 /// - out_job_id：出参（可空）任务 ID；
 /// - out_error：出参（可空）失败原因（如队列已满，需 nc_free_string）。
 /// 返回：NC_OK 或错误码（Unsupported = 队列已满，弹付费墙）。
 int32_t nc_export_enqueue(NcEditor* editor, const char* name, const char* out_path,
-                          int32_t preset_id, int32_t mode, int32_t include_audio,
+                          int32_t preset_id, int32_t include_audio,
                           int32_t attach_ai_label, const char* ai_label_text,
                           uint64_t* out_job_id, char** out_error);
 
 /// 查询下一个应执行的任务（调度决策；无 = 返回 0）。
 /// - out_job_id：出参（可空）任务 ID；
 /// - out_out_path：出参（可空）输出路径（需 nc_free_string）；
-/// - out_preset/out_mode：出参（可空）预设与性能模式；
+/// - out_preset：出参（可空）预设；
 /// - out_include_audio/out_attach_ai_label：出参（可空）；
 /// - out_ai_label_text：出参（可空）标识文案（需 nc_free_string）。
 /// 返回：1 = 有任务；0 = 无；负数 = 参数错误。
 int32_t nc_export_poll_next(NcEditor* editor, uint64_t* out_job_id, char** out_out_path,
-                            int32_t* out_preset, int32_t* out_mode,
+                            int32_t* out_preset,
                             int32_t* out_include_audio, int32_t* out_attach_ai_label,
                             char** out_ai_label_text);
 

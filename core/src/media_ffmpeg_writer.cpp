@@ -240,7 +240,7 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
             }
         }
         (void)crfErr;  // crf 不被识别时用编码器默认码控（不阻断）
-        // 性能模式：编码线程上限（0 = 编码器自动）
+        // 编码线程上限（0 = 编码器自动）
         if (config.threads > 0) {
             ctx->thread_count = config.threads;
         }

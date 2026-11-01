@@ -408,7 +408,7 @@
   NC_API.nc_export_preset_info = (args = {}) => call("nc_export_preset_info", args);
   /** int32_t nc_export_estimate(width, height, fps, duration_us, video_bitrate_mbps, include_audio, out_file_size_bytes, out_render_seconds, out_size_text, out_time_text) */
   NC_API.nc_export_estimate = (args = {}) => call("nc_export_estimate", args);
-  /** int32_t nc_export_setup_preset(preset_id, mode, cpu_cores, crf, out_width, out_height, out_fps, out_downgraded, out_preset_name, out_warning) */
+  /** int32_t nc_export_setup_preset(preset_id, crf, out_width, out_height, out_fps, out_downgraded, out_preset_name, out_warning) */
   NC_API.nc_export_setup_preset = (args = {}) => call("nc_export_setup_preset", args);
   /** int32_t nc_speech_analyze(asset_id, out_speech_us, out_silence_us, out_keep_ratio, out_segment_count, out_note, out_error) */
   NC_API.nc_speech_analyze = (args = {}) => call("nc_speech_analyze", args);
@@ -488,9 +488,9 @@
   NC_API.nc_regeneration_clear = (args = {}) => call("nc_regeneration_clear", args);
   /** int32_t nc_chapter_clear(out_error) */
   NC_API.nc_chapter_clear = (args = {}) => call("nc_chapter_clear", args);
-  /** int32_t nc_export_enqueue(name, out_path, preset_id, mode, include_audio, attach_ai_label, ai_label_text, out_job_id, out_error) */
+  /** int32_t nc_export_enqueue(name, out_path, preset_id, include_audio, attach_ai_label, ai_label_text, out_job_id, out_error) */
   NC_API.nc_export_enqueue = (args = {}) => call("nc_export_enqueue", args);
-  /** int32_t nc_export_poll_next(out_job_id, out_out_path, out_preset, out_mode, out_include_audio, out_attach_ai_label, out_ai_label_text) */
+  /** int32_t nc_export_poll_next(out_job_id, out_out_path, out_preset, out_include_audio, out_attach_ai_label, out_ai_label_text) */
   NC_API.nc_export_poll_next = (args = {}) => call("nc_export_poll_next", args);
   /** int32_t nc_export_job_state(job_id, out_state, out_progress, out_frames_written, out_note) */
   NC_API.nc_export_job_state = (args = {}) => call("nc_export_job_state", args);

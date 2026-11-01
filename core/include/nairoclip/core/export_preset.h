@@ -13,52 +13,16 @@ namespace nairoclip {
 namespace core {
 
 // =============================================================================
-// 导出预设 / 资源预估 / 性能模式（文档第 6 部分 6.1、第 4 部分「后台导出」）
+// 导出预设 / 资源预估（文档第 6 部分 6.1、第 4 部分「后台导出」）
 // =============================================================================
 // 产品对应：
 //   · 快速预设：📱抖音9:16 📷Reels9:16 ▶️YouTube16:9 4K 🎵Shorts9:16 💬视频号9:16 ⚙️自定义；
 //   · 资源预估：📊「生成文件大小: 约245MB / 本地渲染耗时: 约1分15秒」；
-//   · 性能模式：○极速(暂停编辑，最快) ●平衡(可继续编辑) ○省电(降速，后台静默)。
 //
 // 本模块定位（纯计算 + 配置组装，零文件系统/线程依赖）：
 //   · builtinExportPresets：预设的单一事实来源（UI 列表与导出执行共用）；
-//   · performanceTuning：性能模式 → 编码器参数（真实作用于 FFmpeg 写入器）；
 //   · estimateExport：文件大小/渲染耗时估算（可被设备基准覆盖）；
 //   · setupPresetExport：预设 + 权益 → 完整写入配置（4K 需 Pro，非 Pro 自动降级）。
-
-// ---------------------------------------------------------------------------
-// 性能模式
-// ---------------------------------------------------------------------------
-
-/// 导出性能模式（文档第 4 部分「导出时性能模式」）。
-enum class PerformanceMode {
-    Turbo = 0,     ///< 极速模式（暂停编辑，最快）
-    Balanced = 1,  ///< 平衡模式（可继续编辑其他项目；默认）
-    Eco = 2,       ///< 省电模式（降速，后台静默）
-};
-
-/// 性能模式对应的编码调优（真实作用于写入器）。
-struct PerformanceTuning {
-    /// 编码器预置名（x264/x265 通用：ultrafast..placebo）。
-    std::string encoderPreset = "veryfast";
-    /// 编码线程数（0 = 编码器自动；>0 为显式上限）。
-    int threads = 0;
-    /// 平台层是否应暂停编辑交互（Turbo = true；对应「暂停编辑，最快」）。
-    bool pauseEditing = false;
-    /// 说明文案（供 UI 直接展示）。
-    std::string description;
-};
-
-/// 性能模式调优：由模式 + 设备核心数推导编码参数。
-/// - cpuCores：设备 CPU 核心数（0 = 未知，按 4 核保守处理）；
-/// - Turbo：ultrafast + 全核 + 暂停编辑；Balanced：veryfast + 保留 1 核；
-///   Eco：veryfast + 单核（降速静默，减少发热与电量消耗）。
-PerformanceTuning performanceTuning(PerformanceMode mode, int cpuCores = 0);
-
-/// 模式名称（"turbo" / "balanced" / "eco"；序列化与 UI 用）。
-const char* performanceModeName(PerformanceMode mode);
-/// 从整数解析（0/1/2；非法返回 false）。
-bool performanceModeFromInt(int value, PerformanceMode& out);
 
 // ---------------------------------------------------------------------------
 // 导出预设
@@ -165,14 +129,12 @@ struct PresetExportSetup {
     std::vector<std::string> warnings;
 };
 
-/// 组装预设导出设置（含权益门控与性能模式）。
+/// 组装预设导出设置（含权益门控）。
 /// - preset：预设 ID；
 /// - entitlement / nowUnix：用于 4K 门控（非 Pro 自动降级 1080p 并写入 warnings）；
-/// - mode / cpuCores：性能模式 → 编码预置与线程数；
 /// - crf：H.264 质量（默认 23）。
 PresetExportSetup setupPresetExport(ExportPresetId preset, const Entitlement& entitlement,
-                                    std::int64_t nowUnix, PerformanceMode mode,
-                                    int cpuCores = 0, int crf = 23);
+                                    std::int64_t nowUnix, int crf = 23);
 
 /// 把预设设置应用到导出计划（返回覆盖后的副本；尺寸为 0 时保持原值）。
 /// 注意：仅覆盖 width/height/frameFit；时长/轨道内容不变。
