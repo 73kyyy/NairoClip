@@ -238,26 +238,36 @@
     if (!ST.open) return false;
     const st = ST.fx || {};
 
-    // 1. 行内展开
+    // 1. 行内展开（效果列表的 ▶）
     if (st.openId) {
       st.openId = 0;
       renderBody();
       return true;
     }
-    // 2. 多选
+    // 2. 多选态
     if (st.multi) {
       st.multi = false;
       st.picked = {};
       renderBody();
       return true;
     }
-    // 3. 宫格选中项 → 参数页
+    // 3. 宫格选中项（已进入该预设的参数页）→ 回到宫格
     if (ST.gridPick) {
       ST.gridPick = null;
       renderBody();
       return true;
     }
-    // 4. 关闭面板
+    /* 4. dual 模式的第二页（曲线页）→ 回到第一页。
+       必须是「全部面板通用」的处理：9 个 dual 面板
+       （调节/变速/关键帧等）都有这个第二页，
+       不处理的话在第一页按返回会直接关掉面板，用户会觉得跳了一层。 */
+    if (ST.spec && ST.spec.mode === 'dual' && ST.page === 1) {
+      ST.page = 0;
+      renderSeg();
+      renderBody();
+      return true;
+    }
+    // 5. 关闭面板（回到二级工具栏，由原生继续处理后续层级）
     close();
     return true;
   }
@@ -967,7 +977,7 @@
   /* =========================================================================
      效果列表（画面 / 氛围 / 动感 / 人物特效 共用）
      -------------------------------------------------------------------------
-     每行： ▶ 三角  [icon] 名称 👑  ⋯  👁  ☰
+     每行： ▶ 三角  [icon] 名称  ⋯  👁  ☰
      交互：
        ▶      原地展开 / 收起该效果的调节区
        ⋯      复制特效 / 删除

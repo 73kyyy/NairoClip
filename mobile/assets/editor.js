@@ -2821,7 +2821,26 @@ window.L3_HOST = {
     const s = selClip();
     return s ? { track: s.track, clip: s.clip } : null;
   },
-  edit: (payload) => edit(payload),
+  /* 面板内的写入：只刷数据，不重建时间轴。
+     为什么不用 edit()：它会 renderAll()，而拖强度滑块是连续操作，
+     每帧重建整条时间轴会明显掉帧，正在拖的手感就是「黏」。
+     面板里的改动不改变轨道结构，所以只换数据足够。 */
+  edit: (payload) => {
+    if (!Engine.bridge) throw new Error('引擎未连接');
+    const op = payload && payload.op;
+    const args = Object.assign({}, payload);
+    delete args.op;
+    const r = engineCall(op, args);
+    if (!r || !r.ok) {
+      throw new Error((r && r.message) || `操作失败（${(r && r.code) ?? '未知'}）`);
+    }
+    applyState(fetchState());
+    /* 轨道上的片段视觉（缩略图/滤镜色/不透明度）确实依赖这些数据，
+       但**不需要** fitCanvas/renderBar/syncPreview 这一整套。
+       只重建轨道 DOM，代价小得多。 */
+    renderTracks();
+    return r;
+  },
   /* 直接调 C ABI（AI 任务等不经过 edit 分发的入口） */
   callNative: (fn, args) => engineCall(fn, args),
   apiBase: () => Engine.apiBase(),

@@ -205,7 +205,7 @@ std::string BuildState(NcEditor* ed) {
             // 只给 id/type/value/enabled —— 名称由前端按 type 映射，
             // 协议里不传中文字符串（省字节，改名也不必动后端）。
             j += ",\"effects\":[";
-            const int32_t enCount = nc_effect_count(ed, ti);
+            const int32_t enCount = nc_effect_count(ed, ti, cid);
             int32_t enWritten = 0;   // 用独立计数控制逗号：读失败时跳过，不能留下多余逗号
             for (int32_t ei = 0; ei < enCount; ++ei) {
                 uint64_t eid = 0;
