@@ -80,6 +80,37 @@ jobs:
             exit 0
           fi
           echo "Android APK run id=$RUN_ID"
+          # ---- 提取 APK 构建的真实错误行 ----
+          # 动机：网页日志只保留失败步骤的尾部（全是 Gradle 栈帧），
+          # 而 `e:` / `error:` 原文在中段被截断。这里直接拉完整日志，
+          # 把可定位的行写进 ci-status，免去每轮靠猜。
+          APK_JOB=$(gh api "/repos/$REPO/actions/runs/$RUN_ID/jobs" \
+                      --jq '.jobs[0].id' 2>/dev/null || true)
+          if [ -n "${APK_JOB:-}" ]; then
+            if gh api "/repos/$REPO/actions/jobs/$APK_JOB/logs" \
+                 > /tmp/apk.log 2>/dev/null; then
+              {
+                echo "===== Android APK 日志提炼（原文 $(wc -l < /tmp/apk.log) 行）====="
+                echo
+                echo "--- 错误行 ---"
+                grep -nE '(^e: |error:|错误:|error;|Unresolved reference|What went wrong|Caused by:|FAILURE:|Execution failed for task)' \
+                  /tmp/apk.log | head -80 || echo "（未匹配）"
+                echo
+                echo "--- 首个 error 前后各 20 行 ---"
+                first=$(grep -nE '(^e: |error:|错误:)' /tmp/apk.log | head -1 | cut -d: -f1)
+                if [ -n "${first:-}" ]; then
+                  start=$(( first > 20 ? first - 20 : 1 ))
+                  sed -n "${start},$(( first + 20 ))p" /tmp/apk.log
+                else
+                  echo "（无 error 行，输出尾部 80 行）"
+                  tail -80 /tmp/apk.log
+                fi
+              } > docs/ci-status/apk-errors.txt 2>&1
+              echo "已写出 docs/ci-status/apk-errors.txt"
+            else
+              echo "（拉取 APK 日志失败：可能需要 admin 权限）"
+            fi
+          fi
           # 顺带取 CI 的 LUT 专项证据（与 Android 诊断同一个思路）
           CI_RUN=$(gh api "/repos/$REPO/actions/workflows/ci.yml/runs?per_page=1" \
                      --jq '.workflow_runs[0].id' 2>/dev/null || true)

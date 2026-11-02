@@ -296,8 +296,43 @@ jobs:
             echo '```'
             grep -E '^\[deps\]' /tmp/gradle.log | head -60 || echo "（无 [deps] 输出）"
             echo '```'
+            echo ""
+            echo "## 编译错误（若无则该段为空）"
+            echo ""
+            echo '```'
+            # 只抓真正的错误行，避免被几千行栈帧淹没。
+            # 之前这里只输出 [deps]，失败时看不到任何 AAPT/Kotlin/clang 原文，
+            # 连着几轮只能看到「Process completed with exit code 1」。
+            grep -nE '(^e: |error:|错误:|error;|Unresolved reference|What went wrong|Caused by:|FAILURE:)' \
+              /tmp/gradle.log | head -120 || echo "（未匹配到错误行）"
+            echo '```'
+            echo ""
+            echo "## 上下文（首个 error 前后各 15 行）"
+            echo ""
+            echo '```'
+            first=$(grep -nE '(^e: |error:|错误:)' /tmp/gradle.log | head -1 | cut -d: -f1)
+            if [ -n "${first:-}" ]; then
+              start=$(( first > 15 ? first - 15 : 1 ))
+              sed -n "${start},$(( first + 15 ))p" /tmp/gradle.log
+            else
+              echo "（未找到 error 行；输出日志尾部 120 行）"
+              tail -120 /tmp/gradle.log
+            fi
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+
+      # 上传完整 gradle 日志（artifact 不需要 admin 权限）。
+      # 网页日志只保留失败步骤尾部，`e:` / `error:` 原文常被截断，
+      # 上一轮 APK 失败就是因为拿不到原文而无法定位。
+      - name: Upload gradle log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-log
+          path: /tmp/gradle.log
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Show APK
         run: find android -name '*.apk' -exec ls -lh {} \;
