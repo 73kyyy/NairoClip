@@ -204,7 +204,7 @@ body { -webkit-text-size-adjust: 100%; }
 }
 
 /* ---- 调整图层面板 ---- */
-.adj-hint { font-size: 11px; color: var(--text-dim, #6E7472); padding: 8px 2px 10px; }
+.adj-hint { font-size: 11px; color: var(--text-low); padding: 8px 2px 10px; }
 .adj-sec { border-top: 1px solid rgba(255,255,255,.07); padding: 10px 0; }
 .adj-sec-head { font-size: 12px; color: #D2D8D5; margin-bottom: 8px; }
 .adj-effs { display: flex; flex-direction: column; gap: 6px; }
@@ -214,13 +214,13 @@ body { -webkit-text-size-adjust: 100%; }
 .adj-eff span.off { color: #4B5150; text-decoration: line-through; }
 .adj-del { border: 0; background: none; color: #E06C5A; font-size: 12px;
            padding: 4px 8px; -webkit-appearance: none; appearance: none; }
-.adj-empty { font-size: 11px; color: var(--text-dim, #6E7472); padding: 6px 2px; }
+.adj-empty { font-size: 11px; color: var(--text-low); padding: 6px 2px; }
 .adj-add { display: flex; gap: 8px; margin-top: 8px; }
 .adj-add select { flex: 1; background: rgba(255,255,255,.06); color: #D2D8D5;
                   border: 0; border-radius: 8px; padding: 8px; font-size: 12px; }
 .adj-lut { display: flex; align-items: center; gap: 10px; }
 .adj-lut input[type=range] { flex: 1; accent-color: var(--accent-pick); }
-.adj-lut-path { font-size: 10px; color: var(--text-dim, #6E7472);
+.adj-lut-path { font-size: 10px; color: var(--text-low);
                 margin: 6px 0; word-break: break-all; }
 .adj-add .btn { padding: 8px 14px; font-size: 12px; }
 
