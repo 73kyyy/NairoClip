@@ -63,7 +63,11 @@
 
 > 编号 `P-xx` 与功能编号 `Bx-x` 对应。
 
-### P-01 ⬜ LUT 调色面板（对应 B1-2）
+### P-01 ✅ LUT 调色面板（对应 B1-2）
+
+**实现位置**：`l3-panel.js:757` → `op:'lut'` → `nc_set_clip_lut`。
+预设网格**刻意不做**：`nc_lut_preset_count` 恒返回 0（内核不内置 LUT 文件，
+造假日设会让用户点了没反应），UI 走「导入 .cube」。
 
 **入口**：编辑器 → 选中片段 → L3 面板「调色」
 
@@ -360,7 +364,10 @@
 
 ---
 
-### P-14 ⬜ 转场 UI 入口（**最高优先级**）
+### P-14 ✅ 转场 UI 入口
+
+**实现位置**：`editor.js:798` 在片段交界处渲染标记，点击弹出转场面板；
+写入走 `op:'transition'` → `nc_add_transition`。
 
 **这是所有 UI 缺口里性价比最高的一项。**
 
@@ -430,7 +437,9 @@
 
 ---
 
-### P-16 ⬜ 混合模式面板接引擎
+### P-16 ✅ 混合模式面板接引擎
+
+**实现位置**：`l3-panel.js:748` → `op:'blend'` → `nc_set_clip_blend_mode`。
 
 **现状**：`l3-spec.js` 中 `pipmix` 面板的 `note` 自己写着：
 
@@ -448,7 +457,9 @@
 
 ---
 
-### P-17 ⬜ 冻结/倒放面板接引擎
+### P-17 ✅ 冻结/倒放面板接引擎
+
+**实现位置**：`l3-panel.js:771/779` → `op:'freeze'/'reverse'`。
 
 **现状**：`freeze` / `reverse` 面板有 `note` 提示「需选中片段后使用」，
 但实际是否接通需核实（`nc_freeze_frame` / `nc_reverse_clip` ABI 存在）。
@@ -501,7 +512,10 @@
 
 ---
 
-### P-19 ⬜ 调整图层面板 + 图层轨道 UI
+### P-19 ✅ 调整图层面板 + 图层轨道 UI
+
+**实现位置**：`editor.js` 的 `openAdjustmentPanel`；JNI 补 `adjust_effect_add/remove/get`、
+`adjust_lut`；C ABI 新增 `nc_adjustment_effect_get`。
 
 配合 B2-6。需要：
 
@@ -515,7 +529,10 @@
 
 ---
 
-### P-20 ⬜ 轨道重排 + 高度调节 UI
+### P-20 ✅ 轨道重排 + 高度调节 UI
+
+**实现位置**：长按轨道头拖动 → `op:'nc_move_track'`（本轮补进 JNI）；
+高度/折叠走 `nc_set_track_view`。
 
 配合 B2-5、B2-10。
 
@@ -531,7 +548,10 @@
 
 ---
 
-### P-21 ⬜ 轨道成组 UI
+### P-21 ✅ 轨道成组 UI
+
+**实现位置**：本轮新增 8 个 C ABI（`nc_create_track_group` 等）+ JNI
+`group_create/remove/flag`；图层面板有组行与「＋ 组成轨道组」入口。
 
 配合 B2-7。
 
@@ -548,7 +568,11 @@
 
 ---
 
-### P-22 ⬜ 素材区拖动 + 捏合
+### P-22 🟡 素材区拖动 + 捏合
+
+**已实现**：长按拖动排序（`attachAssetReorder` → `nc_asset_reorder`）。
+**未实现**：双指捏合切换列数 —— 素材区当前是**纵向列表**（`display:flex` 单行），
+不是网格，捏合切列没有意义；要做需先把布局改成网格。属设计决策，待确认。
 
 配合 B2-9、B2-11。
 
