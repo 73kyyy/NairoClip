@@ -2077,6 +2077,15 @@ Result SetClipShakeCommand::revert(Project& project) {
     return Result::ok();
 }
 
+SetClipXformCommand::SetClipXformCommand(SequenceId sequenceId, TrackId trackId,
+                                         ClipId clipId, XformKind kind,
+                                         XformParams params)
+    : sequenceId_(sequenceId),
+      trackId_(trackId),
+      clipId_(clipId),
+      kind_(kind),
+      params_(params) {}
+
 Result SetClipXformCommand::apply(Project& project) {
     Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
     if (clip == nullptr) {
