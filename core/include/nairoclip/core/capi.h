@@ -204,6 +204,40 @@ int32_t nc_rename_track(NcEditor* editor, int32_t track_index, const char* new_n
 /// new_index 语义为「移动后」的位置（0 在最上方）。
 /// 锁定轨道拒绝；越界拒绝并返回 NC_ERROR_OUT_OF_RANGE。
 int32_t nc_move_track(NcEditor* editor, int32_t track_index, int32_t new_index);
+// ---- 轨道组（B2-7）----
+//
+// 产品场景：主画面 = 视频轨 + 其分离出的音频轨 + 字幕轨，用户希望
+// 「一起隐藏 / 一起静音 / 一起挪」，而不必逐条点。
+//
+// 约束由 core 保证：一条轨道只能属于一个组；成员必须存在且不能已在别的组里。
+// 组操作都走撤销栈，一次撤销还原全部成员。
+
+/// 创建轨道组。track_indices 传轨道下标（0 起，即 nc_track_get 的 track_index）。
+/// - name 可为 NULL（内核给默认名「组 N」）；
+/// - out_group_id：出参（可空）新组 ID，供后续组操作使用。
+/// 成员不存在 / 已在其它组 / 列表为空 → NC_ERROR_INVALID_ARGUMENT。
+int32_t nc_create_track_group(NcEditor* editor, const int32_t* track_indices,
+                              int32_t count, const char* name,
+                              uint64_t* out_group_id);
+
+/// 解散轨道组（成员轨道本身保留）。groupId 不存在 → NC_ERROR_NOT_FOUND。
+int32_t nc_remove_track_group(NcEditor* editor, uint64_t group_id);
+
+/// 组内联动静音 / 隐藏 / 锁定（1/0）。一次操作作用于全部成员，可整体撤销。
+int32_t nc_set_group_muted(NcEditor* editor, uint64_t group_id, int32_t muted);
+int32_t nc_set_group_hidden(NcEditor* editor, uint64_t group_id, int32_t hidden);
+int32_t nc_set_group_locked(NcEditor* editor, uint64_t group_id, int32_t locked);
+
+/// 组数量 / 按序号读取组信息。
+/// - out_track_count：成员工数；
+/// - out_name：出参（不可空）组名，需 nc_free_string。
+int32_t nc_group_count(const NcEditor* editor);
+int32_t nc_group_get(const NcEditor* editor, int32_t index, uint64_t* out_group_id,
+                     char** out_name, int32_t* out_track_count);
+
+/// 查询某条轨道所属的组 ID（不在任何组则返回 0）。
+uint64_t nc_track_group_of(const NcEditor* editor, int32_t track_index);
+
 /// 设置轨道锁定 / 静音 / 隐藏（1/0）。
 int32_t nc_set_track_locked(NcEditor* editor, int32_t track_index, int32_t locked);
 int32_t nc_set_track_muted(NcEditor* editor, int32_t track_index, int32_t muted);

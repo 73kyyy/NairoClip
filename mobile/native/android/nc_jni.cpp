@@ -188,6 +188,10 @@ std::string BuildState(NcEditor* ed) {
         j += ",\"hidden\":" + std::to_string(hidden);
         j += ",\"solo\":" + std::to_string(solo);
         j += ",\"gain_db\":" + Num(gain);
+        /* 所属轨道组（B2-7）。0 = 未分组。前端据此画组框与联动开关。
+           放这里而不是另开一个 groups 数组：轨道组的作用就是「这些轨是一伙的」，
+           挂在轨道上读起来最直接，也免去前端再做一次 id→tracks 的匹配。 */
+        j += ",\"group_id\":" + std::to_string(nc_track_group_of(ed, ti));
 
         // 轨道视图（B2-10）：高度与折叠。由独立的 nc_track_get_view 提供，
         // nc_track_get 不返回这两个字段。
@@ -273,6 +277,28 @@ std::string BuildState(NcEditor* ed) {
     }
     j += "],";
 
+    /* 轨道组清单（B2-7）：组名与成员工数。
+       成员明细不在这里重复下发 —— 每条轨道已带 group_id，
+       前端按 group_id 聚合即可，无需两处保持一致。 */
+    j += "\"groups\":[";
+    {
+        const int32_t gc = nc_group_count(ed);
+        for (int32_t gi = 0; gi < gc; ++gi) {
+            if (gi) j += ",";
+            uint64_t gid = 0;
+            int32_t gcount = 0;
+            char* gname = nullptr;
+            if (nc_group_get(ed, gi, &gid, &gname, &gcount) != NC_OK) {
+                j += "{}";
+                continue;
+            }
+            j += "{\"id\":" + std::to_string(gid);
+            j += ",\"name\":\"" + JEsc(gname ? gname : "") + "\"";
+            j += ",\"track_count\":" + std::to_string(gcount) + "}";
+            if (gname) nc_free_string(gname);
+        }
+    }
+    j += "],";
     j += "\"assets\":[";
     const int32_t an = nc_asset_count(ed);
     for (int32_t ai = 0; ai < an; ++ai) {
@@ -717,6 +743,58 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
             ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
             lp.empty() ? nullptr : lp.c_str(), JNum(a, "strength", 1.0));
         *out = rc == NC_OK ? Ok("") : Err("设置调整图层 LUT 失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    /* 轨道组（B2-7）。创建时前端传轨道下标数组，这里转成 int32_t 序列交给 ABI。 */
+    if (op == "group_create") {
+        // int32_t nc_create_track_group(editor, track_indices, count, name, out_group_id)
+        /* 用仓库既有的 JVecU64 读整数数组。
+           不要用 JStrField —— 它只处理带引号的字符串值，
+           遇到 [ 会直接返回空串，导致「永远未选择轨道」。 */
+        std::vector<uint64_t> raw;
+        if (!JVecU64(a, "track_indices", &raw)) {
+            *out = Err("未选择轨道");
+            return true;
+        }
+        std::vector<int32_t> idxs;
+        idxs.reserve(raw.size());
+        for (uint64_t v : raw) {
+            if (v > 0x7fffffffULL) {
+                *out = Err("轨道下标超出范围");
+                return true;
+            }
+            idxs.push_back(static_cast<int32_t>(v));
+        }
+        uint64_t gid = 0;
+        const std::string gname = JStrField(a, "name");
+        const int32_t rc = nc_create_track_group(
+            ed, idxs.data(), static_cast<int32_t>(idxs.size()),
+            gname.empty() ? nullptr : gname.c_str(), &gid);
+        *out = rc == NC_OK ? Ok("{\"group_id\":" + std::to_string(gid) + "}")
+                           : Err("创建轨道组失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "group_remove") {
+        const int32_t rc = nc_remove_track_group(
+            ed, static_cast<uint64_t>(JInt(a, "group_id", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("解组失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "group_flag") {
+        /* 组内联动开关。flag 决定调哪个 ABI —— 三个函数签名一致，
+           只有语义不同，用 name 分支比开三个 op 名更省事。 */
+        const uint64_t gid = static_cast<uint64_t>(JInt(a, "group_id", 0));
+        const std::string flag = JStrField(a, "flag");
+        const int32_t val = static_cast<int32_t>(JInt(a, "value", 0));
+        int32_t rc = 0;
+        if (flag == "hidden")      rc = nc_set_group_hidden(ed, gid, val);
+        else if (flag == "muted")  rc = nc_set_group_muted(ed, gid, val);
+        else if (flag == "locked") rc = nc_set_group_locked(ed, gid, val);
+        else {
+            *out = Err("未知的组标志：" + flag);
+            return true;
+        }
+        *out = rc == NC_OK ? Ok("") : Err("设置组标志失败，错误码 " + std::to_string(rc));
         return true;
     }
     if (op == "nc_track_accepts_media") {

@@ -31,6 +31,7 @@ const NEED = {
 
 const S = {
   tracks: [],
+  groups: [],           // 轨道组（B2-7）：{id, name, trackCount}
   assets: [],
   subtitles: [],
   markers: [],
@@ -117,6 +118,9 @@ function applyState(st) {
   S.assets = (st.assets || []).map((a) => ({
     id: a.id, name: a.name, dur: a.duration_us / 1e6, kind: a.type
   }));
+  S.groups = (st.groups || []).map((g) => ({
+    id: g.id, name: g.name, trackCount: g.track_count || 0
+  }));
   S.tracks = (st.tracks || []).map((t) => ({
     id: t.id, index: t.index, type: t.type, kind: kindOf(t.type), name: t.name,
     hidden: t.hidden, locked: t.locked, muted: t.muted,
@@ -128,6 +132,8 @@ function applyState(st) {
     /* 调整图层专有（P-19）：后端只在 type==3 时下发，其余轨道为 undefined。
        前端据「有没有这个字段」决定是否显示齿轮/斜纹，不靠 kind 猜。 */
     adjustment: t.adjustment || null,
+    /* 所属轨道组（B2-7）。0 = 未分组。 */
+    groupId: t.group_id || 0,
     clips: (t.clips || []).map((c) => {
       const asset = (st.assets || []).find((a) => a.id === c.asset_id);
       return {
@@ -965,7 +971,9 @@ function renderTracksBody() {
     const row = document.createElement('div');
     /* 调整图层（P-19）用独立 class：CSS 给斜纹底，视觉上与普通轨道区分。
        齿轮不放这里 —— 时间轴行要响应片段拖拽/选中，按钮放轨道头更稳。 */
-    row.className = 'trow' + (tr.kind === 'adjustment' ? ' trow-adj' : '');
+    row.className = 'trow'
+      + (tr.kind === 'adjustment' ? ' trow-adj' : '')
+      + (tr.groupId ? ' trow-grouped' : '');   // 组内成员：左侧竖线（B2-7）
     /* 轨道高度 / 折叠（B2-10）：每轨独立，来自引擎 state.tracks[i].height_px。
        折叠时只留 18px 细条（够放转场标记与拖动把手，仍可点开）。
        范围 24~200 与 core 的 Track::heightPx 一致，这里再夹一次，
@@ -1043,7 +1051,11 @@ function renderHeads() {
     g.appendChild(row);
     const nm = document.createElement('span');
     nm.className = 'fname';
-    nm.textContent = tr.name;
+    /* 组内成员在名字前加组标记：用户一眼看出「这条被组联动管着」。
+       不加组名 —— 轨道头只有 42px 宽，塞不下，组名在图层面板里看。 */
+    const grp = tr.groupId ? (S.groups || []).find((x) => x.id === tr.groupId) : null;
+    nm.textContent = grp ? `▏${tr.name}` : tr.name;
+    if (grp) nm.title = `组：${grp.name}`;
     g.appendChild(nm);
 
     /* 高度拖拽把手：贴在轨道头下边缘。
@@ -2764,6 +2776,67 @@ function showLayerSheet() {
       E.sheetList.appendChild(row);
     });
   }
+  /* 已有轨道组：每组一行，显示组名与联动开关（B2-7）。
+     放在轨道列表之后、新增入口之前 —— 组是对「已有轨道」的归纳，
+     排在它们后面读起来才顺。 */
+  (S.groups || []).forEach((g) => {
+    const row = document.createElement('div');
+    row.className = 'layer-row layer-group';
+    const members = (S.tracks || []).filter((t) => t.groupId === g.id);
+    const anyHidden = members.some((t) => t.hidden);
+    const anyMuted = members.some((t) => t.muted);
+    row.innerHTML =
+      `<div class="layer-main"><b>▏${g.name}</b>` +
+      `<small>组 · ${members.length} 轨联动</small></div>` +
+      `<div class="layer-acts">` +
+      `<button data-g="hidden" aria-pressed="${anyHidden}">` +
+      `<svg class="i"><use href="#${anyHidden ? 'i-eye-off' : 'i-eye'}"/></svg></button>` +
+      `<button data-g="muted" aria-pressed="${anyMuted}">` +
+      `<svg class="i"><use href="#${anyMuted ? 'i-speaker-off' : 'i-speaker'}"/></svg></button>` +
+      `<button data-g="ungroup">解组</button>` +
+      `</div>`;
+    row.querySelectorAll('button[data-g]').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const what = btn.dataset.g;
+        if (what === 'ungroup') {
+          await removeTrackGroup(g.id);
+          closeSheet(); showLayerSheet();
+          return;
+        }
+        const next = btn.getAttribute('aria-pressed') !== 'true';
+        await setGroupFlag(g.id, what, next);
+        closeSheet(); showLayerSheet();
+      });
+    });
+    E.sheetList.appendChild(row);
+  });
+
+  /* 未分组的轨道可以多选成组。用 prompt 收组名 —— 与既有「轨道音量/重命名」
+     的做法一致，不额外造一套弹窗。 */
+  const ungrouped = (S.tracks || []).filter((t) => !t.groupId);
+  if (ungrouped.length >= 2) {
+    const gRow = document.createElement('div');
+    gRow.className = 'layer-row layer-add';
+    gRow.innerHTML = '<div class="layer-main"><b>＋ 组成轨道组</b>' +
+      '<small>把未分组的轨道合成一组，联动静音/隐藏</small></div>';
+    gRow.addEventListener('click', async () => {
+      closeSheet();
+      const input = window.prompt(
+        `要成组的轨道下标（逗号分隔，可选：${ungrouped.map((t) => t.index).join(',')}）`,
+        ungrouped.map((t) => t.index).join(','));
+      if (input === null) return;
+      const idxs = input.split(',')
+        .map((x) => Number(x.trim()))
+        .filter((x) => Number.isInteger(x) && x >= 0);
+      if (!idxs.length) return toast('没有有效的轨道下标');
+      const nm = window.prompt('组名', '');
+      await createTrackGroup(idxs, nm === null ? '' : nm.trim());
+      showLayerSheet();
+    });
+    E.sheetList.appendChild(gRow);
+  }
+
   /* 新增入口：调整图层。放在列表末尾，与「已有轨道」分开，
      避免被误认成某条轨道的操作。 */
   const addRow = document.createElement('div');
@@ -2779,6 +2852,63 @@ function showLayerSheet() {
   const head = E.sheet && E.sheet.querySelector('.sheet-head span');
   if (head) head.textContent = `图层（${tracks.length} 轨）`;
   E.sheet.hidden = false;
+}
+
+/* ---------------- 轨道组（B2-7 / P-21）----------------
+ *
+ * 产品场景：主画面 = 视频轨 + 分离出的音频轨 + 字幕轨，用户希望
+ * 「一起隐藏 / 一起静音」，而不是逐条点。
+ *
+ * core 与 C ABI 都已实现（含「一条轨道只能属于一个组」的校验与整体撤销），
+ * 此前只差 UI。这里补三件事：成组、解组、组内联动开关。
+ */
+
+/// 把若干轨道组成一组。indices 为轨道下标。
+async function createTrackGroup(indices, name) {
+  if (!indices || !indices.length) return toast('请先选择至少一条轨道');
+  if (!Engine.online) return toast('未连接引擎');
+  const r = engineCall('group_create', {
+    track_indices: indices, name: name || ''
+  });
+  if (!r || !r.ok) {
+    /* 内核会给出具体原因（如「已属于其它轨道组，请先解组」），
+       直接转达，不换成前端自己的模糊说法。 */
+    return toast(`成组失败：${(r && r.message) || '未知错误'}`, 3200);
+  }
+  try {
+    applyState(fetchState());
+    renderAll();
+  } catch (err) {
+    toast(`刷新失败：${err.message}`, 3000);
+  }
+}
+
+/// 解组。成员轨道保留，只是不再联动。
+async function removeTrackGroup(groupId) {
+  if (!groupId) return;
+  const r = engineCall('group_remove', { group_id: groupId });
+  if (!r || !r.ok) return toast(`解组失败：${(r && r.message) || '未知错误'}`, 3000);
+  try {
+    applyState(fetchState());
+    renderAll();
+  } catch (err) {
+    toast(`刷新失败：${err.message}`, 3000);
+  }
+}
+
+/// 组内联动开关（hidden / muted / locked）。一次写全组成员，可整体撤销。
+async function setGroupFlag(groupId, flag, value) {
+  if (!groupId) return;
+  const r = engineCall('group_flag', {
+    group_id: groupId, flag, value: value ? 1 : 0
+  });
+  if (!r || !r.ok) return toast(`设置失败：${(r && r.message) || '未知错误'}`, 3000);
+  try {
+    applyState(fetchState());
+    renderAll();
+  } catch (err) {
+    toast(`刷新失败：${err.message}`, 3000);
+  }
 }
 
 /* ---------------- 调整图层：真实新增中间层轨道（B2-6 / P-19）----------------

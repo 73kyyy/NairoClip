@@ -657,6 +657,158 @@ int32_t nc_move_track(NcEditor* editor, int32_t track_index, int32_t new_index) 
     return failResult(editor->editor->moveTrack(main->id, trackId, new_index));
 }
 
+// ---- 轨道组（B2-7）----
+namespace {
+
+/// 取主序列并按 group_id 找组。失败时写 *outError 返回 nullptr。
+const TrackGroup* findGroup(const NcEditor* editor, uint64_t group_id, const char** outError) {
+    if (editor == nullptr || group_id == 0) {
+        *outError = "editor 为空或 group_id 为 0";
+        return nullptr;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        *outError = "main 为空";
+        return nullptr;
+    }
+    for (const auto& g : main->trackGroups) {
+        if (g.id.value == group_id) {
+            return &g;
+        }
+    }
+    *outError = "轨道组不存在";
+    return nullptr;
+}
+
+}  // namespace
+
+int32_t nc_create_track_group(NcEditor* editor, const int32_t* track_indices,
+                              int32_t count, const char* name,
+                              uint64_t* out_group_id) {
+    if (editor == nullptr || track_indices == nullptr || count <= 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或轨道列表为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    /* 下标 → TrackId。越界只在这里判（下标是本层概念，core 只认 ID）；
+       其余校验（成员是否存在、是否已属于别的组、组 ID 重复）
+       全部交给 core 的 CreateTrackGroupCommand —— 那里是唯一判定源，
+       这里再判一遍会出现两套错误码，前端无法可靠分流。 */
+    std::vector<TrackId> ids;
+    ids.reserve(static_cast<std::size_t>(count));
+    for (int32_t i = 0; i < count; ++i) {
+        const int32_t idx = track_indices[i];
+        if (idx < 0 || static_cast<std::size_t>(idx) >= main->tracks.size()) {
+            return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+        }
+        const TrackId id = main->tracks[static_cast<std::size_t>(idx)].id;
+        // 同一轨道重复出现时去重：否则 core 的「只能属于一个组」校验
+        // 会把「自己和自己冲突」误报成「已在其它组」。
+        bool dup = false;
+        for (const auto& x : ids) {
+            if (x.value == id.value) { dup = true; break; }
+        }
+        if (!dup) ids.push_back(id);
+    }
+    const std::string groupName = (name != nullptr && name[0] != '\0')
+        ? std::string(name)
+        : ("组 " + std::to_string(main->trackGroups.size() + 1));
+    TrackGroupId gid;
+    const Result r = editor->editor->createTrackGroup(main->id, ids, groupName, &gid);
+    if (!r.isOk()) {
+        return failResult(r);
+    }
+    if (out_group_id != nullptr) *out_group_id = gid.value;
+    return NC_OK;
+}
+
+int32_t nc_remove_track_group(NcEditor* editor, uint64_t group_id) {
+    const char* error = nullptr;
+    if (editor == nullptr || group_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或 group_id 为 0");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    if (findGroup(editor, group_id, &error) == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, error);
+    }
+    return failResult(editor->editor->removeTrackGroup(main->id, TrackGroupId{group_id}));
+}
+
+int32_t nc_set_group_muted(NcEditor* editor, uint64_t group_id, int32_t muted) {
+    if (editor == nullptr || group_id == 0 || (muted != 0 && muted != 1)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const char* error = nullptr;
+    if (findGroup(editor, group_id, &error) == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, error);
+    }
+    const Sequence* main = editor->project.mainSequence();
+    return failResult(editor->editor->setGroupMuted(main->id, TrackGroupId{group_id}, muted != 0));
+}
+
+int32_t nc_set_group_hidden(NcEditor* editor, uint64_t group_id, int32_t hidden) {
+    if (editor == nullptr || group_id == 0 || (hidden != 0 && hidden != 1)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const char* error = nullptr;
+    if (findGroup(editor, group_id, &error) == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, error);
+    }
+    const Sequence* main = editor->project.mainSequence();
+    return failResult(editor->editor->setGroupHidden(main->id, TrackGroupId{group_id}, hidden != 0));
+}
+
+int32_t nc_set_group_locked(NcEditor* editor, uint64_t group_id, int32_t locked) {
+    if (editor == nullptr || group_id == 0 || (locked != 0 && locked != 1)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const char* error = nullptr;
+    if (findGroup(editor, group_id, &error) == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, error);
+    }
+    const Sequence* main = editor->project.mainSequence();
+    return failResult(editor->editor->setGroupLocked(main->id, TrackGroupId{group_id}, locked != 0));
+}
+
+int32_t nc_group_count(const NcEditor* editor) {
+    if (editor == nullptr) return 0;
+    const Sequence* main = editor->project.mainSequence();
+    return main ? static_cast<int32_t>(main->trackGroups.size()) : 0;
+}
+
+int32_t nc_group_get(const NcEditor* editor, int32_t index, uint64_t* out_group_id,
+                     char** out_name, int32_t* out_track_count) {
+    if (editor == nullptr || index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或索引为负");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    if (static_cast<std::size_t>(index) >= main->trackGroups.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "组索引超出范围");
+    }
+    const TrackGroup& g = main->trackGroups[static_cast<std::size_t>(index)];
+    if (out_group_id != nullptr) *out_group_id = g.id.value;
+    if (out_name != nullptr) *out_name = dupString(g.name);
+    if (out_track_count != nullptr) {
+        *out_track_count = static_cast<int32_t>(g.tracks.size());
+    }
+    return NC_OK;
+}
+
+uint64_t nc_track_group_of(const NcEditor* editor, int32_t track_index) {
+    if (editor == nullptr || track_index < 0) return 0;
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return 0;
+    }
+    const TrackId tid = main->tracks[static_cast<std::size_t>(track_index)].id;
+    const TrackGroup* g = main->groupOf(tid);
+    return g ? g->id.value : 0;
+}
+
 int32_t nc_rename_track(NcEditor* editor, int32_t track_index, const char* new_name) {
     if (editor == nullptr || track_index < 0 || new_name == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor、new_name 为空");

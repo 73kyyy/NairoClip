@@ -260,6 +260,62 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
     }
+    if (fn == "nc_create_track_group") {
+        std::uint64_t out_group_id = 0;
+        const auto ret = nc_create_track_group(gEditor, jvecI32(args, "track_indices").data(), static_cast<int32_t>(jint(args, "count", 0)), jstr(args, "name").c_str(), &out_group_id);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_group_id", JsonValue::integer(static_cast<std::int64_t>(out_group_id)));
+        return true;
+    }
+    if (fn == "nc_remove_track_group") {
+        const auto ret = nc_remove_track_group(gEditor, static_cast<std::uint64_t>(jint(args, "group_id", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_set_group_muted") {
+        const auto ret = nc_set_group_muted(gEditor, static_cast<std::uint64_t>(jint(args, "group_id", 0)), static_cast<int32_t>(jint(args, "muted", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_set_group_hidden") {
+        const auto ret = nc_set_group_hidden(gEditor, static_cast<std::uint64_t>(jint(args, "group_id", 0)), static_cast<int32_t>(jint(args, "hidden", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_set_group_locked") {
+        const auto ret = nc_set_group_locked(gEditor, static_cast<std::uint64_t>(jint(args, "group_id", 0)), static_cast<int32_t>(jint(args, "locked", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_group_count") {
+        const auto ret = nc_group_count(gEditor);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_group_get") {
+        std::uint64_t out_group_id = 0;
+        char* out_name = nullptr;
+        int32_t out_track_count = 0;
+        const auto ret = nc_group_get(gEditor, static_cast<int32_t>(jint(args, "index", 0)), &out_group_id, &out_name, &out_track_count);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_group_id", JsonValue::integer(static_cast<std::int64_t>(out_group_id)));
+        out.result.set("out_name", JsonValue::string(takeString(out_name)));
+        out.result.set("out_track_count", JsonValue::integer(out_track_count));
+        return true;
+    }
+    if (fn == "nc_track_group_of") {
+        const auto ret = nc_track_group_of(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)));
+        out.code = NC_OK;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
     if (fn == "nc_set_track_locked") {
         const auto ret = nc_set_track_locked(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<int32_t>(jint(args, "locked", 0)));
         out.code = ret;

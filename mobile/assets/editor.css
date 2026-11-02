@@ -243,6 +243,19 @@ body { -webkit-text-size-adjust: 100%; }
 
 /* 图层面板里的「新增调整图层」行 */
 .layer-row.layer-add { cursor: pointer; border: 1px dashed rgba(180,244,97,.35); }
+
+/* ---- 轨道组（B2-7 / P-21）----
+   组内成员在时间轴上左侧画一条竖线：让人看出「这几条是联动的」，
+   又不至于像调整图层那样抢眼（斜纹留给调整图层，两者语义不同）。 */
+.trow.trow-grouped { box-shadow: inset 2px 0 0 0 rgba(45,140,255,.55); }
+
+/* 图层面板里的组行：与普通轨道行区分 */
+.layer-row.layer-group { border-left: 2px solid var(--accent); }
+.layer-row.layer-group b { color: var(--accent); }
+.layer-row.layer-group button[data-g="ungroup"] {
+  font-size: 11px; color: var(--danger); background: none; border: 0;
+  padding: 4px 6px;
+}
 .layer-row.layer-add b { color: var(--accent-pick); }
 
 /* ---- 轨道重排（长按拖动）----
