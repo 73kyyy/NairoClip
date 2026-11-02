@@ -660,24 +660,26 @@ int32_t nc_move_track(NcEditor* editor, int32_t track_index, int32_t new_index) 
 // ---- 轨道组（B2-7）----
 namespace {
 
-/// 取主序列并按 group_id 找组。失败时写 *outError 返回 nullptr。
+/// 取主序列并按 group_id 找组。失败时（若 outError 非空）写入原因并返回 nullptr。
 const TrackGroup* findGroup(const NcEditor* editor, uint64_t group_id, const char** outError) {
-    if (editor == nullptr || group_id == 0) {
-        *outError = "editor 为空或 group_id 为 0";
+    // outError 允许为空：本函数不该因为「调用方不关心原因」而解引用空指针
+    const auto fail = [outError](const char* msg) -> const TrackGroup* {
+        if (outError != nullptr) *outError = msg;
         return nullptr;
+    };
+    if (editor == nullptr || group_id == 0) {
+        return fail("editor 为空或 group_id 为 0");
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
-        *outError = "main 为空";
-        return nullptr;
+        return fail("main 为空");
     }
     for (const auto& g : main->trackGroups) {
         if (g.id.value == group_id) {
             return &g;
         }
     }
-    *outError = "轨道组不存在";
-    return nullptr;
+    return fail("轨道组不存在");
 }
 
 }  // namespace
