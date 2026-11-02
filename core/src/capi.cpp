@@ -1,4 +1,5 @@
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/xform.h"
 
 #include "nairoclip/core/chapter.h"
 #include "nairoclip/core/editor.h"

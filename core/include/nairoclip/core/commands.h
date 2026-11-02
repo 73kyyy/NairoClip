@@ -8,6 +8,7 @@
    虽然 track.h → clip.h 会间接带进来，但「靠别人捎带」在头文件重排时
    会突然断掉，这里按直接依赖写清楚。 */
 #include "nairoclip/core/shake_effect.h"
+#include "nairoclip/core/xform.h"
 #include "nairoclip/core/track.h"
 
 #include <cstddef>

@@ -4,6 +4,7 @@
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/lut.h"
+#include "nairoclip/core/xform.h"
 
 #include <algorithm>
 #include <utility>

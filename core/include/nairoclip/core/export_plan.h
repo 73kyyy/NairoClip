@@ -3,6 +3,7 @@
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/frame_fit.h"
+#include "nairoclip/core/xform.h"
 #include "nairoclip/core/reframe.h"
 #include "nairoclip/core/speed_curve.h"
 #include "nairoclip/core/project.h"
@@ -73,6 +74,12 @@ struct RenderClip {
     ClipAnimation animation;
     /// 速度曲线快照（非空时变速映射按曲线积分）。
     SpeedCurve speedCurve;
+    /// 几何变换快照（「转换」8 项）。导出逐帧按 timeSeconds 求矩阵后
+    /// 与画幅适配合并成单次重采样（见 applyXformStack）。
+    /// 默认全 disabled —— 与 Clip::xforms 语义一致。
+    XformStack xforms;
+    /// 是否启用任一几何变换（避免导出端每帧重复判空）。
+    bool hasXform() const { return xforms.anyEnabled(); }
 };
 
 /// 导出计划中的转场（含计算好的时间区间）。

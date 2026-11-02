@@ -3,6 +3,7 @@
 #include "nairoclip/core/command.h"
 /* setClipShake / getClipShake 按值收发 ShakeParams，需要完整类型。 */
 #include "nairoclip/core/shake_effect.h"
+#include "nairoclip/core/xform.h"
 
 #include <cstddef>
 #include <cstdint>

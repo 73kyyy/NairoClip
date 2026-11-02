@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "nairoclip/core/frame_fit.h"
+#include "nairoclip/core/xform.h"
 #include "nairoclip/core/reframe.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
