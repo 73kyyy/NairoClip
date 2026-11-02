@@ -707,6 +707,20 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("out_beats", jnumArray(out_beats, out_beat_count, 0));
         return true;
     }
+    if (fn == "nc_beat_sync_apply") {
+        int32_t out_clips = 0;
+        double out_bpm = 0.0;
+        char* out_warning = nullptr;
+        char* out_error = nullptr;
+        const auto ret = nc_beat_sync_apply(gEditor, static_cast<int32_t>(jint(args, "target_track", 0)), static_cast<int32_t>(jint(args, "audio_track", 0)), jvecU64(args, "asset_ids").data(), jvecNum(args, "usable_seconds").data(), static_cast<int32_t>(jint(args, "material_count", 0)), jnum(args, "min_shot_seconds", 0.0), static_cast<int32_t>(jint(args, "prefer_transitions", 0)), &out_clips, &out_bpm, &out_warning, &out_error);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_clips", JsonValue::integer(out_clips));
+        out.result.set("out_bpm", JsonValue::number(out_bpm));
+        out.result.set("out_warning", JsonValue::string(takeString(out_warning)));
+        out.result.set("out_error", JsonValue::string(takeString(out_error)));
+        return true;
+    }
     if (fn == "nc_set_clip_speed_curve") {
         const auto ret = nc_set_clip_speed_curve(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), jvecNum(args, "source_times").data(), jvecNum(args, "speeds").data(), jvecI32(args, "easings").data(), static_cast<int32_t>(jint(args, "point_count", 0)));
         out.code = ret;

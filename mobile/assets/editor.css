@@ -252,6 +252,24 @@ body { -webkit-text-size-adjust: 100%; }
 /* 图层面板里的组行：与普通轨道行区分 */
 .layer-row.layer-group { border-left: 2px solid var(--accent); }
 .layer-row.layer-group b { color: var(--accent); }
+/* ---- 音乐卡点（B3-1 / P-07）---- */
+.beat-sel {
+  width: 100%; background: rgba(255,255,255,.06); color: #D2D8D5;
+  border: 0; border-radius: 8px; padding: 8px; font-size: 12px;
+  font-family: var(--font); margin-bottom: 6px;
+}
+.beat-note { font-size: 10px; color: var(--text-low); line-height: 1.6; }
+.beat-note.warn { color: #E0A030; }
+.beat-assets { display: flex; flex-direction: column; gap: 5px; max-height: 132px; overflow-y: auto; }
+.beat-asset {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  background: rgba(255,255,255,.04); border-radius: 7px; padding: 7px 9px;
+}
+.beat-asset input[type="checkbox"] { accent-color: var(--accent-pick); }
+.beat-asset span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beat-asset small { color: var(--text-low); font-size: 10px; font-family: var(--font-num); }
+.beat-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+
 .layer-row.layer-group button[data-g="ungroup"] {
   font-size: 11px; color: var(--danger); background: none; border: 0;
   padding: 4px 6px;

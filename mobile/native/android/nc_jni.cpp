@@ -86,6 +86,27 @@ std::string JStrField(const std::string& json, const std::string& key) {
     return out;
 }
 
+/// 读取 double 数组（如 "usable_seconds": [3.5, 2.0]）。
+/// 与 JVecU64 同形状，只是用 strtod 解析小数。
+bool JVecDouble(const std::string& json, const std::string& key, std::vector<double>* out) {
+    if (out == nullptr) return false;
+    out->clear();
+    size_t p = 0;
+    if (!FindKey(json, key, &p)) return false;
+    while (p < json.size() && (json[p] == ' ' || json[p] == '\t')) ++p;
+    if (p >= json.size() || json[p] != '[') return false;
+    ++p;
+    while (p < json.size() && json[p] != ']') {
+        if (json[p] == ' ' || json[p] == '\t' || json[p] == ',') { ++p; continue; }
+        char* end = nullptr;
+        const double v = std::strtod(json.c_str() + p, &end);
+        if (end == json.c_str() + p) break;  // 非数字：停止，避免死循环
+        out->push_back(v);
+        p = static_cast<size_t>(end - json.c_str());
+    }
+    return !out->empty();
+}
+
 /// 读取 uint64 数组（如 "material_ids": [1,2,3]）。
 /// 只支持扁平整数数组：本桥的入参是桥自己序列化的，不含嵌套对象。
 /// 返回 false 表示键不存在或不是数组。
@@ -1002,6 +1023,49 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         }
         j += "]}";
         if (beats) nc_free_buffer(reinterpret_cast<uint8_t*>(beats));
+        *out = Ok(j);
+        return true;
+    }
+    if (op == "beat_sync") {
+        /* 音乐卡点落盘：一步完成「检测节拍 → 按节拍切分并写入空轨」。
+           素材用 JVecU64 取 id 数组，时长数组另解析（JVecU64 只收整数）。 */
+        std::vector<uint64_t> ids;
+        if (!JVecU64(a, "asset_ids", &ids) || ids.empty()) {
+            *out = Err("没有可用素材");
+            return true;
+        }
+        std::vector<double> secs;
+        if (!JVecDouble(a, "usable_seconds", &secs)) {
+            *out = Err("素材时长数组缺失");
+            return true;
+        }
+        if (secs.size() < ids.size()) {
+            secs.resize(ids.size(), 3.0);  // 兜底：时长缺失时按 3 秒估
+        }
+        int32_t clips = 0;
+        double bpm = 0.0;
+        char* warning = nullptr;
+        char* error = nullptr;
+        const int32_t rc = nc_beat_sync_apply(
+            ed,
+            static_cast<int32_t>(JInt(a, "target_track", 0)),
+            static_cast<int32_t>(JInt(a, "audio_track", -1)),
+            ids.data(), secs.data(), static_cast<int32_t>(ids.size()),
+            JNum(a, "min_shot_seconds", 0.25),
+            static_cast<int32_t>(JInt(a, "prefer_transitions", 1)),
+            &clips, &bpm, &warning, &error);
+        if (rc != NC_OK) {
+            const std::string msg = error ? error : ("卡点失败，错误码 " + std::to_string(rc));
+            if (warning) nc_free_string(warning);
+            if (error) nc_free_string(error);
+            *out = Err(msg);
+            return true;
+        }
+        std::string j = "{\"clips\":" + std::to_string(clips);
+        j += ",\"bpm\":" + Num(bpm);
+        j += ",\"warning\":\"" + JEsc(warning ? warning : "") + "\"}";
+        if (warning) nc_free_string(warning);
+        if (error) nc_free_string(error);
         *out = Ok(j);
         return true;
     }

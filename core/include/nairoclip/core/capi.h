@@ -478,6 +478,28 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
 int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
                        double* out_confidence, int32_t* out_beat_count, double** out_beats);
 
+/// 音乐卡点落盘（AI成片 → 音乐卡点 / 🎵音频 → 节拍 → AI自动打点）。
+///
+/// 一步完成「检测节拍 → 按节拍把素材切分并落盘」，无需前端先拿 beats 再自己算。
+/// - target_track：落盘的目标**视频**轨下标（必须是空轨，避免破坏已有剪辑）；
+/// - audio_track：节拍来源的音频轨下标（<0 = 首个音频轨）；
+/// - asset_ids / usable_seconds / material_count：按顺序循环取用的素材；
+/// - min_shot_seconds：卡片段最小长度（秒），过短的节拍间隔会被跳过；
+/// - prefer_transitions：1 = 在片段之间加转场。
+///
+/// 出参：
+/// - out_clips：实际插入的片段数；
+/// - out_bpm：检测到的 BPM；
+/// - out_warning：警告文本（可空；如「素材不足以覆盖全部节拍」），需 nc_free_string；
+/// - out_error：失败原因，需 nc_free_string。
+///
+/// 返回 NC_OK / 错误码。整次落盘在一个撤销事务里，历史面板显示「音乐卡点」。
+int32_t nc_beat_sync_apply(NcEditor* editor, int32_t target_track, int32_t audio_track,
+                           const uint64_t* asset_ids, const double* usable_seconds,
+                           int32_t material_count, double min_shot_seconds,
+                           int32_t prefer_transitions, int32_t* out_clips,
+                           double* out_bpm, char** out_warning, char** out_error);
+
 // ---- 速度曲线（文档「剪辑 → 变速 → 曲线」）----
 
 /// 设置片段速度曲线的控制点（整组替换；sourceTimes 为片段本地时间秒）。

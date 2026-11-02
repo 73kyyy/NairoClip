@@ -458,6 +458,7 @@ function runFunction(cat, f) {
     case 'record':     return openL3('record');
     case 'fade':       return openL3('fade');
     case 'stem':       return openL3('stem');
+    case 'beatcut':    return openBeatCutPanel();
     /* 文字 */
     case 'newtext':    return openL3('newtext', { allowNoClip: true });
     case 'subtitle':   return openL3('subtitle');
@@ -2852,6 +2853,137 @@ function showLayerSheet() {
   const head = E.sheet && E.sheet.querySelector('.sheet-head span');
   if (head) head.textContent = `图层（${tracks.length} 轨）`;
   E.sheet.hidden = false;
+}
+
+/* ---------------- 音乐卡点（B3-1 / P-07）----------------
+ *
+ * 一步完成「检测节拍 → 按节拍把素材切分并写入空轨」。
+ * 内核侧 nc_beat_sync_apply 已把检测与落盘合成一次调用，
+ * 前端不需要先拿 beats 再自己算切点。
+ *
+ * 为什么要求「空轨」：与其它自动剪辑一致，避免覆盖用户已有剪辑。
+ * 面板里明确写出来，不让用户点了才被拒。
+ */
+async function openBeatCutPanel() {
+  if (!Engine.online) return toast('未连接引擎');
+
+  // 找音频轨（节拍来源）与空视频轨（落盘目标）
+  const audioTracks = (S.tracks || []).filter((t) => t.kind === 'audio');
+  const emptyVideo = (S.tracks || []).filter(
+    (t) => t.kind === 'video' && !(t.clips || []).length);
+  const videoAssets = (S.assets || []).filter((a) => a.kind === 0 || a.kind === 2);
+
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="adj-hint">按音乐节拍自动切分素材，写入一条空视频轨</div>
+    <div class="adj-sec">
+      <div class="adj-sec-head"><span>节拍来源</span></div>
+      <select id="beatAudio" class="beat-sel"></select>
+    </div>
+    <div class="adj-sec">
+      <div class="adj-sec-head"><span>落盘到（必须是空轨）</span></div>
+      <select id="beatTarget" class="beat-sel"></select>
+      <div class="beat-note" id="beatNote"></div>
+    </div>
+    <div class="adj-sec">
+      <div class="adj-sec-head"><span>素材（${videoAssets.length} 个，按顺序循环取用）</span></div>
+      <div class="beat-assets" id="beatAssets"></div>
+    </div>
+    <div class="adj-sec">
+      <div class="adj-sec-head"><span>卡片段最小长度</span></div>
+      <div class="adj-lut">
+        <input type="range" id="beatMin" min="10" max="100" value="25">
+        <b id="beatMinVal">0.25s</b>
+      </div>
+    </div>
+    <div class="adj-sec">
+      <label class="beat-check"><input type="checkbox" id="beatTrans" checked> 片段时间插入转场</label>
+    </div>
+    <div class="adj-sec">
+      <button class="btn primary" id="beatRun" style="width:100%">开始卡点切分</button>
+    </div>`;
+
+  const aSel = body.querySelector('#beatAudio');
+  if (!audioTracks.length) {
+    aSel.innerHTML = '<option value="">工程里没有音频轨</option>';
+  } else {
+    audioTracks.forEach((t) => {
+      const o = document.createElement('option');
+      o.value = String(t.index);
+      o.textContent = t.name;
+      aSel.append(o);
+    });
+  }
+
+  const tSel = body.querySelector('#beatTarget');
+  const note = body.querySelector('#beatNote');
+  if (!emptyVideo.length) {
+    tSel.innerHTML = '<option value="">没有空视频轨</option>';
+    note.textContent = '卡点只写空轨。请先用「画中画 → 新增」建一条视频轨，再回来。';
+    note.className = 'beat-note warn';
+  } else {
+    emptyVideo.forEach((t) => {
+      const o = document.createElement('option');
+      o.value = String(t.index);
+      o.textContent = t.name;
+      tSel.append(o);
+    });
+    note.textContent = '只显示空轨：写满后再卡点会覆盖已有剪辑，因此不让选。';
+  }
+
+  // 素材勾选（默认全选）
+  const picked = new Set(videoAssets.map((a) => a.id));
+  const aWrap = body.querySelector('#beatAssets');
+  if (!videoAssets.length) {
+    aWrap.innerHTML = '<div class="adj-empty">素材库里没有视频/图片</div>';
+  } else {
+    videoAssets.forEach((a) => {
+      const lab = document.createElement('label');
+      lab.className = 'beat-asset';
+      lab.innerHTML = `<input type="checkbox" checked data-id="${a.id}">` +
+        `<span>${a.name}</span><small>${a.dur.toFixed(1)}s</small>`;
+      lab.querySelector('input').addEventListener('change', (ev) => {
+        if (ev.target.checked) picked.add(a.id);
+        else picked.delete(a.id);
+      });
+      aWrap.appendChild(lab);
+    });
+  }
+
+  const minR = body.querySelector('#beatMin');
+  const minV = body.querySelector('#beatMinVal');
+  minR.addEventListener('input', () => {
+    minV.textContent = `${(Number(minR.value) / 100).toFixed(2)}s`;
+  });
+
+  body.querySelector('#beatRun').addEventListener('click', async () => {
+    if (!audioTracks.length) return toast('没有音频轨，无法检测节拍');
+    if (!emptyVideo.length) return toast('没有空视频轨可写入');
+    const chosen = videoAssets.filter((a) => picked.has(a.id));
+    if (!chosen.length) return toast('请至少选择一个素材');
+
+    const r = engineCall('beat_sync', {
+      target_track: Number(tSel.value),
+      audio_track: Number(aSel.value),
+      asset_ids: chosen.map((a) => a.id),
+      usable_seconds: chosen.map((a) => a.dur),
+      min_shot_seconds: Number(minR.value) / 100,
+      prefer_transitions: body.querySelector('#beatTrans').checked ? 1 : 0
+    });
+    if (!r || !r.ok) {
+      return toast(`卡点失败：${(r && r.message) || '未知错误'}`, 3600);
+    }
+    const res = r.result || {};
+    const warn = res.warning ? `；${res.warning}` : '';
+    toast(`已插入 ${res.clips || 0} 段（BPM ${Math.round(res.bpm || 0)}）${warn}`, 3600);
+    try {
+      applyState(fetchState());
+      renderAll();
+    } catch (err) { /* 刷新失败不影响已落盘的结果 */ }
+    hidePanel();
+  });
+
+  showPanel('音乐卡点', body);
 }
 
 /* ---------------- 轨道组（B2-7 / P-21）----------------

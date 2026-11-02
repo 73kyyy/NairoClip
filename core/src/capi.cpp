@@ -4247,40 +4247,43 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
 
 // ---- 节拍检测 ----
 
-int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
-                       double* out_confidence, int32_t* out_beat_count, double** out_beats) {
-    if (editor == nullptr) {
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
-    }
-#ifdef NAIROCLIP_HAS_FFMPEG
+namespace {
+
+/// 选择目标音频轨：track_index < 0 时取首个音频轨。失败返回 nullptr 并写 outError。
+const Track* pickAudioTrack(const NcEditor* editor, int32_t track_index, const char** outError) {
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
-        return failNc(NC_ERROR_NOT_FOUND, "seq 为空");
+        *outError = "seq 为空";
+        return nullptr;
     }
-    // 选择音频轨（track_index < 0 = 首个音频轨）
-    const Track* target = nullptr;
     if (track_index >= 0) {
         if (static_cast<std::size_t>(track_index) >= seq->tracks.size()) {
-            return failNc(NC_ERROR_OUT_OF_RANGE, "取值超出允许范围");
+            *outError = "轨道索引超出范围";
+            return nullptr;
         }
-        target = &seq->tracks[static_cast<std::size_t>(track_index)];
-        if (target->type != TrackType::Audio) {
-            return failNc(NC_ERROR_INVALID_ARGUMENT, "调用失败");
+        const Track* t = &seq->tracks[static_cast<std::size_t>(track_index)];
+        if (t->type != TrackType::Audio) {
+            *outError = "目标轨道不是音频轨";
+            return nullptr;
         }
-    } else {
-        for (const auto& track : seq->tracks) {
-            if (track.type == TrackType::Audio) {
-                target = &track;
-                break;
-            }
+        return t;
+    }
+    for (const auto& track : seq->tracks) {
+        if (track.type == TrackType::Audio) {
+            return &track;
         }
     }
-    if (target == nullptr) {
-        return failNc(NC_ERROR_NOT_FOUND, "target 为空");
-    }
-    // 采集音频块（映射到时间轴坐标）
-    std::vector<AudioBlock> blocks;
-    for (const auto& clip : target->clips) {
+    *outError = "工程里没有音频轨";
+    return nullptr;
+}
+
+/// 采集目标音频轨的全部音频块，并映射到时间轴坐标。
+/// 抽出来给 nc_beat_detect 与 nc_beat_sync_apply 共用 ——
+/// 两边各抄一遍这段循环，迟早会改漏一处。
+bool collectAudioBlocks(const NcEditor* editor, const Track& target,
+                        std::vector<AudioBlock>* outBlocks) {
+    if (outBlocks == nullptr) return false;
+    for (const auto& clip : target.clips) {
         const MediaAsset* asset = editor->project.findAsset(clip.asset);
         if (asset == nullptr) {
             continue;
@@ -4306,12 +4309,29 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
                 (block.start - clip.sourceIn) /
                 (clip.speed.isPositive() ? clip.speed : Rational::make(1));
             mapped.start = clip.start + (local.isNegative() ? Time{} : local);
-            blocks.push_back(std::move(mapped));
+            outBlocks->push_back(std::move(mapped));
         }
         reader.close();
     }
-    if (blocks.empty()) {
-        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
+    return !outBlocks->empty();
+}
+
+}  // namespace
+
+int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
+                       double* out_confidence, int32_t* out_beat_count, double** out_beats) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    const char* trackError = nullptr;
+    const Track* target = pickAudioTrack(editor, track_index, &trackError);
+    if (target == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, trackError);
+    }
+    std::vector<AudioBlock> blocks;
+    if (!collectAudioBlocks(editor, *target, &blocks)) {
+        return failNc(NC_ERROR_NOT_FOUND, "没有可用的音频数据");
     }
     const BeatAnalysis analysis = analyzeBeats(blocks, BeatDetectConfig{});
     if (out_bpm != nullptr) *out_bpm = analysis.bpm;
@@ -4335,6 +4355,110 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
 #else
     (void)track_index; (void)out_bpm; (void)out_confidence; (void)out_beat_count; (void)out_beats;
     return failNc(NC_ERROR_UNSUPPORTED, "调用失败");
+#endif
+}
+
+int32_t nc_beat_sync_apply(NcEditor* editor, int32_t target_track, int32_t audio_track,
+                           const uint64_t* asset_ids, const double* usable_seconds,
+                           int32_t material_count, double min_shot_seconds,
+                           int32_t prefer_transitions, int32_t* out_clips,
+                           double* out_bpm, char** out_warning, char** out_error) {
+    if (editor == nullptr) {
+        if (out_error != nullptr) *out_error = dupString("editor 为空");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+#ifdef NAIROCLIP_HAS_FFMPEG
+    const auto failWith = [out_error](int32_t code, const std::string& msg) {
+        if (out_error != nullptr) *out_error = dupString(msg);
+        return code;
+    };
+
+    if (asset_ids == nullptr || usable_seconds == nullptr || material_count <= 0) {
+        return failWith(NC_ERROR_INVALID_ARGUMENT, "没有可用素材");
+    }
+    Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return failWith(NC_ERROR_NOT_FOUND, "工程没有主序列");
+    }
+    if (target_track < 0 || static_cast<std::size_t>(target_track) >= seq->tracks.size()) {
+        return failWith(NC_ERROR_OUT_OF_RANGE, "目标轨道下标超出范围");
+    }
+    Track& dst = seq->tracks[static_cast<std::size_t>(target_track)];
+    if (!dst.clips.empty()) {
+        // 与 applyAutoEdit 一致：只在空轨上落盘，避免覆盖用户已有剪辑
+        return failWith(NC_ERROR_INVALID_ARGUMENT,
+                        "目标轨道不是空轨；卡点落盘只写空轨，请新建一条视频轨");
+    }
+
+    // 1) 采集音频并分析节拍
+    const char* trackError = nullptr;
+    const Track* src = pickAudioTrack(editor, audio_track, &trackError);
+    if (src == nullptr) {
+        return failWith(NC_ERROR_NOT_FOUND, trackError ? trackError : "找不到音频轨");
+    }
+    std::vector<AudioBlock> blocks;
+    if (!collectAudioBlocks(editor, *src, &blocks)) {
+        return failWith(NC_ERROR_NOT_FOUND, "没有可用的音频数据");
+    }
+    const BeatAnalysis analysis = analyzeBeats(blocks, BeatDetectConfig{});
+    if (!analysis.valid()) {
+        /* analysis.note 由检测器给出具体原因（音频过短 / 无可分析音频），
+           直接转达，不用「检测失败」这种无信息的话。 */
+        return failWith(NC_ERROR_INVALID_ARGUMENT,
+                        analysis.note.empty() ? "未能从音频中检测出节拍"
+                                              : ("节拍检测失败：" + analysis.note));
+    }
+
+    // 2) 组装素材列表（跳过不存在的素材）
+    std::vector<MaterialSegment> material;
+    material.reserve(static_cast<std::size_t>(material_count));
+    for (int32_t i = 0; i < material_count; ++i) {
+        if (asset_ids[i] == 0) continue;
+        if (editor->project.findAsset(AssetId{asset_ids[i]}) == nullptr) continue;
+        MaterialSegment seg;
+        seg.asset = AssetId{asset_ids[i]};
+        /* usable_seconds 是小数秒（double），fromSeconds 只收整数，
+           走微秒换算避免 0.9 → 0 这种截断。 */
+        seg.usableDuration = fromMicroseconds(
+            static_cast<std::int64_t>(usable_seconds[i] * 1e6 + 0.5));
+        material.push_back(seg);
+    }
+    if (material.empty()) {
+        return failWith(NC_ERROR_NOT_FOUND, "素材 ID 全部无效或已被移除");
+    }
+
+    // 3) 按节拍落盘
+    BeatSyncOptions opts;
+    opts.minShotSeconds = (min_shot_seconds > 0.0) ? min_shot_seconds : 0.25;
+    opts.markTransitions = (prefer_transitions != 0);
+    const AutoEditResult result = applyBeatSync(*editor->editor, editor->project, seq->id,
+                                                dst.id, analysis, material, opts, "音乐卡点");
+    if (!result.result.isOk()) {
+        return failWith(NC_ERROR_INTERNAL, result.result.message);
+    }
+
+    if (out_clips != nullptr) *out_clips = static_cast<int32_t>(result.clipsInserted);
+    if (out_bpm != nullptr) *out_bpm = analysis.bpm;
+    if (out_warning != nullptr) {
+        if (result.warnings.empty()) {
+            *out_warning = nullptr;
+        } else {
+            std::string joined;
+            for (std::size_t i = 0; i < result.warnings.size(); ++i) {
+                if (i) joined += "；";
+                joined += result.warnings[i];
+            }
+            *out_warning = dupString(joined);
+        }
+    }
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+#else
+    (void)target_track; (void)audio_track; (void)asset_ids; (void)usable_seconds;
+    (void)material_count; (void)min_shot_seconds; (void)prefer_transitions;
+    (void)out_clips; (void)out_bpm; (void)out_warning;
+    if (out_error != nullptr) *out_error = dupString("本构建未启用 FFmpeg，无法分析音频");
+    return NC_ERROR_UNSUPPORTED;
 #endif
 }
 
