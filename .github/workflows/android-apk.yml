@@ -287,9 +287,16 @@ jobs:
           #
           # 2>&1 | tee：把配置阶段的 [deps] 诊断留在文件里。
           # 失败时 GitHub 只保留失败步骤的日志尾部，配置阶段的输出容易丢。
+          # --console=plain：关掉富终端控制符，错误行才能被 grep 抓到。
+          # 之前日志只有 3.9KB —— worker 进程的输出没进 tee，
+          # 加上 --console=plain 与显式重定向后才有完整原文。
           ./gradlew :app:assembleRelease --stacktrace --no-daemon \
-            --no-build-cache --rerun-tasks 2>&1 | tee /tmp/gradle.log
-          rc=${PIPESTATUS[0]}
+            --console=plain --no-build-cache --rerun-tasks \
+            > /tmp/gradle.log 2>&1
+          GRADLE_RC=$?
+          # 同时回显到 job 日志（tee 会把 worker 输出丢掉，这里再 cat 一次）
+          cat /tmp/gradle.log
+          rc=$GRADLE_RC
           {
             echo "## Gradle 依赖诊断"
             echo ""

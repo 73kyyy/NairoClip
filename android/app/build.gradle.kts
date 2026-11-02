@@ -146,6 +146,12 @@ tasks.named("preBuild") { dependsOn(tasks.named("syncMobileUi")) }
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    /* OnBackPressedDispatcher / OnBackPressedCallback 来自 androidx.activity。
+       appcompat 会传递带入，但版本随 appcompat 浮动；MainActivity 直接用了
+       这个 API，显式声明可避免「传递依赖被裁剪/版本不含该 API」时
+       Kotlin 编译阶段报 Unresolved reference。
+       与 appcompat 1.7.0 配套的是 activity 1.8.x，这里锁 1.8.2。 */
+    implementation("androidx.activity:activity-ktx:1.8.2")
     implementation("androidx.webkit:webkit:1.11.0")
     implementation(files("libs/wechat-sdk-6.8.40.aar"))
     implementation(files("libs/open_sdk_3.5.19_r9483ffc7_lite.jar"))
