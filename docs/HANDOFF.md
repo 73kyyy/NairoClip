@@ -1,6 +1,6 @@
 # 交接文档（新对话窗口从这里开始）
 
-> 最后更新：2026-11-02 · HEAD `4fcbb14` · 分支 `main`
+> 最后更新：2026-11-02 · HEAD `c3cfa87` · 分支 `main`
 > 仓库：`github.com:73kyyy/NairoClip.git`
 
 ---
@@ -34,7 +34,9 @@
 | `e2962b9` | 修 `RenderClip` 缺 `xforms` | — |
 | `5c1df75` | 补 `SetClipXformCommand` 构造函数 | — |
 | `0fe3a50` | 修 `nc_jni.cpp`：JSON 工具误用 + `XformKind` 未引入 | — |
-| `4fcbb14` | CI 诊断：APK 错误行落盘 + 上传 gradle 日志 | 待跑 |
+| `4fcbb14` | CI 诊断：APK 错误行落盘 + 上传 gradle 日志 | APK 仍失败（但抓到根因） |
+| `69e9304` | 新增 `docs/HANDOFF.md` 交接文档 | — |
+| `c3cfa87` | **定位 APK 真因：Kotlin 编译** + 显式声明 `androidx.activity` | 待跑 |
 
 ### CI 最新状态（`4fcbb14` 之前）
 
@@ -47,7 +49,22 @@
 | `CI` | 随 APK 依赖，未完成 |
 
 **关键**：core 在 NDK 下编译通过 ⇒ `xform.cpp` / `frame_fit.cpp` / `capi.cpp` 等**无编译问题**。
-失败范围已收敛到 **Gradle/APK 阶段**（`nc_jni.cpp` 的 NDK 编译，或 Kotlin/Gradle 配置）。
+
+**已定位真因（`4fcbb14` 日志）**：
+```
+Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException
+  ... Kotlin Compiler Work Action
+```
+⇒ 失败是 **Kotlin 编译**，不是 C++。
+
+**怀疑点（`c3cfa87` 已修）**：`MainActivity.kt` 用了
+`androidx.activity.OnBackPressedCallback`，但依赖里只有
+`androidx.appcompat:appcompat:1.7.0`（靠传递带入 activity）。
+已显式加 `androidx.activity:activity-ktx:1.8.2`。
+
+**另一处修正**：`gradle-log` artifact 之前只有 3971 字节 ——
+worker 输出没进 `| tee`。`c3cfa87` 改为
+`> /tmp/gradle.log 2>&1` 再 `cat` 回显，并加 `--console=plain`。
 
 ### 已完成的代码（可直接用）
 
@@ -167,10 +184,14 @@
 ## 4. 已知未修的问题（按优先级）
 
 ### P0 — 阻断 CI
-1. **`Android APK` 在 `Assemble release APK` 失败**，真实错误未知。
-   `4fcbb14` 已加诊断（step summary 输出错误行 + 上传 `gradle-log` artifact）。
-   **下一步：等 `4fcbb14` 跑完，读 `docs/ci-status/apk-errors.txt` 或下载 `gradle-log` artifact。**
-   怀疑点：`nc_jni.cpp` 在 NDK clang 下的编译（host g++ 验证已零错误，但工具链不同）。
+1. **`Android APK` 在 `Assemble release APK` 失败 —— 已确认是 Kotlin 编译错误**。
+   `c3cfa87` 已做两件事：
+   - 显式声明 `androidx.activity:activity-ktx:1.8.2`（怀疑 Unresolved reference）
+   - 修 gradle 日志捕获（之前 `| tee` 丢 worker 输出，日志只有 3.9KB）
+   **下一步：等 `c3cfa87` 跑完。**
+   - 若转绿 → 就是 activity 依赖问题，收工
+   - 若仍失败 → 这次 `/tmp/gradle.log` 会有完整原文，
+     读 step summary 的「编译错误」段或下载 `gradle-log` artifact
 
 ### P1 — 功能缺口
 2. **文本相关全部未做**：`TrackType::Text`、`TextContent`、字形栅格化、
