@@ -4247,6 +4247,13 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
 
 // ---- 节拍检测 ----
 
+/* 这两个辅助函数都直接使用 FFmpegMediaReader 解码音频，
+   必须整体包在 NAIROCLIP_HAS_FFMPEG 里 —— 它们在原来的
+   nc_beat_detect 内部时本来就在 #ifdef 范围内，
+   抽成独立函数后若不重新加守卫，非 FFmpeg 构建会报
+   "unknown type name 'FFmpegMediaReader'"。 */
+#ifdef NAIROCLIP_HAS_FFMPEG
+
 namespace {
 
 /// 选择目标音频轨：track_index < 0 时取首个音频轨。失败返回 nullptr 并写 outError。
@@ -4317,6 +4324,8 @@ bool collectAudioBlocks(const NcEditor* editor, const Track& target,
 }
 
 }  // namespace
+
+#endif  // NAIROCLIP_HAS_FFMPEG
 
 int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
                        double* out_confidence, int32_t* out_beat_count, double** out_beats) {
