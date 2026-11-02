@@ -55,6 +55,36 @@ class MainActivity : AppCompatActivity() {
         webView.settings.allowContentAccess = true
         webView.settings.mediaPlaybackRequiresUserGesture = false
 
+        /* ---- 渲染性能（"更接近原生"的关键几项）----
+         *
+         * 1) HARDWARE 层：让整棵 DOM 走 GPU 合成，滚动/位移不再走软件绘制。
+         *    剪辑页有大量绝对定位元素（时间轴、轨道行、播放头），
+         *    软件层下每次更新都要重绘整块，这是"拖起来发涩"的主因之一。
+         *
+         * 2) rendererPriorityPolicy：把渲染进程优先级提到 FOREGROUND，
+         *    避免系统在内存压力下先降 WebView 渲染进程的频。
+         *
+         * 3) setBackgroundColor 黑：WebView 默认白底，首帧到达前会闪白。
+         *    剪辑页底色是 #000，直接对齐，省掉一次整屏重绘。
+         *
+         * 4) overScrollMode = NEVER：关掉边缘拉伸光效。
+         *    时间轴是横向可滚的，越界回弹会额外触发一次合成。
+         */
+        webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        webView.setBackgroundColor(android.graphics.Color.BLACK)
+        webView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            webView.settings.rendererPriorityPolicy =
+                android.webkit.WebSettings.RendererPriorityPolicy.RENDERER_PRIORITY_IMPORTANT
+        }
+
+        /* 长按不再触发系统的文本选择/放大镜 —— 时间轴长按是"拖动排序"，
+           系统选择菜单会抢走触摸，表现为"按下去没反应"。 */
+        webView.isLongClickable = false
+        webView.setOnLongClickListener { true }
+        webView.settings.setSupportZoom(false)
+        webView.settings.builtInZoomControls = false
+
         webView.webViewClient = object : WebViewClientCompat() {
             override fun shouldInterceptRequest(
                 view: WebView,

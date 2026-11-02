@@ -26,12 +26,19 @@ const FPS = 30;
 const DPR = Math.min(4, Math.max(1, window.devicePixelRatio || 1));
 const NEED = {
   frameW: DPR >= 3 ? 420 : DPR >= 2 ? 320 : 282,   // 预览帧请求宽度
-  thumbW: DPR >= 3 ? 120 : DPR >= 2 ? 100 : 92      // 时间轴缩略图宽度
+  thumbW: DPR >= 3 ? 120 : DPR >= 2 ? 100 : 92,     // 时间轴缩略图宽度
+  /* 拖动时的预览宽度。拖动中看不清细节，但要求跟手：
+     宽度减半 → 像素数降到 1/4 → PNG/Base64 链路成本同步降到 1/4。
+     松手后立刻用 frameW 重拉一帧高清，用户感知不到中间那段低清。 */
+  frameWDrag: 112
 };
 
 const S = {
   tracks: [],
   groups: [],           // 轨道组（B2-7）：{id, name, trackCount}
+  /* 正在拖动片段/裁剪/滚动时间轴。
+     拖动期间预览降质换取跟手，松手后再拉全质量帧。 */
+  dragging: false,
   assets: [],
   subtitles: [],
   markers: [],
@@ -584,7 +591,10 @@ function syncPreview() {
   }
   const us = Math.round(S.time * 1e6);
   const token = ++frameSeq;
-  const url = Engine.frameUrl(us, NEED.frameW);
+  /* 拖动中降质：见 NEED.frameWDrag 的说明。
+     静止时用全宽，保证松手后画面是清晰的。 */
+  const w = S.dragging ? NEED.frameWDrag : NEED.frameW;
+  const url = Engine.frameUrl(us, w);
   if (!url) { E.still.style.visibility = 'hidden'; return; }
 
   // 内嵌 dataURL：直接挂载，不依赖 onload（file:// 下可能不触发）
@@ -1456,6 +1466,7 @@ function beginMove(e, tr, c) {
   })();
 
   let dropBlocked = false;
+  S.dragging = true;   // 全程降质，松手在 onUp 里清
 
   /// 给某一行打禁止态标记（-1 = 全部清除）。定义在 onMove 之前，
   /// 避免依赖「调用时已初始化」这种隐含时序。
@@ -1508,6 +1519,11 @@ function beginMove(e, tr, c) {
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     hideSnapLine();
+    /* 拖动结束：撤掉降质标记并立刻重拉一帧高清。
+       只改标记不重拉的话，画面会一直停在低清那帧，
+       直到下次 tick 才刷新 —— 用户会觉得"松手后糊了一下"。 */
+    S.dragging = false;
+    syncPreview();
     if (!moved) return;
 
     // 清掉禁止态
