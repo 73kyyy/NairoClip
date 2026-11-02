@@ -3667,6 +3667,13 @@ PreviewRenderer* ensurePreviewRenderer(NcEditor* editor) {
     if (editor == nullptr || editor->project.mainSequence() == nullptr) {
         return nullptr;
     }
+    /* 非 FFmpeg 构建下 previewFactory 为空（只在 NAIROCLIP_HAS_FFMPEG 里创建）。
+       继续往下会解引用空指针 —— 这里提前返回 nullptr，让调用方按
+       「没有渲染器」降级（nc_preview_render 返回错误码、统计返回全 0），
+       而不是把进程打崩。 */
+    if (editor->previewFactory == nullptr) {
+        return nullptr;
+    }
     const std::uint64_t signature = previewSignatureOf(editor);
     if (editor->previewRenderer == nullptr) {
         editor->previewRenderer.reset(new (std::nothrow)
@@ -3772,6 +3779,11 @@ int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
+    /* 必须先过 ensurePreviewRenderer：它负责「签名变了就清帧缓存」。
+       直接读 editor->previewRenderer 会绕过这一步 —— 撤销之后缓存里仍是
+       撤销前的帧，cached 会报成 1（过期数据）。这不是只为测试：
+       用户撤销后打开性能面板，会看到假的缓存命中。 */
+    ensurePreviewRenderer(const_cast<NcEditor*>(editor));
     // 渲染器还没建立 = 还没渲染过任何帧，统计全 0（不是错误）
     if (editor->previewRenderer == nullptr) {
         if (out_frame_hits != nullptr) *out_frame_hits = 0;
