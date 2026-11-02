@@ -73,9 +73,23 @@ class MainActivity : AppCompatActivity() {
         webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
         webView.setBackgroundColor(android.graphics.Color.BLACK)
         webView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            webView.settings.rendererPriorityPolicy =
-                android.webkit.WebSettings.RendererPriorityPolicy.RENDERER_PRIORITY_IMPORTANT
+
+        /* 渲染进程优先级：API 33 引入 rendererPriorityPolicy，
+           **API 34 已移除**（compileSdk=34 的 android.jar 里没有这个符号，
+           Kotlin 编译期直接报 Unresolved reference）。
+           所以不能直接引用，只能用反射在 API 33 上尝试；
+           拿不到就跳过 —— 这是纯优化项，缺失不影响功能。 */
+        if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.TIRAMISU) {
+            try {
+                val policyClass =
+                    Class.forName("android.webkit.WebSettings\$RendererPriorityPolicy")
+                val important = policyClass.getField("RENDERER_PRIORITY_IMPORTANT").get(null)
+                val m = android.webkit.WebSettings::class.java
+                    .getMethod("setRendererPriorityPolicy", Int::class.javaPrimitiveType!!, Boolean::class.javaPrimitiveType!!)
+                m.invoke(webView.settings, important, false)
+            } catch (ignored: Throwable) {
+                // 反射失败（厂商 ROM 裁剪等）不影响主流程
+            }
         }
 
         /* 长按不再触发系统的文本选择/放大镜 —— 时间轴长按是"拖动排序"，
