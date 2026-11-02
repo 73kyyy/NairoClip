@@ -581,6 +581,33 @@ Result TimelineEditor::setClipFilter(SequenceId sequenceId, TrackId trackId, Cli
         std::make_unique<SetClipFilterCommand>(sequenceId, trackId, clipId, style, intensity));
 }
 
+Result TimelineEditor::setClipShake(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                   ShakeParams params) {
+    return commit(
+        std::make_unique<SetClipShakeCommand>(sequenceId, trackId, clipId, params));
+}
+
+Result TimelineEditor::getClipShake(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                   ShakeParams* out) const {
+    if (out == nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "out 为空");
+    }
+    const Sequence* seq = project_.findSequence(sequenceId);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const Track* track = seq->findTrack(trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const Clip* clip = track->findClip(clipId);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    *out = clip->shake;
+    return Result::ok();
+}
+
 Result TimelineEditor::setClipBackground(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                                          BackgroundMode mode, std::uint32_t rgba,
                                          double intensity) {

@@ -2,6 +2,7 @@
 #include "nairoclip/core/preview.h"
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/lut.h"
 
 #include <algorithm>
@@ -306,6 +307,16 @@ PreviewFrame PreviewRenderer::renderUncached(const Time& timelineTime) {
         // 预览稳定（静止画面不闪噪点）；导出用真实帧序号（噪点随时间流动）。
         // 质量分级（文档 4.4）：预览路径按 sampleBudget 简化高采样效果
         // （旋转模糊/甩镜等）、减少粒子数量，不改变导出质量上限（三端对等）。
+        /* 片段摇晃（B1-5 / B2-3）。
+           顺序与 export_executor.cpp 保持一致：摇晃改变几何位置，
+           之后的调色/特效作用在已位移的画面上（"先抖动再调色"）。
+
+           这段之前**只在导出端存在**，预览完全没有 —— 用户调了震动，
+           预览看不出来，导出却有，属于两端不一致。 */
+        if (clip->shake.amplitude > 0.0) {
+            applyShakeToRgba(frame.rgba.data(), frame.width, frame.height,
+                             clip->shake, timelineTime.toDouble());
+        }
         if (!clip->effects.empty()) {
             const std::int64_t frameIndex = static_cast<std::int64_t>(
                 std::floor(timelineTime.toDouble() * 30.0));

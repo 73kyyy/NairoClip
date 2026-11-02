@@ -4,6 +4,10 @@
 #include "nairoclip/core/animation.h"
 #include "nairoclip/core/transition_types.h"
 #include "nairoclip/core/mask.h"
+/* 显式包含：SetClipShakeCommand 的成员按值持有 ShakeParams。
+   虽然 track.h → clip.h 会间接带进来，但「靠别人捎带」在头文件重排时
+   会突然断掉，这里按直接依赖写清楚。 */
+#include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/track.h"
 
 #include <cstddef>
@@ -673,6 +677,29 @@ private:
 };
 
 /// 设置片段滤镜（文档 Part 4-B 第 7 节「滤镜」；14 风格 + 强度 0..100）。
+/// 设置片段摇晃（B1-5 / B2-3）。整组参数一次写入，可撤销。
+///
+/// 为什么参数不走 EffectStack：`Effect` 只有单个 `double value`，
+/// 装不下「轨迹+振幅+频率+种子+衰减+相位」六维（见 clip.h 的说明）。
+class SetClipShakeCommand : public Command {
+public:
+    SetClipShakeCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                        ShakeParams params);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "调整摇晃"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    ShakeParams params_;
+    /// 首次 apply 前的快照；撤销时原样写回，不做逐字段推算。
+    ShakeParams before_{};
+    bool hasBefore_ = false;
+};
+
 class SetClipFilterCommand : public Command {
 public:
     SetClipFilterCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "nairoclip/core/command.h"
+/* setClipShake / getClipShake 按值收发 ShakeParams，需要完整类型。 */
+#include "nairoclip/core/shake_effect.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -79,6 +81,16 @@ public:
 
     /// 重命名轨道。
     Result renameTrack(SequenceId sequenceId, TrackId trackId, const std::string& newName);
+    // ---- 片段摇晃（B1-5 / B2-3）----
+    /// 设置片段摇晃参数（整组替换，可撤销）。
+    /// amplitude <= 0 表示关闭摇晃。
+    Result setClipShake(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                        ShakeParams params);
+
+    /// 读取片段摇晃参数（片段不存在返回失败）。
+    Result getClipShake(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                        ShakeParams* out) const;
+
     /// 设置轨道锁定（锁定后所有编辑被拒绝）。
     Result setTrackLocked(SequenceId sequenceId, TrackId trackId, bool locked);
     /// 设置轨道静音。

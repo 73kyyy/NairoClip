@@ -1026,6 +1026,37 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = Ok(j);
         return true;
     }
+    if (op == "shake_set") {
+        /* 片段摇晃（B1-5 / B2-3）。六维参数一次写入，可撤销。 */
+        const int32_t rc = nc_set_clip_shake(
+            ed, ti, cid,
+            static_cast<int32_t>(JInt(a, "trajectory", 0)),
+            JNum(a, "amplitude", 0.0),
+            JNum(a, "frequency", 8.0),
+            JNum(a, "phase", 0.0),
+            JNum(a, "decay_seconds", 0.0),
+            static_cast<uint32_t>(JInt(a, "seed", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("设置摇晃失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "shake_get") {
+        int32_t traj = 0;
+        double amp = 0.0, freq = 0.0, ph = 0.0, decay = 0.0;
+        uint32_t seed = 0;
+        const int32_t rc = nc_get_clip_shake(ed, ti, cid, &traj, &amp, &freq, &ph,
+                                             &decay, &seed);
+        if (rc != NC_OK) {
+            *out = Err("读取摇晃失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"trajectory\":" + std::to_string(traj) +
+                  ",\"amplitude\":" + Num(amp) +
+                  ",\"frequency\":" + Num(freq) +
+                  ",\"phase\":" + Num(ph) +
+                  ",\"decay_seconds\":" + Num(decay) +
+                  ",\"seed\":" + std::to_string(seed) + "}");
+        return true;
+    }
     if (op == "beat_sync") {
         /* 音乐卡点落盘：一步完成「检测节拍 → 按节拍切分并写入空轨」。
            素材用 JVecU64 取 id 数组，时长数组另解析（JVecU64 只收整数）。 */

@@ -287,7 +287,11 @@ const L2 = {
     { id: 'fxscreen', name: '画面特效', icon: 'i-fx' },
     { id: 'fxperson', name: '人物特效', icon: 'i-person' },
     { id: 'fxatmo', name: '氛围特效', icon: 'i-bolt' },
-    { id: 'fxmotion', name: '动感特效', icon: 'i-anim' }
+    { id: 'fxmotion', name: '动感特效', icon: 'i-anim' },
+    /* 「转换」= 移动/变换类：位移、旋转、缩放、沿路径等，
+       与上面四类「视觉特效」不同 —— 它改的是几何位置，不重新着色。
+       图标单独设计（两个错位的方框 + 箭头），与 i-fx 区分开。 */
+    { id: 'xform', name: '转换', icon: 'i-xform' }
   ],
   trans: [
     { id: 'transpreset', name: '预设转场', icon: 'i-trans' },
@@ -481,6 +485,7 @@ function runFunction(cat, f) {
     case 'fxperson':   return openL3('fxperson');
     case 'fxatmo':     return openL3('fxatmo');
     case 'fxmotion':   return openL3('fxmotion');
+    case 'xform':      return openTransformPanel();
     /* 转场 */
     case 'transpreset': return openL3('transpreset');
     case 'transkf':     return openL3('transkf');
@@ -2869,6 +2874,213 @@ function showLayerSheet() {
   const head = E.sheet && E.sheet.querySelector('.sheet-head span');
   if (head) head.textContent = `图层（${tracks.length} 轨）`;
   E.sheet.hidden = false;
+}
+
+/* ---------------- 「转换」= 移动/变换类效果（效果 L2）----------------
+ *
+ * 与「画面特效」的区别：转换改的是**几何位置/形状**（位移、旋转、缩放、
+ * 沿路径），不重新着色；画面特效是重新计算像素颜色。
+ *
+ * 内核能力现状（重要，直接影响能不能用）：
+ *   已实现：摆动（Shake 六维参数）、随机抖动（Jitter=31）、
+ *           自动摇动（Shake Random 轨迹）、振荡（Shake Circular 轨迹）
+ *   未实现：偏移/拉伸轴/摇摆/旋转/栅格转换/沿路径移动/缩放辅助/脉冲大小
+ *
+ * 未实现的项在面板里明确标「待接入」，点击给出说明，**不做假按钮** ——
+ * 点了没反应比灰掉更糟。等内核补齐后把 xfReady 改成 true 即可。
+ */
+const XFORM_ITEMS = [
+  /* 下列 ready 的走真实 nc_set_clip_shake；其余等内核 */
+  { key: 'offset',    name: '偏移',       en: 'Offset',           ready: false },
+  { key: 'stretch',   name: '拉伸轴',     en: 'Stretch Axis',     ready: false },
+  { key: 'oscillate', name: '振荡',       en: 'Oscillate',        ready: true,
+    shake: { trajectory: 2, amplitude: 0.03, frequency: 6, phase: 0 } },
+  { key: 'swing',     name: '摆动',       en: 'Swing',            ready: true,
+    shake: { trajectory: 0, amplitude: 0.02, frequency: 8, phase: 0 } },
+  { key: 'spin',      name: '旋转',       en: 'Spin',             ready: false },
+  { key: 'raster',    name: '栅格转换',   en: 'Raster Transform', ready: false },
+  { key: 'path',      name: '沿路径移动', en: 'Move Along Path',  ready: false },
+  { key: 'scale',     name: '缩放辅助',   en: 'Scale Assist',     ready: false },
+  { key: 'pulse',     name: '脉冲大小',   en: 'Pulse Size',       ready: false },
+  { key: 'autoshake', name: '自动摇动',   en: 'Auto-Shake',       ready: true,
+    shake: { trajectory: 3, amplitude: 0.025, frequency: 12, phase: 0 } },
+  { key: 'randpos',   name: '随机位移',   en: 'Random Displacement', ready: false },
+  { key: 'jitter',    name: '随机抖动',   en: 'Random Jitter',    ready: true,
+    effect: 31 }   /* EffectType::Jitter */
+];
+
+/* 缩略示意：用 CSS 画同色系图形，不引外部图片。
+   参考图里的桃红/橙色在深色主题下刺眼，统一改用 --accent-pick 与
+   --accent 的低饱和变体，保持"同色系示意"的信息量而不抢视觉。 */
+function xformThumb(key) {
+  const A = 'var(--accent-pick)';
+  const B = 'var(--accent)';
+  const box = 'position:absolute;inset:0;display:grid;place-items:center';
+  const shapes = {
+    offset:    `<div style="${box}"><div style="width:22px;height:22px;border-radius:5px;background:${A};opacity:.35;transform:translate(-6px,-6px)"></div><div style="width:22px;height:22px;border-radius:5px;background:${A};transform:translate(6px,6px);position:absolute"></div></div>`,
+    stretch:   `<div style="${box}"><div style="width:34px;height:16px;border-radius:50%;background:${A}"></div></div>`,
+    oscillate: `<div style="${box}"><div style="width:20px;height:20px;border-radius:50%;background:${A};transform:translateX(-7px)"></div><div style="width:20px;height:20px;border-radius:50%;background:${A};opacity:.35;transform:translateX(7px);position:absolute"></div></div>`,
+    swing:     `<div style="${box}"><div style="width:2px;height:18px;background:${A};transform-origin:top;transform:rotate(24deg)"></div><div style="width:14px;height:14px;border-radius:50%;background:${B};position:absolute;transform:translate(9px,9px)"></div></div>`,
+    spin:      `<div style="${box}"><div style="width:26px;height:26px;border-radius:50%;border:2px dashed ${A};border-top-color:transparent"></div></div>`,
+    raster:    `<div style="${box}"><div style="display:grid;grid-template-columns:repeat(3,8px);gap:2px">${'<i style="width:8px;height:8px;background:'+A+';opacity:.5;display:block"></i>'.repeat(9)}</div></div>`,
+    path:      `<div style="${box}"><div style="width:30px;height:18px;border:1.5px dashed ${A};border-radius:50%;opacity:.5"></div><div style="width:9px;height:9px;border-radius:50%;background:${A};position:absolute;transform:translate(14px,-8px)"></div></div>`,
+    scale:     `<div style="${box}"><div style="width:16px;height:16px;border-radius:4px;background:${A};opacity:.35"></div><div style="width:24px;height:24px;border-radius:4px;border:2px solid ${A};position:absolute"></div></div>`,
+    pulse:     `<div style="${box}"><div style="width:26px;height:26px;border-radius:50%;background:${A}"></div><div style="width:36px;height:36px;border-radius:50%;border:2px solid ${A};opacity:.3;position:absolute"></div></div>`,
+    autoshake: `<div style="${box}"><div style="width:22px;height:22px;border-radius:5px;background:${A}"></div><div style="width:22px;height:22px;border-radius:5px;border:1.5px solid ${A};opacity:.35;position:absolute;transform:translate(-5px,4px)"></div></div>`,
+    randpos:   `<div style="${box}"><div style="width:14px;height:14px;border-radius:50%;background:${A}"></div><div style="width:8px;height:8px;border-radius:50%;background:${B};position:absolute;transform:translate(-13px,-9px)"></div><div style="width:6px;height:6px;border-radius:50%;background:${A};opacity:.5;position:absolute;transform:translate(13px,10px)"></div></div>`,
+    jitter:    `<div style="${box}"><div style="width:20px;height:20px;border-radius:4px;background:${A};filter:blur(.6px);transform:rotate(8deg)"></div></div>`
+  };
+  return shapes[key] || '';
+}
+
+async function openTransformPanel() {
+  if (!Engine.online) return toast('未连接引擎');
+  const sel = S.selected;
+  if (!sel) return toast('请先选中一个片段');
+
+  /* 宫格。未接入的项加 xf-soon 类并显示"待接入"角标，
+     点击时说明原因，而不是静默无反应。 */
+  const body = document.createElement('div');
+  const grid = document.createElement('div');
+  grid.className = 'xf-grid';
+  XFORM_ITEMS.forEach((it) => {
+    const b = document.createElement('button');
+    b.className = 'xf-item' + (it.ready ? '' : ' xf-soon');
+    b.innerHTML =
+      `<span class="xf-thumb">${xformThumb(it.key)}</span>` +
+      `<span class="xf-name">${it.name}</span>` +
+      `<span class="xf-en">${it.en}</span>` +
+      (it.ready ? '' : '<span class="xf-badge">待接入</span>');
+    b.addEventListener('click', () => {
+      if (!it.ready) {
+        return toast(`「${it.name}」的渲染还没实现（当前只有摆动/振荡/自动摇动/随机抖动可用）`, 3200);
+      }
+      if (it.shake) return openShakePanel(it);
+      if (it.effect) return applyJitterEffect(it);
+    });
+    grid.appendChild(b);
+  });
+  body.appendChild(grid);
+
+  const hint = document.createElement('div');
+  hint.className = 'xf-hint';
+  hint.textContent = '摆动类可直接调参数；标记「待接入」的效果等待内核实现后开放。';
+  body.appendChild(hint);
+
+  showPanel('转换', body);
+}
+
+/* 随机抖动走 EffectStack（EffectType::Jitter=31）。 */
+async function applyJitterEffect(it) {
+  const sel = S.selected;
+  if (!sel) return toast('请先选中片段');
+  const ok = await guardedEdit(
+    { op: 'effect_add', track: sel.track.index, clip: sel.clip.id,
+      type: it.effect, value: 0.5 },
+    `已添加「${it.name}」`);
+  if (ok) { hidePanel(); }
+}
+
+/* 摆动参数面板 —— 按你给的样板重做：
+ * 左侧圆角标签 · 中间刻度尺 · 右侧独立数值框。
+ * 颜色取 tokens.css（深色卡片 + --accent-pick 高亮），不套用样板的浅色。 */
+async function openShakePanel(it) {
+  const sel = S.selected;
+  if (!sel) return toast('请先选中片段');
+
+  // 读当前值（片段没设过 shake 时返回全 0，用面板默认值兜底）
+  const r = engineCall('shake_get', { track: sel.track.index, clip: sel.clip.id });
+  const cur = (r && r.ok && r.result) ? r.result : {};
+  const base = it.shake || {};
+  const v = {
+    amplitude: (cur.amplitude > 0 ? cur.amplitude : base.amplitude) || 0.02,
+    frequency: cur.frequency > 0 ? cur.frequency : (base.frequency || 8),
+    phase: cur.phase || 0,
+    decay: cur.decay_seconds || 0
+  };
+
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="xf-param-head">
+      <button class="xf-title">▾ ${it.name}</button>
+      <div class="xf-actions">
+        <button class="xf-act" data-a="more">⋯</button>
+        <button class="xf-act" data-a="reset">⟲</button>
+      </div>
+    </div>
+    <div class="xf-rows">
+      <div class="xr" data-k="frequency"></div>
+      <div class="xr" data-k="amplitude"></div>
+      <div class="xr" data-k="phase"></div>
+      <div class="xr" data-k="decay"></div>
+    </div>
+    <div class="xf-param-foot">
+      <button class="btn primary" id="xfApply" style="width:100%">应用</button>
+    </div>`;
+
+  const SPEC = {
+    frequency: { name: '频率', min: 0,    max: 20,   step: 0.1, unit: 'Hz', def: v.frequency },
+    amplitude: { name: '振幅', min: 0,    max: 0.2,  step: 0.005, pct: true, def: v.amplitude },
+    phase:     { name: '相位', min: 0,    max: 360,  step: 1,   unit: '°',  def: v.phase * 180 / Math.PI },
+    decay:     { name: '衰减', min: 0,    max: 10,   step: 0.1, unit: 's',  def: v.decay }
+  };
+  const draft = {};
+  Object.keys(SPEC).forEach((k) => { draft[k] = SPEC[k].def; });
+
+  const rows = body.querySelector('.xf-rows');
+  Object.keys(SPEC).forEach((k) => {
+    const sp = SPEC[k];
+    const host = rows.querySelector(`.xr[data-k="${k}"]`);
+    const fmt = (x) => sp.pct ? `${Math.round(x * 100)}%`
+                              : (sp.unit === '°' ? `${Math.round(x)}°`
+                                                 : `${(+x).toFixed(sp.step < 0.1 ? 2 : 1)}${sp.unit || ''}`);
+    host.innerHTML = `
+      <span class="xr-label">${sp.name}</span>
+      <span class="xr-scale">
+        <span class="xr-ticks"></span>
+        <input type="range" min="${sp.min}" max="${sp.max}" step="${sp.step}" value="${draft[k]}">
+      </span>
+      <span class="xr-val">${fmt(draft[k])}</span>`;
+    // 刻度线：按比例生成细竖线，视觉上是「标尺」而不是普通滑轨
+    const ticks = host.querySelector('.xr-ticks');
+    const n = 24;
+    let html = '';
+    for (let i = 0; i <= n; i += 1) {
+      const major = (i % 6 === 0);
+      html += `<i class="${major ? 'maj' : ''}" style="left:${(i / n) * 100}%"></i>`;
+    }
+    ticks.innerHTML = html;
+
+    const input = host.querySelector('input');
+    const val = host.querySelector('.xr-val');
+    input.addEventListener('input', () => {
+      draft[k] = parseFloat(input.value);
+      val.textContent = fmt(draft[k]);
+    });
+  });
+
+  body.querySelector('[data-a="reset"]').addEventListener('click', () => {
+    Object.keys(SPEC).forEach((k) => { draft[k] = SPEC[k].def; });
+    openShakePanel(it);   // 简单重开，避免逐控件回写
+  });
+  body.querySelector('[data-a="more"]').addEventListener('click', () => {
+    toast('更多操作：暂只有重置', 2000);
+  });
+
+  body.querySelector('#xfApply').addEventListener('click', async () => {
+    const ok = await guardedEdit({
+      op: 'shake_set', track: sel.track.index, clip: sel.clip.id,
+      trajectory: base.trajectory !== undefined ? base.trajectory : 0,
+      amplitude: draft.amplitude,
+      frequency: draft.frequency,
+      phase: draft.phase * Math.PI / 180,
+      decay_seconds: draft.decay,
+      seed: 0
+    }, `已应用「${it.name}」`);
+    if (ok) hidePanel();
+  });
+
+  showPanel(it.name, body);
 }
 
 /* ---------------- 音乐卡点（B3-1 / P-07）----------------

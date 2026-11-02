@@ -1012,6 +1012,26 @@ int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profil
                      const double* usable_seconds, int32_t material_count, int32_t apply_color,
                      char** out_error);
 
+// ---- 片段摇晃（B1-5 / B2-3，「效果 → 转换 → 摆动」等）----
+//
+// 参数为什么不走 nc_add_effect：Effect 只有单个 double value，
+// 装不下「轨迹+振幅+频率+种子+衰减+相位」六维（见 clip.h 的说明）。
+//
+// 轨迹：0=水平正弦 1=垂直正弦 2=圆周 3=伪随机。
+// 振幅占画面短边比例（0..0.2）；频率 Hz（0..20）；衰减秒（0..10）。
+// amplitude <= 0 表示关闭摇晃。
+
+/// 写入片段摇晃参数（整组替换，可撤销）。
+int32_t nc_set_clip_shake(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t trajectory, double amplitude, double frequency,
+                          double phase, double decay_seconds, uint32_t seed);
+
+/// 读取片段摇晃参数；任一输出可为 NULL。
+int32_t nc_get_clip_shake(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t* out_trajectory, double* out_amplitude,
+                          double* out_frequency, double* out_phase,
+                          double* out_decay_seconds, uint32_t* out_seed);
+
 // ---- 导出（桌面 FFmpeg 路径；Android MediaCodec 走平台适配层）----
 
 /// 导出主序列到文件。

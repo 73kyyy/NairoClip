@@ -2038,6 +2038,45 @@ std::string SetClipFilterCommand::nameImpl() const {
     return std::string("滤镜：") + filterStyleDisplayName(style_);
 }
 
+SetClipShakeCommand::SetClipShakeCommand(SequenceId sequenceId, TrackId trackId,
+                                         ClipId clipId, ShakeParams params)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), params_(params) {}
+
+Result SetClipShakeCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    /* 参数合法性交给 shakeParamsValid —— 界面上滑块的取值范围与这里
+       同源，不在两处各写一遍上下限。 */
+    if (!shakeParamsValid(params_)) {
+        return Result::fail(ErrorCode::InvalidArgument,
+                            "摇晃参数非法（振幅 0..0.2 / 频率 0..20 / 衰减 0..10）");
+    }
+    if (!hasBefore_) {
+        before_ = clip->shake;
+        hasBefore_ = true;
+    }
+    clip->shake = params_;
+    // 振幅归零等价于「不摇晃」：把整组参数复位，避免残留频率/相位影响后续
+    if (clip->shake.amplitude <= 0.0) {
+        clip->shake = ShakeParams{};
+        clip->shake.amplitude = 0.0;
+    }
+    return Result::ok();
+}
+
+Result SetClipShakeCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (hasBefore_) {
+        clip->shake = before_;   // 整体写回，不做逐字段反向推算
+    }
+    return Result::ok();
+}
+
 Result SetClipFilterCommand::apply(Project& project) {
     Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
     if (clip == nullptr) {

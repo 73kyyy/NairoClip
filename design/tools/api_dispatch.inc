@@ -1341,6 +1341,30 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("out_error", JsonValue::string(takeString(out_error)));
         return true;
     }
+    if (fn == "nc_set_clip_shake") {
+        const auto ret = nc_set_clip_shake(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<int32_t>(jint(args, "trajectory", 0)), jnum(args, "amplitude", 0.0), jnum(args, "frequency", 0.0), jnum(args, "phase", 0.0), jnum(args, "decay_seconds", 0.0), static_cast<std::uint32_t>(jint(args, "seed", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_get_clip_shake") {
+        int32_t out_trajectory = 0;
+        double out_amplitude = 0.0;
+        double out_frequency = 0.0;
+        double out_phase = 0.0;
+        double out_decay_seconds = 0.0;
+        std::uint32_t out_seed = 0;
+        const auto ret = nc_get_clip_shake(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), &out_trajectory, &out_amplitude, &out_frequency, &out_phase, &out_decay_seconds, &out_seed);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_trajectory", JsonValue::integer(out_trajectory));
+        out.result.set("out_amplitude", JsonValue::number(out_amplitude));
+        out.result.set("out_frequency", JsonValue::number(out_frequency));
+        out.result.set("out_phase", JsonValue::number(out_phase));
+        out.result.set("out_decay_seconds", JsonValue::number(out_decay_seconds));
+        out.result.set("out_seed", JsonValue::integer(static_cast<std::int64_t>(out_seed)));
+        return true;
+    }
     if (fn == "nc_set_frame_fit") {
         const auto ret = nc_set_frame_fit(gEditor, static_cast<int32_t>(jint(args, "mode", 0)));
         out.code = ret;

@@ -1293,6 +1293,66 @@ const char* nc_filter_display_name(int32_t style) {
 
 // ---- 背景填充（文档 Part 4-C 第 11 节「背景」）----
 
+int32_t nc_set_clip_shake(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t trajectory, double amplitude, double frequency,
+                          double phase, double decay_seconds, uint32_t seed) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (trajectory < 0 || trajectory > 3) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "摇晃轨迹超出范围（0..3）");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+
+    ShakeParams params;
+    params.trajectory = static_cast<ShakeTrajectory>(trajectory);
+    params.amplitude = amplitude;
+    params.frequency = frequency;
+    params.phase = phase;
+    params.decaySeconds = decay_seconds;
+    params.seed = seed;
+    // 具体范围（振幅 0..0.2 等）交给命令层的 shakeParamsValid，
+    // 这里不重复写一遍上下限。
+    return failResult(editor->editor->setClipShake(main->id, trackId, ClipId{clip_id}, params));
+}
+
+int32_t nc_get_clip_shake(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t* out_trajectory, double* out_amplitude,
+                          double* out_frequency, double* out_phase,
+                          double* out_decay_seconds, uint32_t* out_seed) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    ShakeParams params;
+    const Result r =
+        editor->editor->getClipShake(main->id, trackId, ClipId{clip_id}, &params);
+    if (!r.isOk()) {
+        return failResult(r);
+    }
+    if (out_trajectory != nullptr) *out_trajectory = static_cast<int32_t>(params.trajectory);
+    if (out_amplitude != nullptr) *out_amplitude = params.amplitude;
+    if (out_frequency != nullptr) *out_frequency = params.frequency;
+    if (out_phase != nullptr) *out_phase = params.phase;
+    if (out_decay_seconds != nullptr) *out_decay_seconds = params.decaySeconds;
+    if (out_seed != nullptr) *out_seed = params.seed;
+    return NC_OK;
+}
+
 int32_t nc_set_clip_background(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                                int32_t mode, uint32_t rgba, double intensity) {
     SequenceId seqId;
