@@ -559,7 +559,7 @@
       <div class="blend-grid"></div>`;
     const grid = row.querySelector('.blend-grid');
     if (!list.length) {
-      grid.innerHTML = '<div class="empty-hint" style="font-size:11px">混合模式列表读取失败：引擎未提供 /api/blend_modes</div>';
+      grid.innerHTML = '<div class="empty-hint" style="font-size:11px">混合模式列表读取失败：nc_blend_mode_count 返回 0</div>';
       return row;
     }
     list.forEach((m) => {

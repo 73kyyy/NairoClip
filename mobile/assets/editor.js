@@ -106,7 +106,11 @@ function toast(text, ms = 2200) {
 }
 
 /* ---------------- 引擎 → 视图模型 ---------------- */
-const kindOf = (type) => (type === 1 ? 'audio' : type === 2 ? 'subtitle' : 'video');
+/* 轨道类型 → 前端语义名。数值与 core 的 TrackType 一一对应：
+   0 Video / 1 Audio / 2 Subtitle / 3 Adjustment。
+   3 是调整图层（B2-6）：没有片段，效果与 LUT 挂在轨道上。 */
+const kindOf = (type) => (
+  type === 1 ? 'audio' : type === 2 ? 'subtitle' : type === 3 ? 'adjustment' : 'video');
 
 function applyState(st) {
   if (!st) return;
@@ -121,6 +125,9 @@ function applyState(st) {
        后端读不到时给默认值，保证 UI 不会因为 undefined 画出零高度。 */
     heightPx: typeof t.height_px === 'number' ? t.height_px : 48,
     collapsed: !!t.collapsed,
+    /* 调整图层专有（P-19）：后端只在 type==3 时下发，其余轨道为 undefined。
+       前端据「有没有这个字段」决定是否显示齿轮/斜纹，不靠 kind 猜。 */
+    adjustment: t.adjustment || null,
     clips: (t.clips || []).map((c) => {
       const asset = (st.assets || []).find((a) => a.id === c.asset_id);
       return {
@@ -733,18 +740,24 @@ const BLEND_LABEL = {
   pin_light: '点光', difference: '差值', exclusion: '排除',
 };
 
-async function loadBlendModes() {
-  try {
-    const r = await fetch('/api/blend_modes');
-    const d = await r.json();
-    window.NC_BLEND_MODES = (d.items || []).map((x) => ({
-      mode: x.mode,
-      label: BLEND_LABEL[x.name] || x.name,
-      name: x.name,
-    }));
-  } catch (err) {
-    window.NC_BLEND_MODES = [];
+/* 直调 C ABI 取列表（nc_blend_mode_count / nc_blend_mode_name）。
+ *
+ * 此前这里是 fetch('/api/blend_modes') —— 那条 HTTP 路由只存在于
+ * design 的桌面 harness；Android 上引擎经 JNI 直调，没有 HTTP 服务，
+ * 必然抛异常，结果 NC_BLEND_MODES 恒为 []，混合模式面板是空列表。
+ */
+function loadBlendModes() {
+  const out = [];
+  const n = engineCall('nc_blend_mode_count', {});
+  const count = (n && n.ok && typeof n.value === 'number') ? n.value : 0;
+  for (let i = 0; i < count; i += 1) {
+    const r = engineCall('nc_blend_mode_name', { mode: i });
+    // ABI 返回 const char*（静态串），桥包装成 {value: "normal"}
+    const name = (r && r.ok && typeof r.value === 'string') ? r.value : '';
+    if (!name) continue;
+    out.push({ mode: i, label: BLEND_LABEL[name] || name, name });
   }
+  window.NC_BLEND_MODES = out;
 }
 
 /* ============================================================================
@@ -839,14 +852,22 @@ function hidePanel() {
 
 /// 转场选择/编辑面板（真实调用 nc_add_transition / nc_remove_transition）
 async function openTransitionSheet(tr, junction, existing) {
-  // 转场库来自引擎（/api/transitions），不在前端写死
-  let library = [];
-  try {
-    const r = await fetch('/api/transitions');
-    const d = await r.json();
-    library = d.items || [];
-  } catch (err) {
-    library = [];
+  /* 转场库来自引擎（nc_transition_type_*），不在前端写死。
+   *
+   * 此前用 fetch('/api/transitions') —— 那条路由只在 design 的桌面
+   * harness 里存在，Android 端没有 HTTP 服务，必然失败 → 库恒为空，
+   * 面板永远显示「转场库读取失败」。改为直调 C ABI。
+   */
+  const library = [];
+  const tc = engineCall('nc_transition_type_count', {});
+  const total = (tc && tc.ok && typeof tc.value === 'number') ? tc.value : 0;
+  for (let i = 0; i < total; i += 1) {
+    const rn = engineCall('nc_transition_type_name', { type: i });
+    const name = (rn && rn.ok && typeof rn.value === 'string') ? rn.value : '';
+    if (!name) continue;
+    const rc = engineCall('nc_transition_category', { type: i });
+    const category = (rc && rc.ok && typeof rc.value === 'string') ? rc.value : '';
+    library.push({ type: i, name, category });
   }
 
   const body = document.createElement('div');
@@ -872,7 +893,7 @@ async function openTransitionSheet(tr, junction, existing) {
 
   const lib = body.querySelector('#transLib');
   if (!library.length) {
-    lib.innerHTML = '<div class="empty-hint" style="font-size:11px">转场库读取失败：引擎未提供 /api/transitions</div>';
+    lib.innerHTML = '<div class="empty-hint" style="font-size:11px">转场库读取失败：nc_transition_type_count 返回 0</div>';
   } else {
     for (const item of library) {
       const b = document.createElement('button');
@@ -942,7 +963,9 @@ function renderTracksBody() {
 
   S.tracks.forEach((tr) => {
     const row = document.createElement('div');
-    row.className = 'trow';
+    /* 调整图层（P-19）用独立 class：CSS 给斜纹底，视觉上与普通轨道区分。
+       齿轮不放这里 —— 时间轴行要响应片段拖拽/选中，按钮放轨道头更稳。 */
+    row.className = 'trow' + (tr.kind === 'adjustment' ? ' trow-adj' : '');
     /* 轨道高度 / 折叠（B2-10）：每轨独立，来自引擎 state.tracks[i].height_px。
        折叠时只留 18px 细条（够放转场标记与拖动把手，仍可点开）。
        范围 24~200 与 core 的 Track::heightPx 一致，这里再夹一次，
@@ -981,11 +1004,18 @@ function renderHeads() {
     const row = document.createElement('div');
     row.className = 'row';
 
+    /* 调整图层的「效果」入口：齿轮。点开直接进效果列表（L3），
+       复用现有效果面板，不另做一套参数 UI。 */
+    if (tr.kind === 'adjustment') {
+      row.appendChild(headBtn('i-gear', false, () => openAdjustmentPanel(tr)));
+    }
+
     const eye = headBtn(tr.hidden ? 'i-eye-off' : 'i-eye', tr.hidden, () =>
       guardedEdit({ op: 'track_flag', track: tr.index, flag: 'hidden', value: !tr.hidden }));
     row.appendChild(eye);
 
-    if (tr.kind !== 'subtitle') {
+    // 调整图层没有声音，不给喇叭按钮（隐藏功能属于违规，但没有的东西不该占位）
+    if (tr.kind !== 'subtitle' && tr.kind !== 'adjustment') {
       const spk = headBtn(tr.muted ? 'i-speaker-off' : 'i-speaker', tr.muted, () =>
         guardedEdit({ op: 'track_flag', track: tr.index, flag: 'muted', value: !tr.muted }));
       row.appendChild(spk);
@@ -2598,7 +2628,14 @@ function showLayerSheet() {
         t.muted ? '静音' : null,
         t.locked ? '已锁定' : null
       ].filter(Boolean).join(' · ');
-      const desc = `${t.type === 1 ? '音频' : '视频'} · ${t.clips.length} 片段` +
+      /* 调整图层没有片段，写「0 片段」会让人误以为坏了；
+         它作用于下方 N 条轨道，这才是用户需要知道的信息。 */
+      const below = (S.tracks || []).filter((x) => x.index > t.index).length;
+      const kindText = t.kind === 'audio' ? '音频'
+        : t.kind === 'subtitle' ? '字幕'
+        : t.kind === 'adjustment' ? `调整图层 · 作用于下方 ${below} 轨`
+        : '视频';
+      const desc = `${kindText} · ${t.clips.length} 片段` +
                    (flags ? ` · ${flags}` : '');
 
       // 一行一个轨道：点右侧按钮切换 显示 / 静音 / 锁定（真实写引擎）
@@ -2663,9 +2700,175 @@ function showLayerSheet() {
       E.sheetList.appendChild(row);
     });
   }
+  /* 新增入口：调整图层。放在列表末尾，与「已有轨道」分开，
+     避免被误认成某条轨道的操作。 */
+  const addRow = document.createElement('div');
+  addRow.className = 'layer-row layer-add';
+  addRow.innerHTML = '<div class="layer-main"><b>＋ 调整图层</b>' +
+    '<small>作用于下方所有轨道：可加效果与 LUT</small></div>';
+  addRow.addEventListener('click', async () => {
+    const ok = await addAdjustmentTrack();
+    if (ok) { closeSheet(); showLayerSheet(); }
+  });
+  E.sheetList.appendChild(addRow);
+
   const head = E.sheet && E.sheet.querySelector('.sheet-head span');
   if (head) head.textContent = `图层（${tracks.length} 轨）`;
   E.sheet.hidden = false;
+}
+
+/* ---------------- 调整图层：真实新增中间层轨道（B2-6 / P-19）----------------
+ *
+ * 调整图层没有片段：效果与 LUT 挂在**轨道**上，作用于「下方所有轨道合成后的
+ * 整帧」。core 与 C ABI（nc_adjustment_*）以及预览/导出渲染都已实现，
+ * 此前只缺 UI 入口 —— 本函数补上。
+ *
+ * 用 add_track + type:3，与画中画同一条命令链路，因此同样可撤销。
+ */
+async function addAdjustmentTrack() {
+  const n = (S.tracks || []).filter((t) => t.type === 3).length + 1;
+  const ok = await guardedEdit(
+    { op: 'add_track', name: `调整 ${n}`, type: 3 },
+    '已新增调整图层：点轨道上的齿轮添加效果'
+  );
+  if (ok && typeof load === 'function') await load();
+  return ok;
+}
+
+/* ---------------- 调整图层面板（B2-6 / P-19）----------------
+ *
+ * 为什么不复用现有效果列表（l3-panel 的 fxPanel）：
+ * 那套模块的每个 op 都带 `clip: t.clip`，而调整图层**没有片段** ——
+ * 效果挂在 Track::adjustmentEffects 上。硬塞进去要么传 clip=0 打错目标，
+ * 要么把 fxTarget 改成双模式、连带 8 个调用点全改，风险与收益不成比例。
+ * 因此这里做专用面板，数据源用 track.adjustment（BuildState 下发）。
+ */
+/* 效果名一律取仓库既有的 l3-spec.effectNameOf —— 它有完整的 1..36 映射。
+ * 不要在这里另写一份：先前手写的表把 8/9/10/11 写成「暗角/模糊/锐化/噪点」，
+ * 与 core 的 Sharp=8 / Vignette=9 / Grain=10 / Fade=11 完全错位，
+ * 用户点到「锐化」实际加的是「暗角」。
+ */
+function adjEffectName(type) {
+  if (window.L3_SPEC && typeof window.L3_SPEC.effectNameOf === 'function') {
+    return window.L3_SPEC.effectNameOf(type);
+  }
+  return `效果 ${type}`;
+}
+
+/// 可添加的效果类型：无（None=0）之外的 1..36（35=发光轮廓，36=震动）。
+const ADJ_EFFECT_MAX = 36;
+
+async function openAdjustmentPanel(tr) {
+  if (!Engine.online) return toast('未连接引擎');
+
+  // 拉最新状态：面板上的计数/强度必须来自引擎，不能用 S.tracks 的旧快照
+  let t = tr;
+  try {
+    const st = fetchState();
+    applyState(st);
+    t = (S.tracks || []).find((x) => x.index === tr.index) || tr;
+  } catch (_) { /* 读不到就用手上的，面板仍可用 */ }
+
+  const adj = t.adjustment || { effect_count: 0, has_lut: 0, lut_strength: 0, lut_path: '' };
+  const below = (S.tracks || []).filter((x) => x.index > t.index).length;
+
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="adj-hint">作用于下方 ${below} 条轨道（合成后整帧）</div>
+    <div class="adj-sec">
+      <div class="adj-sec-head"><span>效果（${adj.effect_count || 0}）</span></div>
+      <div class="adj-effs" id="adjEffs"></div>
+      <div class="adj-add">
+        <select id="adjType"></select>
+        <button class="btn" id="adjAdd">添加</button>
+      </div>
+    </div>
+    <div class="adj-sec">
+      <div class="adj-sec-head"><span>LUT</span></div>
+      <div class="adj-lut">
+        <input type="range" id="adjLutStrength" min="0" max="100"
+               value="${Math.round((adj.lut_strength || 0) * 100)}">
+        <b id="adjLutVal">${Math.round((adj.lut_strength || 0) * 100)}%</b>
+      </div>
+      <div class="adj-lut-path">${adj.has_lut ? (adj.lut_path || '已设置') : '未设置 LUT'}</div>
+      <button class="btn" id="adjLutClear"${adj.has_lut ? '' : ' disabled'}>清除 LUT</button>
+    </div>`;
+
+  const sel = body.querySelector('#adjType');
+  for (let i = 1; i <= ADJ_EFFECT_MAX; i += 1) {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = adjEffectName(i);
+    sel.append(o);
+  }
+
+  /* 逐个读真实效果：nc_adjustment_effect_get 按序号返回
+     id/type/value/enabled，删除时用拿到的 id，不靠猜。 */
+  const effs = body.querySelector('#adjEffs');
+  if (!adj.effect_count) {
+    effs.innerHTML = '<div class="adj-empty">还没有效果</div>';
+  } else {
+    for (let i = 0; i < adj.effect_count; i += 1) {
+      const r = engineCall('adjust_effect_get', { track_index: t.index, index: i });
+      const row = document.createElement('div');
+      row.className = 'adj-eff';
+      if (!r || !r.ok) {
+        // 读不到就如实显示序号，不编造名称
+        row.innerHTML = `<span>效果 ${i + 1}（读取失败）</span>`;
+        effs.appendChild(row);
+        continue;
+      }
+      const eid = r.result && r.result.effect_id;
+      const etype = r.result ? r.result.type : 0;
+      const pct = Math.round((r.result ? r.result.value : 0) * 100);
+      const off = r.result && r.result.enabled === 0;
+      row.innerHTML = `<span${off ? ' class="off"' : ''}>` +
+        `${adjEffectName(etype)} · ${pct}%` +
+        `${off ? ' · 已隐藏' : ''}</span>`;
+      const del = document.createElement('button');
+      del.className = 'adj-del';
+      del.textContent = '删除';
+      del.addEventListener('click', async () => {
+        if (!eid) return toast('该效果没有 id，无法删除', 3000);
+        const okFlag = await guardedEdit(
+          { op: 'adjust_effect_remove', track_index: t.index, effect_id: eid },
+          '已删除效果');
+        if (okFlag) { hidePanel(); openAdjustmentPanel(t); }
+      });
+      row.appendChild(del);
+      effs.appendChild(row);
+    }
+  }
+
+  body.querySelector('#adjAdd').addEventListener('click', async () => {
+    const type = Number(sel.value);
+    const okFlag = await guardedEdit(
+      { op: 'adjust_effect_add', track_index: t.index, type, value: 1.0 },
+      `已添加「${adjEffectName(type)}」`);
+    if (okFlag) { hidePanel(); openAdjustmentPanel(t); }
+  });
+
+  const lutRange = body.querySelector('#adjLutStrength');
+  const lutVal = body.querySelector('#adjLutVal');
+  lutRange.addEventListener('input', () => {
+    lutVal.textContent = `${lutRange.value}%`;
+  });
+  lutRange.addEventListener('change', async () => {
+    const okFlag = await guardedEdit({
+      op: 'adjust_lut', track_index: t.index,
+      path: adj.lut_path || '', strength: Number(lutRange.value) / 100,
+    });
+    if (!okFlag) return;
+  });
+
+  body.querySelector('#adjLutClear').addEventListener('click', async () => {
+    const okFlag = await guardedEdit(
+      { op: 'adjust_lut', track_index: t.index, path: '', strength: 1.0 },
+      '已清除 LUT');
+    if (okFlag) { hidePanel(); openAdjustmentPanel(t); }
+  });
+
+  showPanel('调整图层', body);
 }
 
 /* ---------------- 画中画：真实新增视频轨 ---------------- */
@@ -3039,7 +3242,7 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
   // 宫格缩略图的黏土底图映射（map.json 由 tools/make_static.py 写入）
   await loadThumbMap();
   // 混合模式库：名称与顺序来自内核（nc_blend_mode_count/name），不写死
-  await loadBlendModes();
+  loadBlendModes();
   // 首次载入：把整个工程缩放进来（用户手动缩放后不再覆盖）
   if (!/\bzoom=/.test(location.search)) fitToSeq();
   // 预览按 fill 输出（铺满居中裁切）：与 9:16 画布一致，不出现上下黑边

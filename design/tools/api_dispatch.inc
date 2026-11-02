@@ -1205,6 +1205,20 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
         return true;
     }
+    if (fn == "nc_adjustment_effect_get") {
+        std::uint64_t out_effect_id = 0;
+        int32_t out_type = 0;
+        double out_value = 0.0;
+        int32_t out_enabled = 0;
+        const auto ret = nc_adjustment_effect_get(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<int32_t>(jint(args, "index", 0)), &out_effect_id, &out_type, &out_value, &out_enabled);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        out.result.set("out_effect_id", JsonValue::integer(static_cast<std::int64_t>(out_effect_id)));
+        out.result.set("out_type", JsonValue::integer(out_type));
+        out.result.set("out_value", JsonValue::number(out_value));
+        out.result.set("out_enabled", JsonValue::integer(out_enabled));
+        return true;
+    }
     if (fn == "nc_adjustment_get") {
         int32_t out_effect_count = 0;
         int32_t out_has_lut = 0;

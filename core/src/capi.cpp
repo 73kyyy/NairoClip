@@ -1845,8 +1845,11 @@ uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, 
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
         return 0;
     }
-    if (type <= 0 || type > 35) {
-        return 0;  // 0 = None 无效；1..35 有效（基础 + 画面/氛围/动感/人物特效）
+    /* 上限取枚举最后一项（Shake=36），不再写死 35 ——
+       先前写死会让震动特效永远加不进去。与 serialization.cpp 的
+       反序列化校验保持同一来源，避免两边各自维护一个数。 */
+    if (type <= 0 || type > static_cast<int32_t>(EffectType::Shake)) {
+        return 0;  // 0 = None 无效
     }
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
@@ -1866,7 +1869,7 @@ int32_t nc_update_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id
     if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
     }
-    if (type <= 0 || type > 35) {
+    if (type <= 0 || type > static_cast<int32_t>(EffectType::Shake)) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "特效类型超出范围");
     }
     const Sequence* main = editor->project.mainSequence();
@@ -1976,8 +1979,8 @@ uint64_t nc_adjustment_add_effect(NcEditor* editor, int32_t track_index, int32_t
     if (track == nullptr) {
         return 0;
     }
-    if (type <= 0 || type > 35) {
-        return 0;  // 0 = None 无效；1..35 与 nc_add_effect 一致
+    if (type <= 0 || type > static_cast<int32_t>(EffectType::Shake)) {
+        return 0;  // 与 nc_add_effect 同源（枚举末项）
     }
     Effect e;
     e.id = EffectId{editor->project.ids.next()};
@@ -2030,6 +2033,34 @@ int32_t nc_adjustment_set_lut(NcEditor* editor, int32_t track_index, const char*
     const std::string lutPath = (path != nullptr) ? std::string(path) : std::string();
     return failResult(editor->editor->setAdjustment(sequenceId, track->id,
                                                     track->adjustmentEffects, lutPath, strength));
+}
+
+int32_t nc_adjustment_effect_get(const NcEditor* editor, int32_t track_index, int32_t index,
+                                uint64_t* out_effect_id, int32_t* out_type,
+                                double* out_value, int32_t* out_enabled) {
+    if (editor == nullptr || track_index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或索引为负");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (track.type != TrackType::Adjustment) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "该轨道不是调整图层");
+    }
+    if (index < 0 || static_cast<std::size_t>(index) >= track.adjustmentEffects.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "效果序号超出范围");
+    }
+    const Effect& e = track.adjustmentEffects.effects()[static_cast<std::size_t>(index)];
+    if (out_effect_id != nullptr) *out_effect_id = e.id.value;
+    if (out_type != nullptr) *out_type = static_cast<int32_t>(e.type);
+    if (out_value != nullptr) *out_value = e.value;
+    if (out_enabled != nullptr) *out_enabled = e.enabled ? 1 : 0;
+    return NC_OK;
 }
 
 int32_t nc_adjustment_get(const NcEditor* editor, int32_t track_index,

@@ -203,6 +203,25 @@ std::string BuildState(NcEditor* ed) {
             }
         }
 
+        // 调整图层（B2-6 / P-19）：效果与 LUT 挂在**轨道**上，作用于下方所有轨道。
+        // 非调整图层不发这个字段，前端据此区分要不要渲染齿轮与斜纹底。
+        // 读失败就不发 adjustment —— 前端按「没有这个字段」降级，
+        // 不塞一堆 0 让 UI 显示成「0 个效果」，那是假信息。
+        if (ttype == 3) {
+            int32_t adjCount = 0, adjHasLut = 0;
+            double adjStrength = 0.0;
+            char* adjPath = nullptr;
+            if (nc_adjustment_get(ed, ti, &adjCount, &adjHasLut, &adjStrength,
+                                  &adjPath) == NC_OK) {
+                j += ",\"adjustment\":{";
+                j += "\"effect_count\":" + std::to_string(adjCount);
+                j += ",\"has_lut\":" + std::to_string(adjHasLut);
+                j += ",\"lut_strength\":" + Num(adjStrength);
+                j += ",\"lut_path\":\"" + JEsc(adjPath ? adjPath : "") + "\"}";
+                if (adjPath) nc_free_string(adjPath);
+            }
+        }
+
         j += ",\"clips\":[";
         const int32_t cn = nc_clip_count(ed, ti);
         for (int32_t ci = 0; ci < cn; ++ci) {
@@ -647,6 +666,96 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
             static_cast<int32_t>(JInt(a, "height_px", 0)),
             static_cast<int32_t>(JInt(a, "collapsed", 0)));
         *out = rc == NC_OK ? Ok("") : Err("调整轨道视图失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    /* 调整图层的效果操作（P-19）。
+     * 与片段效果（effect_add/effect_update/...）是两套东西：
+     * 片段效果挂在 Clip 上，这两个挂在 Track::adjustmentEffects 上。
+     * 因此不复用同一组 op 名，避免前端传 clip 却打到轨道上的歧义。 */
+    if (op == "adjust_effect_add") {
+        // uint64_t nc_adjustment_add_effect(editor, track_index, type, value)
+        const uint64_t eid = nc_adjustment_add_effect(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<int32_t>(JInt(a, "type", 0)), JNum(a, "value", 1.0));
+        *out = eid ? Ok("{\"effect_id\":" + std::to_string(eid) + "}") : Err("添加调整效果失败");
+        return true;
+    }
+    if (op == "adjust_effect_remove") {
+        // int32_t nc_adjustment_remove_effect(editor, track_index, effect_id)
+        const int32_t rc = nc_adjustment_remove_effect(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<uint64_t>(JInt(a, "effect_id", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("删除调整效果失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "adjust_effect_get") {
+        // int32_t nc_adjustment_effect_get(editor, track_index, index,
+        //                                  out_effect_id, out_type, out_value, out_enabled)
+        uint64_t eid = 0;
+        int32_t etype = 0, een = 0;
+        double eval = 0.0;
+        const int32_t rc = nc_adjustment_effect_get(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<int32_t>(JInt(a, "index", 0)),
+            &eid, &etype, &eval, &een);
+        if (rc != NC_OK) {
+            *out = Err("读取调整效果失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string j = "{\"effect_id\":" + std::to_string(eid);
+        j += ",\"type\":" + std::to_string(etype);
+        j += ",\"value\":" + Num(eval);
+        j += ",\"enabled\":" + std::to_string(een) + "}";
+        *out = Ok(j);
+        return true;
+    }
+    if (op == "adjust_lut") {
+        // int32_t nc_adjustment_set_lut(editor, track_index, path, strength)
+        // path 为空 = 清除该轨道的 LUT。
+        const std::string lp = JStrField(a, "path");
+        const int32_t rc = nc_adjustment_set_lut(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            lp.empty() ? nullptr : lp.c_str(), JNum(a, "strength", 1.0));
+        *out = rc == NC_OK ? Ok("") : Err("设置调整图层 LUT 失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_move_track") {
+        // int32_t nc_move_track(editor, track_index, new_index)
+        // 锁定轨道拒绝；越界返回 NC_ERROR_OUT_OF_RANGE（由内核判定，这里只转达）。
+        const int32_t rc = nc_move_track(
+            ed, static_cast<int32_t>(JInt(a, "track_index", 0)),
+            static_cast<int32_t>(JInt(a, "new_index", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("调整轨道顺序失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_blend_mode_count") {
+        // int32_t nc_blend_mode_count(void) —— 无 editor 参数
+        *out = Ok("{\"value\":" + std::to_string(nc_blend_mode_count()) + "}");
+        return true;
+    }
+    if (op == "nc_blend_mode_name") {
+        // const char* nc_blend_mode_name(int32_t mode) —— 静态字符串，不 free
+        const char* nm = nc_blend_mode_name(static_cast<int32_t>(JInt(a, "mode", 0)));
+        *out = Ok("{\"value\":\"" + JEsc(nm ? nm : "") + "\"}");
+        return true;
+    }
+    if (op == "nc_transition_type_count") {
+        // int32_t nc_transition_type_count(void) —— 无 editor 参数
+        *out = Ok("{\"value\":" + std::to_string(nc_transition_type_count()) + "}");
+        return true;
+    }
+    if (op == "nc_transition_type_name") {
+        // const char* nc_transition_type_name(int32_t type) —— 静态字符串
+        const char* nm = nc_transition_type_name(
+            static_cast<int32_t>(JInt(a, "type", 0)));
+        *out = Ok("{\"value\":\"" + JEsc(nm ? nm : "") + "\"}");
+        return true;
+    }
+    if (op == "nc_transition_category") {
+        // const char* nc_transition_category(int32_t type) —— 静态字符串
+        const char* cat = nc_transition_category(
+            static_cast<int32_t>(JInt(a, "type", 0)));
+        *out = Ok("{\"value\":\"" + JEsc(cat ? cat : "") + "\"}");
         return true;
     }
     if (op == "nc_template_list") {

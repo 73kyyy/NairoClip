@@ -897,6 +897,13 @@ int32_t nc_adjustment_remove_effect(NcEditor* editor, int32_t track_index,
 int32_t nc_adjustment_set_lut(NcEditor* editor, int32_t track_index, const char* path,
                               double strength);
 
+/// 按序号读取调整图层上的一个效果（与 nc_effect_get 对齐，但作用于轨道而非片段）。
+/// - index：0 起，越界返回 NC_ERROR_OUT_OF_RANGE；
+/// - out_effect_id 用于后续 nc_adjustment_remove_effect。
+int32_t nc_adjustment_effect_get(const NcEditor* editor, int32_t track_index, int32_t index,
+                                 uint64_t* out_effect_id, int32_t* out_type,
+                                 double* out_value, int32_t* out_enabled);
+
 /// 查询调整图层状态（出参均可空）。
 /// - out_effect_count：效果栈中的效果数；
 /// - out_has_lut：是否设置了 LUT（0/1）；

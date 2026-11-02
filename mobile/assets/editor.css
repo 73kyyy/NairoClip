@@ -191,6 +191,43 @@ body { -webkit-text-size-adjust: 100%; }
 .fh { height: var(--fh-h, var(--row-h)); }
 .trow.collapsed { background: rgba(255,255,255,.04); border-radius: 4px; }
 
+/* ---- 调整图层轨道（B2-6 / P-19）----
+   斜纹底：一眼看出它不是普通轨道。用 repeating-linear-gradient 而非位图，
+   符合「图标/装饰一律代码生成、不引位图」的约束。
+   透明度压得很低（.03），避免在深色时间轴上显得脏。 */
+.trow.trow-adj {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(180, 244, 97, .06) 0 6px,
+    transparent 6px 12px);
+  box-shadow: inset 0 0 0 1px rgba(180, 244, 97, .16);
+}
+
+/* ---- 调整图层面板 ---- */
+.adj-hint { font-size: 11px; color: var(--text-dim, #6E7472); padding: 8px 2px 10px; }
+.adj-sec { border-top: 1px solid rgba(255,255,255,.07); padding: 10px 0; }
+.adj-sec-head { font-size: 12px; color: #D2D8D5; margin-bottom: 8px; }
+.adj-effs { display: flex; flex-direction: column; gap: 6px; }
+.adj-eff { display: flex; align-items: center; justify-content: space-between;
+           background: rgba(255,255,255,.04); border-radius: 8px;
+           padding: 8px 10px; font-size: 12px; }
+.adj-eff span.off { color: #4B5150; text-decoration: line-through; }
+.adj-del { border: 0; background: none; color: #E06C5A; font-size: 12px;
+           padding: 4px 8px; -webkit-appearance: none; appearance: none; }
+.adj-empty { font-size: 11px; color: var(--text-dim, #6E7472); padding: 6px 2px; }
+.adj-add { display: flex; gap: 8px; margin-top: 8px; }
+.adj-add select { flex: 1; background: rgba(255,255,255,.06); color: #D2D8D5;
+                  border: 0; border-radius: 8px; padding: 8px; font-size: 12px; }
+.adj-lut { display: flex; align-items: center; gap: 10px; }
+.adj-lut input[type=range] { flex: 1; accent-color: var(--accent-pick); }
+.adj-lut-path { font-size: 10px; color: var(--text-dim, #6E7472);
+                margin: 6px 0; word-break: break-all; }
+.adj-add .btn { padding: 8px 14px; font-size: 12px; }
+
+/* 图层面板里的「新增调整图层」行 */
+.layer-row.layer-add { cursor: pointer; border: 1px dashed rgba(180,244,97,.35); }
+.layer-row.layer-add b { color: var(--accent-pick); }
+
 /* ---- 轨道重排（长按拖动）----
    长按武装后给把手一点视觉反馈，落点行高亮。
    高亮用 outline 而不是 border：border 会改变盒模型，导致行高跳动、
