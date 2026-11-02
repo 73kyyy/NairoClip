@@ -67,6 +67,14 @@ jobs:
         # 这个检查毫秒级就能抓到同类问题。
         run: python3 tools/check_cpp_headers.py .
 
+      - name: 条件编译一致性检查
+        # 真实事故（810bd86）：把代码从 #ifdef NAIROCLIP_HAS_FFMPEG 块里
+        # 搬到块外，守卫没跟着走 → 有 FFmpeg 的配置正常编译，
+        # 只有不带它的构建报 unknown type name 'FFmpegMediaReader'。
+        # 既有检查器都只看括号/参数个数，抓不到「条件编译块内的类型声明」。
+        # 这里直接调真编译器，两种配置各验一遍。
+        run: python3 tools/check_cond_compile.py .
+
       - name: 前端静态检查
         # CI 此前只编译 C++/Kotlin，mobile/assets/*.js|css 与 pages/*.html
         # 完全没有验证。这个检查补上三类高频事故：图标 <use> 引用了
