@@ -68,6 +68,60 @@ bool renderFrameFitMasked(const std::uint8_t* src, int srcW, int srcH, int srcSt
 /// 模式名称（"fit" / "fill" / "crop"；未知值返回 "fit"）。
 const char* frameFitName(FrameFit mode);
 
+// =============================================================================
+// 2D 仿射矩阵（几何变换与画幅适配共用底座）
+// =============================================================================
+// 存储为 2×3（行主序）：
+//     | m[0] m[1] m[2] |     x' = m[0]*x + m[1]*y + m[2]
+//     | m[3] m[4] m[5] |     y' = m[3]*x + m[4]*y + m[5]
+//
+// 放在这里（而非 xform.h）的原因：renderTransform 需要它，而 xform.h 又要
+// include 本文件取 FrameFit —— 放本文件可避免循环包含。
+struct Affine2D {
+    double m[6] = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0};
+
+    static Affine2D identity();
+    static Affine2D translation(double tx, double ty);
+    static Affine2D scaling(double sx, double sy);
+    static Affine2D rotation(double radians);
+
+    /// 链式组合：先执行 *this，再执行 next（数学上的 next ∘ this）。
+    Affine2D then(const Affine2D& next) const;
+
+    /// 求逆；行列式绝对值 < 1e-12 返回 false（退化，无法逆映射）。
+    bool invert(Affine2D& out) const;
+
+    void apply(double x, double y, double& outX, double& outY) const;
+
+    /// 是否为恒等变换（各分量与单位阵差 < 1e-9）。
+    bool isIdentity() const;
+};
+
+// =============================================================================
+// 边缘填充模式（几何变换露出画面时的处理）
+// =============================================================================
+enum class EdgeMode {
+    Background = 0,  ///< 填背景色（默认，最保守，会有黑边）
+    Mirror = 1,      ///< 镜像延展（无黑边，观感自然）
+    Clamp = 2,       ///< 边缘像素拉伸（最省，适合微小位移）
+};
+
+/// 变换渲染：把 src 经仿射矩阵变换后画到 dst，**只采样一次**。
+///
+/// 与 renderFrameFit 的关系：
+///   renderFrameFit 是本函数在「无旋转/无镜像」特例下的快速路径，
+///   两者对同一几何输入应产出相同结果（有单测覆盖）。
+///
+/// - srcToDst：源像素坐标 → 目标像素坐标的矩阵（含缩放/旋转/平移）；
+/// - 采用**逆映射**：遍历目标像素反查源坐标，保证目标无空洞；
+/// - bilinear=false 走最近邻（预览快速档）；
+/// - 参数非法返回 false 且不触碰 dst。
+bool renderTransform(const std::uint8_t* src, int srcW, int srcH, int srcStride,
+                     std::uint8_t* dst, int dstW, int dstH,
+                     const Affine2D& srcToDst, EdgeMode edge,
+                     std::uint32_t backgroundRgba, bool bilinear);
+
+
 /// 从整数解析（0=fit 1=fill 2=crop；非法返回 false）。
 bool frameFitFromInt(int value, FrameFit& out);
 

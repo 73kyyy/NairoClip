@@ -287,20 +287,25 @@ PreviewFrame PreviewRenderer::renderUncached(const Time& timelineTime) {
         const int canvasH = seq != nullptr && seq->height > 0 ? seq->height : source.height;
         const FrameFit fit = seq != nullptr ? seq->frameFit : FrameFit::Fit;
         const std::uint32_t background = seq != nullptr ? seq->backgroundRgba : 0x000000FF;
-        if (source.width == canvasW && source.height == canvasH) {
-            frame.rgba = std::move(source.pixels);
-            frame.width = source.width;
-            frame.height = source.height;
-        } else {
-            // 源尺寸与画布不一致：按序列画幅适配策略渲染（与导出管线保持一致）。
+        // 几何变换（「转换」8 项）与画幅适配合并为**单次重采样**：
+        // 走 applyXformStack，避免「先 fit 再变换」的二次插值。
+        const bool needFit = (source.width != canvasW || source.height != canvasH);
+        if (clip->hasXform() || needFit) {
             std::vector<std::uint8_t> canvas(
                 static_cast<std::size_t>(canvasW) * static_cast<std::size_t>(canvasH) * 4, 0);
             const int stride = source.stride > 0 ? source.stride : source.width * 4;
-            renderFrameFit(source.pixels.data(), source.width, source.height, stride,
-                           canvas.data(), canvasW, canvasH, fit, background);
+            const EdgeMode edge = firstXformEdge(clip->xforms, background);
+            applyXformStack(source.pixels.data(), source.width, source.height, stride,
+                            canvas.data(), canvasW, canvasH, clip->xforms,
+                            timelineTime.toDouble(), fit, edge, background, true);
             frame.rgba = std::move(canvas);
             frame.width = canvasW;
             frame.height = canvasH;
+        } else {
+            // 尺寸已匹配且无几何变换：直接接管像素（零拷贝快速路径）。
+            frame.rgba = std::move(source.pixels);
+            frame.width = source.width;
+            frame.height = source.height;
         }
         // 应用片段特效栈（颜色变换 + 空间效果 + 画面特效）
         // 预览用行内帧序号（时间量化到 30fps 网格）作为时变种子，保证同一时刻

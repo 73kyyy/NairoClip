@@ -1032,6 +1032,46 @@ int32_t nc_get_clip_shake(const NcEditor* editor, int32_t track_index, uint64_t 
                           double* out_frequency, double* out_phase,
                           double* out_decay_seconds, uint32_t* out_seed);
 
+// ---- 几何变换（「转换」面板 8 项）----
+//
+// 参数为什么不走 nc_add_effect：与摇晃同理 —— Effect 只有单个 double value，
+// 装不下「轴/列/行/间隙/锚点/种子/轨迹/周期/边缘」九维。
+//
+// kind：0=偏移 1=拉伸轴 2=旋转 3=栅格转换 4=沿路径移动 5=缩放辅助
+//       6=脉冲大小 7=随机位移
+//
+// 用扁平数组传参而不是 10 个标量形参：形参过多极易在调用点错位
+// （上一轮 nc_effect_get 少传一个参数就导致 CI 编译失败）。
+// 数组顺序固定见 XFORM_ARG_COUNT 与 capi.cpp 的解包代码。
+
+/// 每个 kind 的参数个数（固定 13）：
+/// [0]=value [1]=angle(弧度) [2]=freq [3]=phase(弧度) [4]=axis
+/// [5]=cols [6]=rows [7]=gap [8]=anchor [9]=edge [10]=period
+/// [11]=trajectory [12]=seed
+///
+/// 为什么是 13 而不是 9：edge/period/trajectory/seed 四个字段此前只在
+/// XformParams 里存在、C ABI 不接收 —— 前端发了也被丢弃，「边缘模式/路径周期/
+/// 轨迹类型/随机种子」实际不生效。补齐后前端与内核一一对应。
+#define NC_XFORM_ARG_COUNT 13
+
+/// 写入某片段的某个几何变换槽（整槽替换，可撤销）。
+/// - kind 越界 → NC_ERROR_INVALID_ARGUMENT；
+/// - args 为 NULL → NC_ERROR_INVALID_ARGUMENT；
+/// - 数值越界一律钳制（不报错），与 Effect.value 处理一致；
+/// - 写入后 enabled=1（用户调参数即视为启用）。
+int32_t nc_set_clip_xform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t kind, const double* args);
+
+/// 读取某槽参数到 out_args（长度 NC_XFORM_ARG_COUNT，可为 NULL）。
+/// 额外输出 out_enabled（可为 NULL）与 out_edge（可为 NULL）。
+int32_t nc_get_clip_xform(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t kind, double* out_args, int32_t* out_enabled,
+                          int32_t* out_edge);
+
+/// 清空某槽（enabled=0，参数保留；可撤销）。
+int32_t nc_clear_clip_xform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t kind);
+
 // ---- 导出（桌面 FFmpeg 路径；Android MediaCodec 走平台适配层）----
 
 /// 导出主序列到文件。

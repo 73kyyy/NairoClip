@@ -1365,6 +1365,42 @@ static bool dispatchApi(const std::string& fn, const JsonValue& args,
         out.result.set("out_seed", JsonValue::integer(static_cast<std::int64_t>(out_seed)));
         return true;
     }
+    if (fn == "nc_set_clip_xform") {
+        const int32_t kind = static_cast<int32_t>(jint(args, "kind", 0));
+        double xargs[NC_XFORM_ARG_COUNT] = {0.0};
+        if (args.has("args") && args.get("args").isArray()) {
+            const JsonValue& arr = args.get("args");
+            for (std::size_t i = 0; i < static_cast<std::size_t>(NC_XFORM_ARG_COUNT) && i < arr.size(); ++i) {
+                xargs[i] = arr.at(i).asNumber(0.0);
+            }
+        }
+        const auto ret = nc_set_clip_xform(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), kind, xargs);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
+    if (fn == "nc_get_clip_xform") {
+        double xargs[NC_XFORM_ARG_COUNT] = {0.0};
+        int32_t out_enabled = 0;
+        int32_t out_edge = 1;
+        const auto ret = nc_get_clip_xform(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<int32_t>(jint(args, "kind", 0)), xargs, &out_enabled, &out_edge);
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        JsonValue arr = JsonValue::array();
+        for (int i = 0; i < NC_XFORM_ARG_COUNT; ++i) {
+            arr.push(JsonValue::number(xargs[i]));
+        }
+        out.result.set("args", arr);
+        out.result.set("out_enabled", JsonValue::integer(out_enabled));
+        out.result.set("out_edge", JsonValue::integer(out_edge));
+        return true;
+    }
+    if (fn == "nc_clear_clip_xform") {
+        const auto ret = nc_clear_clip_xform(gEditor, static_cast<int32_t>(jint(args, "track_index", 0)), static_cast<std::uint64_t>(jint(args, "clip_id", 0)), static_cast<int32_t>(jint(args, "kind", 0)));
+        out.code = ret;
+        out.result.set("value", JsonValue::integer(static_cast<std::int64_t>(ret)));
+        return true;
+    }
     if (fn == "nc_set_frame_fit") {
         const auto ret = nc_set_frame_fit(gEditor, static_cast<int32_t>(jint(args, "mode", 0)));
         out.code = ret;

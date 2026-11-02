@@ -2891,20 +2891,20 @@ function showLayerSheet() {
  */
 const XFORM_ITEMS = [
   /* 下列 ready 的走真实 nc_set_clip_shake；其余等内核 */
-  { key: 'offset',    name: '偏移',       en: 'Offset',           ready: false },
-  { key: 'stretch',   name: '拉伸轴',     en: 'Stretch Axis',     ready: false },
+  { key: 'offset',    name: '偏移',       en: 'Offset',           ready: true, xform: true },
+  { key: 'stretch',   name: '拉伸轴',     en: 'Stretch Axis',     ready: true, xform: true },
   { key: 'oscillate', name: '振荡',       en: 'Oscillate',        ready: true,
     shake: { trajectory: 2, amplitude: 0.03, frequency: 6, phase: 0 } },
   { key: 'swing',     name: '摆动',       en: 'Swing',            ready: true,
     shake: { trajectory: 0, amplitude: 0.02, frequency: 8, phase: 0 } },
-  { key: 'spin',      name: '旋转',       en: 'Spin',             ready: false },
-  { key: 'raster',    name: '栅格转换',   en: 'Raster Transform', ready: false },
-  { key: 'path',      name: '沿路径移动', en: 'Move Along Path',  ready: false },
-  { key: 'scale',     name: '缩放辅助',   en: 'Scale Assist',     ready: false },
-  { key: 'pulse',     name: '脉冲大小',   en: 'Pulse Size',       ready: false },
+  { key: 'spin',      name: '旋转',       en: 'Spin',             ready: true, xform: true },
+  { key: 'raster',    name: '栅格转换',   en: 'Raster Transform', ready: true, xform: true },
+  { key: 'path',      name: '沿路径移动', en: 'Move Along Path',  ready: true, xform: true },
+  { key: 'scale',     name: '缩放辅助',   en: 'Scale Assist',     ready: true, xform: true },
+  { key: 'pulse',     name: '脉冲大小',   en: 'Pulse Size',       ready: true, xform: true },
   { key: 'autoshake', name: '自动摇动',   en: 'Auto-Shake',       ready: true,
     shake: { trajectory: 3, amplitude: 0.025, frequency: 12, phase: 0 } },
-  { key: 'randpos',   name: '随机位移',   en: 'Random Displacement', ready: false },
+  { key: 'randpos',   name: '随机位移',   en: 'Random Displacement', ready: true, xform: true },
   { key: 'jitter',    name: '随机抖动',   en: 'Random Jitter',    ready: true,
     effect: 31 }   /* EffectType::Jitter */
 ];
@@ -2956,6 +2956,7 @@ async function openTransformPanel() {
         return toast(`「${it.name}」的渲染还没实现（当前只有摆动/振荡/自动摇动/随机抖动可用）`, 3200);
       }
       if (it.shake) return openShakePanel(it);
+      if (it.xform) return openXformPanel(it);
       if (it.effect) return applyJitterEffect(it);
     });
     grid.appendChild(b);
@@ -3081,6 +3082,279 @@ async function openShakePanel(it) {
   });
 
   showPanel(it.name, body);
+}
+
+/* key → 内核 kind 值（与 core/include/nairoclip/core/xform.h 的 XformKind 一致） */
+const XFORM_KIND = {
+  offset: 0, stretch: 1, spin: 2, raster: 3,
+  path: 4, scale: 5, pulse: 6, randpos: 7
+};
+
+/* =============================================================================
+ * 几何变换参数面板（「转换」8 项）
+ * =============================================================================
+ * 与 openShakePanel 共用同一套三栏版式（左圆角标签 / 中刻度尺 / 右数值框），
+ * 但参数表来自 XF_SPEC，不逐项手写 —— 8 项 × 2~4 行共 22 个调节项，
+ * 手写会失控。
+ *
+ * 参数数组顺序与 capi.h 的 NC_XFORM_ARG_COUNT 严格一致：
+ *   [0]=value [1]=angle [2]=freq [3]=phase [4]=axis [5]=cols [6]=rows
+ *   [7]=gap   [8]=anchor
+ * 改顺序必须同时改 core/include/nairoclip/core/capi.h 与 xform.cpp。
+ */
+const XF_ARG_ORDER = ['value', 'angle', 'freq', 'phase', 'axis', 'cols', 'rows', 'gap', 'anchor'];
+
+/* 每项效果的调节行定义。def 与 core/src/xform.cpp 的 defaultXformParams 一致。 */
+const XF_SPEC = {
+  offset: [
+    { k: 'value', name: '距离', min: 0, max: 100, step: 1, unit: '%', pct: true, def: 25 },
+    { k: 'angle', name: '方向', min: 0, max: 360, step: 1, unit: '°', deg: true, def: 0 },
+    { k: 'edge',  name: '边缘', chips: ['背景', '镜像', '拉伸'], def: 1 }
+  ],
+  stretch: [
+    { k: 'axis',  name: '轴',   chips: ['X', 'Y', '对角'], def: 0 },
+    { k: 'value', name: '倍率', min: 0, max: 100, step: 1, unit: '%', pct: true, def: 30 }
+  ],
+  spin: [
+    { k: 'angle', name: '角度', min: 0, max: 360, step: 1, unit: '°', deg: true, def: 0 },
+    { k: 'freq',  name: '自转', min: 0, max: 5, step: 0.1, unit: '/s', def: 0 }
+  ],
+  raster: [
+    { k: 'cols',  name: '列',   step2: true, min: 2, max: 12, step: 1, def: 6 },
+    { k: 'rows',  name: '行',   step2: true, min: 2, max: 12, step: 1, def: 6 },
+    { k: 'value', name: '强度', min: 0, max: 100, step: 1, unit: '%', pct: true, def: 30 },
+    { k: 'gap',   name: '间隙', min: 0, max: 50, step: 1, unit: '%', pct: true, def: 5 }
+  ],
+  path: [
+    { k: 'value', name: '半径', min: 0, max: 50, step: 1, unit: '%', pct: true, def: 20 },
+    { k: 'period', name: '周期', min: 0.5, max: 10, step: 0.5, unit: 's', def: 2 },
+    { k: 'trajectory', name: '轨迹', chips: ['圆', '椭圆', '直线'], def: 0 }
+  ],
+  scale: [
+    { k: 'value', name: '比例', min: 0, max: 200, step: 5, unit: '%', pct: true, def: 30 },
+    { k: 'anchor', name: '锚点', anchor: true, def: 4 }
+  ],
+  pulse: [
+    { k: 'value', name: '峰值', min: 0, max: 50, step: 1, unit: '%', pct: true, def: 20 },
+    { k: 'freq',  name: '频率', min: 0.1, max: 5, step: 0.1, unit: 'Hz', def: 2 },
+    { k: 'phase', name: '相位', min: 0, max: 360, step: 1, unit: '°', deg: true, def: 0 }
+  ],
+  randpos: [
+    { k: 'value', name: '幅度', min: 0, max: 20, step: 1, unit: '%', pct: true, def: 4 },
+    { k: 'freq',  name: '频率', min: 1, max: 30, step: 1, unit: '/s', def: 8 },
+    { k: 'seed',  name: '种子', step2: true, min: 0, max: 999, step: 1, def: 0 }
+  ]
+};
+
+/* 内部键 → 内核字段。UI 上叫「距离/倍率/半径…」，内核统一是 value。
+   period / trajectory / seed 不在 9 参数数组里，单独走字段。 */
+const XF_ARG_INDEX = {
+  value: 0, angle: 1, freq: 2, phase: 3, axis: 4,
+  cols: 5, rows: 6, gap: 7, anchor: 8,
+  edge: 9, period: 10, trajectory: 11, seed: 12
+};
+/* 全部 13 项都进数组，不再有「额外字段」—— 避免前端发了内核收不到。 */
+const XF_ARG_COUNT = 13;
+
+function xfToArg(key) {
+  return XF_ARG_INDEX[key] !== undefined ? XF_ARG_INDEX[key] : -1;
+}
+
+/* 面板值 → 内核参数数组（做单位换算：% → 0..1，度 → 弧度）
+   13 项全部写入，与 capi.h 的 NC_XFORM_ARG_COUNT 严格对应。 */
+function xfBuildArgs(spec, draft) {
+  const args = new Array(XF_ARG_COUNT).fill(0);
+  spec.forEach((row) => {
+    const idx = xfToArg(row.k);
+    if (idx < 0) return;
+    let v = draft[row.k];
+    if (row.pct) v = v / 100;
+    if (row.deg) v = v * Math.PI / 180;
+    args[idx] = v;
+  });
+  return args;
+}
+
+/* 读回内核参数 → 面板值（反向换算）。13 项全部来自 args，无额外字段。 */
+function xfDraftFromArgs(spec, args) {
+  const draft = {};
+  spec.forEach((row) => {
+    const idx = xfToArg(row.k);
+    let v = (idx >= 0 && args && args[idx] !== undefined) ? args[idx] : row.def;
+    if (row.pct) v = v * 100;
+    if (row.deg) v = v * 180 / Math.PI;
+    draft[row.k] = v;
+  });
+  return draft;
+}
+
+/* 通用参数面板：给定 title + spec，返回 { body, draft, spec }
+   供几何变换与「其它功能面板统一改造」共用，避免两套版式。 */
+function buildParamPanel(title, spec, initialDraft) {
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="xf-param-head">
+      <button class="xf-title">▾ ${title}</button>
+      <div class="xf-actions">
+        <button class="xf-act" data-a="more">⋯</button>
+        <button class="xf-act" data-a="reset">⟲</button>
+      </div>
+    </div>
+    <div class="xf-rows"></div>
+    <div class="xf-param-foot">
+      <button class="btn primary" id="xfApply" style="width:100%">应用</button>
+    </div>`;
+
+  const draft = Object.assign({}, initialDraft);
+  const rows = body.querySelector('.xf-rows');
+  /* panel 必须在使用前声明：下面滑块的 change 回调引用了 panel.onLive，
+     若声明放在循环之后会命中 TDZ（ReferenceError）。 */
+  const panel = { body, draft, spec, onLive: null };
+
+  spec.forEach((row) => {
+    const host = document.createElement('div');
+    host.className = 'xr';
+    host.dataset.k = row.k;
+
+    const fmt = (x) => {
+      if (row.unit === '°') return `${Math.round(x)}°`;
+      if (row.unit === '%') return `${Math.round(x)}%`;
+      return `${(+x).toFixed(row.step < 1 ? 1 : 0)}${row.unit || ''}`;
+    };
+
+    // 三种控件：选项组 / 九宫格锚点 / 刻度尺
+    if (row.chips) {
+      host.innerHTML = `<span class="xr-label">${row.name}</span>
+        <span class="xr-chips">${row.chips.map((c, i) =>
+          `<button class="xr-chip${i === draft[row.k] ? ' on' : ''}" data-i="${i}">${c}</button>`).join('')}</span>
+        <span class="xr-val">${row.chips[draft[row.k]] || ''}</span>`;
+      host.querySelectorAll('.xr-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          draft[row.k] = +btn.dataset.i;
+          host.querySelectorAll('.xr-chip').forEach((b, i) =>
+            b.classList.toggle('on', +b.dataset.i === draft[row.k]));
+          host.querySelector('.xr-val').textContent = row.chips[draft[row.k]];
+          host.classList.add('active');
+        });
+      });
+    } else if (row.anchor) {
+      const names = ['左上', '上中', '右上', '左中', '中心', '右中', '左下', '下中', '右下'];
+      host.innerHTML = `<span class="xr-label">${row.name}</span>
+        <span class="xr-chips xr-anchor">${names.map((c, i) =>
+          `<button class="xr-chip${i === draft[row.k] ? ' on' : ''}" data-i="${i}">${c}</button>`).join('')}</span>
+        <span class="xr-val">${names[draft[row.k]] || ''}</span>`;
+      host.querySelectorAll('.xr-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          draft[row.k] = +btn.dataset.i;
+          host.querySelectorAll('.xr-chip').forEach((b, i) =>
+            b.classList.toggle('on', +b.dataset.i === draft[row.k]));
+          host.querySelector('.xr-val').textContent = names[draft[row.k]];
+        });
+      });
+    } else if (row.step2) {
+      // 步进器：栅格行列、随机种子这类整数
+      host.innerHTML = `<span class="xr-label">${row.name}</span>
+        <span class="xr-step">
+          <button data-d="-1">−</button><span class="v">${Math.round(draft[row.k])}</span><button data-d="1">+</button>
+        </span>
+        <span class="xr-val">${Math.round(draft[row.k])}</span>`;
+      host.querySelectorAll('.xr-step button').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          let v = draft[row.k] + (+btn.dataset.d) * row.step;
+          v = Math.max(row.min, Math.min(row.max, v));
+          draft[row.k] = v;
+          host.querySelector('.xr-step .v').textContent = Math.round(v);
+          host.querySelector('.xr-val').textContent = Math.round(v);
+        });
+      });
+    } else {
+      host.innerHTML = `<span class="xr-label">${row.name}</span>
+        <span class="xr-scale">
+          <span class="xr-ticks"></span>
+          <input type="range" min="${row.min}" max="${row.max}" step="${row.step}" value="${draft[row.k]}">
+        </span>
+        <span class="xr-val">${fmt(draft[row.k])}</span>`;
+      const ticks = host.querySelector('.xr-ticks');
+      let html = '';
+      const n = 24;
+      for (let i = 0; i <= n; i += 1) {
+        html += `<i class="${i % 6 === 0 ? 'maj' : ''}" style="left:${(i / n) * 100}%"></i>`;
+      }
+      ticks.innerHTML = html;
+
+      const input = host.querySelector('input');
+      const val = host.querySelector('.xr-val');
+      input.addEventListener('input', () => {
+        draft[row.k] = parseFloat(input.value);
+        val.textContent = fmt(draft[row.k]);
+        host.classList.add('active');
+      });
+      // 松手立即落盘（拖动中不写，避免每帧一次引擎调用）
+      input.addEventListener('change', () => { if (panel.onLive) panel.onLive(); });
+    }
+
+    rows.appendChild(host);
+  });
+
+  body.querySelector('[data-a="reset"]').addEventListener('click', () => {
+    spec.forEach((row) => { draft[row.k] = row.def; });
+    if (panel.onReset) panel.onReset();
+  });
+  body.querySelector('[data-a="more"]').addEventListener('click', () => {
+    if (panel.onMore) panel.onMore();
+    else toast('更多操作：暂只有重置', 2000);
+  });
+
+  return panel;
+}
+
+/* 打开几何变换参数面板 */
+async function openXformPanel(it) {
+  const sel = S.selected;
+  if (!sel) return toast('请先选中一个片段');
+
+  const kind = XFORM_KIND[it.key];
+  if (kind === undefined) return toast('未知效果', 2000);
+
+  const spec = XF_SPEC[it.key] || [];
+  const r = engineCall('xform_get', { track: sel.track.index, clip: sel.clip.id, kind });
+  const curArgs = (r && r.ok && r.result && r.result.args) ? r.result.args : null;
+  const draft = curArgs ? xfDraftFromArgs(spec, curArgs) : Object.fromEntries(
+    spec.map((row) => [row.k, row.def]));
+
+  const panel = buildParamPanel(it.name, spec, draft);
+  const sel2 = S.selected;
+
+  const apply = async () => {
+    const args = xfBuildArgs(panel.spec, panel.draft);
+    const ok = await guardedEdit({
+      op: 'xform_set', track: sel2.track.index, clip: sel2.clip.id,
+      kind, args
+    }, `已应用「${it.name}」`);
+    if (ok) hidePanel();
+  };
+
+  // 松手立即落盘：不关面板，让用户能连续微调并看到画面变化
+  panel.onLive = async () => {
+    const args = xfBuildArgs(panel.spec, panel.draft);
+    await guardedEdit({
+      op: 'xform_set', track: sel2.track.index, clip: sel2.clip.id, kind, args
+    });
+  };
+  panel.onReset = () => {
+    panel.spec.forEach((row) => { panel.draft[row.k] = row.def; });
+    hidePanel();
+    openXformPanel(it);   // 简单重开，避免逐控件回写
+  };
+  panel.onMore = async () => {
+    const ok = await guardedEdit({
+      op: 'xform_clear', track: sel2.track.index, clip: sel2.clip.id, kind
+    }, `已移除「${it.name}」`);
+    if (ok) hidePanel();
+  };
+
+  panel.body.querySelector('#xfApply').addEventListener('click', apply);
+  showPanel(it.name, panel.body);
 }
 
 /* ---------------- 音乐卡点（B3-1 / P-07）----------------

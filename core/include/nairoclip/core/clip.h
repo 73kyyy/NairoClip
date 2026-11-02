@@ -10,6 +10,7 @@
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/speed_curve.h"
+#include "nairoclip/core/xform.h"
 #include "nairoclip/core/rational.h"
 #include "nairoclip/core/time.h"
 #include "nairoclip/core/types.h"
@@ -125,6 +126,15 @@ struct Clip {
     }();
     /// 是否启用摇晃（amplitude > 0 才算）。
     bool hasShake() const { return shake.amplitude > 0.0; }
+    /// 几何变换栈（「转换」面板 8 项：偏移/拉伸轴/旋转/栅格转换/沿路径移动/
+    /// 缩放辅助/脉冲大小/随机位移）。
+    ///
+    /// **默认必须全部 disabled**：与上方 shake 同理 —— 若默认启用，
+    /// 每个片段一上来就被变换，像素基线立刻漂移。
+    XformStack xforms;
+    /// 是否启用任一几何变换。
+    bool hasXform() const { return xforms.anyEnabled(); }
+
     /// 3D LUT 文件路径（B1-2）。空 = 不应用 LUT。
     ///
     /// 存路径而不是存 LUT 数据：一个 33³ 的表是 107,811 个 double，

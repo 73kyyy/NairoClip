@@ -1353,6 +1353,117 @@ int32_t nc_get_clip_shake(const NcEditor* editor, int32_t track_index, uint64_t 
     return NC_OK;
 }
 
+int32_t nc_set_clip_xform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t kind, const double* args) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || args == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (kind < 0 || kind >= static_cast<int32_t>(XformKind::Count)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "几何变换 kind 超出范围（0..7）");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+
+    // 数组解包顺序必须与 capi.h 的注释一致（13 项）。
+    XformParams p;
+    p.enabled = true;   // 用户调参数即视为启用
+    p.value = args[0];
+    p.angle = args[1];
+    p.freq = args[2];
+    p.phase = args[3];
+    p.axis = static_cast<int>(args[4]);
+    p.cols = static_cast<int>(args[5]);
+    p.rows = static_cast<int>(args[6]);
+    p.gap = args[7];
+    p.anchor = static_cast<int>(args[8]);
+    p.edge = static_cast<int>(args[9]);
+    p.period = args[10];
+    p.trajectory = static_cast<int>(args[11]);
+    p.seed = static_cast<int>(args[12]);
+    // clamp 交由命令层执行，这里不重复写上下限。
+    return failResult(editor->editor->setClipXform(main->id, trackId, ClipId{clip_id},
+                                                   static_cast<XformKind>(kind), p));
+}
+
+int32_t nc_get_clip_xform(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          int32_t kind, double* out_args, int32_t* out_enabled,
+                          int32_t* out_edge) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (kind < 0 || kind >= static_cast<int32_t>(XformKind::Count)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "几何变换 kind 超出范围（0..7）");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+
+    XformParams p;
+    const Result r = editor->editor->getClipXform(main->id, trackId, ClipId{clip_id},
+                                                  static_cast<XformKind>(kind), &p);
+    if (!r.isOk()) {
+        return failResult(r);
+    }
+    if (out_args != nullptr) {
+        out_args[0] = p.value;
+        out_args[1] = p.angle;
+        out_args[2] = p.freq;
+        out_args[3] = p.phase;
+        out_args[4] = static_cast<double>(p.axis);
+        out_args[5] = static_cast<double>(p.cols);
+        out_args[6] = static_cast<double>(p.rows);
+        out_args[7] = p.gap;
+        out_args[8] = static_cast<double>(p.anchor);
+        out_args[9] = static_cast<double>(p.edge);
+        out_args[10] = p.period;
+        out_args[11] = static_cast<double>(p.trajectory);
+        out_args[12] = static_cast<double>(p.seed);
+    }
+    if (out_enabled != nullptr) *out_enabled = p.enabled ? 1 : 0;
+    if (out_edge != nullptr) *out_edge = p.edge;
+    return NC_OK;
+}
+
+int32_t nc_clear_clip_xform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t kind) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (kind < 0 || kind >= static_cast<int32_t>(XformKind::Count)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "几何变换 kind 超出范围（0..7）");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引超出范围");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+
+    // 保留参数、仅关闭（用户再次启用时不用重调所有滑块）
+    XformParams p;
+    const Result got = editor->editor->getClipXform(main->id, trackId, ClipId{clip_id},
+                                                    static_cast<XformKind>(kind), &p);
+    if (!got.isOk()) {
+        return failResult(got);
+    }
+    p.enabled = false;
+    return failResult(editor->editor->setClipXform(main->id, trackId, ClipId{clip_id},
+                                                   static_cast<XformKind>(kind), p));
+}
+
 int32_t nc_set_clip_background(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                                int32_t mode, uint32_t rgba, double intensity) {
     SequenceId seqId;

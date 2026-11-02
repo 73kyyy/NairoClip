@@ -586,8 +586,9 @@ ExportStats executeExport(
                             reframeRenderFrameAt(plan.reframe, t, source.pixels.data(),
                                                  source.width, source.height, srcStride,
                                                  frame.rgba.data(), plan.width, plan.height);
-                        } else if (source.width == plan.width && source.height == plan.height) {
-                            // 尺寸一致：直接拷贝（零缩放损失快路径）
+                        } else if (source.width == plan.width && source.height == plan.height &&
+                                   !active->hasXform()) {
+                            // 尺寸一致且无几何变换：直接拷贝（零缩放损失快路径）
                             const int rows = std::min(source.height, plan.height);
                             for (int row = 0; row < rows; ++row) {
                                 const std::uint8_t* src = source.pixels.data() +
@@ -600,9 +601,13 @@ ExportStats executeExport(
                                             static_cast<std::size_t>(plan.width) * 4);
                             }
                         } else {
-                            renderFrameFit(source.pixels.data(), source.width, source.height,
-                                           srcStride, frame.rgba.data(), plan.width, plan.height,
-                                           plan.frameFit, plan.backgroundRgba);
+                            // 几何变换与画幅适配合并为单次重采样（与预览同函数）。
+                            const EdgeMode xEdge =
+                                firstXformEdge(active->xforms, plan.backgroundRgba);
+                            applyXformStack(source.pixels.data(), source.width, source.height,
+                                            srcStride, frame.rgba.data(), plan.width,
+                                            plan.height, active->xforms, t.toDouble(),
+                                            plan.frameFit, xEdge, plan.backgroundRgba, true);
                         }
                         // 应用滤镜（文档 Part 4-B 第 7 节：整体色彩风格；先于特效栈）
                         if (active->filterStyle != FilterStyle::None) {

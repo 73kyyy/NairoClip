@@ -262,6 +262,209 @@ const char* frameFitName(FrameFit mode) {
     }
 }
 
+// =============================================================================
+// Affine2D
+// =============================================================================
+Affine2D Affine2D::identity() { return Affine2D{}; }
+
+Affine2D Affine2D::translation(double tx, double ty) {
+    Affine2D a;
+    a.m[2] = tx;
+    a.m[5] = ty;
+    return a;
+}
+
+Affine2D Affine2D::scaling(double sx, double sy) {
+    Affine2D a;
+    a.m[0] = sx;
+    a.m[4] = sy;
+    return a;
+}
+
+Affine2D Affine2D::rotation(double radians) {
+    const double c = std::cos(radians);
+    const double s = std::sin(radians);
+    Affine2D a;
+    a.m[0] = c;
+    a.m[1] = -s;
+    a.m[3] = s;
+    a.m[4] = c;
+    return a;
+}
+
+Affine2D Affine2D::then(const Affine2D& next) const {
+    // 结果 = next ∘ this（先 this，再 next）
+    Affine2D r;
+    r.m[0] = next.m[0] * m[0] + next.m[1] * m[3];
+    r.m[1] = next.m[0] * m[1] + next.m[1] * m[4];
+    r.m[2] = next.m[0] * m[2] + next.m[1] * m[5] + next.m[2];
+    r.m[3] = next.m[3] * m[0] + next.m[4] * m[3];
+    r.m[4] = next.m[3] * m[1] + next.m[4] * m[4];
+    r.m[5] = next.m[3] * m[2] + next.m[4] * m[5] + next.m[5];
+    return r;
+}
+
+bool Affine2D::invert(Affine2D& out) const {
+    const double det = m[0] * m[4] - m[1] * m[3];
+    if (std::fabs(det) < 1e-12) {
+        return false;
+    }
+    const double inv = 1.0 / det;
+    Affine2D r;
+    r.m[0] = m[4] * inv;
+    r.m[1] = -m[1] * inv;
+    r.m[3] = -m[3] * inv;
+    r.m[4] = m[0] * inv;
+    r.m[2] = -(r.m[0] * m[2] + r.m[1] * m[5]);
+    r.m[5] = -(r.m[3] * m[2] + r.m[4] * m[5]);
+    out = r;
+    return true;
+}
+
+void Affine2D::apply(double x, double y, double& outX, double& outY) const {
+    outX = m[0] * x + m[1] * y + m[2];
+    outY = m[3] * x + m[4] * y + m[5];
+}
+
+bool Affine2D::isIdentity() const {
+    const double k = 1e-9;
+    return std::fabs(m[0] - 1.0) < k && std::fabs(m[1]) < k && std::fabs(m[2]) < k &&
+           std::fabs(m[3]) < k && std::fabs(m[4] - 1.0) < k && std::fabs(m[5]) < k;
+}
+
+// =============================================================================
+// 变换渲染（单次重采样）
+// =============================================================================
+namespace {
+
+/// 按 EdgeMode 把越界坐标折回有效范围。返回 false 表示该像素应填背景。
+bool wrapCoord(int& v, int size, EdgeMode edge) {
+    if (v >= 0 && v < size) {
+        return true;
+    }
+    switch (edge) {
+        case EdgeMode::Clamp:
+            v = std::max(0, std::min(size - 1, v));
+            return true;
+        case EdgeMode::Mirror: {
+            const int period = 2 * size;
+            int t = v % period;
+            if (t < 0) {
+                t += period;
+            }
+            v = (t < size) ? t : (period - 1 - t);
+            return true;
+        }
+        case EdgeMode::Background:
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
+bool renderTransform(const std::uint8_t* src, int srcW, int srcH, int srcStride,
+                     std::uint8_t* dst, int dstW, int dstH, const Affine2D& srcToDst,
+                     EdgeMode edge, std::uint32_t backgroundRgba, bool bilinear) {
+    if (src == nullptr || dst == nullptr || srcW <= 0 || srcH <= 0 || dstW <= 0 ||
+        dstH <= 0) {
+        return false;
+    }
+    const int stride = srcStride > 0 ? srcStride : srcW * 4;
+    if (stride < srcW * 4) {
+        return false;
+    }
+
+    Affine2D dstToSrc;
+    if (!srcToDst.invert(dstToSrc)) {
+        return false;
+    }
+
+    const std::uint8_t bgR = static_cast<std::uint8_t>((backgroundRgba >> 24) & 0xFF);
+    const std::uint8_t bgG = static_cast<std::uint8_t>((backgroundRgba >> 16) & 0xFF);
+    const std::uint8_t bgB = static_cast<std::uint8_t>((backgroundRgba >> 8) & 0xFF);
+    const std::uint8_t bgA = static_cast<std::uint8_t>(backgroundRgba & 0xFF);
+
+    for (int y = 0; y < dstH; ++y) {
+        std::uint8_t* dstRow =
+            dst + static_cast<std::size_t>(y) * static_cast<std::size_t>(dstW) * 4;
+        for (int x = 0; x < dstW; ++x) {
+            std::uint8_t* out = dstRow + static_cast<std::size_t>(x) * 4;
+            double sx = 0.0;
+            double sy = 0.0;
+            dstToSrc.apply(static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5, sx,
+                           sy);
+
+            if (!bilinear) {
+                int ix = static_cast<int>(std::floor(sx));
+                int iy = static_cast<int>(std::floor(sy));
+                const bool okX = wrapCoord(ix, srcW, edge);
+                const bool okY = wrapCoord(iy, srcH, edge);
+                if (!okX || !okY) {
+                    out[0] = bgR;
+                    out[1] = bgG;
+                    out[2] = bgB;
+                    out[3] = bgA;
+                    continue;
+                }
+                std::memcpy(out,
+                            src + static_cast<std::size_t>(iy) *
+                                      static_cast<std::size_t>(stride) +
+                                static_cast<std::size_t>(ix) * 4,
+                            4);
+                continue;
+            }
+
+            const int ix0 = static_cast<int>(std::floor(sx - 0.5));
+            const int iy0 = static_cast<int>(std::floor(sy - 0.5));
+            const double fx = (sx - 0.5) - static_cast<double>(ix0);
+            const double fy = (sy - 0.5) - static_cast<double>(iy0);
+
+            int cx[2] = {ix0, ix0 + 1};
+            int cy[2] = {iy0, iy0 + 1};
+            bool ok = true;
+            for (int k = 0; k < 2 && ok; ++k) {
+                ok = wrapCoord(cx[k], srcW, edge);
+            }
+            for (int k = 0; k < 2 && ok; ++k) {
+                ok = wrapCoord(cy[k], srcH, edge);
+            }
+            if (!ok) {
+                out[0] = bgR;
+                out[1] = bgG;
+                out[2] = bgB;
+                out[3] = bgA;
+                continue;
+            }
+
+            const std::uint8_t* p00 =
+                src + static_cast<std::size_t>(cy[0]) * static_cast<std::size_t>(stride) +
+                static_cast<std::size_t>(cx[0]) * 4;
+            const std::uint8_t* p10 =
+                src + static_cast<std::size_t>(cy[0]) * static_cast<std::size_t>(stride) +
+                static_cast<std::size_t>(cx[1]) * 4;
+            const std::uint8_t* p01 =
+                src + static_cast<std::size_t>(cy[1]) * static_cast<std::size_t>(stride) +
+                static_cast<std::size_t>(cx[0]) * 4;
+            const std::uint8_t* p11 =
+                src + static_cast<std::size_t>(cy[1]) * static_cast<std::size_t>(stride) +
+                static_cast<std::size_t>(cx[1]) * 4;
+
+            const double w00 = (1.0 - fx) * (1.0 - fy);
+            const double w10 = fx * (1.0 - fy);
+            const double w01 = (1.0 - fx) * fy;
+            const double w11 = fx * fy;
+
+            for (int ch = 0; ch < 4; ++ch) {
+                const double value =
+                    p00[ch] * w00 + p10[ch] * w10 + p01[ch] * w01 + p11[ch] * w11;
+                out[ch] = static_cast<std::uint8_t>(value + 0.5);
+            }
+        }
+    }
+    return true;
+}
+
 bool frameFitFromInt(int value, FrameFit& out) {
     switch (value) {
         case 0:

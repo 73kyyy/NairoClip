@@ -608,6 +608,37 @@ Result TimelineEditor::getClipShake(SequenceId sequenceId, TrackId trackId, Clip
     return Result::ok();
 }
 
+Result TimelineEditor::setClipXform(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                    XformKind kind, XformParams params) {
+    return commit(
+        std::make_unique<SetClipXformCommand>(sequenceId, trackId, clipId, kind, params));
+}
+
+Result TimelineEditor::getClipXform(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                    XformKind kind, XformParams* out) const {
+    if (out == nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "out 为空");
+    }
+    const int idx = static_cast<int>(kind);
+    if (idx < 0 || idx >= static_cast<int>(XformKind::Count)) {
+        return Result::fail(ErrorCode::InvalidArgument, "几何变换 kind 超出范围");
+    }
+    const Sequence* seq = project_.findSequence(sequenceId);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const Track* track = seq->findTrack(trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    const Clip* clip = track->findClip(clipId);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    *out = clip->xforms.slots[idx];
+    return Result::ok();
+}
+
 Result TimelineEditor::setClipBackground(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                                          BackgroundMode mode, std::uint32_t rgba,
                                          double intensity) {

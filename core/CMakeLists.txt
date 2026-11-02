@@ -34,6 +34,7 @@ add_library(nairoclip_core STATIC
     src/subtitle_io.cpp
     src/media_writer.cpp
     src/frame_fit.cpp
+    src/xform.cpp
     src/beat_detect.cpp
     src/auto_duck.cpp
     src/watermark.cpp

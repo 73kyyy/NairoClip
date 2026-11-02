@@ -59,6 +59,7 @@ add_executable(nairoclip_tests
     test_export_executor.cpp
     test_ripple.cpp
     test_frame_fit.cpp
+    test_xform.cpp
     test_beat_detect.cpp
     test_auto_duck.cpp
     test_compound.cpp

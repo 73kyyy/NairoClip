@@ -293,6 +293,36 @@ std::string BuildState(NcEditor* ed) {
                 ++enWritten;
             }
             j += "]}";
+            // 几何变换 8 槽：前端靠 enabled 决定宫格「已添加」小圆点。
+            // 只下发启用的槽（未启用的用默认值也没意义，省带宽）。
+            j += ",\"xforms\":[";
+            {
+                int32_t xfWritten = 0;
+                for (int32_t xk = 0; xk < static_cast<int32_t>(XformKind::Count); ++xk) {
+                    double xargs[NC_XFORM_ARG_COUNT] = {0.0};
+                    int32_t xen = 0;
+                    int32_t xedge = 1;
+                    if (nc_get_clip_xform(ed, ti, cid, xk, xargs, &xen, &xedge) != NC_OK) {
+                        continue;
+                    }
+                    if (xen == 0) {
+                        continue;
+                    }
+                    if (xfWritten > 0) {
+                        j += ",";
+                    }
+                    j += "{\"kind\":" + std::to_string(xk);
+                    j += ",\"edge\":" + std::to_string(xedge);
+                    j += ",\"args\":[";
+                    for (int32_t ai = 0; ai < NC_XFORM_ARG_COUNT; ++ai) {
+                        if (ai > 0) j += ",";
+                        j += Num(xargs[ai]);
+                    }
+                    j += "]}";
+                    ++xfWritten;
+                }
+            }
+            j += "]";
         }
         j += "]}";
     }
@@ -1037,6 +1067,49 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
             JNum(a, "decay_seconds", 0.0),
             static_cast<uint32_t>(JInt(a, "seed", 0)));
         *out = rc == NC_OK ? Ok("") : Err("设置摇晃失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "xform_set") {
+        /* 几何变换（「转换」8 项）。9 个参数走扁平数组，
+           避免形参过多在调用点错位。 */
+        double xargs[NC_XFORM_ARG_COUNT] = {0.0};
+        const JsonValue& arr = a.get("args");
+        if (arr.isArray()) {
+            for (std::size_t i = 0; i < static_cast<std::size_t>(NC_XFORM_ARG_COUNT) && i < arr.size(); ++i) {
+                xargs[i] = arr.at(i).asNumber(0.0);
+            }
+        }
+        const int32_t rc = nc_set_clip_xform(ed, ti, cid,
+                                             static_cast<int32_t>(JInt(a, "kind", 0)),
+                                             xargs);
+        *out = rc == NC_OK ? Ok("") : Err("设置几何变换失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "xform_get") {
+        double xargs[NC_XFORM_ARG_COUNT] = {0.0};
+        int32_t enabled = 0;
+        int32_t edge = 1;
+        const int32_t rc = nc_get_clip_xform(ed, ti, cid,
+                                             static_cast<int32_t>(JInt(a, "kind", 0)),
+                                             xargs, &enabled, &edge);
+        if (rc != NC_OK) {
+            *out = Err("读取几何变换失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string js = "{\"enabled\":" + std::to_string(enabled) +
+                         ",\"edge\":" + std::to_string(edge) + ",\"args\":[";
+        for (int i = 0; i < NC_XFORM_ARG_COUNT; ++i) {
+            if (i > 0) js += ",";
+            js += Num(xargs[i]);
+        }
+        js += "]}";
+        *out = Ok(js);
+        return true;
+    }
+    if (op == "xform_clear") {
+        const int32_t rc = nc_clear_clip_xform(ed, ti, cid,
+                                               static_cast<int32_t>(JInt(a, "kind", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("清除几何变换失败，错误码 " + std::to_string(rc));
         return true;
     }
     if (op == "shake_get") {

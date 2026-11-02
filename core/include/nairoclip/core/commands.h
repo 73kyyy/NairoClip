@@ -700,6 +700,30 @@ private:
     bool hasBefore_ = false;
 };
 
+/// 设置片段几何变换槽（「转换」8 项）。整槽替换，可撤销。
+///
+/// 为什么参数不走 EffectStack：与摇晃同理 —— `Effect` 只有单个 `double value`，
+/// 装不下「轴/列/行/间隙/锚点/种子/轨迹/周期/边缘」九维。
+class SetClipXformCommand : public Command {
+public:
+    SetClipXformCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                        XformKind kind, XformParams params);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override;
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    XformKind kind_;
+    XformParams params_;
+    /// 首次 apply 前的快照；撤销时原样写回，不做逐字段推算。
+    XformParams before_{};
+    bool hasBefore_ = false;
+};
+
 class SetClipFilterCommand : public Command {
 public:
     SetClipFilterCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,

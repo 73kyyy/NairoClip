@@ -91,6 +91,15 @@ public:
     Result getClipShake(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                         ShakeParams* out) const;
 
+    // ---- 几何变换（「转换」面板 8 项）----
+    /// 写入某槽参数（整槽替换，可撤销）。enabled 由调用方在 params 中指定。
+    Result setClipXform(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                        XformKind kind, XformParams params);
+
+    /// 读取某槽参数。
+    Result getClipXform(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                        XformKind kind, XformParams* out) const;
+
     /// 设置轨道锁定（锁定后所有编辑被拒绝）。
     Result setTrackLocked(SequenceId sequenceId, TrackId trackId, bool locked);
     /// 设置轨道静音。

@@ -2077,6 +2077,50 @@ Result SetClipShakeCommand::revert(Project& project) {
     return Result::ok();
 }
 
+Result SetClipXformCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    const int idx = static_cast<int>(kind_);
+    if (idx < 0 || idx >= static_cast<int>(XformKind::Count)) {
+        return Result::fail(ErrorCode::InvalidArgument, "几何变换 kind 超出范围");
+    }
+    if (!hasBefore_) {
+        before_ = clip->xforms.slots[idx];
+        hasBefore_ = true;
+    }
+    XformParams p = params_;
+    p.clamp();   // 越界钳制而非报错：与 Effect.value 处理一致
+    clip->xforms.slots[idx] = p;
+    return Result::ok();
+}
+
+Result SetClipXformCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (hasBefore_) {
+        clip->xforms.slots[static_cast<int>(kind_)] = before_;  // 整体写回
+    }
+    return Result::ok();
+}
+
+std::string SetClipXformCommand::nameImpl() const {
+    switch (kind_) {
+        case XformKind::Offset: return "调整偏移";
+        case XformKind::Stretch: return "调整拉伸轴";
+        case XformKind::Spin: return "调整旋转";
+        case XformKind::Raster: return "调整栅格转换";
+        case XformKind::Path: return "调整沿路径移动";
+        case XformKind::Scale: return "调整缩放辅助";
+        case XformKind::Pulse: return "调整脉冲大小";
+        case XformKind::RandPos: return "调整随机位移";
+        default: return "调整几何变换";
+    }
+}
+
 Result SetClipFilterCommand::apply(Project& project) {
     Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
     if (clip == nullptr) {
