@@ -22,8 +22,12 @@
 #include <vector>
 
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/xform.h"
 
 namespace {
+/* 本文件是 JNI 入口，整体在全局命名空间（capi.h 导出全局 C ABI）。
+   只把用到的 core 类型显式引入，不用 using namespace 以免污染。 */
+using nairoclip::core::XformKind;
 
 std::string JStr(JNIEnv* env, jstring s) {
     if (s == nullptr) return {};
@@ -1070,13 +1074,16 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "xform_set") {
-        /* 几何变换（「转换」8 项）。9 个参数走扁平数组，
-           避免形参过多在调用点错位。 */
+        /* 几何变换（「转换」8 项）。13 个参数走扁平数组，
+           避免形参过多在调用点错位。
+           注意：本文件用自己的字符串版 JSON 工具（JNum/JInt/JVecDouble），
+           不是 core 的 JsonValue —— 别混用。 */
         double xargs[NC_XFORM_ARG_COUNT] = {0.0};
-        const JsonValue& arr = a.get("args");
-        if (arr.isArray()) {
-            for (std::size_t i = 0; i < static_cast<std::size_t>(NC_XFORM_ARG_COUNT) && i < arr.size(); ++i) {
-                xargs[i] = arr.at(i).asNumber(0.0);
+        std::vector<double> raw;
+        if (JVecDouble(a, "args", &raw)) {
+            for (std::size_t i = 0;
+                 i < static_cast<std::size_t>(NC_XFORM_ARG_COUNT) && i < raw.size(); ++i) {
+                xargs[i] = raw[i];
             }
         }
         const int32_t rc = nc_set_clip_xform(ed, ti, cid,
