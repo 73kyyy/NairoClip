@@ -719,6 +719,30 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置调整图层 LUT 失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "nc_track_accepts_media") {
+        // int32_t nc_track_accepts_media(track_type, media_type) —— 无 editor 参数
+        // 1 = 可放；0 = 拒绝。供拖动过程实时反馈，避免「拖完才报错」。
+        const int32_t ok = nc_track_accepts_media(
+            static_cast<int32_t>(JInt(a, "track_type", 0)),
+            static_cast<int32_t>(JInt(a, "media_type", 0)));
+        *out = Ok("{\"value\":" + std::to_string(ok) + "}");
+        return true;
+    }
+    if (op == "nc_track_placement_reason") {
+        // int32_t nc_track_placement_reason(track_type, media_type, out_reason, out_error)
+        char* reason = nullptr;
+        char* error = nullptr;
+        const int32_t rc = nc_track_placement_reason(
+            static_cast<int32_t>(JInt(a, "track_type", 0)),
+            static_cast<int32_t>(JInt(a, "media_type", 0)), &reason, &error);
+        std::string j = "{\"code\":" + std::to_string(rc);
+        j += ",\"reason\":\"" + JEsc(reason ? reason : "") + "\"";
+        j += ",\"message\":\"" + JEsc(error ? error : "") + "\"}";
+        if (reason) nc_free_string(reason);
+        if (error) nc_free_string(error);
+        *out = Ok(j);
+        return true;
+    }
     if (op == "nc_move_track") {
         // int32_t nc_move_track(editor, track_index, new_index)
         // 锁定轨道拒绝；越界返回 NC_ERROR_OUT_OF_RANGE（由内核判定，这里只转达）。

@@ -191,6 +191,23 @@ body { -webkit-text-size-adjust: 100%; }
 .fh { height: var(--fh-h, var(--row-h)); }
 .trow.collapsed { background: rgba(255,255,255,.04); border-radius: 4px; }
 
+/* ---- 拖放禁止态（P-18 / B0-7）----
+   拖到不相容的轨道时整行变红，抬手前就能看出放不进去。
+   用 inset box-shadow 而不是 border：border 会改变行高，
+   导致拖动中的落点判定（getBoundingClientRect）抖动。 */
+.trow.drop-blocked {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+  background-color: rgba(229, 72, 77, .10);
+  border-radius: 4px;
+}
+.trow.drop-blocked::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(45deg,
+    rgba(229,72,77,.10) 0 6px, transparent 6px 12px);
+  border-radius: 4px; pointer-events: none;
+}
+
 /* ---- 调整图层轨道（B2-6 / P-19）----
    斜纹底：一眼看出它不是普通轨道。用 repeating-linear-gradient 而非位图，
    符合「图标/装饰一律代码生成、不引位图」的约束。

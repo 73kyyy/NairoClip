@@ -1416,6 +1416,42 @@ function beginMove(e, tr, c) {
   let moved = false;
   let targetTrack = tr;
 
+  /* 拖动中的「禁止态」反馈（P-18 / B0-7）。
+     * 先用 nc_track_accepts_media 问内核，而不是等抬手后被内核拒绝 ——
+     * 后者是「拖完才报错」，用户已经白做了一次操作。
+     * 结果按 (trackType, mediaType) 缓存：一次拖动里同一组合会问很多次。
+     */
+  const acceptCache = new Map();
+  const canDropOn = (track, mediaType) => {
+    if (!track) return false;
+    const key = `${track.type}:${mediaType}`;
+    if (acceptCache.has(key)) return acceptCache.get(key);
+    const r = engineCall('nc_track_accepts_media', {
+      track_type: track.type, media_type: mediaType
+    });
+    // 桥不可用时不要谎报「可以」：返回 null 让调用方跳过高亮
+    const ok = (r && r.ok && typeof r.result.value === 'number')
+      ? r.result.value === 1 : null;
+    acceptCache.set(key, ok);
+    return ok;
+  };
+
+  // 被拖片段所属素材的媒体类型（0=视频 1=音频 2=图片，见 core MediaType）
+  const dragMediaType = (() => {
+    const a = (S.assets || []).find((x) => x.id === c.assetId);
+    return a && typeof a.kind === 'number' ? a.kind : 0;
+  })();
+
+  let dropBlocked = false;
+
+  /// 给某一行打禁止态标记（-1 = 全部清除）。定义在 onMove 之前，
+  /// 避免依赖「调用时已初始化」这种隐含时序。
+  const markDropBlocked = (trackIndex) => {
+    E.tracks.querySelectorAll('.trow').forEach((r, i) => {
+      r.classList.toggle('drop-blocked', i === trackIndex);
+    });
+  };
+
   const onMove = (ev) => {
     const dx = ev.clientX - startX;
     if (Math.abs(dx) > 3 || Math.abs(ev.clientY - startY) > 6) moved = true;
@@ -1432,6 +1468,12 @@ function beginMove(e, tr, c) {
       if (idx >= 0) targetTrack = S.tracks[idx];
     }
 
+    /* 禁止态：整行红框 + 阻止落到该轨。
+       只在真的换了轨时才判（同轨拖动永远允许）。 */
+    const verdict = targetTrack.index === trackIndex0
+      ? true : canDropOn(targetTrack, dragMediaType);
+    dropBlocked = verdict === false;
+
     let next = Math.max(0, t0 + dx / S.pxPerSec);
     const th = SNAP_PX / S.pxPerSec;
     const s1 = applySnap(next, snapCandidates(c.id), th);
@@ -1443,13 +1485,35 @@ function beginMove(e, tr, c) {
     c.start = +next.toFixed(3);
     // 立即重绘受影响的两个轨道
     renderTracks();
+    /* renderTracks() 会重建所有 .trow，上一步加的禁止态会被一起抹掉，
+       所以必须在重绘**之后**再标记一次。 */
+    markDropBlocked(dropBlocked ? targetTrack.index : -1);
   };
+
 
   const onUp = async () => {
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     hideSnapLine();
     if (!moved) return;
+
+    // 清掉禁止态
+    E.tracks.querySelectorAll('.drop-blocked').forEach((r) => r.classList.remove('drop-blocked'));
+
+    /* 落到不相容轨道：不写引擎，直接告诉用户为什么。
+       拿内核给的原因（nc_track_placement_reason）而不是前端自己编一句，
+       这样规则改了不用同步改前端文案。 */
+    if (dropBlocked) {
+      const rr = engineCall('nc_track_placement_reason', {
+        track_type: targetTrack.type, media_type: dragMediaType
+      });
+      const why = (rr && rr.ok && rr.result && rr.result.reason)
+        ? rr.result.reason : '该轨道不接受这种素材';
+      toast(`${targetTrack.name}：${why}`, 3000);
+      applyState(Engine.state || S);
+      renderAll();
+      return;
+    }
 
     const payload = targetTrack.index !== trackIndex0
       ? { op: 'move_to_track', track: trackIndex0, to_track: targetTrack.index,
