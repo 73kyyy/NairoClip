@@ -1412,7 +1412,6 @@ Response handleApi(const Request& req) {
                            &sizeText, &timeText);
         JsonValue root = JsonValue::object();
         root.set("preset", JsonValue::integer(presetId));
-        root.set("mode", JsonValue::integer(mode));
         root.set("width", JsonValue::integer(width));
         root.set("height", JsonValue::integer(height));
         root.set("fps", JsonValue::integer(fps));
