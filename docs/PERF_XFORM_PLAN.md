@@ -1,11 +1,34 @@
-# 预览性能架构 与 8 项功能特效 开发计划
+# NairoClip 开发任务书：预览性能 + 8 项几何变换 + 文本/调整图层/填充背景
 
-> **新窗口请先读 `docs/HANDOFF.md`**（进度、已确认需求、未修问题、快速定位表）。
-> 本文是设计与规格的权威来源；HANDOFF 是「从哪继续」的索引。
+> **本文是自包含的开发任务书** —— 单读本文即可执行，不需要其它文档。
+> （`docs/HANDOFF.md` 是精简索引，可选读。）
+>
+> 状态：§1–§4.5 已实现并通过 CI；§4.6–§4.10 为待开发任务。
+> 决策依据：用户确认「用代理渲染」。
+> **本文所有「现状」结论均来自对仓库的实际 grep 检索，非推测**；
+> 每条断言都标了 `file:line`，可逐条复核。
 
-> 状态：已定案，可开工
-> 决策依据：用户确认「用代理渲染」
-> 本文所有「现状」结论均来自对仓库的实际检索，非推测。
+## 完成度总览
+
+| 模块 | 状态 | 位置 |
+|---|---|---|
+| 单次重采样架构（7 仿射合并） | ✅ 已实现 | §2 |
+| 8 项几何变换内核 | ✅ 已实现 | `core/src/xform.cpp` |
+| 8 项前端面板（22 调节项） | ✅ 已实现 | `mobile/assets/editor.js` `XF_SPEC` |
+| C ABI / JNI / 派发表 | ✅ 已实现 | §4.3 |
+| 撤销命令 / 预览 / 导出接线 | ✅ 已实现 | §4.3 |
+| 单元测试 19 例 | ✅ 已实现 | `tests/test_xform.cpp` |
+| P0 性能埋点 | ⬜ 待做 | §3 P0 |
+| P1 LUT 整型查表 | ⬜ 待做 | §3 P1 |
+| P2 代理渲染 + 丢帧 + 分层失效 | ⬜ 待做 | §3 P2 |
+| P3 CPU 多线程 | ⬜ 待做 | §3 P3 |
+| P4 NEON | ⬜ 待做 | §3 P4 |
+| P6 SurfaceView 零拷贝 | ⬜ 待做 | §3 P6 |
+| P7 硬解 + GPU 合成 | ⬜ 待做 | §3 P7 |
+| **文本素材化**（TrackType::Text + 栅格化） | ⬜ 待做 | §4.6 + §4.10 |
+| **调整图层全功能** | ⬜ 待做 | §4.7 + §4.10.3 |
+| **复制背景**（填充第 4 档） | ⬜ 待做 | §4.8 |
+| **填充入口 + 填充整个预览区** | ⬜ 待做 | §4.9 |
 
 ---
 
@@ -603,6 +626,36 @@ function canUse(assetKind, feature) { return CAPABILITY[assetKind].has(feature);
 
 新增 `TrackType::Text = 4`（**数值必须追加，不可插入**，否则历史工程轨道错位）。
 
+**必须先改的唯一阻断点**（已定位）：
+
+```cpp
+// core/src/commands.cpp:109  validateClipPlacement()
+} else if (track.type == TrackType::Subtitle || track.type == TrackType::Adjustment) {
+    // 无素材引用的片段（文字/占位）：字幕轨与特效轨仍不接受
+    return Result::fail(ErrorCode::InvalidArgument,
+                        std::string(trackTypeLabel(track.type)) + "不接受片段");
+}
+```
+
+**这段就是「文本放不进轨道」和「调整图层放不了素材」的直接原因。**
+改法：
+- 文本片段（`clip.text.has_value()`）**允许**进入 `TrackType::Text`
+- 其余「无素材且无文本」的片段仍拒绝（避免空片段污染轨道）
+- `Adjustment` 轨**保持拒绝 Clip**（§4.7 用 `Track::adjustment` 而非 Clip 实现）
+
+**还有第二处需改**（已定位）：`commands.cpp:53 trackAcceptsClipType()`
+是 `switch (trackType)`，新增 `TrackType::Text` 后必须补 case，
+否则编译器警告「未处理所有枚举值」，且文本轨会走到 default 语义：
+
+```cpp
+case TrackType::Text:
+    // 文本轨不承载媒体素材（文本内容在 Clip::text 里）
+    return PlacementCompat::Rejected;
+```
+
+**这两个函数是 `TrackType` 扩展的唯二必改点**，其余位置按需处理。
+
+
 ```cpp
 // track.h
 enum class TrackType {
@@ -965,6 +1018,239 @@ struct TextRasterizer {
 **像素细节不追究**：字形的抗锯齿边缘允许略有差异，不属于缺陷。
 
 ---
+
+### 4.10.1 Android 侧实现（具体到可抄）
+
+**关键决定**：不要自己算字形，用 `StaticLayout` —— 它负责换行、行距、字距、emoji 回退，这些手写必然出错。
+
+```kotlin
+// android/app/src/main/java/com/nairoclip/app/TextRasterizer.kt
+object TextRasterizer {
+    /**
+     * 把文本栅格化成 ARGB_8888 位图。
+     *
+     * @param text      文本内容（支持 \n）
+     * @param fontPath  字体文件绝对路径；null/空 = 系统默认
+     * @param fontSizePx 字号（已按画布坐标换算成像素，不是 sp）
+     * @param colorArgb 填充色
+     * @param outlineColor / outlineWidthPx 描边（0 = 不描边）
+     * @param maxWidth  最大行宽（像素）。超过则换行
+     * @return Bitmap；失败返回 null
+     */
+    fun rasterize(
+        text: String, fontPath: String?, fontSizePx: Float, colorArgb: Int,
+        outlineColor: Int, outlineWidthPx: Float, maxWidth: Int,
+        align: Int, lineSpacingMul: Float
+    ): Bitmap? {
+        if (text.isEmpty() || maxWidth <= 0) return null
+        val tf = if (!fontPath.isNullOrEmpty() && File(fontPath).exists())
+            Typeface.createFromFile(fontPath) else Typeface.DEFAULT
+        val tp = TextPaint().apply {
+            isAntiAlias = true
+            this.textSize = fontSizePx
+            this.color = colorArgb
+            this.typeface = tf
+        }
+        if (outlineWidthPx > 0f) {
+            tp.style = Paint.Style.FILL_AND_STROKE
+            tp.strokeWidth = outlineWidthPx
+            tp.strokeJoin = Paint.Join.ROUND
+        }
+        val alignEnum = when (align) { 0 -> Layout.Alignment.ALIGN_NORMAL
+                                      2 -> Layout.Alignment.ALIGN_OPPOSITE
+                                      else -> Layout.Alignment.ALIGN_CENTER }
+        val layout = StaticLayout.Builder
+            .obtain(text, 0, text.length, tp, maxWidth)
+            .setAlignment(alignEnum)
+            .setLineSpacing(0f, lineSpacingMul)
+            .setIncludePad(false)
+            .build()
+
+        // 位图高度 = 实际排版高度（不是 maxHeight），避免大片透明
+        val w = maxWidth
+        val h = layout.height.coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        if (outlineWidthPx > 0f) {
+            // 先描边再填充：Stroke 在下、Fill 在上，观感才正确
+            tp.style = Paint.Style.STROKE
+            tp.color = outlineColor
+            layout.draw(canvas)
+            tp.style = Paint.Style.FILL
+            tp.color = colorArgb
+        }
+        layout.draw(canvas)
+        return bmp
+    }
+}
+```
+
+**必须注意的四个坑**：
+
+| 坑 | 说明 |
+|---|---|
+| 字号单位 | `SubtitleStyle.fontSize` 是「画布坐标点数」，需按 `画布宽/导出宽` 换算成像素，不能直接用 |
+| 描边顺序 | 必须先 `STROKE` 后 `FILL`，反之描边会盖住填充 |
+| 位图尺寸 | 用 `layout.height` 而非传入的 `maxHeight`，否则边缘大片透明，后续变换会算错包围盒 |
+| 字体缓存 | `Typeface.createFromFile` 很贵（几十 ms），必须按路径缓存 `Typeface` 实例 |
+
+### 4.10.2 栅格化结果如何进入渲染管线（接线点）
+
+**不要新增 `TextFrame` 类型**，直接把位图当成 `VideoFrame` 喂给现有管线：
+
+```cpp
+// core/include/nairoclip/core/text_raster.h（新增）
+#pragma once
+#include <cstdint>
+#include <functional>
+#include <vector>
+
+namespace nairoclip { namespace core {
+
+struct TextContent;   // 见 §4.6
+
+/// 平台层注入的栅格化回调。内核不链接任何字体库。
+/// 返回 true 时 outRgba 为 RGBA8（非 ARGB），尺寸 outW×outH。
+using TextRasterFn = std::function<bool(
+    const TextContent& text, int maxWidth,
+    std::vector<std::uint8_t>& outRgba, int& outW, int& outH)>;
+
+/// 注册（平台层在启动时调一次）。传 nullptr 表示未注入 ——
+/// 此时文本 Clip 渲染为透明，且一次性告警（不静默）。
+void setTextRasterizer(TextRasterFn fn);
+bool hasTextRasterizer();
+
+/// 内核内部用：取栅格化结果（带缓存）。缓存键见 §4.10。
+bool rasterizeTextCached(const TextContent& text, int maxWidth,
+                         std::vector<std::uint8_t>& outRgba, int& outW, int& outH);
+
+}}  // namespace
+```
+
+**接入位置**（`core/src/preview.cpp` 的 `renderUncached`，约 285 行）：
+
+```cpp
+VideoFrame source;
+bool gotSource = false;
+
+if (clip->text.has_value()) {
+    // 文本片段：不走解码器，走栅格化
+    int tw = 0, th = 0;
+    if (rasterizeTextCached(*clip->text, canvasW, source.pixels, tw, th)) {
+        source.width = tw;
+        source.height = th;
+        source.stride = tw * 4;
+        gotSource = true;
+    } else {
+        // 未注入栅格化器 / 栅格化失败：输出全透明而不是崩溃
+        source.pixels.assign(static_cast<std::size_t>(canvasW) * canvasH * 4, 0);
+        source.width = canvasW;
+        source.height = canvasH;
+        source.stride = canvasW * 4;
+        gotSource = true;
+    }
+} else if (reader->readVideoFrame(source)) {
+    gotSource = true;
+}
+
+if (gotSource) {
+    // ↓ 以下与视频片段完全相同的路径：
+    //   applyXformStack → 特效栈 → 摇晃 → ……
+}
+```
+
+**导出侧同理**（`export_executor.cpp` 约 570 行，取到 `source` 之后）。
+**关键**：文本与视频在 `source` 之后合并成同一条路径，**8 项变换/特效/遮罩全部自动继承**，无需为文本写第二套。
+
+### 4.10.3 调整图层渲染循环的具体改法
+
+现状（`core/src/preview.cpp:396-417`）：
+
+```cpp
+for (const auto& track : seq->tracks) {
+    if (track.type != TrackType::Adjustment || track.hidden) continue;
+    if (!track.hasAdjustment()) continue;
+    if (!track.adjustmentEffects.empty()) { applyEffectStackToFrame(...); }
+    if (!track.adjustmentLutPath.empty()) { applyLutToRgba(...); }
+}
+```
+
+改为（**新增的 4 处用 ← 标出**）：
+
+```cpp
+for (const auto& track : seq->tracks) {
+    if (track.type != TrackType::Adjustment || track.hidden) continue;
+    if (!track.hasAdjustment()) continue;
+
+    const AdjustmentLayer& adj = track.adjustment;
+
+    // ← 新增 1：几何变换（整帧）。用 timeSeconds 驱动时变效果。
+    if (adj.xforms.anyEnabled()) {
+        std::vector<std::uint8_t> tmp(
+            static_cast<std::size_t>(frame.width) * frame.height * 4, 0);
+        const EdgeMode e = firstXformEdge(adj.xforms, 0x000000FF);
+        applyXformStack(frame.rgba.data(), frame.width, frame.height, frame.width * 4,
+                        tmp.data(), frame.width, frame.height, adj.xforms,
+                        timelineTime.toDouble(), FrameFit::Fill, e,
+                        0x000000FF, true);
+        frame.rgba = std::move(tmp);
+    }
+
+    // ← 新增 2：不透明度（整帧 alpha）。用关键帧采样值。
+    //  ClipAnimation::sample(ClipProperty, const Time& localTime) —— 已核实签名。
+    double op = adj.opacity;
+    if (!adj.animation.empty()) {
+        // 调整图层没有 Clip，本地时间 = 序列时间轴（从 0 起）
+        op = adj.animation.sample(ClipProperty::Opacity, timelineTime);
+    }
+    if (op < 1.0) {
+        // ← 需新增：applyOpacityToRgba 当前不存在（已 grep 确认）
+        applyOpacityToRgba(frame.rgba.data(), frame.width, frame.height, op);
+    }
+
+    // 已有：特效栈
+    if (!adj.adjustmentEffects.empty()) {
+        applyEffectStackToFrame(frame.rgba.data(), frame.width, frame.height,
+                                adj.adjustmentEffects, frameIndex,
+                                RenderQuality::previewQuality(), timelineTime.toDouble());
+    }
+
+    // 已有：LUT
+    if (!adj.adjustmentLutPath.empty()) { ... }
+}
+```
+
+**三个必须确认的点**（已逐项核实，结论如下）：
+
+1. **叠加顺序**：`seq->tracks` 是**顺序遍历**（`preview.cpp:23` 与 `:397` 都是
+   `for (const auto& track : seq->tracks)`，无 `reverse`）。
+   ⇒ 下标 0 的轨道**先处理** = 最底层。调整图层循环必须保证「下层先叠加、上层后叠加」，
+   与用户直觉一致。**若后续有人给 tracks 加了反向遍历，这里会静默出错** ——
+   已在代码注释里标注此依赖。
+
+2. **`applyOpacityToRgba` 不存在**（已 grep：`core/src/*.cpp` 与
+   `core/include/nairoclip/core/*.h` 均无命中）⇒ **需新增**。
+   **alpha 约定已查明：本项目用非预乘 alpha**（`blend_modes.cpp:242`：
+   `result = blended * topAlpha + b * (1 - topAlpha)`，RGB 与 alpha 分离处理）。
+   ⇒ 实现只改 alpha 通道，**RGB 不动**：
+   ```cpp
+   void applyOpacityToRgba(std::uint8_t* px, int w, int h, double opacity) {
+       if (px == nullptr || w <= 0 || h <= 0) return;
+       const double op = std::min(1.0, std::max(0.0, opacity));
+       if (op >= 1.0) return;                     // 零改动快速路径
+       const std::size_t n = static_cast<std::size_t>(w) * h;
+       for (std::size_t i = 0; i < n; ++i) {
+           std::uint8_t* p = px + i * 4;
+           p[3] = static_cast<std::uint8_t>(p[3] * op + 0.5);
+       }
+   }
+   ```
+   **不要顺手改 RGB** —— 非预乘下改 RGB 会变暗，是错误的。
+
+3. **调整图层的时间基准**：`ClipAnimation::sample(ClipProperty, const Time& localTime)`
+   已核实签名。调整图层无 Clip ⇒ 无「片段本地时间」概念，
+   取**序列时间轴 `timelineTime`**（图层从 0 起全程生效）。已在代码示例中按此写。
+
 
 ## 5. 借鉴剪映 / AE
 
