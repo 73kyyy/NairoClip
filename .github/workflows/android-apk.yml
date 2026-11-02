@@ -290,12 +290,33 @@ jobs:
           # --console=plain：关掉富终端控制符，错误行才能被 grep 抓到。
           # 之前日志只有 3.9KB —— worker 进程的输出没进 tee，
           # 加上 --console=plain 与显式重定向后才有完整原文。
+          # -Dkotlin.compiler.execution.strategy=in-process：
+          # 让 Kotlin 编译器在 Gradle 进程内执行，而不是派发到 worker。
+          # worker 模式下编译错误不落到 /tmp/gradle.log（实测日志仅 3.2KB，
+          # 只有栈帧没有 `e:` 原文），连续几轮无法定位真实原因。
           ./gradlew :app:assembleRelease --stacktrace --no-daemon \
             --console=plain --no-build-cache --rerun-tasks \
-            > /tmp/gradle.log 2>&1
-          GRADLE_RC=$?
-          # 同时回显到 job 日志（tee 会把 worker 输出丢掉，这里再 cat 一次）
-          cat /tmp/gradle.log
+            -Dkotlin.compiler.execution.strategy=in-process \
+            2>&1 | tee /tmp/gradle.log
+          GRADLE_RC=${PIPESTATUS[0]}
+          # 失败时把真正的错误行回显到 **job 日志**（不是 step summary）。
+          # ci-status 抓的是 job 日志，step summary 抓不到 ——
+          # 前几轮加了 summary 但 RUNS.md 里始终没有，就是这个原因。
+          if [ "$GRADLE_RC" -ne 0 ]; then
+            echo "=========== GRADLE 错误行（job 日志可见）==========="
+            grep -nE '(^e: |error:|错误:|error;|Unresolved reference|Execution failed for task|What went wrong|Caused by:)' \
+              /tmp/gradle.log | head -60 || true
+            echo "=========== 首个 e: 前后 20 行 ==========="
+            FIRST=$(grep -nE '^e: ' /tmp/gradle.log | head -1 | cut -d: -f1)
+            if [ -n "${FIRST:-}" ]; then
+              ST=$(( FIRST > 20 ? FIRST - 20 : 1 ))
+              sed -n "${ST},$(( FIRST + 20 ))p" /tmp/gradle.log
+            else
+              echo "（无 e: 行；末尾 150 行）"
+              tail -150 /tmp/gradle.log
+            fi
+            echo "==============================================="
+          fi
           rc=$GRADLE_RC
           {
             echo "## Gradle 依赖诊断"
