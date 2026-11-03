@@ -626,7 +626,7 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 - 本机无法做 `-fsyntax-only`：NDK 的 `jni.h` 与宿主 glibc 头冲突
   （`__GLIBC_PREREQ` 未定义）。改由 CI 验证。
 
-### G1 — 预览多层合成 + 导出 N 层（2 天）★ 画中画能看见的前提
+### G1 — 预览多层合成 + 导出 N 层（2 天）★ 画中画能看见的前提　【已完成 2026-11-03】
 
 - `activeVideoClip` → `collectActiveLayers`；
 - `renderUncached` 拆成「渲染单层」+「逐层合成」；
@@ -638,6 +638,37 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 - 上层设 Screen → 预览与导出**逐像素相同**（同分辨率）；
 - 3 层叠加 → 三层都可见（验证 N 层修复）；
 - 隐藏上层轨 → 预览立刻回到单层（小眼睛联动验证）。
+
+**完成记录（2026-11-03）**
+
+预览侧（`core/src/preview.cpp`）重构为三段：
+- `collectActiveLayers()` —— 收集 t 时刻所有活动视频层，**下标 0 = 最底层**
+- `renderClipLayer()` —— 单层渲染（变换/特效/滤镜/蒙版/抠像），
+  蒙版与抠像按「是否有下层」选 Transparent / Background
+- `compositeLayer()` —— Normal 走逐像素非预乘 alpha；其余模式转 `blendFrameRgba`
+- `renderUncached()` 改为「收集 → 逐层渲染 → 自底向上合成」
+
+导出侧（`core/src/export_executor.cpp`）：原逻辑只合成 `layers[0]` 与
+`layers[1]`，第 3 层起被静默丢弃。补了一段 `for (extra = 2 …)` 循环把
+剩余层按 alpha 垫到当前结果下面。**2 层场景行为完全不变**（循环体不执行）。
+
+**一处必须记住的方向差异**（两边结果一致、约定相反，已写进两处注释）：
+| 侧 | 收集方式 | layers[0] |
+|---|---|---|
+| 预览 | `seq->tracks` 正序 | 最**底**层 |
+| 导出 | `videoTracks` 正序（小索引在下）后 `rbegin()` 反向 | 最**顶**层 |
+
+测试（`tests/test_preview.cpp` 新增 4 例，含像素级断言）：
+- `UpperTrackIsVisible`：上层灰 200 不透明 → 预览首像素必须是 200
+  （**修复前是 60**，即只渲染下层，这条直接证明画中画可见）
+- `SemiTransparentUpperBlendsWithLower`：上层 opacity=0.5、下层灰 60
+  → 结果须落在 120~140（期望 130），证明真的做了 alpha 混合
+- `ThreeLayersAllCollected`：3 层不崩且尺寸正确
+- `HiddenUpperTrackFallsBackToSingleLayer`：隐藏上层轨后回单层
+
+> 为了让不同素材输出不同灰度，测试里自带一个 `PathAwareReader`
+> （`MediaReaderFactory::create()` 不带参数，拿不到素材标识，
+> 只能用 `open(path)` 里的关键词区分）。
 
 ### G2 — `nc_set_clip_transform` + 面板（2 天）
 

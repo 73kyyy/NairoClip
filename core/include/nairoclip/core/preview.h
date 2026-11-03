@@ -81,7 +81,9 @@ public:
     PreviewRenderer& operator=(const PreviewRenderer&) = delete;
 
     /// 渲染指定时刻的一帧。
-    /// - 视频：取第一个未隐藏视频轨在 t 时刻的片段
+    /// - 视频：**所有**未隐藏视频轨在 t 时刻的片段，自底向上逐层合成
+    ///   （修复：此前只取第一条可见视频轨，导致画中画/混合模式在预览里
+    ///    完全看不到 —— 导出支持多层而预览不支持，属于功能不成立）
     /// - 字幕：取序列字幕轨中所有可见字幕
     /// - 动画：应用片段动画通道（透明度/缩放/位移/旋转）
     /// 命中帧缓存时直接返回缓存副本（不重新解码）。
@@ -110,6 +112,19 @@ public:
 private:
     /// 不做缓存查询的实际渲染（renderAt 命中缓存时不会走到这里）。
     PreviewFrame renderUncached(const Time& timelineTime);
+    /// 渲染**单层**（一个片段）到画布尺寸，含该层自己的变换/特效/滤镜/蒙版。
+    /// 返回 false 表示该层无可用像素（解码失败/无素材），调用方跳过即可。
+    bool renderClipLayer(const Clip& clip, const Time& timelineTime,
+                         int canvasW, int canvasH, bool hasLowerLayer,
+                         PreviewFrame& out);
+    /// 收集 t 时刻所有活动视频层。**下标 0 = 最底层**（与 seq->tracks 同序）。
+    struct ActiveLayer {
+        const Clip* clip = nullptr;
+    };
+    std::vector<ActiveLayer> collectActiveLayers(const Time& timelineTime) const;
+    /// 把一层按 alpha 合成到已经累积的画布上（base 是累积结果）。
+    void compositeLayer(PreviewFrame& base, const PreviewFrame& layer, BlendMode mode,
+                        double topAlpha);
     /// 读取片段在时间轴时刻对应的源帧（自动打开并缓存 reader）。
     bool readClipSourceFrame(const Clip& clip, const Time& timelineTime, VideoFrame& out);
     /// 转场混合：读取两路源帧，混合写回 frame（含尺寸初始化）。

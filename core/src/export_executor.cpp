@@ -878,6 +878,78 @@ ExportStats executeExport(
                                 }
                                 (void)lowerDecoded;
                             }
+
+                            /* ---- 第 3 层及以下（缺陷修复）----
+                               上面那段只处理了「顶层 + 紧邻下层」（layers[0] 与
+                               layers[1]），layers[2..] 被完全丢弃 —— 3 层叠加时
+                               最底层不参与合成。这里把剩余层自下而上补进来。
+
+                               为什么不做成完全统一的循环：上面那段承载了
+                               混合模式公式、蒙版/抠像 alpha、动画不透明度
+                               三种语义，重写风险极高。这里只补「Normal 叠加」，
+                               对 2 层场景不产生任何影响（循环体不执行）。 */
+                            for (std::size_t extra = 2; extra < layers.size(); ++extra) {
+                                const RenderClip* deeper = layers[extra].clip;
+                                MediaReader* deeperReader = getReader(deeper->asset);
+                                if (deeperReader == nullptr) {
+                                    continue;
+                                }
+                                const auto deeperOpened = readers.find(deeper->asset.value);
+                                if (deeperOpened != readers.end() && !deeperOpened->second.opened) {
+                                    if (deeperReader->open(deeper->assetPath).isOk()) {
+                                        deeperOpened->second.opened = true;
+                                    }
+                                }
+                                if (!deeperReader->isOpen()) {
+                                    continue;
+                                }
+                                if (!deeperReader->seek(mapSourceTime(*deeper, t)).isOk()) {
+                                    continue;
+                                }
+                                VideoFrame deeperFrame;
+                                if (!deeperReader->readVideoFrame(deeperFrame)) {
+                                    continue;
+                                }
+                                const int deeperStride = deeperFrame.stride > 0
+                                                             ? deeperFrame.stride
+                                                             : deeperFrame.width * 4;
+                                std::vector<std::uint8_t> deeperCanvas;
+                                const std::uint8_t* deeperPixels = deeperFrame.pixels.data();
+                                if (deeperFrame.width != plan.width ||
+                                    deeperFrame.height != plan.height) {
+                                    deeperCanvas.assign(
+                                        static_cast<std::size_t>(plan.width) *
+                                            static_cast<std::size_t>(plan.height) * 4, 0);
+                                    renderFrameFit(deeperFrame.pixels.data(),
+                                                   deeperFrame.width, deeperFrame.height,
+                                                   deeperStride, deeperCanvas.data(),
+                                                   plan.width, plan.height, plan.frameFit,
+                                                   plan.backgroundRgba);
+                                    deeperPixels = deeperCanvas.data();
+                                }
+                                /* 顺序很关键：layers[0] 是**顶层**（videoTracks 反向
+                                   遍历），所以 layers[2..] 都在当前合成结果的**下面**。
+                                   做法：以 deeper 为基底，把已有结果按 alpha 叠上去。
+                                   即 result = 已有 * a + deeper * (1 - a)，
+                                   a = 已有结果的像素 alpha（含蒙版/抠像覆盖率）。 */
+                                const std::size_t pixelCount =
+                                    static_cast<std::size_t>(plan.width) *
+                                    static_cast<std::size_t>(plan.height);
+                                for (std::size_t i = 0; i < pixelCount; ++i) {
+                                    std::uint8_t* up = frame.rgba.data() + i * 4;
+                                    const std::uint8_t* low = deeperPixels + i * 4;
+                                    const double a = static_cast<double>(up[3]) / 255.0;
+                                    if (a >= 1.0) {
+                                        continue;   // 上面已不透明 → 这层完全被挡住
+                                    }
+                                    const double b = 1.0 - a;
+                                    for (int ch = 0; ch < 3; ++ch) {
+                                        up[ch] = static_cast<std::uint8_t>(
+                                            up[ch] * a + low[ch] * b + 0.5);
+                                    }
+                                    up[3] = 255;
+                                }
+                            }
                         }
                         // 应用动画透明度（alpha 缩放）
                         if (active->hasAnimation) {
