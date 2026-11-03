@@ -176,6 +176,23 @@ const seqEnd = () => S.tracks.reduce((m, tr) =>
 const fmtRuler = (t, step) => {
   const s = Math.max(0, t);
   const m = Math.floor(s / 60);
+  /* 刻度格式随缩放步长切换 —— 参考剪映的显示规律：
+       · 秒级（step >= 1，总长 < 1 分钟）→ `3s`，不加前导零、不带分钟
+       · 亚秒级（step < 1）→ `3.5s`，保留一位小数
+       · 分钟级（step >= 1，总长 >= 1 分钟）→ `01:30`
+     为什么要按总长区分而不只看 step：
+       一个 8 秒的短视频，刻度写 `00:03` 很啰嗦，剪映写 `3s`；
+       但一个 5 分钟的项目，`183s` 没法读，必须 `03:03`。
+     两个条件（step + 是否有分钟位）一起判断才符合直觉。 */
+  const needMinute = step >= 60 || t >= 60 || m > 0;
+  if (!needMinute) {
+    // 1 分钟内：纯秒，按步长决定小数位
+    if (step < 1) {
+      const dec = step < 0.15 ? 2 : 1;
+      return `${(s % 60).toFixed(dec)}s`;
+    }
+    return `${Math.round(s % 60)}s`;
+  }
   if (step < 1) {
     const sec = (s % 60).toFixed(1).padStart(4, '0');
     return `${String(m).padStart(2, '0')}:${sec}`;
@@ -1807,22 +1824,30 @@ makePinch(E.tracks, {
   onBegin: (mid) => {
     const r = E.tracks.getBoundingClientRect();
     S.pinchAnchor = { x: mid - r.left, time: S.time + (mid - r.left - center()) / S.pxPerSec };
+    /* 联动缩放的两个基准，都必须取「手势开始那一瞬」的值：
+       · rowBaseHeight —— 行高；用实时值会让每帧以上一帧为基准，比例滚雪球
+       · basePxPerSec  —— 时间轴密度；原来只在 onEnd 更新，
+         若中途有别处（fitToSeq / 滑杆 / 恢复状态）改过 pxPerSec，
+         基准就是旧的，导致时间轴倍率与手势比例对不上
+         （实测：行高倍率 2.20 时时间轴是 3.26）。 */
+    rowBaseHeight = (S.tracks[0] && S.tracks[0].heightPx) || ROW_STD;
+    S.basePxPerSec = S.pxPerSec;
   },
   onScale: (ratio) => {
     const a = S.pinchAnchor;
     if (!a) return;
-    S.pxPerSec = clamp(S.basePxPerSec * ratio, 4, 900);
-    // 保持锚点时间停在原来的屏幕位置
-    S.time = Math.max(0, a.time - (a.x - center()) / S.pxPerSec);
-    /* 滑杆与手势改同一个值 → 必须同步，否则滑杆位置会与实际密度脱节。 */
-    if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
+    /* 轨道区捏合 = 整块内容一起放大（用户 2026-11-03 要求）：
+       行高、时间轴密度、轨道头图标三者同步。
+       图标不用单独处理 —— 它读的是 --fh-h（行高），行高变了自然跟着变。 */
+    scaleRowsAndTimeline(ratio, { anchorTime: a.time, anchorX: a.x });
     renderTracks();
     syncPreview();
   },
   onEnd: () => {
     S.basePxPerSec = S.pxPerSec;
     S.pinchAnchor = null;
-    saveZoomDensity();   // 松手才写 localStorage
+    persistRowHeights();   // 松手才提交行高（一次手势一次调用）
+    saveZoomDensity();     // 松手才写 localStorage
   }
 });
 S.basePxPerSec = S.pxPerSec;
@@ -2114,6 +2139,35 @@ function setAllRowHeights(h, { persist = true } = {}) {
   });
   renderTracks();
   if (persist) persistRowHeights();
+}
+
+/// 轨道区双指捏合：**行高与时间轴同步缩放**。
+///
+/// 用户要求（2026-11-03）：「在轨道区放大或者缩小，这几个跟着放大和缩小。
+/// 时间轴上的刻度、还有显示的刻度时间也是跟着放大。」
+///
+/// 为什么两样一起缩放，而不是各捏各的：
+///   · 轨道行高变大 → 每条素材占更多纵向空间，若时间轴不变，
+///     画面会显得「胖」而不「近」，与用户对「放大」的直觉不符；
+///   · 剪映的轨道区捏合就是把整块内容一起放大（行列同比），
+///     这样才能同时看清「素材画面」和「时间位置」。
+///
+/// 但两者**量纲不同**，不能共用一个绝对倍率：
+///   · 行高有硬边界 24..200（core 的 kMin/kMaxTrackHeight）；
+///   · 时间轴密度 4..900 px/s，跨度是行高的 37 倍。
+/// 所以各自按自己的基准乘同一个 ratio，再各自 clamp ——
+/// 一边撞到上下限时另一边继续跟，不会互相卡死。
+function scaleRowsAndTimeline(ratio, { anchorTime = null, anchorX = 0 } = {}) {
+  // ① 行高
+  const baseH = rowBaseHeight || (S.tracks[0] && S.tracks[0].heightPx) || ROW_STD;
+  setAllRowHeights(baseH * ratio, { persist: false });
+
+  // ② 时间轴密度（锚定双指中心对应的时间，避免画面漂移）
+  S.pxPerSec = clamp(S.basePxPerSec * ratio, 4, 900);
+  if (anchorTime !== null) {
+    S.time = Math.max(0, anchorTime - (anchorX - center()) / S.pxPerSec);
+  }
+  if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
 }
 
 /// 恢复到「由阶梯自动决定」（双击轨道头触发）。

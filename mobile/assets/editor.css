@@ -333,19 +333,28 @@ body { -webkit-text-size-adjust: 100%; }
       display: flex; align-items: center;
       justify-content: center; pointer-events: none; }
 .fh .row { pointer-events: auto; display: flex; gap: 2px; align-items: center; }
-.fh button { width: 14px; height: 14px; border: 0; background: none; box-shadow: none;
+
+/* 图标尺寸**随轨道高度连续缩放**（用户 2026-11-03：
+   「小眼睛那三个图标也是，只要在轨道区放大或者缩小，这几个跟着放大和缩小」）。
+
+   原实现只在 data-h="37"/"30" 两个固定值上切换档位，是用 JS 写死档位。
+   问题：捏合可以落在 24..200 的**任意**高度，落在 60px 时两个档位都匹配不到，
+   图标永远停在 14px —— 轨道放大了，图标不放大，观感上「没跟着变」。
+
+   改成 CSS 变量：JS 只把行高写进 --fh-h，这里用 clamp 连续换算。
+     · 按钮 = 行高 × 0.42，夹在 11..22px
+     · 图标 = 按钮 × 0.78，夹在 9..17px
+   30px 行高 → 按钮 12.6 / 图标 9.8（与原来 12/9 的观感基本一致）；
+   44px → 按钮 18.5 / 图标 14.4（比原来 14/11 略大，但轨道也更高，比例协调）；
+   96px → 按钮 22（上限）/ 图标 17（上限），不会无限膨胀把轨道头撑爆。 */
+.fh button { width: clamp(11px, calc(var(--fh-h, 44px) * 0.42), 22px);
+             height: clamp(11px, calc(var(--fh-h, 44px) * 0.42), 22px);
+             border: 0; background: none; box-shadow: none;
              color: #D2D8D5; display: grid; place-items: center; padding: 0;
              -webkit-appearance: none; appearance: none; }
-.fh button .i { width: 11px; height: 11px; }
+.fh button .i { width: clamp(9px, calc(var(--fh-h, 44px) * 0.33), 17px);
+                height: clamp(9px, calc(var(--fh-h, 44px) * 0.33), 17px); }
 .fh button.off { color: #4B5150; }
-
-/* 图标随轨道高度收缩：轨道压到最小时（30px）图标也小一档，
-   避免 14px 按钮挤在 22px 可视区里显得突兀。
-   用 .fh 的 data-h 由 JS 写入实际行高。 */
-.fh[data-h="37"] button { width: 13px; height: 13px; }
-.fh[data-h="37"] button .i { width: 10px; height: 10px; }
-.fh[data-h="30"] button { width: 12px; height: 12px; }
-.fh[data-h="30"] button .i { width: 9px; height: 9px; }
 
 /* 组内成员：左侧一道竖线（替代原先进名字里的 ▏ 前缀） */
 .fh.grouped::before { content: ''; position: absolute; left: 2px; top: 4px;
