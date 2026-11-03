@@ -594,14 +594,16 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 
 每阶段独立可交付、可回滚。**顺序按「用户能立刻感知」排列。**
 
-### G0 — 修 9 个死 op（0.5 天）★ 最优先
+### G0 — 修 9 个死 op（0.5 天）★ 最优先　【已完成 2026-11-03】
 
 **用户明确要求「轨道左边的小眼睛那 3 个功能也要可以用」。这三个现在完全不响应。**
 
 - `nc_jni.cpp` 的 `DispatchEdit` 补 9 个分支；
 - `track_flag` 支持 `locked` / `muted` / `hidden` / `solo` 四种（照抄
   `nc_design_harness.cpp:690-703`）；
-- 同步 `api_dispatch.inc`（`HANDOFF.md` 硬性约束第 3 条）；
+- ~~同步 `api_dispatch.inc`~~ —— **实测不需要**：该文件只服务设计桥的
+  `nc_*` 直调（`nc_design_harness.cpp:611` include），与 JNI 的 op 派发
+  是两套机制。这一步删掉，避免以后照文档白改一遍；
 - 前端 9 个 op 补失败回滚（失败时还原本地状态，不留「视觉已改、引擎未改」）。
 
 **验收**：
@@ -609,6 +611,20 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 - 点喇叭 → `nc_get_track_mixer` 可见该轨静音；
 - 点锁 → 该轨片段不可拖动（`editor.js:1336` 已有 `tr.locked` 判断）；
 - 9 个 op 全部返回 `NC_OK`，不再出现「未开放的操作」。
+
+**完成记录（2026-11-03）**：9 个分支已全部补进 `mobile/native/android/nc_jni.cpp`
+的 `DispatchEdit`（紧跟 `add_track` 之后）：
+`track_flag`（locked/muted/hidden/solo 四选一）、`track_gain`、`duplicate`、
+`move_to_track`、`ripple_delete`、`remove_keyframe`、`remove_transition`、
+`marker` / `marker_color`（共用一支，颜色作参数）。
+
+- 参数个数与类型逐个比对过 `capi.h` 声明；
+- 前端侧无需改动：三个轨道按钮走 `guardedEdit`，失败时 toast 且本地状态
+  不动（值来自引擎快照），成功时 `edit()` 内部已调 `applyState + renderAll`；
+- `api_dispatch.inc` **不需要同步** —— 它只服务设计桥（`nc_*` 直调），
+  与 JNI 的 op 派发是两套机制。
+- 本机无法做 `-fsyntax-only`：NDK 的 `jni.h` 与宿主 glibc 头冲突
+  （`__GLIBC_PREREQ` 未定义）。改由 CI 验证。
 
 ### G1 — 预览多层合成 + 导出 N 层（2 天）★ 画中画能看见的前提
 

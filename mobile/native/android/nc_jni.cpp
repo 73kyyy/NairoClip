@@ -451,6 +451,89 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                   : Err("添加轨道失败");
         return true;
     }
+
+    /* ---- 9 个此前缺失的 op（PIP_GESTURE_PLAN.md §G0）----
+       背景：前端会发这些 op，但 JNI 没有分支 → 真机点按钮返回
+       「未开放的操作」，界面毫无反应。底层 nc_* 全部就位，纯补接线。
+       实现照抄 design/tools/nc_design_harness.cpp 的成熟写法。 */
+
+    // 轨道标志位：左眼 / 喇叭 / 锁 / 独奏。前端用 track_flag 统一下发。
+    if (op == "track_flag") {
+        const std::string flag = JStrField(a, "flag");
+        const int32_t value = JInt(a, "value", 0) ? 1 : 0;
+        if (ti < 0) { *out = Err("缺少目标轨道"); return true; }
+        int32_t rc = NC_OK;
+        if (flag == "locked")      rc = nc_set_track_locked(ed, ti, value);
+        else if (flag == "muted")   rc = nc_set_track_muted(ed, ti, value);
+        else if (flag == "hidden")  rc = nc_set_track_hidden(ed, ti, value);
+        else if (flag == "solo")    rc = nc_set_track_solo(ed, ti, value);
+        else { *out = Err("未知轨道标志位：" + flag); return true; }
+        *out = rc == NC_OK ? Ok("") : Err("设置轨道标志失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    // 轨道增益（dB）
+    if (op == "track_gain") {
+        if (ti < 0) { *out = Err("缺少目标轨道"); return true; }
+        const int32_t rc = nc_set_track_gain(ed, ti, JNum(a, "gain_db", 0.0));
+        *out = rc == NC_OK ? Ok("") : Err("设置轨道增益失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    // 复制片段
+    if (op == "duplicate") {
+        if (cid == 0) { *out = Err("缺少目标片段"); return true; }
+        const uint64_t newId = nc_duplicate_clip(ed, ti, cid);
+        *out = newId ? Ok("{\"clip_id\":" + std::to_string(newId) + "}")
+                     : Err("复制片段失败");
+        return true;
+    }
+    // 跨轨移动
+    if (op == "move_to_track") {
+        if (cid == 0) { *out = Err("缺少目标片段"); return true; }
+        const int32_t toTrack = static_cast<int32_t>(JInt(a, "to_track", -1));
+        if (toTrack < 0) { *out = Err("缺少目标轨道"); return true; }
+        const int64_t at = JInt(a, "start_us", 0);
+        const int32_t rc = nc_move_clip_to_track(ed, ti, toTrack, cid, at);
+        *out = rc == NC_OK ? Ok("") : Err("跨轨移动失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    // 波纹删除（删后自动前移）
+    if (op == "ripple_delete") {
+        if (cid == 0) { *out = Err("缺少目标片段"); return true; }
+        const uint64_t ids[1] = {cid};
+        const int32_t rc = nc_ripple_delete(ed, ti, ids, 1);
+        *out = rc == NC_OK ? Ok("") : Err("波纹删除失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    // 删除关键帧（与上面的「插入关键帧」成对）
+    if (op == "remove_keyframe") {
+        const int32_t prop = static_cast<int32_t>(JInt(a, "prop", JInt(a, "property", 0)));
+        int64_t atUs = static_cast<int64_t>(JInt(a, "at_us", -1));
+        if (atUs < 0) atUs = static_cast<int64_t>(JNum(a, "t", 0.0) * 1e6);
+        const int32_t rc = nc_remove_keyframe(ed, ti, cid, prop, atUs);
+        *out = rc == NC_OK ? Ok("") : Err("删除关键帧失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    // 删除转场
+    if (op == "remove_transition") {
+        if (ti < 0) { *out = Err("缺少目标轨道"); return true; }
+        const uint64_t tid = static_cast<uint64_t>(JInt(a, "transition", 0));
+        if (tid == 0) { *out = Err("缺少转场 id"); return true; }
+        const int32_t rc = nc_remove_transition(ed, ti, tid);
+        *out = rc == NC_OK ? Ok("") : Err("删除转场失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    // 加时间标记 / 改标记颜色（两者都走 nc_add_marker，颜色是参数）
+    if (op == "marker" || op == "marker_color") {
+        const char* defColor = (op == "marker_color") ? "#F0A03C" : "#C6F24E";
+        const uint64_t mid = nc_add_marker(ed, JInt(a, "time_us", 0),
+                                           JStrField(a, "name").empty()
+                                               ? "标记" : JStrField(a, "name").c_str(),
+                                           JStrField(a, "color").empty()
+                                               ? defColor : JStrField(a, "color").c_str());
+        *out = mid ? Ok("{\"marker_id\":" + std::to_string(mid) + "}")
+                   : Err("添加标记失败");
+        return true;
+    }
     if (op == "undo") {
         const int32_t rc = nc_undo(ed);
         *out = rc == NC_OK ? Ok("") : Err("无可撤销操作，错误码 " + std::to_string(rc));
