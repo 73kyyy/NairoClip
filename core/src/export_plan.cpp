@@ -32,6 +32,7 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.hasChromaKey = clip.hasChromaKey;
     rc.chromaKey = clip.chromaKey;
     rc.blendMode = clip.blendMode;
+    rc.transform = clip.transform;
     rc.filterStyle = clip.filterStyle;
     rc.filterIntensity = clip.filterIntensity;
     // LUT 快照（B1-2）：字段在 Clip 上早已存在，但此前没有任何渲染路径读它，

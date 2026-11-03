@@ -2845,6 +2845,38 @@ SetClipBlendModeCommand::SetClipBlendModeCommand(SequenceId sequenceId, TrackId 
                                                  ClipId clipId, BlendMode mode)
     : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), mode_(mode) {}
 
+// =============================================================================
+// 设置片段画面变换（PIP_GESTURE_PLAN.md G2）
+// =============================================================================
+
+SetClipTransformCommand::SetClipTransformCommand(SequenceId sequenceId, TrackId trackId,
+                                                 ClipId clipId, ClipTransform after)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), after_(after) {
+    after_.clamp();
+}
+
+Result SetClipTransformCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) before_ = clip->transform;
+    clip->transform = after_;
+    return Result::ok();
+}
+
+Result SetClipTransformCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少画面变换快照");
+    }
+    clip->transform = *before_;
+    return Result::ok();
+}
+
 Result SetClipBlendModeCommand::apply(Project& project) {
     Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
     if (clip == nullptr) {

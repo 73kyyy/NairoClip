@@ -182,6 +182,14 @@ public:
     /// 说明：normal 为默认（与既有 alpha 混合行为一致）；其余四种为行业标准公式。
     Result setClipBlendMode(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                             BlendMode mode);
+    /// 设置片段画面变换（画中画的位置/大小/旋转/锚点）。
+    /// - 整槽替换，可撤销；越界值由 ClipTransform::clamp 钳制（不报错）；
+    /// - 与原值完全相同时视为无变化（不污染撤销栈）。
+    Result setClipTransform(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                            const ClipTransform& transform);
+    /// 读取片段画面变换（片段不存在时返回 false）。
+    bool getClipTransform(const Project& project, SequenceId sequenceId, TrackId trackId,
+                          ClipId clipId, ClipTransform& out) const;
     /// 设置片段 3D LUT（B1-2）。
     /// - path 为空 = 清除 LUT；
     /// - strength 必须 0..1，否则 InvalidArgument（不写工程，避免污染 .nclip）；

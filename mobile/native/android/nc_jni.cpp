@@ -554,6 +554,43 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
     // speed/speed_curve/keyframe/freeze/reverse/transition/canvas/lut。
     // 结果是那些面板在 Android 上点「应用」后桥返回「未开放的操作」，
     // 用户看到的是「面板能开、改了没反应」——最坏的一类坏体验。
+    /* ---- 画面变换（画中画位置/大小/旋转；G2）---- */
+    if (op == "transform_set") {
+        if (ti < 0 || cid == 0) { *out = Err("缺少目标片段"); return true; }
+        const int32_t rc = nc_set_clip_transform(
+            ed, ti, cid,
+            JInt(a, "enabled", 1) ? 1 : 0,
+            JNum(a, "scale", 1.0),
+            JNum(a, "pos_x", 0.0),
+            JNum(a, "pos_y", 0.0),
+            JNum(a, "rotation", 0.0),
+            static_cast<int32_t>(JInt(a, "anchor", 4)));
+        *out = rc == NC_OK ? Ok("") : Err("设置画面变换失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "transform_get") {
+        if (ti < 0 || cid == 0) { *out = Err("缺少目标片段"); return true; }
+        int32_t en = 0, anchor = 4;
+        double sc = 1.0, px = 0.0, py = 0.0, rot = 0.0;
+        const int32_t rc = nc_get_clip_transform(ed, ti, cid, &en, &sc, &px, &py, &rot, &anchor);
+        if (rc != NC_OK) {
+            *out = Err("读取画面变换失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"enabled\":" + std::to_string(en) +
+                  ",\"scale\":" + Num(sc) +
+                  ",\"pos_x\":" + Num(px) +
+                  ",\"pos_y\":" + Num(py) +
+                  ",\"rotation\":" + Num(rot) +
+                  ",\"anchor\":" + std::to_string(anchor) + "}");
+        return true;
+    }
+    if (op == "transform_clear") {
+        if (ti < 0 || cid == 0) { *out = Err("缺少目标片段"); return true; }
+        const int32_t rc = nc_clear_clip_transform(ed, ti, cid);
+        *out = rc == NC_OK ? Ok("") : Err("清除画面变换失败，错误码 " + std::to_string(rc));
+        return true;
+    }
     if (op == "blend") {
         const int32_t mode = static_cast<int32_t>(JInt(a, "mode", 0));
         const int32_t rc = nc_set_clip_blend_mode(ed, ti, cid, mode);

@@ -218,6 +218,48 @@ Result TimelineEditor::setClipChromaKey(SequenceId sequenceId, TrackId trackId, 
     return commit(std::make_unique<SetClipChromaKeyCommand>(sequenceId, trackId, clipId, key));
 }
 
+Result TimelineEditor::setClipTransform(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                       const ClipTransform& transform) {
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    }
+    if (track->locked) {
+        return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    }
+    const Clip* clip = track->findClip(clipId);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    /* 幂等：参数与现值完全一致时不提交命令。
+       为什么重要：面板拖动会连发多次 apply，若每次都进撤销栈，
+       用户按一次撤销只退回一个中间值，体验极差。 */
+    ClipTransform next = transform;
+    next.clamp();
+    const ClipTransform& cur = clip->transform;
+    if (cur.scale == next.scale && cur.posX == next.posX && cur.posY == next.posY &&
+        cur.rotation == next.rotation && cur.anchor == next.anchor &&
+        cur.enabled == next.enabled) {
+        return Result::ok();
+    }
+    return commit(std::make_unique<SetClipTransformCommand>(sequenceId, trackId, clipId, next));
+}
+
+bool TimelineEditor::getClipTransform(const Project& project, SequenceId sequenceId,
+                                      TrackId trackId, ClipId clipId,
+                                      ClipTransform& out) const {
+    const Track* track = findTrack(project, sequenceId, trackId);
+    if (track == nullptr) {
+        return false;
+    }
+    const Clip* clip = track->findClip(clipId);
+    if (clip == nullptr) {
+        return false;
+    }
+    out = clip->transform;
+    return true;
+}
+
 Result TimelineEditor::setClipBlendMode(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                                         BlendMode mode) {
     const Track* track = findTrack(project_, sequenceId, trackId);

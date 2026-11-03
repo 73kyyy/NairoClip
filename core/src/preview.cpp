@@ -254,15 +254,43 @@ bool PreviewRenderer::renderClipLayer(const Clip& clip, const Time& timelineTime
 
     const FrameFit fit = seq != nullptr ? seq->frameFit : FrameFit::Fit;
     const std::uint32_t background = seq != nullptr ? seq->backgroundRgba : 0x000000FF;
+    /* 画面变换（画中画位置/大小/旋转）的取值优先级：
+       关键帧 > 静态值 > 默认 —— 与 resolveClipXformValue 的契约一致。
+       这里就地解析，避免为一个四元组引入额外结构。 */
+    const auto resolve = [&](ClipProperty prop, double fallback) {
+        if (clip.animation.hasCurve(prop)) {
+            return clip.animation.sample(prop, local);
+        }
+        return fallback;
+    };
+    const double xfScale = clip.transform.enabled
+                               ? resolve(ClipProperty::Scale, clip.transform.scale)
+                               : resolve(ClipProperty::Scale, 1.0);
+    const double xfPosX = clip.transform.enabled
+                              ? resolve(ClipProperty::PositionX, clip.transform.posX)
+                              : resolve(ClipProperty::PositionX, 0.0);
+    const double xfPosY = clip.transform.enabled
+                              ? resolve(ClipProperty::PositionY, clip.transform.posY)
+                              : resolve(ClipProperty::PositionY, 0.0);
+    const double xfRot = clip.transform.enabled
+                             ? resolve(ClipProperty::Rotation, clip.transform.rotation)
+                             : resolve(ClipProperty::Rotation, 0.0);
+    const int xfAnchor = clip.transform.enabled ? clip.transform.anchor : 4;
+    const Affine2D extra = clipTransformMatrix(xfScale, xfPosX, xfPosY, xfRot, xfAnchor,
+                                               canvasW, canvasH);
+    const bool hasExtra = !(std::abs(xfScale - 1.0) < 1e-9 &&
+                            std::abs(xfPosX) < 1e-9 && std::abs(xfPosY) < 1e-9 &&
+                            std::abs(xfRot) < 1e-9);
+
     const bool needFit = (source.width != canvasW || source.height != canvasH);
-    if (clip.hasXform() || needFit) {
+    if (clip.hasXform() || needFit || hasExtra) {
         std::vector<std::uint8_t> canvas(
             static_cast<std::size_t>(canvasW) * static_cast<std::size_t>(canvasH) * 4, 0);
         const int stride = source.stride > 0 ? source.stride : source.width * 4;
         const EdgeMode edge = firstXformEdge(clip.xforms, background);
         applyXformStack(source.pixels.data(), source.width, source.height, stride,
                         canvas.data(), canvasW, canvasH, clip.xforms,
-                        timelineTime.toDouble(), fit, edge, background, true);
+                        timelineTime.toDouble(), fit, edge, background, true, extra);
         out.rgba = std::move(canvas);
     } else {
         out.rgba = std::move(source.pixels);

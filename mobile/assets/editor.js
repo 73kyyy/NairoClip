@@ -364,6 +364,9 @@ const L2 = {
   ],
   pip: [
     { id: 'pipadd', name: '新增画中画', icon: 'i-pip-add', kind: 'exec' },
+    /* 「画面」：位置/大小/旋转/锚点。放在第二位 —— 新增画中画之后
+       用户第一件要做的事就是把它缩小挪位（G4）。 */
+    { id: 'piptransform', name: '画面', icon: 'i-expand' },
     { id: 'pipmix', name: '混合模式', icon: 'i-layers' },
     { id: 'pipmask', name: '蒙版', icon: 'i-mask' }
   ],
@@ -562,6 +565,7 @@ function runFunction(cat, f) {
     case 'tts':        return openL3('tts');
     case 'ctrack':     return openL3('ctrack');
     /* 画中画 */
+    case 'piptransform': return openL3('piptransform');
     case 'pipmix':     return openL3('pipmix');
     case 'pipmask':    return openL3('maskshape');
     /* 特效（四类宫格） */
@@ -3753,7 +3757,24 @@ async function addPipTrack() {
     { op: 'add_track', name: `画中画 ${n}`, type: 0 },
     '已新增画中画轨道，可从素材库拖入'
   );
-  if (ok && typeof load === 'function') await load();
+  if (!ok) return;
+  if (typeof load === 'function') await load();
+
+  /* 自动把新轨上的片段缩到 60%（G4）。
+     为什么不是 1.0：1.0 + 居中 = 完全盖住主画面，用户会以为
+     「主画面消失了」或「拖错轨了」—— 剪映也是默认缩小。
+     为什么不是 0.5：0.6 在 9:16 竖屏上留出的边框更自然，
+     且第一眼能确认「小的那个在动」。
+     只处理「刚加进来的那条轨」，不影响既有轨道。 */
+  const fresh = (S.tracks || []).filter((t) => t.type === 0)
+    .sort((a, b) => b.index - a.index)[0];
+  if (!fresh || !fresh.clips || !fresh.clips.length) return;
+  for (const c of fresh.clips) {
+    await guardedEdit({
+      op: 'transform_set', track: fresh.index, clip: c.id,
+      enabled: 1, scale: 0.6, pos_x: 0, pos_y: 0, rotation: 0, anchor: 4
+    });
+  }
 }
 
 /* ---------------- 滤镜：应用到所选轨道的全部片段 ---------------- */
@@ -4024,6 +4045,15 @@ window.L3_HOST = {
        只重建轨道 DOM，代价小得多。 */
     renderTracks();
     return r;
+  },
+  /* 「画面」面板回读：取当前引擎里存的 transform 静态值。
+     返回 null 表示读取失败（面板将显示默认值，不阻断操作）。 */
+  transformGet: () => {
+    const s = selClip();
+    if (!s) return null;
+    const r = engineCall('transform_get', { track: s.track.index, clip: s.clip.id });
+    if (!r || !r.ok) return null;
+    return r.result || null;
   },
   /* 直接调 C ABI（AI 任务等不经过 edit 分发的入口） */
   callNative: (fn, args) => engineCall(fn, args),

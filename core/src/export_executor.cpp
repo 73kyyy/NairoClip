@@ -588,7 +588,7 @@ ExportStats executeExport(
                                                  source.width, source.height, srcStride,
                                                  frame.rgba.data(), plan.width, plan.height);
                         } else if (source.width == plan.width && source.height == plan.height &&
-                                   !active->hasXform()) {
+                                   !active->hasXform() && !active->transform.enabled) {
                             // 尺寸一致且无几何变换：直接拷贝（零缩放损失快路径）
                             const int rows = std::min(source.height, plan.height);
                             for (int row = 0; row < rows; ++row) {
@@ -605,10 +605,35 @@ ExportStats executeExport(
                             // 几何变换与画幅适配合并为单次重采样（与预览同函数）。
                             const EdgeMode xEdge =
                                 firstXformEdge(active->xforms, plan.backgroundRgba);
+                            /* 画面变换（画中画位置/大小/旋转）：
+                               与预览用**同一个** applyXformStack 重载、
+                               同一套取值优先级，保证「预览 = 导出」。 */
+                            const auto resolveXf = [&](ClipProperty prop, double fallback) {
+                                if (!active->hasAnimation) return fallback;
+                                return active->animation.sample(prop,
+                                                                t - active->timelineStart);
+                            };
+                            const double xfScale = active->transform.enabled
+                                ? resolveXf(ClipProperty::Scale, active->transform.scale)
+                                : resolveXf(ClipProperty::Scale, 1.0);
+                            const double xfPosX = active->transform.enabled
+                                ? resolveXf(ClipProperty::PositionX, active->transform.posX)
+                                : resolveXf(ClipProperty::PositionX, 0.0);
+                            const double xfPosY = active->transform.enabled
+                                ? resolveXf(ClipProperty::PositionY, active->transform.posY)
+                                : resolveXf(ClipProperty::PositionY, 0.0);
+                            const double xfRot = active->transform.enabled
+                                ? resolveXf(ClipProperty::Rotation, active->transform.rotation)
+                                : resolveXf(ClipProperty::Rotation, 0.0);
+                            const Affine2D xfExtra = clipTransformMatrix(
+                                xfScale, xfPosX, xfPosY, xfRot,
+                                active->transform.enabled ? active->transform.anchor : 4,
+                                plan.width, plan.height);
                             applyXformStack(source.pixels.data(), source.width, source.height,
                                             srcStride, frame.rgba.data(), plan.width,
                                             plan.height, active->xforms, t.toDouble(),
-                                            plan.frameFit, xEdge, plan.backgroundRgba, true);
+                                            plan.frameFit, xEdge, plan.backgroundRgba, true,
+                                            xfExtra);
                         }
                         // 应用滤镜（文档 Part 4-B 第 7 节：整体色彩风格；先于特效栈）
                         if (active->filterStyle != FilterStyle::None) {

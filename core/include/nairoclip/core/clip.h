@@ -21,6 +21,28 @@ namespace nairoclip {
 namespace core {
 
 /// 时间轴上的一个片段。
+/// 画面变换参数（画中画浮窗的位置/大小/旋转）。
+///
+/// 与 `XformParams` 的区别：XformParams 是「效果」——8 个可叠加的动画槽
+/// （偏移/拉伸/旋转/栅格/路径/缩放/脉冲/随机位移），偏创作玩法；
+/// 这里只有一组稳定的画面几何参数，对应剪映「画面」面板的四条滑块。
+struct ClipTransform {
+    /// 缩放倍数：1.0 = 按 FrameFit 铺满（既有行为）；0.05..10。
+    double scale = 1.0;
+    /// 归一化位移（相对画布宽/高）：0 = 居中；1 = 右移一个画布宽。
+    double posX = 0.0;
+    double posY = 0.0;
+    /// 旋转角度（度）：正值顺时针。
+    double rotation = 0.0;
+    /// 九宫格锚点 0..8（4 = 中心），缩放与旋转绕它进行。
+    int anchor = 4;
+    /// 是否启用。false = 完全不影响渲染（零改动保证）。
+    bool enabled = false;
+
+    /// 钳制到合法范围（越界不报错，与 XformParams::clamp 一致）。
+    void clamp();
+};
+
 struct Clip {
     ClipId id;
     AssetId asset;    // 引用的素材（可为空，如文字片段）
@@ -56,6 +78,16 @@ struct Clip {
     /// 多层合成时本片段（上层）与下层的混合公式；
     /// Normal = 标准 Alpha 混合（默认，与既有行为一致）。
     BlendMode blendMode = BlendMode::Normal;
+    /// 画面变换（画中画的位置 / 大小 / 旋转 / 锚点）。
+    ///
+    /// 为什么需要它：`ClipAnimation` 只能表达「打关键帧的通道」，
+    /// 无曲线时 sample() 返回默认值 —— 无法表达「静态缩小到 60%」。
+    /// 所以另设一份静态基准值；渲染时的取值优先级为
+    /// **关键帧 > 静态值 > 默认**（见 resolveClipXformValue）。
+    ///
+    /// enabled 默认 false：保证「加了字段」不让任何既有工程的像素变化
+    /// （与 xforms / shake 同一约定）。
+    ClipTransform transform;
     /// 音频增益（dB，0 = 原始电平；合法范围 [-60, +12]）。
     double audioGainDb = 0.0;
     /// 音频淡入时长（从片段起点算起；0 = 无淡入）。

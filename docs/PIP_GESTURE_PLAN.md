@@ -670,7 +670,7 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 > （`MediaReaderFactory::create()` 不带参数，拿不到素材标识，
 > 只能用 `open(path)` 里的关键词区分）。
 
-### G2 — `nc_set_clip_transform` + 面板（2 天）
+### G2 — `nc_set_clip_transform` + 面板（2 天）　【已完成 2026-11-03】
 
 - `ClipTransform` + `Clip` 字段 + `enabled`；
 - `SetClipTransformCommand`（可撤销，整槽替换）；
@@ -685,7 +685,7 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 - 撤销 → 回到 1.0；
 - `enabled=0` 的工程导出，与改动前**逐字节相同**（零改动保证）。
 
-### G3 — 渲染消费变换（1.5 天）★ 让参数真的生效
+### G3 — 渲染消费变换（1.5 天）★ 让参数真的生效　【已完成 2026-11-03】
 
 - `applyXformStack` 加 `extra` 矩阵参数（默认恒等）；
 - `clipTransformMatrix()` 实现（锚点/旋转/缩放/平移，顺序见 §5.2）；
@@ -700,7 +700,7 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 - `scale=0`（钳到 0.05）不崩溃；
 - 预览与导出同分辨率**逐字节相同**。
 
-### G4 — 默认 0.6 + 入口串联（0.5 天）
+### G4 — 默认 0.6 + 入口串联（0.5 天）　【已完成 2026-11-03】
 
 - `addPipTrack()` 成功后自动设 `scale=0.6`；
 - L2「画中画」菜单重排：新增画中画 / 画面 / 混合模式 / 蒙版；
@@ -708,6 +708,59 @@ S.pxPerSec = clamp(Number(localStorage.getItem(key)) || 44, 4, 900);
 
 **验收**：
 - 点「新增画中画」→ 拖素材进去 → **立刻看到小窗**（不用手动调任何参数）。
+
+**完成记录（2026-11-03，G2 + G3 + G4 一并交付）**
+
+数据模型：
+- `Clip::transform`（`ClipTransform`：scale/posX/posY/rotation/anchor/enabled）
+- `ClipTransform::clamp()`：scale 0.05..10、pos ±10、rotation ±3600、anchor 0..8
+- 默认 `enabled=false` → 既有工程像素零变化（有测试守护）
+
+取值优先级（预览与导出共用同一套）：
+```
+关键帧 > 静态值 > 默认
+有 curve 时用 animation.sample()，否则用 transform 的静态字段
+```
+
+变换矩阵（`core/src/xform.cpp`）：
+- `clipTransformMatrix()`：`T(pos) · R(θ) · S(scale)`，绕九宫格锚点
+- `applyXformStack(..., const Affine2D& extra)` 新重载：
+  `extra` 在 fit 之后、**单次重采样之前**并入 —— 不产生二次插值
+
+C ABI（3 个）：
+- `nc_set_clip_transform` / `nc_get_clip_transform` / `nc_clear_clip_transform`
+- 越界钳制不报错；参数与原值相同时**不产生撤销步**（面板连发 apply 不污染撤销栈）
+
+撤销：`SetClipTransformCommand`，整槽替换（`before_/after_` 快照）
+
+序列化：`enabled=false` 时整块不写；`enabled=true` 时写全 6 字段
+（不省略默认值，避免「部分写入」歧义）
+
+渲染接线（预览 + 导出**同一个函数**）：
+- `preview.cpp::renderClipLayer` —— extra 矩阵并入重采样
+- `export_executor.cpp` —— 零拷贝快路径加 `!transform.enabled` 守卫；
+  重采样路径走同一个重载
+- `RenderClip::transform` 快照（`export_plan.cpp` 拷贝）
+
+JNI：`transform_set` / `transform_get` / `transform_clear` 三个 op
+
+前端：
+- 「画中画」二级菜单新增「画面」项（第 2 位）
+- `piptransform` 面板：缩放 / X 位移 / Y 位移 / 旋转 / 锚点九宫格
+- 面板打开时回读引擎值（`L3_HOST.transformGet`），避免「滑块显示默认、
+  一动就打回原形」
+- `commit()` 里 `transform_set` **排在关键帧循环之前**并 `return` ——
+  否则拖滑块会顺带打出一堆关键帧（静态值与可动画通道语义不同）
+- 新增画中画后自动把新轨上的片段设为 `scale=0.6` 居中（剪映同款默认，
+  1.0 会完全盖住主画面，用户以为拖错轨）
+
+测试（`tests/test_clip_transform.cpp`，15 例）：
+- 结构：默认中性 / clamp 上下限 / scale 下限 0.05
+- 命令：应用与撤销 / 幂等不产生撤销步 / 锁定轨道拒绝
+- 矩阵：默认单位阵 / 缩放绕中心 / posX=1 右移一个画布宽 / 旋转 90°
+- 渲染：**disabled 时逐字节相同** / enabled 时像素真的变（四角露背景）/
+  关键帧覆盖静态值
+- 序列化：往返保真 / disabled 时不写块
 
 ### G5 — 预览区手势（2.5 天）
 

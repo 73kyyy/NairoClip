@@ -116,6 +116,23 @@
         if (spec.groups && spec.groups.flat().includes('blendmode')) {
           ST.values.blendmode = typeof cur.clip.blendMode === 'number' ? cur.clip.blendMode : 0;
         }
+        /* 「画面」面板：回读引擎里存的 transform 静态值。
+           与 blendMode 同理 —— 不回读的话，面板一打开滑块显示默认值（1.0/0/0），
+           与画面实际状态不符，用户一动就把已调好的画面弹回去。 */
+        if (spec.groups && spec.groups.flat().includes('pipanchor')) {
+          const hv = host();
+          let tf = null;
+          if (typeof hv.transformGet === 'function') {
+            tf = hv.transformGet();
+          }
+          if (tf) {
+            if (typeof tf.scale === 'number') ST.values.scale = tf.scale;
+            if (typeof tf.pos_x === 'number') ST.values.posx = tf.pos_x;
+            if (typeof tf.pos_y === 'number') ST.values.posy = tf.pos_y;
+            if (typeof tf.rotation === 'number') ST.values.rotation = tf.rotation;
+            if (typeof tf.anchor === 'number') ST.values.pipanchor = tf.anchor;
+          }
+        }
         /* LUT 强度同理：已设过 0.3 的片段，面板一打开必须显示 0.3，
            否则用户看到的滑块位置和画面不一致，一动就把强度弹回 1。 */
         if (spec.groups && spec.groups.flat().includes('lutstrength')) {
@@ -746,6 +763,25 @@
          默认值 0 是合法模式（normal），不能被 falsy 判断吃掉。 */
       if (v.blendmode !== undefined && v.blendmode !== null) {
         await h.edit({ op: 'blend', track, clip, mode: Number(v.blendmode) });
+      }
+
+      /* 画面变换（G2/G3）：「画面」面板的四条滑块 + 锚点。
+         必须排在关键帧循环之前 —— 后者把 scale/posx/posy/rotation
+         当作可动画通道去打点；而这里是**静态基准值**，两者语义不同，
+         混在一起会让「拖一下滑块就多出一堆关键帧」（不是用户想要的）。
+         只在面板包含 pipanchor 时提交，避免其它面板误触发。 */
+      if (ST.spec && ST.spec.groups &&
+          ST.spec.groups.flat().includes('pipanchor')) {
+        await h.edit({
+          op: 'transform_set', track, clip, enabled: 1,
+          scale: typeof v.scale === 'number' ? v.scale : 1,
+          pos_x: typeof v.posx === 'number' ? v.posx : 0,
+          pos_y: typeof v.posy === 'number' ? v.posy : 0,
+          rotation: typeof v.rotation === 'number' ? v.rotation : 0,
+          anchor: typeof v.pipanchor === 'number' ? v.pipanchor : 4
+        });
+        await h.reload();
+        return;   // 静态值已提交，不再走下面的关键帧循环
       }
 
       /* LUT 强度（P-01）：只有片段已经设了 LUT 才提交。

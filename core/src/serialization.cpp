@@ -447,6 +447,18 @@ JsonValue writeClip(const Clip& c) {
     if (c.blendMode != BlendMode::Normal) {
         o.set("blendMode", JsonValue::string(blendModeName(c.blendMode)));
     }
+    /* 画面变换（G2）：enabled=false 时整块不写（老工程 diff 稳定）。
+       enabled=true 时写全部 6 个字段 —— 不省略默认值，
+       否则「部分写入」会让下次读回来时无法区分「没设置」与「设成默认」。 */
+    if (c.transform.enabled) {
+        JsonValue tf = JsonValue::object();
+        tf.set("scale", JsonValue::number(c.transform.scale));
+        tf.set("posX", JsonValue::number(c.transform.posX));
+        tf.set("posY", JsonValue::number(c.transform.posY));
+        tf.set("rotation", JsonValue::number(c.transform.rotation));
+        tf.set("anchor", JsonValue::integer(c.transform.anchor));
+        o.set("transform", std::move(tf));
+    }
     return o;
 }
 
@@ -638,6 +650,22 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
         if (blendModeFromString(v.get("blendMode").asString().c_str(), parsedMode)) {
             out.blendMode = parsedMode;
         }
+    }
+    /* 画面变换（G2）：缺失 = 未启用（老工程像素零变化）。
+       字段容错：单个字段类型不对时退回默认值，不让整份工程打不开
+       （与 gainDb / heightPx 同策略）。 */
+    out.transform = ClipTransform{};
+    if (v.has("transform") && v.get("transform").isObject()) {
+        const JsonValue& tf = v.get("transform");
+        ClipTransform t;
+        if (tf.has("scale")) t.scale = tf.get("scale").asNumber(1.0);
+        if (tf.has("posX")) t.posX = tf.get("posX").asNumber(0.0);
+        if (tf.has("posY")) t.posY = tf.get("posY").asNumber(0.0);
+        if (tf.has("rotation")) t.rotation = tf.get("rotation").asNumber(0.0);
+        if (tf.has("anchor")) t.anchor = static_cast<int>(tf.get("anchor").asInteger(4));
+        t.clamp();
+        t.enabled = true;
+        out.transform = t;
     }
     return true;
 }

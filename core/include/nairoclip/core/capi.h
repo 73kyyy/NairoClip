@@ -1358,6 +1358,38 @@ const char* nc_blend_mode_name(int32_t mode);
 /// 返回：0..15 = 模式；-1 = 参数错误。
 int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
 
+// ---- 画面变换（画中画的位置/大小/旋转；PIP_GESTURE_PLAN.md G2）----
+//
+// 为什么单独一组而不是扩 nc_insert_keyframe：
+// 关键帧表达「随时间变化」，但画中画的静态基准值（如「固定 60% 大小」）
+// 必须有地方存 —— ClipAnimation 无曲线时只返回默认值。
+// 取值优先级：关键帧 > 静态值 > 默认（见 resolveClipXformValue）。
+
+/// 设置片段画面变换。
+/// - enabled：0 = 关闭（完全不影响渲染）；1 = 启用
+/// - scale：0.05..10（1.0 = 既有行为）
+/// - pos_x/pos_y：归一化 -10..10（0 = 居中；1 = 右移一个画布宽）
+/// - rotation_degrees：-3600..3600（正值顺时针）
+/// - anchor：0..8 九宫格（4 = 中心）
+/// 越界钳制，不报错（与 XformParams::clamp 一致）。
+/// 与原值完全相同时不产生撤销步（幂等）。
+int32_t nc_set_clip_transform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              int32_t enabled, double scale,
+                              double pos_x, double pos_y,
+                              double rotation_degrees, int32_t anchor);
+
+/// 读取片段画面变换（出参均可空）。
+/// 未设置时返回 enabled=0 与默认值（scale=1 / pos=0 / rotation=0 / anchor=4）。
+/// 返回 NC_OK；句柄为空或片段不存在返回对应错误码。
+int32_t nc_get_clip_transform(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              int32_t* out_enabled, double* out_scale,
+                              double* out_pos_x, double* out_pos_y,
+                              double* out_rotation_degrees, int32_t* out_anchor);
+
+/// 清除画面变换（等价于 enabled=0）。独立撤销步 ——
+/// 让 UI 的「重置」在撤销栈里显示为重置，而不是「设置画面变换」。
+int32_t nc_clear_clip_transform(NcEditor* editor, int32_t track_index, uint64_t clip_id);
+
 // ---- LUT 调色（文档 Part 4-B 第 7 节；UI_BACKLOG P-01）----
 //
 // 背景：core 层早就有 `lut.h`（.cube 解析 + 三线性插值 + 强度混合）

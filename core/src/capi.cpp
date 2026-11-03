@@ -3399,6 +3399,66 @@ int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint
 }
 
 // ---------------------------------------------------------------------------
+// 画面变换（画中画的位置/大小/旋转；PIP_GESTURE_PLAN.md G2）
+// ---------------------------------------------------------------------------
+
+int32_t nc_set_clip_transform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              int32_t enabled, double scale,
+                              double pos_x, double pos_y,
+                              double rotation_degrees, int32_t anchor) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+
+    ClipTransform tf;
+    tf.enabled = enabled != 0;
+    tf.scale = scale;
+    tf.posX = pos_x;
+    tf.posY = pos_y;
+    tf.rotation = rotation_degrees;
+    tf.anchor = anchor;
+    tf.clamp();   // 越界钳制不报错（与 XformParams::clamp 一致）
+    return failResult(editor->editor->setClipTransform(main->id, trackId, ClipId{clip_id}, tf));
+}
+
+int32_t nc_get_clip_transform(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              int32_t* out_enabled, double* out_scale,
+                              double* out_pos_x, double* out_pos_y,
+                              double* out_rotation_degrees, int32_t* out_anchor) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
+    }
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    ClipTransform tf;
+    if (!editor->editor->getClipTransform(editor->project, main->id, trackId,
+                                          ClipId{clip_id}, tf)) {
+        return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    }
+    if (out_enabled != nullptr) *out_enabled = tf.enabled ? 1 : 0;
+    if (out_scale != nullptr) *out_scale = tf.scale;
+    if (out_pos_x != nullptr) *out_pos_x = tf.posX;
+    if (out_pos_y != nullptr) *out_pos_y = tf.posY;
+    if (out_rotation_degrees != nullptr) *out_rotation_degrees = tf.rotation;
+    if (out_anchor != nullptr) *out_anchor = tf.anchor;
+    return NC_OK;
+}
+
+int32_t nc_clear_clip_transform(NcEditor* editor, int32_t track_index, uint64_t clip_id) {
+    // 与 set(enabled=0) 等价，但作为独立入口存在：
+    // UI 的「重置」应是单独撤销步，而不是混进「设置画面变换」。
+    return nc_set_clip_transform(editor, track_index, clip_id, 0, 1.0, 0.0, 0.0, 0.0, 4);
+}
+
+// ---------------------------------------------------------------------------
 // LUT 调色（文档 Part 4-B 第 7 节；UI_BACKLOG P-01）
 // ---------------------------------------------------------------------------
 

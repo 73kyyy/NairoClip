@@ -404,6 +404,85 @@ bool applyXformStack(const std::uint8_t* src, int srcW, int srcH, int srcStride,
     return true;
 }
 
+Affine2D clipTransformMatrix(double scale, double posX, double posY,
+                             double rotationDegrees, int anchor,
+                             int canvasW, int canvasH) {
+    // 全默认 → 单位阵（零改动保证）
+    if (scale <= 0.0 || canvasW <= 0 || canvasH <= 0) {
+        return Affine2D::identity();
+    }
+    const bool isDefault = std::abs(scale - 1.0) < 1e-9 &&
+                           std::abs(posX) < 1e-9 && std::abs(posY) < 1e-9 &&
+                           std::abs(rotationDegrees) < 1e-9;
+    if (isDefault) {
+        return Affine2D::identity();
+    }
+
+    double ax = 0.5;
+    double ay = 0.5;
+    anchorPoint(anchor, ax, ay);
+    const double px = ax * static_cast<double>(canvasW);
+    const double py = ay * static_cast<double>(canvasH);
+
+    /* 顺序：缩放（绕锚点）→ 旋转（绕锚点）→ 平移到 pos。
+       锚点为中心时锚点平移项相消，等价于 T(pos)·R·S。 */
+    Affine2D m = aroundPoint(px, py, Affine2D::scaling(scale, scale));
+    if (std::abs(rotationDegrees) > 1e-9) {
+        const double rad = rotationDegrees * kPi / 180.0;
+        m = m.then(aroundPoint(px, py, Affine2D::rotation(rad)));
+    }
+    if (std::abs(posX) > 1e-9 || std::abs(posY) > 1e-9) {
+        m = m.then(Affine2D::translation(posX * static_cast<double>(canvasW),
+                                         posY * static_cast<double>(canvasH)));
+    }
+    return m;
+}
+
+bool applyXformStack(const std::uint8_t* src, int srcW, int srcH, int srcStride,
+                     std::uint8_t* dst, int dstW, int dstH, const XformStack& stack,
+                     double timeSeconds, FrameFit fit, EdgeMode edge,
+                     std::uint32_t backgroundRgba, bool bilinear,
+                     const Affine2D& extra) {
+    if (src == nullptr || dst == nullptr || srcW <= 0 || srcH <= 0 || dstW <= 0 ||
+        dstH <= 0) {
+        return false;
+    }
+
+    // 1) 画幅适配
+    Affine2D m = fitMatrix(fit, srcW, srcH, dstW, dstH);
+
+    // 2) 画面变换（画中画位置/大小/旋转）——在 fit 之后、重采样之前并入，
+    //    与 8 槽变换共用同一次重采样，不产生二次插值。
+    m = m.then(extra);
+
+    // 3) 8 槽几何变换
+    if (stack.anyEnabled()) {
+        m = m.then(stack.composeAffine(dstW, dstH, timeSeconds));
+    }
+
+    // 4) edge 参数取首个启用槽
+    EdgeMode useEdge = edge;
+    for (int i = 0; i < static_cast<int>(XformKind::Count); ++i) {
+        if (stack.slots[i].enabled && stack.slots[i].value > 0.0) {
+            useEdge = static_cast<EdgeMode>(stack.slots[i].edge);
+            break;
+        }
+    }
+
+    // 5) 单次重采样
+    if (!renderTransform(src, srcW, srcH, srcStride, dst, dstW, dstH, m, useEdge,
+                         backgroundRgba, bilinear)) {
+        return false;
+    }
+
+    // 6) 栅格转换
+    if (stack.hasRaster()) {
+        const XformParams& r = stack.slots[static_cast<int>(XformKind::Raster)];
+        applyRasterInPlace(dst, dstW, dstH, r, timeSeconds, backgroundRgba);
+    }
+    return true;
+}
+
 EdgeMode firstXformEdge(const XformStack& stack, std::uint32_t backgroundRgba) {
     (void)backgroundRgba;
     for (int i = 0; i < static_cast<int>(XformKind::Count); ++i) {

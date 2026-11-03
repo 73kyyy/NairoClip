@@ -106,6 +106,23 @@ bool applyXformStack(const std::uint8_t* src, int srcW, int srcH, int srcStride,
                      double timeSeconds, FrameFit fit, EdgeMode edge,
                      std::uint32_t backgroundRgba, bool bilinear);
 
+/// 由片段画面变换合成「额外矩阵」（画中画的位置/大小/旋转）。
+///
+/// 计算顺序与 AE 一致：先以锚点为中心缩放 → 再旋转 → 最后平移。
+/// 锚点为 4（中心）时前两步的锚点平移项相消，退化为 T(pos)·R·S。
+/// scale<=0 / 全部为默认值时返回单位阵（保证零改动）。
+Affine2D clipTransformMatrix(double scale, double posX, double posY,
+                             double rotationDegrees, int anchor,
+                             int canvasW, int canvasH);
+
+/// 带「画面变换」的版本：extra 矩阵在 fit 之后、单次重采样之前并入。
+/// 预览与导出都走这个重载，保证「预览 = 导出」。
+bool applyXformStack(const std::uint8_t* src, int srcW, int srcH, int srcStride,
+                     std::uint8_t* dst, int dstW, int dstH, const XformStack& stack,
+                     double timeSeconds, FrameFit fit, EdgeMode edge,
+                     std::uint32_t backgroundRgba, bool bilinear,
+                     const Affine2D& extra);
+
 /// 单槽矩阵计算（供单测与调试；正常渲染走 applyXformStack）。
 /// Raster 返回单位阵（它不是单一仿射，由 applyXformStack 单独处理）。
 Affine2D matrixForSlot(XformKind kind, const XformParams& p, int canvasW, int canvasH,

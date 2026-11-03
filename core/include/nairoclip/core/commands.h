@@ -990,6 +990,29 @@ private:
 };
 
 /// ---------------------------------------------------------------------------
+/// 设置片段画面变换（PIP_GESTURE_PLAN.md G2）
+/// ---------------------------------------------------------------------------
+/// 语义：把片段的 transform（缩放/位移/旋转/锚点）整体替换。
+/// **整槽替换**（不是逐字段），与 SetClipXformCommand 一致 ——
+/// 一次「应用」= 一个命令 = 一次撤销步。
+class SetClipTransformCommand : public Command {
+public:
+    SetClipTransformCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                            ClipTransform after);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "调整画面大小/位置"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    ClipTransform after_;
+    std::optional<ClipTransform> before_;
+};
+
+/// ---------------------------------------------------------------------------
 /// 设置片段 3D LUT（文档 Part 4-B 第 7 节「LUT 调色」）
 /// ---------------------------------------------------------------------------
 /// 语义：把片段的 lutPath / lutStrength 写入工程数据。

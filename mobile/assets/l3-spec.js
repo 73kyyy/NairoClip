@@ -34,6 +34,9 @@
     posy:      { kind: 'slider', name: 'Y 位移',   icon: 'i-swap',    min: -1, max: 1, step: 0.01, def: 0,   unit: '',   prop: 3 },
     rotation:  { kind: 'slider', name: '旋转',     icon: 'i-reset',   min: -180, max: 180, step: 1, def: 0,    unit: '°',  prop: 4 },
     volume:    { kind: 'slider', name: '音量',     icon: 'i-volume',  min: 0, max: 2, step: 0.01, def: 1,     unit: '%',  scale: 100, prop: 5 },
+    /* 锚点九宫格（0..8，4 = 中心）。不属于 ClipProperty，只影响
+       缩放/旋转的围绕点，所以不带 prop。 */
+    pipanchor: { kind: 'step',   name: '锚点',     icon: 'i-mask',    min: 0, max: 8, step: 1,    def: 4,     unit: '' },
 
     /* —— 非动画标量 —— */
     speed:     { kind: 'slider', name: '速度',     icon: 'i-speed',   min: 0.25, max: 4, step: 0.05, def: 1,   unit: 'x' },
@@ -303,6 +306,14 @@
     },
 
     /* ===== 画中画 ===== */
+    /* 画面：位置/大小/旋转/锚点（G2 的 transform 面板）。
+       控件复用已有的 scale/posx/posy/rotation（ClipProperty 1..4），
+       提交时走 transform_set 而不是 keyframe —— 因为这是**静态基准值**，
+       打点后才由关键帧覆盖（见 PIP_GESTURE_PLAN §4.1）。 */
+    piptransform: {
+      title: '画面', mode: 'single',
+      groups: [['scale', 'posx', 'posy', 'rotation'], ['pipanchor']]
+    },
     pipmix: {
       title: '混合模式', mode: 'single',
       /* 16 种模式来自内核 blend_modes.h（经 nc_blend_mode_name 下发），
