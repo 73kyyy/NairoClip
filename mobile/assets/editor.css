@@ -296,14 +296,18 @@ body { -webkit-text-size-adjust: 100%; }
 .clip.audio .clip-name {
   top: 2px; left: 4px;
   padding: 1px 4px; border-radius: 3px;
-  background: rgba(10, 18, 40, .72);
+  background: rgba(0, 0, 0, .55);
   backdrop-filter: blur(2px);
 }
 /* 音频片段：纯色底 + 波形（用户 2026-11-03：「导入音频的时候没有素材，
    只有背景颜色，蓝色也好，或者是别的颜色，或者是黑色，有那个有音乐的波浪线」）。
    为什么不用缩略图：音频没有画面帧，缩略图是空白/纯色块，看不出是音频。
    配色取自参考图的蓝紫系，与视频轨（缩略图）一眼可分。 */
-.clip.audio { background: linear-gradient(180deg, #1E3A8A 0%, #1E2A55 100%); }
+/* 音频底：黑色（用户 2026-11-03：「变成黑色吧」）。
+   取 #212524 → #14171 6 而不是纯黑：时间轴底色是 --bg-dock #111413，
+   真用 #000 会和轨道背景糊成一片，只剩白框像个空槽；
+   略亮一档既有「黑色」的观感，又能看出片段是一块实体。 */
+.clip.audio { background: linear-gradient(180deg, #212524 0%, #141716 100%); }
 
 /* 波形：铺满整条，垂直居中 */
 .wave { position: absolute; inset: 0; display: flex; align-items: center;
