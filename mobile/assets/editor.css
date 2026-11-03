@@ -227,7 +227,18 @@ body { -webkit-text-size-adjust: 100%; }
 
 /* ④ 时间轴区：刻度尺 + 轨道，播放头贯穿 */
 .timeline { flex: 1 1 auto; height: var(--tl-h); min-height: var(--tl-h);
-            background: var(--bg-dock); position: relative; overflow: hidden; }
+            background: var(--bg-dock); position: relative; overflow: hidden;
+            /* **必须是 flex 纵向布局**。原来是 block，导致 .tracks 的
+               `flex: 1 1 auto; min-height: 0` 完全无效 —— 那两条属性只在
+               flex 容器里才生效。后果有两个：
+                 1) .tracks 按内容高度撑开，不占满 ruler 以下的剩余空间
+                    （实测：timeline 251 - ruler 26 = 225，但 tracks 只有 216，
+                     凭空少 9px）；
+                 2) 轨道总高超过可视区时，overflow:hidden 直接裁掉最下面一条，
+                    用户建了轨道却看不见，而且滚不到。
+               改成 flex 后 .tracks 正确占满剩余高度，量到的值才可信 ——
+               ROW_VIEW_H 就是靠这个真实值判断要不要滚动的。 */
+            display: flex; flex-direction: column; }
 .timeline::after { content: ""; position: absolute; left: var(--phx);
                    top: 0; bottom: 0; width: 2px; background: #FFFFFF;
                    transform: translateX(-50%); z-index: 39; pointer-events: none; }
@@ -261,7 +272,21 @@ body { -webkit-text-size-adjust: 100%; }
 
 /* 轨道行：素材之外完全透明（无串场底色） */
 .trow { position: relative; height: var(--row-h); margin-bottom: 2px; background: transparent;
-        border: 0; }
+        border: 0;
+        /* 行高变化时平滑过渡（用户 2026-11-03：「过渡一定要平滑」）。
+           为什么用 transition 而不是「把步长调小」：
+             · 步长小 = 变化看不出来，那是「无感」不是「平滑」；
+             · transition 让 42→38 这 4px 在 160ms 内连续滑完，
+               眼睛看到的是行在动，而不是数字跳一下。
+           只过渡 height —— 加 margin/transform 会牵动整列重排，
+           在 10+ 条轨道时掉帧。will-change 让浏览器提前分层。
+           注意：捏合手势期间要临时关掉（见 .trow.no-anim），
+           否则每帧都触发一次 160ms 过渡，手一松行高还在「追」，手感发黏。 */
+        transition: height 160ms cubic-bezier(.32, .72, .28, 1);
+        will-change: height; }
+
+/* 捏合进行中：禁用过渡，让行高严格跟随手指 */
+.tracks.pinching .trow { transition: none; }
 .tbody { position: absolute; inset: 0; }
 .clip { position: absolute; top: var(--clip-pad, 0); bottom: var(--clip-pad, 0);
         border-radius: var(--clip-radius, 5px); overflow: hidden;
