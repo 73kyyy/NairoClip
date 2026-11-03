@@ -50,3 +50,12 @@ Thumbs.db
 # mobile/tools/__pycache__/*.pyc 提交进仓库（c8fd8e1），这里补上规则。
 __pycache__/
 *.py[cod]
+
+# 测试素材（大体积，不入库）：拍视频/音频/抽帧都放本地
+# design/media 曾入库 38MB（3 个 mp4 + 2 个 wav + 2 张抽帧），
+# 但全仓无任何代码引用，2026-11-03 清理。
+/design/media/
+# 临时切片与一次性裁剪脚本（bb.py / cut.py 之类），无构建引用
+/mobile/tools/w/
+# 预览/调试截图产物（本地产物，不入库）
+/preview/
