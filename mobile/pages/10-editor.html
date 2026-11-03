@@ -39,16 +39,16 @@
       <!-- 3. 向左逐段跳：当前片段开头 → 前一段结尾 → 前一段开头 … -->
       <button class="cbtn" data-act="step-prev" aria-label="向左逐段跳"><svg class="i"><use href="#i-prev"/></svg></button>
       <!-- 4. 标记点（时间标记） -->
-      <button class="cbtn" data-act="marker" aria-label="标记点"><svg class="i"><use href="#i-hash"/></svg></button>
+      <button class="cbtn" data-act="marker" aria-label="标记点"><svg class="i"><use href="#i-diamond"/></svg></button>
       <!-- 5. 渲染（预览缓存 / 导出） -->
-      <button class="cbtn c-render" data-act="render" aria-label="渲染"><svg class="i"><use href="#i-render"/></svg></button>
+      <button class="cbtn c-render" data-act="render" aria-label="渲染"><span class="c-render-txt">渲染</span><span class="c-render-bar"><i id="render-bar-fill"></i></span></button>
       <span class="c-sep"></span>
       <!-- 6. 当前片段的关键帧（查看 / 调节 / 删除） -->
       <button class="cbtn" data-act="keyframes" aria-label="关键帧"><svg class="i"><use href="#i-keyframes"/></svg></button>
       <!-- 7. 预览区 # 参考线（三等分构图辅助线） -->
-      <button class="cbtn" data-act="guides" aria-label="参考线"><svg class="i"><use href="#i-grid3"/></svg></button>
+      <button class="cbtn" data-act="guides" aria-label="参考线"><svg class="i"><use href="#i-hash"/></svg></button>
       <!-- 8. 图片 / 背景（项目内图片管理 + 背景色） -->
-      <button class="cbtn" data-act="images" aria-label="图片与背景"><svg class="i"><use href="#i-image"/></svg></button>
+      <button class="cbtn c-imgbg" data-act="images" aria-label="图片与背景"><svg class="i"><use href="#i-image"/></svg></button>
       <span class="c-sep"></span>
       <!-- 9. AI（对应「仿剪」；其余 AI 在底部工具栏「更多」里） -->
       <button class="cbtn c-ai" data-act="ai" aria-label="AI 仿剪">AI</button>
@@ -90,11 +90,11 @@
   </section>
 
   <!-- ⑤ 悬浮播放控制 -->
+  <!-- 播放控制：按用户要求精简为 3 键（剪刀 / 播放 / 删除），与剪映一致。
+       逐帧改由拖动播放头实现（长按刻度尺微调），不再单独占位。 -->
   <section class="transport">
-    <button class="tp" id="btn-prev" aria-label="上一帧"><svg class="i"><use href="#i-prev"/></svg></button>
     <button class="tp" id="btn-split" aria-label="分割"><svg class="i"><use href="#i-scissors"/></svg></button>
     <button class="tp tp-main" id="btn-play" aria-label="播放"><svg class="i"><use href="#i-play"/></svg></button>
-    <button class="tp" id="btn-next" aria-label="下一帧"><svg class="i"><use href="#i-next"/></svg></button>
     <button class="tp tp-del" id="btn-delete" aria-label="删除"><svg class="i"><use href="#i-trash"/></svg></button>
   </section>
 

@@ -69,6 +69,13 @@
     'i-key': '<circle cx="9.4" cy="14.8" r="3.2"/><path d="M11.7 12.4 17.8 6.3M15.4 8.6l1.7 1.7"/>' +
       '<path d="M18.6 12.8l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6z"/>',
     'i-hash': '<path d="M9.4 4.2 7.8 19.8M16.2 4.2l-1.6 15.6M4.8 9.4h14.4M4 14.6h14.4"/>',
+    /* 菱形：标记点（时间轴打点）。实心菱形在 33px 圆钮里辨识度最高，
+       与 i-keyframes（方形 + 竖线）区分开。 */
+    /* 标记点：**旗子**（不用菱形 —— 菱形在参考图里属于「关键帧」，
+       两处都用菱形会分不清：用户 2026-11-03 指出「菱形不就是关键帧吗」）。
+       旗杆 + 旗面，剪辑软件的通用「时间标记」符号。 */
+    'i-diamond': '<path d="M7.4 20.2V4.2"/><path d="M7.4 4.6h10.8l-2.6 4 2.6 4H7.4z" fill="currentColor" stroke="none"/>' +
+      '<path d="M7.4 4.2v16"/>',
     /* --- 圆工具行（2026-10-31 按用户指定重排）--- */
     /* 返回首页：房子 */
     'i-home': '<path d="M3.6 10.4 12 3.6l8.4 6.8"/><path d="M5.6 9.2v10h12.8v-10"/>' +
@@ -77,9 +84,14 @@
     'i-render': '<rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.4"/>' +
       '<path d="M6.6 15.4h10.8"/><path d="M6.6 15.4V12"/><path d="M11 15.4V8.6"/>' +
       '<path d="M15.4 15.4v-2.4"/>',
-    /* 图片/背景：山 + 太阳 */
-    'i-image': '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2.2"/>' +
-      '<circle cx="8.6" cy="9.8" r="1.7"/><path d="M4.2 17.2l4.8-4.4 3.4 3 3-2.6 4.4 4"/>',
+    /* 图片/背景：白色实心圆角框 + 镂空的人物与山（参考图样式）。
+       用 fill-rule=evenodd 在一个 path 里挖两个洞，避免两个元素的
+       填充色相叠导致「人物被山盖住」。 */
+    'i-image': '<path fill="currentColor" stroke="none" fill-rule="evenodd" d="' +
+      'M3.4 4.6h17.2v14.8H3.4z ' +
+      'M5.6 6.8v10.4h12.8V6.8z ' +
+      'M9.2 9.2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z ' +
+      'M5.6 15.6l3.4-3.2 2.6 2.2 2.4-2.8 4.4 3.8v1.6H5.6z"/>',
     /* 会员：皇冠 + 底座（比 i-crown 多一道横线，视觉更「标识」） */
     'i-member': '<path d="M3.6 8l3.6 2.8L12 4.4l4.8 6.4L20.4 8l-1.4 9.6H5z"/>' +
       '<path d="M5 19.2h14"/>',
@@ -154,8 +166,13 @@
       '<path d="M15.2 11.6h5.6v7.2h-5.6z"/><path d="M18 13.8v2.8M16.6 15.2h2.8"/>',
     'i-bolt': '<path d="M13.4 3.4 6.6 13.2h4.4l-1 7.4 7.2-10h-4.6z"/>',
     'i-swap': '<path d="M4.4 8.6h13.2l-3-3"/><path d="M19.6 15.4H6.4l3 3"/>',
-    'i-keyframes': '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2"/>' +
-      '<path d="M8.2 12h2.4M13.4 12h2.4"/><path d="M10.6 9.8v4.4M13.4 9.8v4.4"/>',
+    /* 关键帧：按参考图（1440x3200 截图放大实测）重画 ——
+       L 形坐标轴 + 橙色菱形（实心）+ 右上角小圆点。
+       菱形用 fill 实心（与 i-diamond 同形但缩小），坐标轴是描边。 */
+    'i-keyframes':
+      '<path d="M5.4 4.6v14.8h14"/>' +
+      '<path d="M12 8.4 16.4 12.8 12 17.2 7.6 12.8z" fill="currentColor" stroke="none"/>' +
+      '<circle cx="18.4" cy="6.4" r="1.9" fill="currentColor" stroke="none"/>',
     'i-palette': '<path d="M12 3.6a8.4 8.4 0 1 0 0 16.8c1.2 0 1.8-.8 1.8-1.8 0-1.4 1-2.2 2.4-2.2h1.4a2.8 2.8 0 0 0 2.8-2.8c0-5.5-3.8-10-8.4-10z"/>' +
       '<circle cx="8.4" cy="9.2" r="1"/><circle cx="12" cy="7.2" r="1"/><circle cx="15.6" cy="9.2" r="1"/>',
     'i-layers': '<path d="M12 3.6 3.8 8.2 12 12.8l8.2-4.6z"/><path d="M3.8 12.4 12 17l8.2-4.6"/>',
@@ -179,7 +196,13 @@
     'i-close': '<path d="M6 6l12 12M18 6 6 18"/>',
     'i-play': '<path d="M7.4 4.6 19 12 7.4 19.4z"/>',
     'i-pause': '<path d="M9.2 4.8v14.4M14.8 4.8v14.4"/>',
-    'i-prev': '<path d="M6 5.4v13.2"/><path d="M18.6 5.8v12.4L9 12z"/>',
+    /* 逐段跳（返回主页右边那颗）：竖线与三角**都加粗**。
+       全部用实心 path（fill），不依赖 stroke-width ——
+       这样在任意尺寸下粗细都稳定，且两个形状视觉重量一致。 */
+    'i-prev':
+      '<rect x="5.1" y="5.0" width="2.5" height="14" rx="0.7" ' +
+        'fill="currentColor" stroke="none"/>' +
+      '<path d="M18.9 5.6 9.0 12l9.9 6.4z" fill="currentColor" stroke="none"/>',
     'i-next': '<path d="M18 5.4v13.2"/><path d="M5.4 5.8v12.4L15 12z"/>',
     'i-reset': '<path d="M4.6 9.2A7.8 7.8 0 0 1 19.4 12"/><path d="M4 4.6v4.8h4.8"/>' +
       '<path d="M19.4 14.8A7.8 7.8 0 0 1 4.6 12"/>',
@@ -224,6 +247,13 @@
 
   /* 填充型图标集合：只吃 fill，不吃描边，否则空心轮廓会失真 */
   const BRAND_SET = new Set(['i-brand-wechat', 'i-brand-qq', 'i-brand-apple']);
+  /* 加粗图标集合（stroke-width 1.5 → 2.2）。
+     为什么只挑这几个：它们在 30px 圆钮里与实心图标（菱形/图片）并排，
+     1.5 的笔画显得过细；全站统一加粗会让 100+ 图标糊成一团。 */
+  const BOLD_SET = new Set([
+    'i-hash',        // 参考线（用户点名加粗）
+    'i-keyframes'    // 关键帧（用户点名加粗）
+  ]);
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('aria-hidden', 'true');
   svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
@@ -231,7 +261,8 @@
     (BRAND_SET.has(id)
       ? `<symbol id="${id}" viewBox="0 0 24 24" fill="currentColor" stroke="none">${d}</symbol>`
       : `<symbol id="${id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
-        `stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</symbol>`)
+        `stroke-width="${BOLD_SET.has(id) ? 2.2 : 1.5}" ` +
+        `stroke-linecap="round" stroke-linejoin="round">${d}</symbol>`)
   ).join('') + '</defs>';
   document.addEventListener('DOMContentLoaded', () => document.body.appendChild(svg));
 })();

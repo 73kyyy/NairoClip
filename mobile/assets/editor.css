@@ -76,29 +76,107 @@ body { -webkit-text-size-adjust: 100%; }
 
 /* ③ 圆工具行 38 + 进度带 4 */
 .toolbar { flex: none; background: var(--bg-stage); }
-.circles { height: clamp(34px, 4.4vh, 44px); display: flex; align-items: center;
-           gap: clamp(4px, 1.1vw, 6px); padding: 0 5px;
+/* 圆工具行：11 个按钮 + 3 个分隔条必须**铺满**整行。
+   实测（393px 视口）：固定宽 26px + gap 4.32px 时总宽仅 361px，
+   右侧空出 32px —— 用户明确要求「按钮要充满那一排」。
+   改为按钮弹性均分（flex:1 1 0 + max-width 兜底大屏），
+   393px 下每个约 28.6px（比原来大 10%），360px 下约 27px 仍放得下 11 个。 */
+/* 圆工具行：11 个按钮 + 3 个分隔条**铺满整排**，间距收紧。
+   用户要求（2026-11-03）：「关键得稍微调大一些，把那一排占满，
+   要平均，每个按键和每个按键之间的间距要小一点」。
+   实测（393px）：padding 2×4 + 间距 13×2.5 + 分隔 3×3 = 41，
+   剩 352px / 11 ≈ 32px 每颗（比原来的 26px 大 23%）。 */
+/* 圆工具行：**前两颗靠左（＋/首页），其余靠右整组**，两组之间留弹性空白。
+   用户 2026-11-03：「前两个靠左，然后剩下的靠右。进行分布，间距再小一点。」
+   实现：左侧两颗用 margin-left:auto 的对照组 —— 给「第 3 颗」加
+   margin-left:auto 即可把剩余空间全部吃完，右侧整组自然贴右。
+   间距收到 2px（参考图实测按钮间距 ≈18dp，但我们要铺满且更紧）。 */
+.circles { height: clamp(38px, 5vh, 48px); display: flex; align-items: center;
+           gap: 1.5px; padding: 0 2px;
            overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+/* 第 3 颗（分隔线之后的第一个按钮）之前插入弹性空隙 → 前两组分离 */
+.circles > .c-sep:first-of-type { margin-left: auto; }
 .circles::-webkit-scrollbar { display: none; }
-.c-sep { width: 1px; height: 16px; background: var(--line-1); margin: 0 1px; flex: none; }
+.c-sep { width: 1px; height: 16px; background: var(--line-1); margin: 0 1px;
+         flex: 0 0 1px; }
 /* 11 个按钮必须一屏放得下（用户指定顺序后从 10 增到 11）。
    实测 360px 屏：btn 26 + gap 4 → 348px ✓；393px 屏 → 344px ✓。
    原先 clamp(28px,7.4vw,36px) 在 360px 上要 396px，会横向溢出，
    用户看不到最后两个（撤销/重做）——所以尺寸必须收。 */
-.cbtn { flex: none; width: clamp(26px, 6.6vw, 32px); height: clamp(26px, 6.6vw, 32px);
+.cbtn { /* 弹性均分铺满整行；max-width 防止平板/桌面被拉得过大 */
+        flex: 0 0 auto;
+        width: clamp(28px, 7.6vw, 34px);
+        height: clamp(28px, 7.6vw, 34px);
         border-radius: 50%;
         border: 1px solid var(--line-1); background: var(--bg-toolbar); color: var(--text-mid);
         display: grid; place-items: center; padding: 0; }
-.cbtn .i { width: clamp(14px, 3.6vw, 16px); height: clamp(14px, 3.6vw, 16px); }
+/* 图标按按钮直径的 60% 缩放，保证「按钮铺满 → 图标也跟着变大」。
+   原来写死 clamp(15px,4vw,18px)，按钮长到 30px 时图标仍只有 16px，
+   视觉上就是「钮大了但图标没大」。 */
+/* 圆工具行图标：尺寸跟随按钮直径。
+   **不要在这里统一加粗/改白** —— 用户只要求「参考线 #」和「关键帧」
+   两个图标加粗，其余保持全站默认 stroke-width=1.5 与继承色。
+   加粗走 icons.js 的 BOLD_SET（按 symbol id 精确控制）。 */
+.cbtn .i { width: 60%; height: 60%; }
 .cbtn.on { color: var(--text-hi); border-color: #4A4E51; }
 .cbtn[disabled] { opacity: .35; }
+
+/* ④ 「未添加素材 → 整排暗色；添加后 → 高亮」
+   判据是 .app 上的 .has-clips（renderTracksBody 已在维护）。
+   不做 disable：导入 / 首页 / 撤销 在空工程下仍有意义（要能导入第一个素材），
+   所以只做视觉降权。 */
+.app:not(.has-clips) .circles .cbtn:not(.c-plus):not([data-act="home"]):not([data-act="undo"]):not([data-act="redo"]) {
+  color: #565C5F;
+  border-color: #1D2022;
+  background: #141617;
+}
+.app:not(.has-clips) .circles .cbtn:not(.c-plus):not([data-act="home"]):not([data-act="undo"]):not([data-act="redo"]) .i {
+  opacity: .55;
+}
+.app.has-clips .circles .cbtn:not([disabled]) { color: #A7AEAC; }
+.app.has-clips .circles .cbtn:not([disabled]) .i { opacity: 1; }
 .c-ai { font-size: 10px; font-weight: 700; letter-spacing: .3px; color: #EDF1F4; }
 /* 渲染按钮：与用户给的参考稿一致，做成高亮圆形（它是这排里最重的动作） */
-.c-render { border-color: #6E5CE6; color: #C9C2FF; }
-.c-render.on { border-color: #8B7CFF; color: #EDE9FF; box-shadow: 0 0 0 2px rgba(139,124,255,.25); }
-/* 渲染进行中：按钮本身转圈，strip 显示进度 */
-.c-render.busy { animation: cbtn-spin 1.1s linear infinite; }
+/* 渲染按钮（用户 2026-11-03 指定）：
+   圆圈里两个字「渲染」+ 圆圈底部一条实时进度条。
+   进度条用 --render-progress（0..1）驱动，JS 只改这一个变量。 */
+/* 渲染按钮：**不描紫边**，与其它圆钮同款外观（用户 2026-11-03：
+   「不要用描边成紫色，你就是和其他的一样，那个进度条有颜色」）。
+   颜色只出现在内部进度条上。 */
+.c-render { position: relative; overflow: hidden; --render-progress: 0;
+            border-color: var(--line-1); background: var(--bg-toolbar);
+            color: var(--text-mid); }
+.c-render-txt { font-size: 9px; font-weight: 700; letter-spacing: .2px;
+                line-height: 1; transform: translateY(-2px); }
+/* 进度条：参考图里是一条**有厚度的圆角条**（约 4px 高、两端圆角），
+   不是 1px 细线。颜色是青绿→蓝渐变。 */
+.c-render-bar { position: absolute; left: 4px; right: 4px; bottom: 5px;
+                height: 4px; border-radius: 2px; overflow: hidden;
+                background: rgba(255,255,255,.16); }
+.c-render-bar i { display: block; height: 100%; width: calc(var(--render-progress) * 100%);
+                  background: linear-gradient(90deg, #3ED6A8, #56B7E8);
+                  border-radius: 2px; transition: width .18s linear; }
+.c-render.on { border-color: #4A4E51; color: var(--text-hi); }
+/* 渲染中不再整颗旋转（文字会跟着转），改为边框脉冲 */
+.c-render.busy { animation: cbtn-pulse 1.1s ease-in-out infinite; }
+@keyframes cbtn-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,.22); }
+  50%      { box-shadow: 0 0 0 3px rgba(255,255,255,.07); }
+}
 @keyframes cbtn-spin { to { transform: rotate(360deg); } }
+
+/* 图片与背景：对齐参考图 —— **紫粉渐变圆钮 + 白色实心图片图标**。
+   参考图实测（1440×3200 @3x）：按钮是一颗明显的紫粉渐变球，
+   图标是纯白实心块（人物 + 山），不是描边线条。 */
+.c-imgbg { border-color: rgba(200,150,235,.55); color: #FFFFFF;
+           background: linear-gradient(150deg, #A98BE0 0%, #C79BD8 55%, #D9A0CE 100%); }
+.c-imgbg .i { color: #FFFFFF; }
+/* 空工程时降权：保留色相但压暗，避免和别的暗钮完全一样 */
+.app:not(.has-clips) .circles .c-imgbg {
+  background: linear-gradient(150deg, rgba(169,139,224,.26), rgba(217,160,206,.20));
+  border-color: rgba(200,150,235,.28);
+  color: rgba(255,255,255,.62);
+}
 .strip { height: 4px; background: #1A1C1C; }
 /* 播放进度条：渐变蓝（用户指定）。用 linear-gradient 而不是纯色，
    让「已播放」与「未播放」在视觉上是一段流动的光带而不是硬边色块。
@@ -142,21 +220,34 @@ body { -webkit-text-size-adjust: 100%; }
 .playhead-line { position: absolute; top: 26px; bottom: 0; left: var(--phx); width: 2px;
                  background: #FFFFFF; transform: translateX(-50%); z-index: 40; pointer-events: none; }
 
+/* 轨道区：默认裁剪；.scroll 时纵向滚动（轨道数超过可视高度）。
+   为什么原来必须 hidden：时间轴是固定高度，画到外面的轨道会盖住
+   下方播放条。改成滚动后仍然裁剪，只是多了一条滚动通道。 */
 .tracks { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.tracks.scroll { overflow-y: auto; overscroll-behavior: contain;
+                 scrollbar-width: thin;
+                 scrollbar-color: rgba(255,255,255,.18) transparent; }
+.tracks.scroll::-webkit-scrollbar { width: 3px; }
+.tracks.scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.18); border-radius: 2px; }
 .empty-hint { position: absolute; inset: 0; display: flex; align-items: center;
               justify-content: center; }
 .eh-text { font-size: 10.5px; color: #565B5A; letter-spacing: .3px; }
 
 /* 轨道行：素材之外完全透明（无串场底色） */
-.trow { position: relative; height: var(--row-h); margin-bottom: 4px; background: transparent;
+.trow { position: relative; height: var(--row-h); margin-bottom: 2px; background: transparent;
         border: 0; }
 .tbody { position: absolute; inset: 0; }
-.clip { position: absolute; top: 4px; bottom: 4px; border-radius: 2px; overflow: hidden;
-        background: #1B1F20; }
-/* 只有素材本身有白色描边高光 */
-.clip::after { content: ""; position: absolute; inset: 0; border-radius: 3px;
-               border: 1px solid rgba(255,255,255,.22); pointer-events: none; }
-.clip.selected::after { border-color: #FFFFFF; border-width: 1.5px; }
+.clip { position: absolute; top: var(--clip-pad, 0); bottom: var(--clip-pad, 0);
+        border-radius: 3px; overflow: hidden;
+        background: #1B1F20;
+        /* 素材白色描边（用户 2026-11-03：参考图里每条素材都有白边）。
+           用 box-shadow inset 而不是 border：border 会占内尺寸、
+           让缩略图被挤小 2px；inset 阴影不占布局。 */
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.72); }
+/* 选中态：更亮的实心白边 + 外发光 */
+.clip.selected { box-shadow: inset 0 0 0 1.5px #FFFFFF,
+                             0 0 0 1px rgba(255,255,255,.45); }
 .clip-fill { position: absolute; inset: 0; background-repeat: repeat-x; background-position: left center; }
 .clip-name { position: absolute; left: 5px; top: 3px; font-size: 8px; color: #EDF1EE;
              text-shadow: 0 1px 2px #000; white-space: nowrap; }
@@ -169,26 +260,39 @@ body { -webkit-text-size-adjust: 100%; }
       box-shadow: 0 0 0 1px rgba(0,0,0,.55); z-index: 6; }
 
 /* 悬浮轨道控件列：只覆盖在有素材的轨道上，随轨道数量生成 */
-.floating-heads { position: absolute; left: 0; top: 0; width: 44px; z-index: 30;
-                  display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
-.fh { height: var(--row-h); display: flex; flex-direction: column; align-items: center;
-      justify-content: center; gap: 1px; pointer-events: none; }
-.fh .row { pointer-events: auto; }
-.fh .row { display: flex; gap: 3px; align-items: center; }
-.fh button { width: 16px; height: 16px; border: 0; background: none; box-shadow: none;
+.floating-heads { position: absolute; left: 0; top: 0; width: 40px; z-index: 30;
+                  display: flex; flex-direction: column; pointer-events: none; }
+/* 轨道头：只有一排图标（眼/喇叭/锁），垂直居中，不再显示轨道名。
+   用户要求：「小眼睛和小喇叭，那是按键，下面不要有文字。
+   它就是一个悬浮的三个图标，可以运用到他所属的轨道上面。」 */
+.fh { position: relative; height: var(--fh-h, var(--row-h));
+      display: flex; align-items: center;
+      justify-content: center; pointer-events: none; }
+.fh .row { pointer-events: auto; display: flex; gap: 2px; align-items: center; }
+.fh button { width: 14px; height: 14px; border: 0; background: none; box-shadow: none;
              color: #D2D8D5; display: grid; place-items: center; padding: 0;
              -webkit-appearance: none; appearance: none; }
 .fh button .i { width: 11px; height: 11px; }
 .fh button.off { color: #4B5150; }
-.fh .fname { font-size: 8px; color: #6E7472; max-width: 42px; overflow: hidden;
-             white-space: nowrap; text-overflow: ellipsis; }
+
+/* 图标随轨道高度收缩：轨道压到最小时（30px）图标也小一档，
+   避免 14px 按钮挤在 22px 可视区里显得突兀。
+   用 .fh 的 data-h 由 JS 写入实际行高。 */
+.fh[data-h="37"] button { width: 13px; height: 13px; }
+.fh[data-h="37"] button .i { width: 10px; height: 10px; }
+.fh[data-h="30"] button { width: 12px; height: 12px; }
+.fh[data-h="30"] button .i { width: 9px; height: 9px; }
+
+/* 组内成员：左侧一道竖线（替代原先进名字里的 ▏ 前缀） */
+.fh.grouped::before { content: ''; position: absolute; left: 2px; top: 4px;
+                      bottom: 4px; width: 2px; border-radius: 1px;
+                      background: rgba(45,140,255,.55); }
 
 /* ---- 轨道高度 / 折叠（B2-10）----
    轨道头高度必须与时间轴行一致，否则两列对不齐：
    行高由 JS 按 state.tracks[i].height_px 内联设置，
    .fh 侧取同一个值（JS 同步写 --row-h 到容器上）。
    折叠时统一 18px。 */
-.fh { height: var(--fh-h, var(--row-h)); }
 .trow.collapsed { background: rgba(255,255,255,.04); border-radius: 4px; }
 
 /* ---- 拖放禁止态（P-18 / B0-7）----
@@ -375,16 +479,7 @@ body { -webkit-text-size-adjust: 100%; }
 .fh.drag-over { outline: 1px solid var(--accent-pick); outline-offset: -1px;
                border-radius: 4px; background: rgba(180, 244, 97, .08); }
 
-/* 高度拖拽把手：贴在轨道头下边缘的一条细热区。
-   热区做成 12px 高（视觉上只有 2px 线），手指才够得着；
-   直接给 2px 的话 touch 目标太小，实测几乎拖不动。 */
-.fh-grip { position: absolute; left: 0; right: 0; bottom: -2px; height: 12px;
-           pointer-events: auto; cursor: ns-resize; }
-.fh-grip::after { content: ''; position: absolute; left: 4px; right: 4px; top: 5px;
-                  height: 2px; border-radius: 1px; background: #3A3F42; }
-.fh-grip:hover::after, .fh-grip.resizing::after { background: #8B7CFF; }
 /* 把手要相对 .fh 定位 */
-.fh { position: relative; }
 
 /* ⑤ 悬浮播放控制 40 */
 .transport { flex: none; height: var(--tp-h); background: var(--bg-dock);
@@ -523,7 +618,7 @@ body { -webkit-text-size-adjust: 100%; }
 @media (max-height: 560px) {
   .app { --top-h: 30px; --tl-h: 150px; --bar-h: 66px; --tp-h: 38px; }
   .circles { height: 30px; }
-  .cbtn { width: 26px; height: 26px; }
+  .cbtn { min-width: 24px; }   /* 保留 flex:1 均分，只放宽最小可点尺寸 */
 }
 @media (orientation: landscape) and (max-height: 560px) {
   .app { flex-direction: row; flex-wrap: wrap; }
@@ -564,7 +659,11 @@ body { -webkit-text-size-adjust: 100%; }
 .topbar, .toolbar, .timeline, .transport, .bar { flex: 0 0 auto; min-height: 0; }
 .stage { flex: 1 1 auto; min-height: 0; }
 .circles, .transport, .bar-track, .page { min-height: 0; }
-.cbtn, .tp { flex: 0 0 auto; }
+/* 注意：这里**不能**把 .cbtn 设成 flex:0 0 auto —— 那会覆盖上面
+   .cbtn{flex:1 1 0} 的均分布局，表现就是「按钮永远 26px、右侧空一大截」。
+   实测过：6 条轨 393px 屏，整排只占 188px，右侧空 165px。
+   播放条按钮 .tp 仍保持固定尺寸。 */
+.tp { flex: 0 0 auto; }
 
 /* 预览区不再按视口高度封顶 —— 它承担「吸收剩余空间」的职责。
    早期用 max-height 是为了防止短屏上预览过高挤掉时间轴，

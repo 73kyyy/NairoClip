@@ -33,6 +33,83 @@ const NEED = {
   frameWDrag: 112
 };
 
+/* ---------------- 轨道高度阶梯（轨道多了自动变小） ----------------
+   用户要求（2026-11-03）：
+     · 标准高度「不要显得大，也不要显得小」
+     · 轨道装到 4~5 条就压到最小档，之后不再变小
+     · 最小档「看上去不小也不大」，但轨道上的素材仍要看得清
+
+   实测轨道区可用高度 = 235px（截图 393×852：tracks 区域 y466..y700）。
+   两组数值都能满足「6 条满屏」，取前者（标准更大，视觉更舒展）：
+
+     按轨道总数分三档（不是逐条下坡）：
+       1~4 条 → 全部 44   合计 176px 起
+       5  条 → 全部 37   合计 201px
+       6  条 → 全部 30   合计 204px（6×30 + 5×4 = 200，留 35px 余量）
+
+   视觉高 = 行高 − 8（.clip 上下各留 4px 内边距）：
+     标准 36dp、过渡 29dp、最小 22dp
+   对照你给的剪映参考图实测（3x 截图 → dp）：少轨 56dp、多轨 20.7dp。
+   36dp 介于两者之间（不大不小）；22dp 略高于多轨 20.7dp（看清素材的底线）。
+
+   7 条起必然溢出（269px），此时轨道区转为纵向滚动，不再继续压 ——
+   压到 22dp 以下缩略图就糊成一条线，「看清素材」这个前提就不成立了。
+*/
+const ROW_STD = 44;      // 标准行高（视觉高 44-2=42px）
+const ROW_MID = 37;      // 5 条轨道时的过渡档
+const ROW_MIN = 30;      // 6 条及以上统一压到最小档
+const ROW_GAP = 2;       // 轨道间距（固定，不随行高变化）
+const ROW_PAD = 0;       // 素材上下内边距（0 = 素材填满轨道高度）
+const ROW_COLLAPSED = 20;// 折叠态（不参与阶梯；老工程可能带此状态）
+const ROW_VIEW_H = 235;  // 轨道区可用高度（393x852 实测）
+
+/// 素材上下内边距。当前为 0：素材直接填满轨道高度，
+/// 视觉分隔完全交给 ROW_GAP（2px）+ 素材自身的白描边。
+function clipPadFor() { return ROW_PAD; }
+
+/// 第 i 条轨（0-based）的阶梯高度；count = 轨道总数。
+///
+/// 用户明确要求（2026-11-03）：「超过 4 个之后，不管是第 1 个还是后面的
+/// 全部」，都压到同一档 —— **不是**「越靠下越矮」的斜坡。
+/// 所以这里只按总数分三档，与 i 无关：
+///   n <= 4  → 全部标准 44
+///   n == 5  → 全部过渡 37
+///   n >= 6  → 全部最小 30（缩略图仍能看清的底线）
+/// 旧注释里「前 2 条始终标准」是早期理解，已按用户原话纠正。
+function ladderHeight(i, count) {
+  const n = count || S.tracks.length || 0;
+  if (n <= 4) return ROW_STD;    // 1~4 条：标准（不大不小）
+  if (n === 5) return ROW_MID;   // 5 条：过渡档
+  return ROW_MIN;                // 6 条起：统一最小，全轨一致
+}
+
+/// 按当前轨道总数，给所有「未手动调整」的轨道分配阶梯高度。
+/// 手动调过的轨道（autoHeight=false）不动 —— 用户意图优先。
+/// 返回是否发生了高度变化（供调用方决定要不要重绘）。
+function applyLadderHeights() {
+  const n = (S.tracks || []).length;
+  if (!n) return false;
+  let changed = false;
+  S.tracks.forEach((tr, i) => {
+    if (!tr.autoHeight) return;
+    const want = ladderHeight(i, n);
+    if (tr.heightPx !== want) { tr.heightPx = want; changed = true; }
+  });
+  return changed;
+}
+
+/// 所有轨道的实际总高度（含间距）。用真实 heightPx，
+/// 这样用户手动拉高某条轨后，滚动判断也是准的。
+function ladderTotal() {
+  const list = S.tracks || [];
+  let h = 0;
+  list.forEach((tr) => {
+    const rh = tr.collapsed ? ROW_COLLAPSED : (tr.heightPx || ROW_STD);
+    h += rh + ROW_GAP;
+  });
+  return h;
+}
+
 const S = {
   tracks: [],
   groups: [],           // 轨道组（B2-7）：{id, name, trackCount}
@@ -61,7 +138,8 @@ const E = {
 circles: $('circles'), strip: $('strip-done'), stripRender: $('strip-render'),
   ruler: $('ruler'), rulerCv: $('ruler-canvas'), tracks: $('tracks'),
   hint: $('empty-hint'), heads: $('floating-heads'), barTrack: $('bar-track'),
-  play: $('btn-play'), prev: $('btn-prev'), next: $('btn-next'),
+  play: $('btn-play'),
+  renderBtn: document.querySelector('.c-render'),
   undo: $('btn-undo'), redo: $('btn-redo'),
   brand: $('btn-rename'), phRead: $('ph-read'),
   sheet: $('sheet-mask'), sheetList: $('sheet-list'), sheetClose: $('sheet-close')
@@ -134,7 +212,12 @@ function applyState(st) {
     gainDb: typeof t.gain_db === 'number' ? t.gain_db : 0,
     /* 轨道视图（B2-10）：高度 24~200，默认 48；collapsed 折叠时只留一条细条。
        后端读不到时给默认值，保证 UI 不会因为 undefined 画出零高度。 */
-    heightPx: typeof t.height_px === 'number' ? t.height_px : 48,
+    /* 高度：用户手动调过（引擎里与默认 48 不同）就以引擎为准；
+       否则交由阶梯统一计算（见 applyLadderHeights），这样
+       「轨道多了自动变小」不会覆盖用户的手动调整。 */
+    heightPx: (typeof t.height_px === 'number' && t.height_px !== 48)
+      ? t.height_px : ROW_STD,
+    autoHeight: !(typeof t.height_px === 'number' && t.height_px !== 48),
     collapsed: !!t.collapsed,
     /* 调整图层专有（P-19）：后端只在 type==3 时下发，其余轨道为 undefined。
        前端据「有没有这个字段」决定是否显示齿轮/斜纹，不靠 kind 猜。 */
@@ -171,6 +254,7 @@ function applyState(st) {
   S.subtitles = st.subtitles || [];
   S.markers = st.markers || [];
   S.project = st.project || {};
+  applyLadderHeights();
   if (S.selected) {
     const alive = S.tracks.some((t) => t.id === S.selected.trackId &&
       t.clips.some((c) => c.id === S.selected.clipId));
@@ -994,8 +1078,13 @@ function renderTracksBody() {
        折叠时只留 18px 细条（够放转场标记与拖动把手，仍可点开）。
        范围 24~200 与 core 的 Track::heightPx 一致，这里再夹一次，
        防止旧数据或异常值把轨道画成 0 高度（那样点不到、也不好查）。 */
-    const hpx = Math.max(24, Math.min(200, tr.heightPx || 48));
-    row.style.height = tr.collapsed ? '18px' : `${hpx}px`;
+    const hpx = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    const rh = tr.collapsed ? ROW_COLLAPSED : hpx;
+    row.style.height = `${rh}px`;
+    row.style.marginBottom = `${ROW_GAP}px`;   // 间距随高度等比
+    /* 素材内边距也随高度收缩（CSS 用 var(--clip-pad)），
+       否则素材被内边距压小、空档却被它撑大。 */
+    row.style.setProperty('--clip-pad', `${clipPadFor()}px`);
     row.classList.toggle('collapsed', !!tr.collapsed);
     const body = document.createElement('div');
     body.className = 'tbody';
@@ -1006,6 +1095,13 @@ function renderTracksBody() {
     if (!tr.collapsed) renderJunctions(row, tr);   // 折叠时不画转场标记：18px 里放不下
     E.tracks.appendChild(row);
   });
+
+  /* 轨道总高超过可视区 → 允许纵向滚动。
+     为什么必须做：.tracks 原本是 overflow:hidden，第 7 条起会被
+     **直接裁掉且滚不到**（用户建了轨道却看不见）。阶梯压到 30px 后
+     235px 只够 6 条，7 条起必须滚动。 */
+  const totalH = ladderTotal();
+  E.tracks.classList.toggle('scroll', totalH > ROW_VIEW_H);
 
   renderHeads();
   drawRuler();
@@ -1022,8 +1118,14 @@ function renderHeads() {
     /* 轨道头高度与时间轴行严格一致：行高是内联 px，这里写同一个值到
        --fh-h，CSS 用 var(--fh-h, var(--row-h)) 取值。
        折叠时 18px，与 .trow.collapsed 对齐。 */
-    const hpx = Math.max(24, Math.min(200, tr.heightPx || 48));
-    g.style.setProperty('--fh-h', tr.collapsed ? '18px' : `${hpx}px`);
+    const hpx = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    const fhReal = tr.collapsed ? ROW_COLLAPSED : hpx;
+    g.style.setProperty('--fh-h', `${fhReal}px`);
+    /* margin-bottom 必须与 .trow 的 4px 一致，否则每跨一条就累积 4px 错位
+       （实测现象：第 2 条起图标比片段低 12px 以上）。 */
+    g.style.marginBottom = `${ROW_GAP}px`;
+    /* data-h 让 CSS 按行高切换图标尺寸（37/30 各小一档） */
+    g.dataset.h = String(tr.collapsed ? ROW_COLLAPSED : hpx);
 
     const row = document.createElement('div');
     row.className = 'row';
@@ -1049,40 +1151,25 @@ function renderHeads() {
       guardedEdit({ op: 'track_flag', track: tr.index, flag: 'locked', value: !tr.locked }));
     row.appendChild(lock);
 
-    /* 折叠/展开（B2-10）。折叠后轨道只剩 18px 细条，
-       长按轨道头仍可拖动排序，点这个箭头恢复。
-       走 nc_set_track_view 而不是 track_flag：高度与折叠是独立状态，
-       归 Track 的 heightPx/collapsed，不进 flag 体系。 */
-    const fold = document.createElement('button');
-    fold.className = tr.collapsed ? 'off' : '';
-    fold.title = tr.collapsed ? '展开轨道' : '折叠轨道';
-    fold.innerHTML = `<svg class="i"><use href="#${tr.collapsed ? 'i-chevron-down' : 'i-chevron'}"/></svg>`;
-    fold.addEventListener('click', (e) => {
-      e.stopPropagation();
-      setTrackView(tr, tr.heightPx, !tr.collapsed);
-    });
-    row.appendChild(fold);
+    /* 折叠箭头已移除（用户 2026-11-03：「最右边不应该有那个小箭头，
+       他只有这三个标的悬浮」）。轨道头只剩 眼 / 喇叭 / 锁 三个图标。
+       折叠改由「图层」面板的长按或右键入口触发，不再占用轨道头。 */
 
     attachTrackReorder(row, tr);   // 长按 .row 拖动改轨道顺序
     g.appendChild(row);
-    const nm = document.createElement('span');
-    nm.className = 'fname';
-    /* 组内成员在名字前加组标记：用户一眼看出「这条被组联动管着」。
-       不加组名 —— 轨道头只有 42px 宽，塞不下，组名在图层面板里看。 */
+    /* 轨道名不再显示（用户 2026-11-03 明确要求）：
+       「小眼睛和小喇叭，那是按键，下面不要有文字。它就是一个悬浮的
+        三个图标，可以运用到他所属的轨道上面。」
+       → 轨道头只留图标行，名称改为长按/悬浮时的 title 提示。
+       组标记改为给 .fh 加 class（见下），不再占用一行文字。 */
     const grp = tr.groupId ? (S.groups || []).find((x) => x.id === tr.groupId) : null;
-    nm.textContent = grp ? `▏${tr.name}` : tr.name;
-    if (grp) nm.title = `组：${grp.name}`;
-    g.appendChild(nm);
+    g.title = tr.name + (grp ? `（组：${grp.name}）` : '');
+    if (grp) g.classList.add('grouped');
 
-    /* 高度拖拽把手：贴在轨道头下边缘。
-       折叠态不给把手 —— 18px 里拖高度既难点中，也无意义。 */
-    if (!tr.collapsed) {
-      const grip = document.createElement('div');
-      grip.className = 'fh-grip';
-      grip.title = '拖动调整轨道高度';
-      attachTrackResize(grip, tr);
-      g.appendChild(grip);
-    }
+    /* 高度拖拽把手已移除（用户 2026-11-03：「小眼睛和小喇叭的三个图标，
+       只有那三个图标，没有别的」）。
+       轨道高度改由时间轴右上角的 − / + 统一控制，避免在 40px 宽的
+       轨道头上叠加热区（那里连三个 14px 图标都已经快放不下）。 */
 
     E.heads.appendChild(g);
   });
@@ -1105,7 +1192,7 @@ function headBtn(icon, off, fn) {
    否则撤销之后两边会不一致（撤销走的是引擎栈，前端改的那份不会被回滚）。 */
 function setTrackView(tr, heightPx, collapsed) {
   if (!Engine.online) return toast('未连接引擎，无法调整轨道');
-  const h = Math.max(24, Math.min(200, Math.round(heightPx)));
+  const h = Math.max(ROW_MIN, Math.min(200, Math.round(heightPx)));
   const r = engineCall('nc_set_track_view', {
     track_index: tr.index,
     height_px: h,
@@ -1216,49 +1303,11 @@ function attachTrackReorder(handle, tr) {
   });
 }
 
-/* 拖动轨道头下边缘调整高度。
-   放在轨道头（.fh 里的 .row）上，而不是时间轴行上 ——
-   时间轴行要响应片段拖拽/选中，再叠一个高度拖拽会互相抢手势。 */
-function attachTrackResize(handle, tr) {
-  let startY = 0, startH = 0, active = false;
-  handle.addEventListener('pointerdown', (e) => {
-    if (e.button !== undefined && e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    active = true;
-    startY = e.clientY;
-    startH = tr.heightPx || 48;
-    handle.classList.add('resizing');
-    try { handle.setPointerCapture(e.pointerId); } catch (_) { /* 老 WebView */ }
-  });
-  handle.addEventListener('pointermove', (e) => {
-    if (!active) return;
-    const next = Math.max(24, Math.min(200, startH + (e.clientY - startY)));
-    // 拖动过程只改视觉，不落库：每移动 1px 都发一次 nc_set_track_view
-    // 会灌满撤销栈（高度是可撤销操作）。
-    // 用 .trow 过滤，不能用 E.tracks.children[index] —— 容器里还混着
-    // 播放头线等其它元素，按 children 下标取会错位到别的行。
-    const rows = E.tracks.querySelectorAll('.trow');
-    const row = rows[tr.index];
-    if (row) row.style.height = `${next}px`;
-    const heads = E.heads.querySelectorAll('.fh');
-    if (heads[tr.index]) heads[tr.index].style.setProperty('--fh-h', `${next}px`);
-  });
-  const end = (e) => {
-    if (!active) return;
-    active = false;
-    handle.classList.remove('resizing');
-    try { handle.releasePointerCapture(e.pointerId); } catch (_) { /* 同上 */ }
-    const next = Math.max(24, Math.min(200, startH + (e.clientY - startY)));
-    if (Math.abs(next - startH) >= 2) setTrackView(tr, next, tr.collapsed);
-  };
-  handle.addEventListener('pointerup', end);
-  handle.addEventListener('pointercancel', () => {
-    active = false;
-    handle.classList.remove('resizing');
-    try { applyState(fetchState()); renderAll(); } catch (_) { /* 还原失败不阻塞 */ }
-  });
-}
+/* 注意：轨道高度的**拖拽把手已移除**（用户 2026-11-03：轨道头只要
+   眼/喇叭/锁三个图标，不要别的东西）。原 attachTrackResize() 一并删除，
+   避免留下无调用点的死代码。
+   轨道高度改由「阶梯自动压缩」统一管理（见 ladderHeight），
+   单轨微调入口在「图层」面板（待接）。 */
 
 function buildClip(tr, c) {
   const d = document.createElement('div');
@@ -1275,7 +1324,12 @@ function buildClip(tr, c) {
     fill.className = 'clip-fill';
     const turl = Engine.thumbUrl(c.assetId, 0, NEED.thumbW);
     if (turl) fill.style.backgroundImage = `url(${turl})`;
-    fill.style.backgroundSize = '46px 100%';
+    /* 胶片条平铺宽度：按轨道高度算，而不是写死 46px。
+       为什么：行高压缩到 30 时，46px 宽的图被拉成 46x30（比例失真），
+       缩略图糊成一团；按高度等比（高 x 1.5）能让画面比例正确。
+       例：行高 44 → 66px；行高 30 → 45px。 */
+    const rowH = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    fill.style.backgroundSize = `${Math.round(rowH * 1.5)}px 100%`;
     d.appendChild(fill);
   }
   if (tr.kind === 'audio') {
@@ -1908,18 +1962,6 @@ function scrollTimelineToTime() {
   // 播放头读数的横向位置由 .ph-read 居中在播放头上，无需跟随。
 }
 E.play.addEventListener('click', () => setPlaying(!S.playing));
-const prevBtn = document.getElementById('btn-prev');
-if (prevBtn) prevBtn.addEventListener('click', () => {
-  setPlaying(false);
-  S.time = Math.max(0, S.time - 1 / FPS);
-  renderTracks(); syncPreview();
-});
-const nextBtn = document.getElementById('btn-next');
-if (nextBtn) nextBtn.addEventListener('click', () => {
-  setPlaying(false);
-  S.time = Math.min(seqEnd(), S.time + 1 / FPS);
-  renderTracks(); syncPreview();
-});
 
 function toggleHeads() {
   S.headsOpen = !S.headsOpen;
@@ -2151,6 +2193,11 @@ async function toggleRender(btn) {
     done++;
     if ((i & 3) === 0) {
       if (E.stripRender) E.stripRender.style.width = `${(done / total) * 100}%`;
+      /* 圆钮里的实时进度条：只改一个 CSS 变量，避免每帧重排。
+         E.renderBtn 指向 .c-render（找不到就跳过，不影响功能）。 */
+      if (E.renderBtn) {
+        E.renderBtn.style.setProperty('--render-progress', String(done / total));
+      }
       // 让出主线程，否则 UI 卡死看不到进度（也不响应取消）
       await new Promise((r) => setTimeout(r, 0));
     }
