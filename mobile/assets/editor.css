@@ -257,13 +257,24 @@ body { -webkit-text-size-adjust: 100%; }
 .clip { position: absolute; top: var(--clip-pad, 0); bottom: var(--clip-pad, 0);
         border-radius: 3px; overflow: hidden;
         background: #1B1F20;
-        /* 素材白色描边（用户 2026-11-03：参考图里每条素材都有白边）。
-           用 box-shadow inset 而不是 border：border 会占内尺寸、
-           让缩略图被挤小 2px；inset 阴影不占布局。 */
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,.72); }
+        /* 素材白色描边 —— **无论选中与否都有，且要明显**
+           （用户 2026-11-03：「不管点中没有点中，都要有描边，要明显的」）。
+           用 box-shadow inset 而不是 border：
+           · border 会占内尺寸，把缩略图挤小 2px；
+           · inset 阴影不占布局，且能贴合 border-radius 的圆角。
+           92% 不透明：比 72% 明显得多，但不用纯白 ——
+           纯白在亮画面上会与内容糊在一起，反而不像「边框」。 */
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.92); }
 /* 选中态：更亮的实心白边 + 外发光 */
+/* 选中高光（用户 2026-11-03：「点亮的时候高光…严重的时候会加强，
+   也不要那么刺眼」）。
+   三段叠加，但强度都压住在「能分辨」而不是「发光刺眼」：
+   · inset 1.5px 纯白 —— 边框变亮变粗（与未选中的 1px/92% 形成对比）
+   · 0 0 0 1px 40% 白 —— 与相邻轨道拉出一道细缝
+   · 0 0 5px 18% 白 —— 极淡的外发光；原来是 7px/30%，实测偏刺眼 */
 .clip.selected { box-shadow: inset 0 0 0 1.5px #FFFFFF,
-                             0 0 0 1px rgba(255,255,255,.45); }
+                             0 0 0 1px rgba(255,255,255,.40),
+                             0 0 5px rgba(255,255,255,.18); }
 .clip-fill { position: absolute; inset: 0; background-repeat: repeat-x; background-position: left center; }
 .clip-name { position: absolute; left: 5px; top: 3px; font-size: 8px; color: #EDF1EE;
              text-shadow: 0 1px 2px #000; white-space: nowrap; }
@@ -717,16 +728,32 @@ body { -webkit-text-size-adjust: 100%; }
 @media (max-height: 760px) { .app { --tl-h: clamp(190px, 30vh, 260px); } }
 
 /* ---------- 片段裁剪把手（选中时两端出现带箭头的胶囊） ---------- */
+/* 素材首尾裁剪切点（参考图实测，见 /upload/1137f2e7 时间轴右侧）：
+   **白色圆角矩形**，从素材顶端填到底端、贴着两端内侧，
+   四角圆度与素材本身一致（3px），把素材的圆角完全盖住 ——
+   不能是胶囊/椭圆，那样会露出素材的原始圆角缺口。
+   宽度 ≈ 素材高度的 45%（视觉上约 2~3 帧），保证手指能抓住。 */
 .trim-handle {
-  position: absolute; top: 50%; transform: translateY(-50%);
-  width: 16px; height: 30px; border-radius: 8px;
-  background: #FFFFFF; display: grid; place-items: center;
-  z-index: 8; cursor: ew-resize; touch-action: none;
-  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  position: absolute; top: 0; bottom: 0; width: 8px;
+  background: #FFFFFF; z-index: 8; cursor: ew-resize;
+  touch-action: none;
+  display: grid; place-items: center;
 }
-.trim-handle svg { width: 8px; height: 16px; display: block; }
-.trim-l { left: 2px; }
-.trim-r { right: 2px; }
+/* 外缘直角、内缘 R 角 —— 这是「填满素材角」的关键：
+   · 外侧（贴素材外边界那一侧）必须是**直角**，否则素材自身的
+     3px 圆角会在白块旁边露出一道底色缺口；
+   · 内侧（朝向素材内容那一侧）给 R 角，白块与缩略图之间过渡才不生硬。 */
+.trim-l { left: 0;  border-radius: 0 3px 3px 0; }
+.trim-r { right: 0; border-radius: 3px 0 0 3px; }
+/* 极窄素材：把手收窄，两端不互相盖住 */
+.clip.narrow .trim-handle { width: 5px; }
+/* 抓握处的细竖线（提示可拖） */
+.trim-handle::after {
+  content: ''; width: 1.5px; height: 44%; border-radius: 1px;
+  background: rgba(0,0,0,.24);
+}
+.trim-handle svg { display: none; }   /* 不画箭头图标 */
+/* 选中态允许把手溢出素材边界（贴边不被裁） */
 .clip.selected { overflow: visible; }
 
 /* ---------- 吸附辅助线 ---------- */

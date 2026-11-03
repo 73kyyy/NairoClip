@@ -1378,15 +1378,16 @@ function buildClip(tr, c) {
   nm.textContent = c.name;
   d.appendChild(nm);
 
-  // 选中态：两端出现带箭头的胶囊把手（裁剪用）
+  /* 选中态：两端出现**白色半椭圆把手**（裁剪用）。
+     形态对齐参考图：整块白、外半边圆、内半边与素材齐平（见 editor.css）。
+     不再画箭头 —— 参考图里没有箭头，是一整块圆角白块。 */
   if (selected) {
+    /* 窄片段（< 2×把手宽）平分把手，避免两个把互相盖住 */
+    if (w < 36) d.classList.add('narrow');
     ['l', 'r'].forEach((side) => {
       const h = document.createElement('div');
       h.className = `trim-handle trim-${side}`;
       h.dataset.side = side;
-      h.innerHTML = `<svg viewBox="0 0 10 20" aria-hidden="true"><path d="${
-        side === 'l' ? 'M7 4 2 10l5 6' : 'M3 4l5 6-5 6'
-      }" fill="none" stroke="#1B1F20" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       d.appendChild(h);
     });
   }
@@ -2065,37 +2066,60 @@ function applyPreviewZoom() {
    G6：轨道视图密度（双击轨道头循环 3 档 / 缩放滑杆 / 密度持久化）
    ═══════════════════════════════════════════════════════════════ */
 
-/* 三档轨道高度。为什么是这三档：
-   32 = 紧凑（仍看得清缩略图轮廓）；48 = 标准（默认）；
-   96 = 宽松（能看清缩略图细节与关键帧点）。
-   不直接复用阶梯的 44/37/30 —— 阶梯是「按数量自动压」，
-   这里是「用户主动调的档」，语义不同，混用会让两边互相打架。 */
-const ROW_PRESETS = [32, 48, 96];
-let rowPresetIdx = 1;   // 默认 48
+/* 轨道高度：**自动阶梯**（用户原始需求，见 docs/PIP_GESTURE_PLAN.md §6.3）
+   ─────────────────────────────────────────────────────────────────────
+   规则（已实现于 applyLadderHeights / ladderHeight，此处只做入口封装）：
+     1~4 条  → 全部 44px（标准，不大不小）
+     5  条   → 全部 37px（过渡）
+     6 条起  → 全部 30px（最小，仍能看清素材画面）
+   缩放范围 24..200 与 core 的 Track::kMinTrackHeight / kMaxTrackHeight 一致。
 
-/// 应用某一档高度到**全部轨道**（一次撤销步）。
-async function applyRowPreset(idx) {
-  rowPresetIdx = clamp(idx, 0, ROW_PRESETS.length - 1);
-  const h = ROW_PRESETS[rowPresetIdx];
+   **手动覆写是例外而不是主路径**：阶梯是默认行为，任何轨道只要被用户
+   手动调过（tr.autoHeight = false），阶梯就不再覆盖它。
+   双指捏合保留为「临时整体调节」的次要入口 —— 用户明确说过
+   「也可以双手捏合，放大素材进行细节的打关键帧」，所以捏合不能删。
+   ───────────────────────────────────────────────────────────────────── */
+const ROW_SCALE_MIN = 24;    // 与 core Track::kMinTrackHeight 一致
+const ROW_SCALE_MAX = 200;   // 与 core Track::kMaxTrackHeight 一致
+let rowBaseHeight = 0;       // 捏合手势的基准高度
+
+/// 把全部轨道高度设为 h（手动覆写阶梯）。
+function setAllRowHeights(h, { persist = true } = {}) {
+  const clamped = clamp(Math.round(h), ROW_SCALE_MIN, ROW_SCALE_MAX);
   const list = S.tracks || [];
   if (!list.length) return;
-  /* 逐轨调 nc_set_track_view。为什么不用批量接口：
-     C ABI 没有批量版，而 N 条轨 = N 次调用，每次一个命令 ——
-     撤销会退 N 步。这里用 guardedEdit 同步刷新，接受这个代价；
-     真要做到「一次撤销」，需要新增批量 ABI（记入 backlog）。 */
+  list.forEach((tr) => {
+    tr.heightPx = clamped;
+    tr.autoHeight = false;   // 标记为手动 → 阶梯不再覆盖
+  });
+  renderTracks();
+  if (persist) persistRowHeights();
+}
+
+/// 恢复到「由阶梯自动决定」（双击轨道头触发）。
+function resetRowHeightsAuto() {
+  const list = S.tracks || [];
+  list.forEach((tr) => { tr.autoHeight = true; });
+  applyLadderHeights();
+  renderTracks();
+  persistRowHeights();
+  const h = (S.tracks[0] && S.tracks[0].heightPx) || ROW_STD;
+  toast(`轨道高度：自动（${h}px）`, 1400);
+}
+
+/// 逐轨写回引擎（一次手势只调一次，不逐帧调）。
+async function persistRowHeights() {
+  const list = S.tracks || [];
   for (const tr of list) {
     try {
       await guardedEdit({
         op: 'nc_set_track_view',
         track_index: tr.index,
-        height_px: h,
+        height_px: tr.heightPx,
         collapsed: tr.collapsed ? 1 : 0
       });
-    } catch (err) {
-      // 单轨失败不阻断其余轨道
-    }
+    } catch (err) { /* 单轨失败不阻断其余轨道 */ }
   }
-  toast(`轨道高度：${h}px（第 ${rowPresetIdx + 1}/3 档）`, 1600);
 }
 
 /* 时间密度（pxPerSec）持久化：按工程名分键沿用，换工程互不污染。 */
@@ -2138,20 +2162,40 @@ function setDensity(v, { persist = true } = {}) {
   }
 })();
 
-/* 轨道头双击 → 循环 3 档高度。
-   为什么是双击而不是双指捏：轨道头只有 40px 宽，
-   双指放不下（G6 文档 §6.3.2 已论证）。 */
-(function bindRowPreset() {
+/* 双指捏轨道头 → 全部轨道等比缩放（用户指定方案）。
+   与「双指捏时间轴改密度」分开：
+     · 捏在 **轨道头列**（左侧 40px）→ 改高度
+     · 捏在 **时间轴区**（右侧）      → 改时间密度
+   两条路径互不干扰，因为监听的是不同 DOM 元素。 */
+(function bindRowPinch() {
   const heads = E.heads;
   if (!heads) return;
+
+  /* 双指捏轨道头 → 临时放大/缩小全部轨道（用于「放大素材打关键帧」）。
+     注意：这是**手动覆写**，一旦用过，阶梯就不再自动管这些轨道；
+     双击轨道头可交还给自动阶梯。 */
+  makePinch(heads, {
+    onBegin: () => {
+      rowBaseHeight = (S.tracks[0] && S.tracks[0].heightPx) || ROW_STD;
+    },
+    onScale: (ratio) => {
+      setAllRowHeights(rowBaseHeight * ratio, { persist: false });
+    },
+    onEnd: () => {
+      rowBaseHeight = (S.tracks[0] && S.tracks[0].heightPx) || ROW_STD;
+      persistRowHeights();
+      toast(`轨道放大到 ${rowBaseHeight}px（双击轨道头恢复自动）`, 1800);
+    }
+  });
+
+  /* 双击轨道头 → 交还给自动阶梯（清掉手动覆写标记）。 */
   let lastTap = 0;
   heads.addEventListener('pointerup', (e) => {
-    // 只认轨道头空白处（按钮有自己的 click，不抢）
-    if (e.target.closest('button')) return;
+    if (e.target.closest('button')) return;   // 按钮有自己的 click
     const now = Date.now();
     if (now - lastTap < 300) {
       lastTap = 0;
-      applyRowPreset((rowPresetIdx + 1) % ROW_PRESETS.length);
+      resetRowHeightsAuto();
     } else {
       lastTap = now;
     }
