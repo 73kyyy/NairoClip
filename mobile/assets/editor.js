@@ -34,30 +34,49 @@ const NEED = {
 };
 
 /* ---------------- 轨道高度阶梯（轨道多了自动变小） ----------------
-   用户要求（2026-11-03）：
-     · 标准高度「不要显得大，也不要显得小」
-     · 轨道装到 4~5 条就压到最小档，之后不再变小
-     · 最小档「看上去不小也不大」，但轨道上的素材仍要看得清
+   用户规则（2026-11-03，原话）：
+     「用户添加轨道，一到四是标准的高度。我从四开始，然后夹的时候就
+       慢慢的变小，也就是咱们规定的那个最小值。也就是从第 4 个轨道开始，
+       每加一个轨道就小那么一点，小那么一点，后面以此类推，直到添加的
+       轨道小到咱们规定的那个最小值之后，就不能再小了，后面的再添加，
+       就是直接是最小值的这个。然后双手也可以放大缩小。」
 
-   实测轨道区可用高度 = 235px（截图 393×852：tracks 区域 y466..y700）。
-   两组数值都能满足「6 条满屏」，取前者（标准更大，视觉更舒展）：
+   ⇒ **逐条渐变递减**，不是跳档：
+       1~4 条  → 44（标准）
+       5 条    → 42
+       6 条    → 40
+       7 条    → 38
+       8 条    → 36
+       9 条    → 34
+       10 条   → 32
+       11 条起 → 30（最小值，之后恒为 30）
 
-     按轨道总数分三档（不是逐条下坡）：
-       1~4 条 → 全部 44   合计 176px 起
-       5  条 → 全部 37   合计 201px
-       6  条 → 全部 30   合计 204px（6×30 + 5×4 = 200，留 35px 余量）
+   为什么步长取 2：44→30 差 14，7 步走完。
+   取 1 的话要 15 步，而轨道区 235px 在第 11 条就满了，
+   等于「最小值」永远够不着；取 3 又太陡（5 条就从 44 掉到 41）。
 
-   视觉高 = 行高 − 8（.clip 上下各留 4px 内边距）：
-     标准 36dp、过渡 29dp、最小 22dp
-   对照你给的剪映参考图实测（3x 截图 → dp）：少轨 56dp、多轨 20.7dp。
-   36dp 介于两者之间（不大不小）；22dp 略高于多轨 20.7dp（看清素材的底线）。
+   视觉高 = 行高（.clip 上下不留内边距，直接填满），分隔靠 ROW_GAP(2px)
+   + 素材自身的白色描边。
 
-   7 条起必然溢出（269px），此时轨道区转为纵向滚动，不再继续压 ——
-   压到 22dp 以下缩略图就糊成一条线，「看清素材」这个前提就不成立了。
+   轨道区实测可用 235px。按上表：
+       4 条 = 4×44+3×2 = 182  ✅ 不滚
+       5 条 = 5×42+4×2 = 218  ✅ 不滚
+       6 条 = 6×40+5×2 = 250  → 转纵向滚动
+   即 6 条起滚动。这是必然的：既要「看清素材」又要在 235px 里塞下，
+   不可能无限塞，滚动是正确的兜底（原实现 6 条时已经不滚了）。
 */
-const ROW_STD = 44;      // 标准行高（视觉高 44-2=42px）
-const ROW_MID = 37;      // 5 条轨道时的过渡档
-const ROW_MIN = 30;      // 6 条及以上统一压到最小档
+const ROW_STD = 44;      // 标准行高（1~4 条）
+const ROW_MIN = 30;      // **阶梯**的最小行高（递减到这里就停）
+const ROW_STEP = 2;      // 超过 4 条后，每多一条减多少 px
+/* **捏合**允许的高度范围，与 core 的 Track::kMinTrackHeight /
+   kMaxTrackHeight 严格一致。注意它与 ROW_MIN 是两个概念：
+     · ROW_MIN(30)       —— 自动阶梯递减的下限，是「默认规则」
+     · ROW_SCALE_MIN(24) —— 捏合能捏到多小，是「手动极限」
+   捏合可以比阶梯更小（用户想看清细节时会放大，想纵览时会缩小）。
+   曾把这两者混用：renderHeads / buildClip 里用 ROW_MIN 夹取，
+   导致捏到 24~29 时行高被强行夹回 30，捏合在小尺寸区间完全失效。 */
+const ROW_SCALE_MIN = 24;
+const ROW_SCALE_MAX = 200;
 const ROW_GAP = 2;       // 轨道间距（固定，不随行高变化）
 const ROW_PAD = 0;       // 素材上下内边距（0 = 素材填满轨道高度）
 const ROW_COLLAPSED = 20;// 折叠态（不参与阶梯；老工程可能带此状态）
@@ -69,18 +88,28 @@ function clipPadFor() { return ROW_PAD; }
 
 /// 第 i 条轨（0-based）的阶梯高度；count = 轨道总数。
 ///
-/// 用户明确要求（2026-11-03）：「超过 4 个之后，不管是第 1 个还是后面的
-/// 全部」，都压到同一档 —— **不是**「越靠下越矮」的斜坡。
-/// 所以这里只按总数分三档，与 i 无关：
-///   n <= 4  → 全部标准 44
-///   n == 5  → 全部过渡 37
-///   n >= 6  → 全部最小 30（缩略图仍能看清的底线）
-/// 旧注释里「前 2 条始终标准」是早期理解，已按用户原话纠正。
+/// 用户规则（2026-11-03，原话）：
+///   「一到四是标准的高度。我从四开始，然后夹的时候就慢慢的变小…
+///     从第 4 个轨道开始，每加一个轨道就小那么一点，小那么一点，
+///     后面以此类推，直到…小到咱们规定的那个最小值之后，就不能再小了，
+///     后面的再添加，就是直接是最小值。」
+///
+/// 即 **逐条渐变递减**，不是跳档：
+///   n <= 4  → 全部 44（标准）
+///   n  > 4  → 每多一条减 ROW_STEP，减到 ROW_MIN(30) 为止，之后保持 30
+///
+/// ROW_STEP 取 2：44 → 30 共差 14，正好 7 步走完 ——
+///   5 条 42 / 6 条 40 / 7 条 38 / 8 条 36 / 9 条 34 / 10 条 32 / 11 条 30
+/// 11 条起恒为 30。取 2 而不是 1：1 的话要 15 条才到最小，
+/// 而轨道区 235px 在 11 条时就已经满了，等于永远到不了最小档。
+///
+/// **注意**：这是「全部轨道同高」，不是「越靠下越矮」——
+/// 用户说的是轨道**总数**变化导致整体变矮，不是单条轨道按位置递减。
+/// 参数 i 保留是为了将来若要做「第 N 条固定更高」时不用改签名。
 function ladderHeight(i, count) {
   const n = count || S.tracks.length || 0;
-  if (n <= 4) return ROW_STD;    // 1~4 条：标准（不大不小）
-  if (n === 5) return ROW_MID;   // 5 条：过渡档
-  return ROW_MIN;                // 6 条起：统一最小，全轨一致
+  if (n <= 4) return ROW_STD;
+  return Math.max(ROW_MIN, ROW_STD - (n - 4) * ROW_STEP);
 }
 
 /// 按当前轨道总数，给所有「未手动调整」的轨道分配阶梯高度。
@@ -136,7 +165,8 @@ const $ = (id) => document.getElementById(id);
 const E = {
   app: $('app'), stage: $('stage'), canvas: $('canvas'), still: $('still'),
   pipBox: $('pip-box'),
-  zoomRange: $('zoom-range'), zoomIn: $('zoom-in'), zoomOut: $('zoom-out'),
+  /* zoomRange / zoomIn / zoomOut 已随滑杆 DOM 一起删除
+     （用户 2026-11-03：「不做那个按键」「删掉，手势够用」）。 */
 circles: $('circles'), strip: $('strip-done'), stripRender: $('strip-render'),
   ruler: $('ruler'), rulerCv: $('ruler-canvas'), tracks: $('tracks'),
   hint: $('empty-hint'), heads: $('floating-heads'), barTrack: $('bar-track'),
@@ -1101,7 +1131,7 @@ function renderTracksBody() {
        折叠时只留 18px 细条（够放转场标记与拖动把手，仍可点开）。
        范围 24~200 与 core 的 Track::heightPx 一致，这里再夹一次，
        防止旧数据或异常值把轨道画成 0 高度（那样点不到、也不好查）。 */
-    const hpx = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    const hpx = Math.max(ROW_SCALE_MIN, Math.min(ROW_SCALE_MAX, tr.heightPx || ROW_STD));
     const rh = tr.collapsed ? ROW_COLLAPSED : hpx;
     row.style.height = `${rh}px`;
     row.style.marginBottom = `${ROW_GAP}px`;   // 间距随高度等比
@@ -1141,7 +1171,7 @@ function renderHeads() {
     /* 轨道头高度与时间轴行严格一致：行高是内联 px，这里写同一个值到
        --fh-h，CSS 用 var(--fh-h, var(--row-h)) 取值。
        折叠时 18px，与 .trow.collapsed 对齐。 */
-    const hpx = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    const hpx = Math.max(ROW_SCALE_MIN, Math.min(ROW_SCALE_MAX, tr.heightPx || ROW_STD));
     const fhReal = tr.collapsed ? ROW_COLLAPSED : hpx;
     g.style.setProperty('--fh-h', `${fhReal}px`);
     /* margin-bottom 必须与 .trow 的 4px 一致，否则每跨一条就累积 4px 错位
@@ -1215,7 +1245,7 @@ function headBtn(icon, off, fn) {
    否则撤销之后两边会不一致（撤销走的是引擎栈，前端改的那份不会被回滚）。 */
 function setTrackView(tr, heightPx, collapsed) {
   if (!Engine.online) return toast('未连接引擎，无法调整轨道');
-  const h = Math.max(ROW_MIN, Math.min(200, Math.round(heightPx)));
+  const h = Math.max(ROW_SCALE_MIN, Math.min(ROW_SCALE_MAX, Math.round(heightPx)));
   const r = engineCall('nc_set_track_view', {
     track_index: tr.index,
     height_px: h,
@@ -1361,7 +1391,7 @@ function buildClip(tr, c) {
        为什么：行高压缩到 30 时，46px 宽的图被拉成 46x30（比例失真），
        缩略图糊成一团；按高度等比（高 x 1.5）能让画面比例正确。
        例：行高 44 → 66px；行高 30 → 45px。 */
-    const rowH = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    const rowH = Math.max(ROW_SCALE_MIN, Math.min(ROW_SCALE_MAX, tr.heightPx || ROW_STD));
     fill.style.backgroundSize = `${Math.round(rowH * 1.5)}px 100%`;
     d.appendChild(fill);
   }
@@ -1373,7 +1403,7 @@ function buildClip(tr, c) {
     /* 波形满幅按**轨道实际高度**算，不写死 26px ——
        行高压缩到 30 时 26px 的柱子几乎顶满、看不出起伏；
        放大到 96 时又缩在中间一小条。留 4px 上下边。 */
-    const rowH = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    const rowH = Math.max(ROW_SCALE_MIN, Math.min(ROW_SCALE_MAX, tr.heightPx || ROW_STD));
     const maxH = Math.max(6, rowH - 10);
     if (buckets && buckets.length) {
       // 真实波形：按片段在素材中的区间取桶
@@ -2108,8 +2138,12 @@ function applyPreviewZoom() {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
-   G6：轨道视图密度（双击轨道头循环 3 档 / 缩放滑杆 / 密度持久化）
-   ═══════════════════════════════════════════════════════════════ */
+   轨道视图：自动阶梯（默认）+ 双指捏合（手动覆写）+ 双击（交还自动）
+   ═══════════════════════════════════════════════════════════════
+   ⚠ 本节的标题曾写作「G6：双击轨道头循环 3 档 / 缩放滑杆 / 密度持久化」，
+     那是**已废弃方案**，用户早就取消了三档循环。
+     现在只有：自动阶梯 + 捏合 + 双击回自动。
+     留下这行说明是为了防止后来者照着旧标题又把三档加回来。 */
 
 /* 轨道高度：**自动阶梯**（用户原始需求，见 docs/PIP_GESTURE_PLAN.md §6.3）
    ─────────────────────────────────────────────────────────────────────
@@ -2124,8 +2158,6 @@ function applyPreviewZoom() {
    双指捏合保留为「临时整体调节」的次要入口 —— 用户明确说过
    「也可以双手捏合，放大素材进行细节的打关键帧」，所以捏合不能删。
    ───────────────────────────────────────────────────────────────────── */
-const ROW_SCALE_MIN = 24;    // 与 core Track::kMinTrackHeight 一致
-const ROW_SCALE_MAX = 200;   // 与 core Track::kMaxTrackHeight 一致
 let rowBaseHeight = 0;       // 捏合手势的基准高度
 
 /// 把全部轨道高度设为 h（手动覆写阶梯）。
@@ -2167,7 +2199,6 @@ function scaleRowsAndTimeline(ratio, { anchorTime = null, anchorX = 0 } = {}) {
   if (anchorTime !== null) {
     S.time = Math.max(0, anchorTime - (anchorX - center()) / S.pxPerSec);
   }
-  if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
 }
 
 /// 恢复到「由阶梯自动决定」（双击轨道头触发）。
@@ -2214,27 +2245,13 @@ function saveZoomDensity() {
 /// 设置时间密度并同步滑杆（滑杆与双指捏合改的是同一个值）。
 function setDensity(v, { persist = true } = {}) {
   S.pxPerSec = clamp(v, 4, 900);
-  if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
   renderTracks();
   syncPreview();
   if (persist) saveZoomDensity();
 }
 
-(function bindZoomControls() {
-  if (E.zoomRange) {
-    E.zoomRange.addEventListener('input', () => {
-      // 拖动中不写 localStorage（每帧写会拖慢），松手由 change 统一写
-      setDensity(Number(E.zoomRange.value), { persist: false });
-    });
-    E.zoomRange.addEventListener('change', saveZoomDensity);
-  }
-  if (E.zoomIn) {
-    E.zoomIn.addEventListener('click', () => setDensity(S.pxPerSec * 1.25));
-  }
-  if (E.zoomOut) {
-    E.zoomOut.addEventListener('click', () => setDensity(S.pxPerSec / 1.25));
-  }
-})();
+/* 滑杆的 − / + 与 range 已删除（用户 2026-11-03：「删掉，手势够用」）。
+   缩放只剩双指捏合一个入口；密度持久化仍在 onEnd 时写 localStorage。 */
 
 /* 双指捏轨道头 → 全部轨道等比缩放（用户指定方案）。
    与「双指捏时间轴改密度」分开：
@@ -4651,7 +4668,6 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
   /* 时间密度按工程恢复（G6）：必须在 applyState 之后 ——
      zoomStorageKey() 依赖 S.project.name。 */
   loadZoomDensity();
-  if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
   // 宫格缩略图的底图映射（map.json 由 tools/make_static.py 写入）
   await loadThumbMap();
   // 混合模式库：名称与顺序来自内核（nc_blend_mode_count/name），不写死

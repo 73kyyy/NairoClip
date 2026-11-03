@@ -562,29 +562,10 @@ body { -webkit-text-size-adjust: 100%; }
                 绝对定位会让滑杆压在垃圾桶上（实测重叠）。 */
              justify-content: center; gap: 42px;
              position: relative;
-             padding-right: 88px; padding-left: 88px; }
-/* 时间轴缩放滑杆（G6）：贴在播放条右侧。
-   为什么放这：播放条是唯一「视图控制」性质的固定区域，
-   与 − / + 同组，符合「控件按职能分组」。
-   用 position:absolute 而不是参与 flex —— 否则会挤动
-   居中的三颗播放按钮，视觉重心偏移。 */
-.tl-zoom { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-           display: flex; align-items: center; gap: 3px;
-           /* 加一点左侧留白，与垃圾桶拉开距离 */
-           padding-left: 6px; border-left: 1px solid rgba(255,255,255,.08); }
-.tl-zoom .zl { width: 16px; height: 16px; border: 0; border-radius: 4px; padding: 0;
-               background: rgba(255,255,255,.06); color: var(--text-mid);
-               font: 700 11px/1 var(--font-num); display: grid; place-items: center;
-               -webkit-appearance: none; appearance: none; }
-.tl-zoom .zl:active { background: rgba(255,255,255,.16); }
-.tl-zoom input[type=range] { width: 46px; height: 18px; margin: 0;
-                             accent-color: var(--accent-pick); }
-/* 极窄屏（<360px）：滑杆收窄，保证三个播放键仍是视觉中心 */
-@media (max-width: 359px) {
-  .transport { padding-right: 80px; padding-left: 80px; gap: 24px; }
-  .tl-zoom input[type=range] { width: 36px; }
-  .tl-zoom .zl { width: 15px; height: 15px; }
-}
+             padding-right: 0; padding-left: 0; }
+/* 时间轴缩放滑杆的样式已随 DOM 一并删除
+   （用户 2026-11-03：「不做那个按键」「删掉，手势够用」）。
+   缩放统一走双指捏合。 */
 .tp { width: 33px; height: 33px; border: 0; background: transparent; color: #FFFFFF;
       display: grid; place-items: center; padding: 0; }
 #btn-split .i { width: 20px; height: 20px; }

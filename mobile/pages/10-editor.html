@@ -105,14 +105,9 @@
     <button class="tp" id="btn-split" aria-label="分割"><svg class="i"><use href="#i-scissors"/></svg></button>
     <button class="tp tp-main" id="btn-play" aria-label="播放"><svg class="i"><use href="#i-play"/></svg></button>
     <button class="tp tp-del" id="btn-delete" aria-label="删除"><svg class="i"><use href="#i-trash"/></svg></button>
-    <!-- 时间轴缩放滑杆（G6）：手势不精确时的可重复入口。
-         借鉴剪映桌面版时间线左下角那条 —— 带 − / +，可拖可点。 -->
-    <div class="tl-zoom" id="tl-zoom">
-      <button class="zl" id="zoom-out" aria-label="时间轴缩小">−</button>
-      <input type="range" id="zoom-range" min="4" max="900" step="1" value="44"
-             aria-label="时间轴缩放">
-      <button class="zl" id="zoom-in" aria-label="时间轴放大">+</button>
-    </div>
+    <!-- 时间轴缩放滑杆（− / +）已删除（用户 2026-11-03：
+         「不做那个按键」「删掉，手势够用」）。
+         缩放统一走双指捏合；密度仍按工程持久化（localStorage）。 -->
   </section>
 
   <!-- ⑥ 工具栏：一级 ↔ 二级 在同一行横向展开 -->
