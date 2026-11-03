@@ -135,6 +135,7 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const E = {
   app: $('app'), stage: $('stage'), canvas: $('canvas'), still: $('still'),
+  pipBox: $('pip-box'),
 circles: $('circles'), strip: $('strip-done'), stripRender: $('strip-render'),
   ruler: $('ruler'), rulerCv: $('ruler-canvas'), tracks: $('tracks'),
   hint: $('empty-hint'), heads: $('floating-heads'), barTrack: $('bar-track'),
@@ -1430,6 +1431,10 @@ function renderAll() {
   renderTracks();
   renderBar(false);
   syncPreview();
+  /* 选择框跟随选中态（G5）：切片段时框要挪到新片段上。
+     放在 syncPreview 之后 —— layoutPipBox 依赖 canvas 的实际尺寸，
+     而 fitCanvas() 在本函数开头才跑。 */
+  layoutPipBox();
   // 顶栏显示真实工程名（引擎的 project.name）
   if (E.brand) {
     const nm = (S.project && S.project.name) || 'NairoClip';
@@ -1667,6 +1672,13 @@ function beginTrim(e, tr, c, side) {
 let drag = null;
 E.tracks.addEventListener('pointerdown', (e) => {
   if (e.target.closest('.clip') || e.target.closest('button')) return;
+  /* 点时间轴空白 = 取消选中（否则选择框会一直挂在画面上，用户不知道
+     当前在编辑哪个片段）。 */
+  if (S.selected) {
+    S.selected = null;
+    renderTracks();
+    layoutPipBox();
+  }
   drag = { x: e.clientX, t: S.time };
   E.tracks.setPointerCapture(e.pointerId);
 });
@@ -1712,11 +1724,16 @@ function makePinch(target, opts) {
     const [a, b] = [...pts.values()];
     return (a.x + b.x) / 2;
   };
+  /// 两指连线的角度（弧度）。用于「双指扭转 = 旋转画面」。
+  const angle = () => {
+    const [a, b] = [...pts.values()];
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  };
 
   function onStart(e) {
     for (const t of e.changedTouches) pts.set(t.identifier, { x: t.clientX, y: t.clientY });
     if (pts.size === 2) {
-      start = { d: dist(), mid: midX() };
+      start = { d: dist(), mid: midX(), ang: angle() };
       opts.onBegin && opts.onBegin(start.mid);
     }
   }
@@ -1725,12 +1742,25 @@ function makePinch(target, opts) {
     for (const t of e.changedTouches) pts.set(t.identifier, { x: t.clientX, y: t.clientY });
     if (pts.size !== 2 || !start || start.d <= 0) return;
     const ratio = dist() / start.d;
-    if (Math.abs(ratio - 1) < 0.004) return;
+    /* 旋转增量：处理 ±180° 跨边界（不处理会出现「扭到一半突然反向转」）。 */
+    let dAng = angle() - start.ang;
+    while (dAng > Math.PI) dAng -= Math.PI * 2;
+    while (dAng < -Math.PI) dAng += Math.PI * 2;
+    const zoomChanged = Math.abs(ratio - 1) >= 0.004;
+    const rotChanged = Math.abs(dAng) >= 0.05;   // ≈2.9°，低于此视为抖动
+    if (!zoomChanged && !rotChanged) return;
     const mid = midX();
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
-      opts.onScale(ratio, mid, start.mid);
+      if (zoomChanged) opts.onScale(ratio, mid, start.mid);
+      /* onRotate 只在调用方声明时才跑 —— 既有的时间轴缩放入口
+         没有这个回调，行为完全不变。 */
+      /* 传**自手势开始以来的累计角度**，不是本帧增量 ——
+         增量需要调用方自己累加，一帧丢事件就会永久偏差。 */
+      if (rotChanged && opts.onRotate) {
+        opts.onRotate(dAng * 180 / Math.PI, start.ang);
+      }
     });
     e.preventDefault();
   }
@@ -1786,16 +1816,174 @@ makePinch(E.ruler, {
   onEnd: () => { S.basePxPerSec = S.pxPerSec; S.pinchAnchor = null; }
 });
 
-/* ③ 预览区：缩放画面内容（不改画布外框） */
+/* ③ 预览区手势（G5）
+   ─────────────────────────────────────────────────────────────────
+   这里有两件**完全不同**的事，靠「有没有选中片段」区分（剪映同款逻辑）：
+
+     A. 有选中片段 → 改「画面大小」（ClipTransform.scale），**写进工程**
+        · 双指捏合 = 缩放
+        · 双指扭转 = 旋转
+        · 双指平移 / 框内单指拖动 = 位移
+        松手才提交一次（拖动中只改本地状态 + 重绘选择框）
+
+     B. 无选中片段 → 改「看画面」（S.zoom），**不写工程**
+        · 双指捏合 = 临时放大看细节（导出不受影响）
+        · 双击 = 进入/退出看画面模式
+
+   为什么必须分开：原来只有一个 S.zoom（CSS transform），
+   用户捏了半天以为改了画面大小，导出却毫无变化 —— 语义误导。
+   ───────────────────────────────────────────────────────────────── */
 S.zoom = 1;
 S.pan = { x: 0, y: 0 };
+
+/// 当前选中的片段是否可做画面变换。
+function pipTarget() {
+  const sel = selClip();
+  if (!sel) return null;
+  const tr = (S.tracks || []).find((t) => t.id === sel.track.id);
+  if (!tr || tr.locked) return null;
+  // 音频轨没有画面，不参与
+  if (tr.kind === 'audio') return null;
+  return sel;
+}
+
+/// 从引擎读一次当前 transform（作为手势起点）。
+function readTransform(sel) {
+  const r = engineCall('transform_get', { track: sel.track.index, clip: sel.clip.id });
+  const d = (r && r.ok && r.result) || {};
+  const num = (v, def) => (typeof v === 'number' ? v : def);
+  return {
+    enabled: !!d.enabled,
+    scale: num(d.scale, 1),
+    posX: num(d.pos_x, 0),
+    posY: num(d.pos_y, 0),
+    rotation: num(d.rotation, 0),
+    anchor: num(d.anchor, 4)
+  };
+}
+
+/// 手势中的草稿（松手才提交，避免每帧一次引擎调用）。
+let pipDraft = null;
+
+/// 把草稿同步到预览帧的 CSS transform，让用户**立刻看到**变化。
+///
+/// 为什么用 CSS 而不是重新渲染：改一次 transform 就重解码一帧太慢，
+/// 拖动会掉到个位数帧率。CSS 变换是 GPU 合成的，跟手；
+/// 松手后走一次引擎渲染即可回归真实像素。
+function applyPipPreview() {
+  if (!pipDraft) {
+    E.still.style.transform = '';
+    E.still.style.transformOrigin = 'center center';
+    return;
+  }
+  const canvasW = E.canvas.clientWidth || 1;
+  const canvasH = E.canvas.clientHeight || 1;
+  const tx = pipDraft.posX * canvasW;
+  const ty = pipDraft.posY * canvasH;
+  E.still.style.transformOrigin = 'center center';
+  E.still.style.transform =
+    `translate(${tx}px, ${ty}px) rotate(${pipDraft.rotation}deg) scale(${pipDraft.scale})`;
+  layoutPipBox();
+}
+
+/// 把选择框摆到当前片段画面所在的矩形上。
+///
+/// 几何复用 applyPipPreview 的同一套数学（scale / pos / rotation），
+/// 否则框和像素会对不上 —— 这是 G5 验收里的硬指标（误差 ≤ 1px）。
+function layoutPipBox() {
+  const box = E.pipBox;
+  if (!box) return;
+  const sel = pipTarget();
+  if (!sel) { box.hidden = true; return; }
+
+  const d = pipDraft || readTransform(sel);
+  const cw = E.canvas.clientWidth || 0;
+  const ch = E.canvas.clientHeight || 0;
+  if (!cw || !ch) { box.hidden = true; return; }
+
+  /* 未启用 transform 时，画面按 FrameFit 铺满画布 → 框就是整块画布。
+     启用后按 scale 缩放、按 pos 位移。 */
+  const scale = d.enabled ? d.scale : 1;
+  const posX = d.enabled ? d.posX : 0;
+  const posY = d.enabled ? d.posY : 0;
+  const rot = d.enabled ? d.rotation : 0;
+
+  const w = cw * scale;
+  const h = ch * scale;
+  box.hidden = false;
+  box.style.width = `${w}px`;
+  box.style.height = `${h}px`;
+  box.style.left = `${(cw - w) / 2 + posX * cw}px`;
+  box.style.top = `${(ch - h) / 2 + posY * ch}px`;
+  box.style.transform = `rotate(${rot}deg)`;
+  box.style.transformOrigin = 'center center';
+}
+
+/// 提交草稿到引擎（一次撤销步）。
+async function commitPip() {
+  if (!pipDraft) return;
+  const sel = pipTarget();
+  const d = pipDraft;
+  pipDraft = null;
+  if (!sel) return;
+  try {
+    await guardedEdit({
+      op: 'transform_set',
+      track: sel.track.index,
+      clip: sel.clip.id,
+      enabled: 1,
+      scale: d.scale,
+      pos_x: d.posX,
+      pos_y: d.posY,
+      rotation: d.rotation,
+      anchor: d.anchor
+    });
+  } catch (err) {
+    toast(`画面变换失败：${err.message}`, 3000);
+  } finally {
+    applyPipPreview();   // 清掉 CSS，让引擎的真实渲染接管
+  }
+}
+
+/* A. 有选中片段：双指改画面 */
 makePinch(E.canvas, {
-  onBegin: () => { S.baseZoom = S.zoom; },
-  onScale: (ratio, mid) => {
-    S.zoom = clamp(S.baseZoom * ratio, 0.5, 4);
-    applyPreviewZoom();
+  onBegin: (mid) => {
+    const sel = pipTarget();
+    if (!sel) {
+      S.baseZoom = S.zoom;      // 退化成「看画面」模式
+      pipDraft = null;
+      return;
+    }
+    pipDraft = readTransform(sel);
+    if (!pipDraft.enabled) {
+      // 首次操作默认给个可见的初始态，避免「拖了没反应」
+      pipDraft.enabled = true;
+      pipDraft.scale = Math.min(1, pipDraft.scale) || 1;
+    }
+    S.pipStart = { scale: pipDraft.scale, rotation: pipDraft.rotation };
   },
-  onEnd: () => { S.baseZoom = S.zoom; }
+  onScale: (ratio, mid) => {
+    if (!pipDraft) {
+      S.zoom = clamp(S.baseZoom * ratio, 0.5, 4);
+      applyPreviewZoom();
+      return;
+    }
+    pipDraft.scale = clamp(S.pipStart.scale * ratio, 0.05, 10);
+    applyPipPreview();
+  },
+  /* 双指扭转 = 旋转画面（仅在有选中片段时有效；
+     无选中时 S.zoom 模式不支持旋转，直接忽略）。
+     totalDeg 是「自手势开始的累计角度」，直接叠加到起始旋转上，
+     不做增量累加 —— 避免掉帧导致的永久偏差。 */
+  onRotate: (totalDeg) => {
+    if (!pipDraft || !S.pipStart) return;
+    pipDraft.rotation = clamp(S.pipStart.rotation + totalDeg, -3600, 3600);
+    applyPipPreview();
+  },
+  onEnd: () => {
+    if (pipDraft) commitPip();
+    else S.baseZoom = S.zoom;
+  }
 });
 
 function applyPreviewZoom() {
@@ -1808,28 +1996,122 @@ function applyPreviewZoom() {
   E.canvas.style.cursor = z > 1.01 ? 'grab' : 'default';
 }
 
-/* 预览区：放大后单指拖动 = 平移画面（小于 1× 时不拦截，避免误触） */
+/* A2. 选择框交互（G5）：拖框内 = 平移，拖四角握把 = 等比缩放 */
+(function bindPipBox() {
+  const box = E.pipBox;
+  if (!box) return;
+  let drag = null;
+
+  const onDown = (e) => {
+    const sel = pipTarget();
+    if (!sel) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const d = readTransform(sel);
+    pipDraft = d;
+    const handle = e.target.closest('.pip-h');
+    drag = {
+      mode: handle ? 'scale' : 'move',
+      corner: handle ? handle.dataset.h : null,
+      x: e.clientX, y: e.clientY,
+      startScale: d.scale || 1,
+      startPosX: d.posX, startPosY: d.posY,
+      cw: E.canvas.clientWidth || 1,
+      ch: E.canvas.clientHeight || 1
+    };
+    try { box.setPointerCapture(e.pointerId); } catch (_) { /* 老 WebView */ }
+  };
+
+  const onMove = (e) => {
+    if (!drag || !pipDraft) return;
+    e.preventDefault();
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    if (drag.mode === 'move') {
+      pipDraft.posX = clamp(drag.startPosX + dx / drag.cw, -10, 10);
+      pipDraft.posY = clamp(drag.startPosY + dy / drag.cw, -10, 10);
+    } else {
+      /* 等比缩放：用「到画布中心的距离比」而不是单轴位移 ——
+         拖动任意一个角，画面都按同一比例缩放，不会变形。 */
+      const cx = drag.cw / 2;
+      const cy = drag.ch / 2;
+      const startDist = Math.hypot(drag.x - cx, drag.y - cy) || 1;
+      const nowDist = Math.hypot(e.clientX - cx, e.clientY - cy);
+      pipDraft.scale = clamp(drag.startScale * (nowDist / startDist), 0.05, 10);
+    }
+    applyPipPreview();
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    drag = null;
+    if (pipDraft) commitPip();
+  };
+
+  box.addEventListener('pointerdown', onDown);
+  box.addEventListener('pointermove', onMove);
+  box.addEventListener('pointerup', onUp);
+  box.addEventListener('pointercancel', onUp);
+})();
+
+/* B. 单指拖动：有选中 → 改片段位置；无选中且已放大 → 平移看画面 */
 (function bindPan() {
   let pan = null;
   E.canvas.addEventListener('touchstart', (e) => {
-    if (S.zoom <= 1.01 || e.touches.length !== 1) return;
-    pan = { x: e.touches[0].clientX, y: e.touches[0].clientY,
+    if (e.touches.length !== 1) return;
+    const sel = pipTarget();
+    if (sel) {
+      const d = readTransform(sel);
+      pipDraft = d;
+      pan = {
+        mode: 'pip',
+        x: e.touches[0].clientX, y: e.touches[0].clientY,
+        px: d.posX, py: d.posY
+      };
+      return;
+    }
+    if (S.zoom <= 1.01) return;   // 未放大 → 不拦截，避免误触
+    pan = { mode: 'view', x: e.touches[0].clientX, y: e.touches[0].clientY,
             px: S.pan.x, py: S.pan.y };
   }, { passive: true });
+
   E.canvas.addEventListener('touchmove', (e) => {
     if (!pan || e.touches.length !== 1) return;
-    S.pan.x = pan.px + (e.touches[0].clientX - pan.x);
-    S.pan.y = pan.py + (e.touches[0].clientY - pan.y);
-    applyPreviewZoom();
+    const dx = e.touches[0].clientX - pan.x;
+    const dy = e.touches[0].clientY - pan.y;
+    if (pan.mode === 'pip' && pipDraft) {
+      const canvasW = E.canvas.clientWidth || 1;
+      const canvasH = E.canvas.clientHeight || 1;
+      pipDraft.posX = clamp(pan.px + dx / canvasW, -10, 10);
+      pipDraft.posY = clamp(pan.py + dy / canvasH, -10, 10);
+      applyPipPreview();
+    } else {
+      S.pan.x = pan.px + dx;
+      S.pan.y = pan.py + dy;
+      applyPreviewZoom();
+    }
     e.preventDefault();
   }, { passive: false });
-  E.canvas.addEventListener('touchend', () => { pan = null; });
-  // 双击复位
-  let lastTap = 0;
+
   E.canvas.addEventListener('touchend', () => {
+    if (pan && pan.mode === 'pip' && pipDraft) commitPip();
+    pan = null;
+  });
+
+  // 双击：有选中 → 复位画面；无选中 → 切换「看画面」模式
+  let lastTap = 0;
+  E.canvas.addEventListener('touchend', async () => {
     const now = Date.now();
     if (now - lastTap < 300) {
-      S.zoom = 1; S.pan = { x: 0, y: 0 }; applyPreviewZoom();
+      const sel = pipTarget();
+      if (sel) {
+        await guardedEdit({
+          op: 'transform_clear', track: sel.track.index, clip: sel.clip.id
+        });
+        applyPipPreview();
+      } else {
+        S.zoom = 1; S.pan = { x: 0, y: 0 }; applyPreviewZoom();
+      }
     }
     lastTap = now;
   });

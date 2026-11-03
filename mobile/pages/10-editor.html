@@ -24,6 +24,15 @@
   <section class="stage" id="stage">
     <div class="canvas" id="canvas">
       <img class="canvas-still" id="still" alt="预览帧">
+      <!-- 画面选择框（G5）：选中片段时显示，可直接拖拽/缩放画中画。
+           用 DOM 覆盖层而不是画进 Canvas —— 需要命中测试与焦点语义，
+           且数量恒为 1 个（性能无忧）。 -->
+      <div class="pip-box" id="pip-box" hidden>
+        <span class="pip-h" data-h="tl"></span>
+        <span class="pip-h" data-h="tr"></span>
+        <span class="pip-h" data-h="bl"></span>
+        <span class="pip-h" data-h="br"></span>
+      </div>
       <!-- 空态提示已移到轨道背板，预览区保持纯净 -->
     </div>
   </section>

@@ -70,6 +70,22 @@ body { -webkit-text-size-adjust: 100%; }
 }
 .canvas-still { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
                 background: #000; display: block; visibility: hidden; }
+
+/* 画面选择框（G5）：选中片段后出现在预览区，标示「当前在编辑这个素材」。
+   四角握把用于等比缩放 —— 与剪映一致：拖框内 = 平移，拖角 = 缩放。
+   为什么不用 border 画虚线框：border 会改变元素尺寸，
+   让握把位置计算偏移；用 outline + 绝对定位的握把更稳。 */
+.pip-box { position: absolute; z-index: 6; pointer-events: auto;
+           outline: 1.5px dashed rgba(255,255,255,.85); outline-offset: 0;
+           cursor: move; touch-action: none; }
+.pip-box[hidden] { display: none; }
+.pip-h { position: absolute; width: 14px; height: 14px; border-radius: 50%;
+         background: #FFFFFF; box-shadow: 0 1px 4px rgba(0,0,0,.6);
+         pointer-events: auto; touch-action: none; }
+.pip-h[data-h="tl"] { left: -7px; top: -7px; cursor: nwse-resize; }
+.pip-h[data-h="tr"] { right: -7px; top: -7px; cursor: nesw-resize; }
+.pip-h[data-h="bl"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.pip-h[data-h="br"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
 .canvas-empty { position: absolute; inset: 0; display: grid; place-items: center;
                 color: #4A4F4E; font-size: 12px; }
 .canvas-empty[hidden] { display: none; }
