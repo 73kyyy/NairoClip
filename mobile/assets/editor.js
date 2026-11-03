@@ -136,6 +136,7 @@ const $ = (id) => document.getElementById(id);
 const E = {
   app: $('app'), stage: $('stage'), canvas: $('canvas'), still: $('still'),
   pipBox: $('pip-box'),
+  zoomRange: $('zoom-range'), zoomIn: $('zoom-in'), zoomOut: $('zoom-out'),
 circles: $('circles'), strip: $('strip-done'), stripRender: $('strip-render'),
   ruler: $('ruler'), rulerCv: $('ruler-canvas'), tracks: $('tracks'),
   hint: $('empty-hint'), heads: $('floating-heads'), barTrack: $('bar-track'),
@@ -1792,10 +1793,16 @@ makePinch(E.tracks, {
     S.pxPerSec = clamp(S.basePxPerSec * ratio, 4, 900);
     // 保持锚点时间停在原来的屏幕位置
     S.time = Math.max(0, a.time - (a.x - center()) / S.pxPerSec);
+    /* 滑杆与手势改同一个值 → 必须同步，否则滑杆位置会与实际密度脱节。 */
+    if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
     renderTracks();
     syncPreview();
   },
-  onEnd: () => { S.basePxPerSec = S.pxPerSec; S.pinchAnchor = null; }
+  onEnd: () => {
+    S.basePxPerSec = S.pxPerSec;
+    S.pinchAnchor = null;
+    saveZoomDensity();   // 松手才写 localStorage
+  }
 });
 S.basePxPerSec = S.pxPerSec;
 
@@ -2052,6 +2059,103 @@ function applyPreviewZoom() {
   box.addEventListener('pointermove', onMove);
   box.addEventListener('pointerup', onUp);
   box.addEventListener('pointercancel', onUp);
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   G6：轨道视图密度（双击轨道头循环 3 档 / 缩放滑杆 / 密度持久化）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 三档轨道高度。为什么是这三档：
+   32 = 紧凑（仍看得清缩略图轮廓）；48 = 标准（默认）；
+   96 = 宽松（能看清缩略图细节与关键帧点）。
+   不直接复用阶梯的 44/37/30 —— 阶梯是「按数量自动压」，
+   这里是「用户主动调的档」，语义不同，混用会让两边互相打架。 */
+const ROW_PRESETS = [32, 48, 96];
+let rowPresetIdx = 1;   // 默认 48
+
+/// 应用某一档高度到**全部轨道**（一次撤销步）。
+async function applyRowPreset(idx) {
+  rowPresetIdx = clamp(idx, 0, ROW_PRESETS.length - 1);
+  const h = ROW_PRESETS[rowPresetIdx];
+  const list = S.tracks || [];
+  if (!list.length) return;
+  /* 逐轨调 nc_set_track_view。为什么不用批量接口：
+     C ABI 没有批量版，而 N 条轨 = N 次调用，每次一个命令 ——
+     撤销会退 N 步。这里用 guardedEdit 同步刷新，接受这个代价；
+     真要做到「一次撤销」，需要新增批量 ABI（记入 backlog）。 */
+  for (const tr of list) {
+    try {
+      await guardedEdit({
+        op: 'nc_set_track_view',
+        track_index: tr.index,
+        height_px: h,
+        collapsed: tr.collapsed ? 1 : 0
+      });
+    } catch (err) {
+      // 单轨失败不阻断其余轨道
+    }
+  }
+  toast(`轨道高度：${h}px（第 ${rowPresetIdx + 1}/3 档）`, 1600);
+}
+
+/* 时间密度（pxPerSec）持久化：按工程名分键沿用，换工程互不污染。 */
+function zoomStorageKey() {
+  const nm = (S.project && S.project.name) || 'untitled';
+  return `nc.zoom.${nm}`;
+}
+function loadZoomDensity() {
+  try {
+    const v = Number(localStorage.getItem(zoomStorageKey()));
+    if (Number.isFinite(v) && v > 0) S.pxPerSec = clamp(v, 4, 900);
+  } catch (err) { /* localStorage 不可用时保持默认 */ }
+}
+function saveZoomDensity() {
+  try { localStorage.setItem(zoomStorageKey(), String(S.pxPerSec)); } catch (err) {}
+}
+
+/// 设置时间密度并同步滑杆（滑杆与双指捏合改的是同一个值）。
+function setDensity(v, { persist = true } = {}) {
+  S.pxPerSec = clamp(v, 4, 900);
+  if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
+  renderTracks();
+  syncPreview();
+  if (persist) saveZoomDensity();
+}
+
+(function bindZoomControls() {
+  if (E.zoomRange) {
+    E.zoomRange.addEventListener('input', () => {
+      // 拖动中不写 localStorage（每帧写会拖慢），松手由 change 统一写
+      setDensity(Number(E.zoomRange.value), { persist: false });
+    });
+    E.zoomRange.addEventListener('change', saveZoomDensity);
+  }
+  if (E.zoomIn) {
+    E.zoomIn.addEventListener('click', () => setDensity(S.pxPerSec * 1.25));
+  }
+  if (E.zoomOut) {
+    E.zoomOut.addEventListener('click', () => setDensity(S.pxPerSec / 1.25));
+  }
+})();
+
+/* 轨道头双击 → 循环 3 档高度。
+   为什么是双击而不是双指捏：轨道头只有 40px 宽，
+   双指放不下（G6 文档 §6.3.2 已论证）。 */
+(function bindRowPreset() {
+  const heads = E.heads;
+  if (!heads) return;
+  let lastTap = 0;
+  heads.addEventListener('pointerup', (e) => {
+    // 只认轨道头空白处（按钮有自己的 click，不抢）
+    if (e.target.closest('button')) return;
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      lastTap = 0;
+      applyRowPreset((rowPresetIdx + 1) % ROW_PRESETS.length);
+    } else {
+      lastTap = now;
+    }
+  });
 })();
 
 /* B. 单指拖动：有选中 → 改片段位置；无选中且已放大 → 平移看画面 */
@@ -4426,7 +4530,11 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
     return;
   }
   applyState(Engine.state);
-  // 宫格缩略图的黏土底图映射（map.json 由 tools/make_static.py 写入）
+  /* 时间密度按工程恢复（G6）：必须在 applyState 之后 ——
+     zoomStorageKey() 依赖 S.project.name。 */
+  loadZoomDensity();
+  if (E.zoomRange) E.zoomRange.value = String(Math.round(S.pxPerSec));
+  // 宫格缩略图的底图映射（map.json 由 tools/make_static.py 写入）
   await loadThumbMap();
   // 混合模式库：名称与顺序来自内核（nc_blend_mode_count/name），不写死
   loadBlendModes();
