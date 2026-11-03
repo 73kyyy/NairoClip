@@ -1318,14 +1318,24 @@ function attachTrackReorder(handle, tr) {
 function buildClip(tr, c) {
   const d = document.createElement('div');
   const selected = S.selected && S.selected.trackId === tr.id && S.selected.clipId === c.id;
-  d.className = 'clip' + (selected ? ' selected' : '');
+  /* 音频片段打上 .audio 类 —— CSS 靠它给纯色底（不画缩略图）。
+     注：c.kind 是引擎的**数字**类型（0=视频 1=音频 2=图片…），
+     不是 'music'/'sfx' 这种字符串，所以不能拼成子类名 ——
+     那会得到 k-1 这类永远匹配不到 CSS 的类。只用基础 .audio。 */
+  const audioCls = tr.kind === 'audio' ? ' audio' : '';
+  d.className = 'clip' + (selected ? ' selected' : '') + audioCls;
   const x = t2x(c.start);
   const w = c.dur * S.pxPerSec;
   d.style.left = `${x}px`;
   d.style.width = `${Math.max(6, w)}px`;
   if (x + w < -30 || x > viewW() + 30) { d.style.visibility = 'hidden'; }
 
-  if (Engine.online && c.assetId) {
+  /* 音频片段**不要缩略图**（用户 2026-11-03：「导入音频的时候没有素材，
+     只有背景颜色…有那个有音乐的波浪线」）。
+     为什么：音频没有画面帧，Engine.thumbUrl 返回的是空白图或纯色块，
+     于是整条片段看起来只有一块底色，没有「这是音频」的辨识度。
+     音频只画纯色底 + 波形（见下方 tr.kind === 'audio' 分支）。 */
+  if (Engine.online && c.assetId && tr.kind !== 'audio') {
     const fill = document.createElement('div');
     fill.className = 'clip-fill';
     const turl = Engine.thumbUrl(c.assetId, 0, NEED.thumbW);
@@ -1343,6 +1353,11 @@ function buildClip(tr, c) {
     wv.className = 'wave';
     const buckets = (S.waves && S.waves[c.assetId]) || null;
     const n = Math.min(220, Math.max(6, Math.floor(w / 2)));
+    /* 波形满幅按**轨道实际高度**算，不写死 26px ——
+       行高压缩到 30 时 26px 的柱子几乎顶满、看不出起伏；
+       放大到 96 时又缩在中间一小条。留 4px 上下边。 */
+    const rowH = Math.max(ROW_MIN, Math.min(200, tr.heightPx || ROW_STD));
+    const maxH = Math.max(6, rowH - 10);
     if (buckets && buckets.length) {
       // 真实波形：按片段在素材中的区间取桶
       const per = c.dur > 0 ? buckets.length / c.dur : 0;
@@ -1350,13 +1365,18 @@ function buildClip(tr, c) {
         const idx = Math.min(buckets.length - 1,
                              Math.floor((i / n) * c.dur * per));
         const bar = document.createElement('i');
-        bar.style.height = `${Math.max(2, Math.pow(buckets[idx], 0.75) * 26)}px`;
+        bar.style.height = `${Math.max(2, Math.pow(buckets[idx], 0.75) * maxH)}px`;
         wv.appendChild(bar);
       }
     } else {
+      /* 波形还没解析出来（或解析失败）：画一排**等高的细横线**，
+         高度取轨道的 1/3。不画 3px 小点 —— 那样看着像空片段，
+         用户会以为导入失败。 */
+      const midH = Math.max(4, Math.round(maxH * 0.34));
       for (let i = 0; i < n; i += 1) {
         const bar = document.createElement('i');
-        bar.style.height = '3px';
+        bar.className = 'flat';
+        bar.style.height = `${midH}px`;
         wv.appendChild(bar);
       }
     }

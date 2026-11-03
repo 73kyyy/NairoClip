@@ -290,8 +290,29 @@ body { -webkit-text-size-adjust: 100%; }
 .clip-fill { position: absolute; inset: 0; background-repeat: repeat-x; background-position: left center; }
 .clip-name { position: absolute; left: 5px; top: 3px; font-size: 8px; color: #EDF1EE;
              text-shadow: 0 1px 2px #000; white-space: nowrap; }
-.wave { position: absolute; inset: 5px 0; display: flex; align-items: center; gap: 1px; overflow: hidden; }
-.wave i { display: block; width: 1px; background: #9AA6A2; flex: none; }
+/* 音频片段的文字要和波形分层，否则 8px 的字叠在 1px 波形柱上糊成一团
+   （实测：IMG_7532.m4a 被波形压得看不清）。
+   做法：文字加不透明底的胶囊，波形从文字下方穿过也不干扰识别。 */
+.clip.audio .clip-name {
+  top: 2px; left: 4px;
+  padding: 1px 4px; border-radius: 3px;
+  background: rgba(10, 18, 40, .72);
+  backdrop-filter: blur(2px);
+}
+/* 音频片段：纯色底 + 波形（用户 2026-11-03：「导入音频的时候没有素材，
+   只有背景颜色，蓝色也好，或者是别的颜色，或者是黑色，有那个有音乐的波浪线」）。
+   为什么不用缩略图：音频没有画面帧，缩略图是空白/纯色块，看不出是音频。
+   配色取自参考图的蓝紫系，与视频轨（缩略图）一眼可分。 */
+.clip.audio { background: linear-gradient(180deg, #1E3A8A 0%, #1E2A55 100%); }
+
+/* 波形：铺满整条，垂直居中 */
+.wave { position: absolute; inset: 0; display: flex; align-items: center;
+        gap: 1px; overflow: hidden; padding: 3px 0; box-sizing: border-box; }
+/* 音频波形用浅色，在深蓝底上对比够（参考图的波形是近白色） */
+.wave i { display: block; width: 1px; background: rgba(220, 232, 255, .78);
+          flex: none; border-radius: .5px; }
+/* 无真实波形时的占位：一排短横，别让它看起来像「空片段」 */
+.wave i.flat { background: rgba(220, 232, 255, .34); }
 
 /* 关键帧 ♦ 标记 */
 .kf { position: absolute; width: 8px; height: 8px; background: #FFFFFF;
