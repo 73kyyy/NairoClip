@@ -63,7 +63,16 @@ body { -webkit-text-size-adjust: 100%; }
 .canvas { position: relative; height: 100%; width: auto;
           max-width: 100%; max-height: 100%;
           aspect-ratio: var(--ratio-w, 9) / var(--ratio-h, 16);
-          background: #000; overflow: hidden; flex: none; }
+          background: #000; overflow: hidden; flex: none;
+          /* 预览区圆角（对齐参考图，约 8px）。
+             为什么不受比例影响：圆角是**元素级**属性，与 aspect-ratio
+             无关 —— 9:16 / 16:9 / 1:1 / 4:3 都是同一个半径。
+             用 px 而不是 %：百分比圆角会随尺寸变化，竖屏与横屏
+             看起来完全不同。 */
+          border-radius: 8px;
+          /* 细描边：参考图里预览区外圈有一道很淡的亮边，
+             让黑画面与深色底分开。用 inset 避免影响布局尺寸。 */
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,.10); }
 /* 约束冲突时（宽度先到上限）让高度自动回落，保持比例不变形 */
 @supports (contain: size) {
   .canvas { contain: layout paint; }
@@ -255,16 +264,19 @@ body { -webkit-text-size-adjust: 100%; }
         border: 0; }
 .tbody { position: absolute; inset: 0; }
 .clip { position: absolute; top: var(--clip-pad, 0); bottom: var(--clip-pad, 0);
-        border-radius: 3px; overflow: hidden;
+        border-radius: var(--clip-radius, 5px); overflow: hidden;
         background: #1B1F20;
-        /* 素材白色描边 —— **无论选中与否都有，且要明显**
-           （用户 2026-11-03：「不管点中没有点中，都要有描边，要明显的」）。
-           用 box-shadow inset 而不是 border：
-           · border 会占内尺寸，把缩略图挤小 2px；
-           · inset 阴影不占布局，且能贴合 border-radius 的圆角。
-           92% 不透明：比 72% 明显得多，但不用纯白 ——
-           纯白在亮画面上会与内容糊在一起，反而不像「边框」。 */
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,.92); }
+        /* 素材白色描边 —— 对齐参考图（3x 截图实测，见 /upload/3ed36ad7）：
+           **白框在素材外侧**，比素材本身大一圈，不是向内压的 inset 线。
+           实测：顶边白带 6px@3x ≈ 2px，白框自身 R 角略大于素材圆角。
+
+           用 border 实现外侧白框：
+           · border 在 box-sizing:border-box 下会吃掉内容区 2px —— 这里
+             正是要的：白框与素材边缘重合，缩略图铺到边框内侧；
+           · inset box-shadow 做不到「向外一圈」的效果，只会压暗内容。
+           未选中就 92% 白：用户要求「不管点中没有点中，都要有，且要明显」。 */
+        box-sizing: border-box;
+        border: 2px solid rgba(255,255,255,.92); }
 /* 选中态：更亮的实心白边 + 外发光 */
 /* 选中高光（用户 2026-11-03：「点亮的时候高光…严重的时候会加强，
    也不要那么刺眼」）。
@@ -734,17 +746,19 @@ body { -webkit-text-size-adjust: 100%; }
    不能是胶囊/椭圆，那样会露出素材的原始圆角缺口。
    宽度 ≈ 素材高度的 45%（视觉上约 2~3 帧），保证手指能抓住。 */
 .trim-handle {
-  position: absolute; top: 0; bottom: 0; width: 8px;
+  position: absolute; top: 0; bottom: 0; width: 7px;
   background: #FFFFFF; z-index: 8; cursor: ew-resize;
   touch-action: none;
   display: grid; place-items: center;
 }
-/* 外缘直角、内缘 R 角 —— 这是「填满素材角」的关键：
-   · 外侧（贴素材外边界那一侧）必须是**直角**，否则素材自身的
-     3px 圆角会在白块旁边露出一道底色缺口；
-   · 内侧（朝向素材内容那一侧）给 R 角，白块与缩略图之间过渡才不生硬。 */
-.trim-l { left: 0;  border-radius: 0 3px 3px 0; }
-.trim-r { right: 0; border-radius: 3px 0 0 3px; }
+/* 把手与素材**共用同一个 R 角半径**（对齐参考图：整块看是一个圆角矩形，
+   不是「白块盖在方角上」）。
+   左端只有左上/左下是圆的 —— 那正是素材的左圆角；
+   右端只有右上/右下是圆的 —— 素材的右圆角。
+   注意：.clip 现在有 2px border，把手要压在 border 外缘上（-2px），
+   否则会被 border 顶开 2px、露出一条缝。 */
+.trim-l { left: -2px;  border-radius: var(--clip-radius, 5px) 0 0 var(--clip-radius, 5px); }
+.trim-r { right: -2px; border-radius: 0 var(--clip-radius, 5px) var(--clip-radius, 5px) 0; }
 /* 极窄素材：把手收窄，两端不互相盖住 */
 .clip.narrow .trim-handle { width: 5px; }
 /* 抓握处的细竖线（提示可拖） */
@@ -786,7 +800,9 @@ body { -webkit-text-size-adjust: 100%; }
   .l2-item span, .l2-back span { font-size: 9px; }
   .brand { font-size: 15px; }
   .export { height: 25px; padding: 0 11px; font-size: 11px; }
-  .trim-handle { width: 14px; height: 26px; }
+  /* 这里原来有一条 .trim-handle { width: 14px; height: 26px; } ——
+     它会覆盖主规则、且 height 让把手不再顶满轨道高度（上下露缺口）。
+     把手宽度不该随屏宽变大：窄屏本来就挤，14px 反而更糟。已删除。 */
 }
 @media (max-width: 320px) {
   .l1-item { min-width: 44px; }
