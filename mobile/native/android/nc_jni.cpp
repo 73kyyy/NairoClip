@@ -19,6 +19,7 @@
 
 #include <jni.h>
 #include "nairoclip/core/text_content.h"
+#include "nairoclip/core/crash_handler.h"
 #include "nairoclip/core/simd.h"
 
 #include <cstdint>
@@ -1487,14 +1488,32 @@ jbyteArray PngToJByteArray(JNIEnv* env, uint8_t* data, int32_t len) {
 
 extern "C" {
 
+/* 全局引擎句柄。
+   ------------------------------------------------------------------------
+   绝大部分 JNI 函数通过参数 `jlong h` 拿句柄（多实例安全）。
+   但 `nativeReleaseMemory` 是**系统内存回调触发的**，没有参数可传 ——
+   只能靠这个全局句柄。
+
+   为什么只有一个：本 App 的设计就是单工程单实例，
+   多实例会让「撤销历史 / 素材缓存」的语义变复杂，没必要。 */
+static NcEditor* g_currentEditor = nullptr;
+
 JNIEXPORT jlong JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeCreate(JNIEnv*, jobject) {
-    return reinterpret_cast<jlong>(nc_editor_create());
+    NcEditor* ed = nc_editor_create();
+    g_currentEditor = ed;
+    return reinterpret_cast<jlong>(ed);
 }
 
 JNIEXPORT void JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeDestroy(JNIEnv*, jobject, jlong h) {
-    if (h) nc_editor_destroy(reinterpret_cast<NcEditor*>(h));
+    if (h) {
+        NcEditor* ed = reinterpret_cast<NcEditor*>(h);
+        /* 清空全局句柄 —— 否则内存回调会往已释放的句柄上写，
+           那是 use-after-free，比不释放更危险。 */
+        if (g_currentEditor == ed) g_currentEditor = nullptr;
+        nc_editor_destroy(ed);
+    }
 }
 
 JNIEXPORT jstring JNICALL
@@ -2079,6 +2098,37 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeBlitFrame(
 JNIEXPORT jboolean JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeSurfaceReady(JNIEnv*, jobject) {
     return g_surface.window != nullptr ? JNI_TRUE : JNI_FALSE;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   崩溃捕获与内存释放（§8.1 / §8.2）
+   ══════════════════════════════════════════════════════════════════════════ */
+
+JNIEXPORT jboolean JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeInstallCrashHandler(
+    JNIEnv* env, jobject, jstring dir) {
+    /* 目录必须已存在（Kotlin 侧传 filesDir）。
+       这里不做 mkdir —— 崩溃处理器安装失败比「目录不存在」更值得关注。 */
+    const char* cdir = nullptr;
+    if (dir != nullptr) {
+        cdir = env->GetStringUTFChars(dir, nullptr);
+    }
+    const bool ok = nairoclip::core::installCrashHandler(cdir);
+    if (cdir != nullptr) {
+        env->ReleaseStringUTFChars(dir, cdir);
+    }
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeReleaseMemory(
+    JNIEnv*, jobject, jint level) {
+    /* 内存压力响应。
+       注意：这里**不检查 h（引擎句柄）** —— 释放缓存不需要有效工程，
+       而没有句柄时也要允许调用（比如引擎还没初始化就被系统催内存）。 */
+    auto* ed = g_currentEditor;
+    if (ed == nullptr) return 0L;
+    return static_cast<jlong>(nc_release_memory(ed, level));
 }
 
 }  // extern "C"

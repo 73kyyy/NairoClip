@@ -17,6 +17,7 @@ add_library(nairoclip_core STATIC
     src/thread_pool.cpp
     src/simd.cpp
     src/text_content.cpp
+    src/crash_handler.cpp
     src/animation.cpp
     src/export_plan.cpp
     src/capi.cpp

@@ -22,6 +22,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     /// 预览 Surface（P6 零拷贝）。垫在 WebView 下层，预览画面直接写显存。
     private lateinit var previewSurface: PreviewSurfaceView
+    /// 内存压力监听（§8.2 第 11 条）
+    private var memoryGuard: MemoryGuard? = null
     private var engine: NativeEngineBridge? = null
 
     /**
@@ -44,6 +46,30 @@ class MainActivity : AppCompatActivity() {
 
         // libnc_jni.so：NativeEngineBridge 里 external 方法的实现
         NativeEngineBridge.loadLibrary()
+        /* ---- 崩溃捕获（§8.1 第 3 条）----
+           在 loadLibrary 之后立刻装 —— 越早越好，
+           晚装的这段时间里崩了就抓不到。
+           日志目录用 filesDir：应用私有，不需要存储权限。 */
+        try {
+            val crashDir = filesDir.absolutePath
+            val ok = NativeEngineBridge.installCrashHandler(crashDir)
+            if (ok) android.util.Log.i("NcCrash", "崩溃处理器已安装: $crashDir/crash.log")
+        } catch (e: Throwable) {
+            android.util.Log.w("NcCrash", "安装失败（不影响启动）", e)
+        }
+
+        /* ---- 内存压力响应（§8.2 第 11 条）----
+           registerComponentCallbacks 后系统会在杀进程前回调 onTrimMemory。
+           这是我们最后一次主动释放的机会。 */
+        memoryGuard = MemoryGuard(applicationContext) { level ->
+            try {
+                NativeEngineBridge.instance?.releaseMemory(level) ?: 0L
+            } catch (e: Throwable) {
+                0L
+            }
+        }
+        registerComponentCallbacks(memoryGuard)
+
         /* 注册文本栅格化器（§4.6）：之后文本片段才能渲染。
            放在 loadLibrary 之后、WebView 加载之前 ——
            晚于这个时机会出现「首次预览没有文字」。
@@ -200,6 +226,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        memoryGuard?.let { unregisterComponentCallbacks(it) }
+        memoryGuard = null
         engine?.release()
         engine = null
         if (this::webView.isInitialized) {

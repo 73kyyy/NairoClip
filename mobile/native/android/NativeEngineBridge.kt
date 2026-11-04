@@ -299,6 +299,10 @@ class NativeEngineBridge(
     private external fun nativeBlitFrame(handle: Long, timeUs: Long): Boolean
     /** Surface 是否已就绪。 */
     private external fun nativeSurfaceReady(): Boolean
+
+    /* ---- 崩溃捕获与内存释放（§8.1 / §8.2）---- */
+    private external fun nativeInstallCrashHandler(dir: String): Boolean
+    private external fun nativeReleaseMemory(level: Int): Long
     private external fun nativeInstallModel(handle: Long, modelId: String, data: ByteArray,
                                             path: String, sha256: String,
                                             nowUnix: Long): String
@@ -345,6 +349,10 @@ class NativeEngineBridge(
 
         private var instanceForSurface: NativeEngineBridge? = null
 
+        /** 当前绑定实例（MainActivity 在内存回调里要用）。 */
+        val instance: NativeEngineBridge?
+            get() = instanceForSurface
+
         fun attachSurface(surface: android.view.Surface?, width: Int, height: Int): Boolean {
             val inst = instanceForSurface ?: return false
             return try {
@@ -367,6 +375,26 @@ class NativeEngineBridge(
                 inst.nativeBlitFrame(handle, timeUs)
             } catch (e: Throwable) {
                 false
+            }
+        }
+
+        /** 安装崩溃处理器（§8.1）。用单例实例转发。 */
+        fun installCrashHandler(dir: String): Boolean {
+            val inst = instanceForSurface ?: return false
+            return try {
+                inst.nativeInstallCrashHandler(dir)
+            } catch (e: Throwable) {
+                false
+            }
+        }
+
+        /** 释放内存（§8.2 第 11 条）。返回估算释放字节数。 */
+        fun releaseMemory(level: Int): Long {
+            val inst = instanceForSurface ?: return 0L
+            return try {
+                inst.nativeReleaseMemory(level)
+            } catch (e: Throwable) {
+                0L
             }
         }
 

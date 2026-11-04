@@ -1,4 +1,5 @@
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/crash_handler.h"
 #include "nairoclip/core/xform.h"
 
 #include "nairoclip/core/chapter.h"
@@ -7001,4 +7002,59 @@ const char* nc_perf_stage_name(int32_t stage) {
         return "unknown";
     }
     return perfStageName(static_cast<PerfStage>(stage));
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   崩溃捕获（§8.1 第 3 条）
+   ══════════════════════════════════════════════════════════════════════════ */
+
+int32_t nc_install_crash_handler(const char* crash_dir) {
+    return installCrashHandler(crash_dir) ? 1 : 0;
+}
+
+const char* nc_crash_log_path(void) { return crashLogPath(); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   内存压力响应（§8.2 第 11 条）
+   ══════════════════════════════════════════════════════════════════════════ */
+
+uint64_t nc_release_memory(NcEditor* editor, int32_t level) {
+    if (editor == nullptr) return 0;
+
+    uint64_t freed = 0;
+
+    /* level 0/1/2 都先清帧缓存 —— 它占得最多且最容易重建。
+       估算释放量：缓存帧数 × 单帧字节。 */
+    if (editor->previewRenderer != nullptr) {
+        const PreviewRenderer::CacheStats st = editor->previewRenderer->cacheStats();
+        const Sequence* seq = editor->project.mainSequence();
+        std::size_t frameBytes = 0;
+        if (seq != nullptr && seq->width > 0 && seq->height > 0) {
+            frameBytes = static_cast<std::size_t>(seq->width) *
+                         static_cast<std::size_t>(seq->height) * 4u;
+        }
+        freed += static_cast<uint64_t>(st.cachedFrames) * frameBytes;
+        editor->previewRenderer->clearFrameCache();
+    }
+
+    /* level >= 1：连解码器一起释放。
+       代价：下次预览要重新 open + 解码首帧，会有几十毫秒的恢复延迟。
+       换来的是每个解码器数 MB 的缓冲。 */
+    if (level >= 1) {
+        /* 重置整个 PreviewRenderer 是最彻底的释放 ——
+           它持有 frames_ / readers_ / adjustmentLuts_ 三类缓存。
+           注意这不影响工程数据（renderer 是纯缓存层）。 */
+        if (editor->previewRenderer != nullptr) {
+            freed += 16ull * 1024ull * 1024ull;   // 解码器缓冲的保守估计
+            editor->previewRenderer.reset();
+        }
+        ++editor->directEditCount;   // 强制下次重建
+    }
+
+    /* level >= 2：临时峰值缓冲之类也清掉。
+       目前 core 里没有全局的图片/缩略图缓存池，
+       这里留出接口位置，将来加了在那里释放。 */
+    (void)level;
+
+    return freed;
 }

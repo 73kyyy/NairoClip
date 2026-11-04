@@ -1885,6 +1885,37 @@ int32_t nc_perf_probe_get(int32_t stage, double* out_avg_ms, double* out_p99_ms,
 /// 阶段名（"decode" / "fit" / ...）。返回静态字符串，**不需要** nc_free_string。
 const char* nc_perf_stage_name(int32_t stage);
 
+/* ══════════════════════════════════════════════════════════════════════════
+   崩溃捕获（§8.1 第 3 条）
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/// 安装崩溃处理器（SIGSEGV/SIGABRT/SIGFPE/SIGBUS/SIGILL）。
+/// - crash_dir：日志目录（必须已存在且可写）；NULL = 当前工作目录
+/// - 返回 1 = 成功，0 = 失败
+/// 幂等：重复调用只安装一次。
+int32_t nc_install_crash_handler(const char* crash_dir);
+
+/// 崩溃日志路径（静态字符串，**不需要** nc_free_string）。
+/// 未安装时返回空串。
+const char* nc_crash_log_path(void);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   内存压力响应（§8.2 第 11 条）
+   ══════════════════════════════════════════════════════════════════════════
+   触发时机：Android `onTrimMemory(TRIM_MEMORY_RUNNING_LOW)` 等回调。
+
+   为什么这很重要：那是系统在**杀进程之前**给的最后一次机会。
+   不响应就是「闪退」；响应了最多是「重算一帧」，用户几乎无感。 */
+
+/// 按内存压力等级释放缓存。
+/// - level 0 = 轻微压力：只清帧缓存（可重算）
+/// - level 1 = 中等：额外释放解码器（下次要重新 open，代价较高）
+/// - level 2 = 严重：额外清空 LUT / 缩略图等所有可重建缓存
+///
+/// 返回释放的估算字节数（仅供日志，不保证精确）。
+/// **不会**释放用户数据 —— 工程内容、编辑历史全部保留。
+uint64_t nc_release_memory(NcEditor* editor, int32_t level);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
