@@ -22,6 +22,7 @@
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/chroma_key.h"
 #include "nairoclip/core/lut.h"
+#include "nairoclip/core/perf_probe.h"
 #include "nairoclip/core/speech_cut.h"
 #include "nairoclip/core/proxy.h"
 #include "nairoclip/core/model_manager.h"
@@ -6970,4 +6971,30 @@ int32_t nc_track_placement_reason(int32_t track_type, int32_t media_type, char**
         }
     }
     return 1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   性能埋点（P0）
+   ══════════════════════════════════════════════════════════════════════════ */
+
+void nc_perf_probe_enable(int32_t on) { perfSetEnabled(on != 0); }
+
+int32_t nc_perf_probe_enabled(void) { return perfEnabled() ? 1 : 0; }
+
+void nc_perf_probe_reset(void) { perfReset(); }
+
+int32_t nc_perf_probe_get(int32_t stage, double* out_avg_ms, double* out_p99_ms,
+                          double* out_max_ms, uint64_t* out_count) {
+    if (stage < 0 || stage >= kPerfStageCount) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "stage 超出 0..4");
+    }
+    perfGet(static_cast<PerfStage>(stage), out_avg_ms, out_p99_ms, out_max_ms, out_count);
+    return NC_OK;
+}
+
+const char* nc_perf_stage_name(int32_t stage) {
+    if (stage < 0 || stage >= kPerfStageCount) {
+        return "unknown";
+    }
+    return perfStageName(static_cast<PerfStage>(stage));
 }

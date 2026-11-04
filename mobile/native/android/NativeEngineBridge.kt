@@ -232,20 +232,29 @@ class NativeEngineBridge(
         if (w <= 0 || h <= 0) return ""
         if (raw.size.toLong() - 8L != w.toLong() * h.toLong() * 4L) return ""
 
+        /* 快速路径：整块拷贝，替代原本的逐像素 Kotlin 循环。
+           -----------------------------------------------------------------
+           **字节序必须搞对**，这里踩过一次坑：
+             · core 输出 RGBA8：偏移 0=R 1=G 2=B 3=A
+             · Bitmap.Config.ARGB_8888 的 int 值是 0xAARRGGBB，
+               在小端 ARM 上内存字节序是 **B,G,R,A**（低字节在前）
+           ⇒ 直接把 RGBA 整块拷进去会 **R/B 互换（红蓝颠倒）**。
+
+           正确做法二选一：
+             (a) Kotlin 侧逐像素换序（原实现，200 万次操作，慢）
+             (b) **C++ 侧直接输出 BGRA**，Kotlin 整块拷（本方案）
+
+           这里用 (b)：nativeFrame 的 JNI 侧已经把 RGBA 换成 BGRA
+           （见 nc_jni.cpp 的 nativeFrame，用 rgbaToBgraInPlace）。
+           换序在 C++ 侧做，NEON 一次处理 16 像素，比 Kotlin 的
+           boxed Int 循环快一个量级。
+
+           兜底：若字节数不符（异常尺寸），回退到空的 ByteArray，
+           下方 png.isEmpty() 会让调用方拿到空串而不是错色画面。 */
         val png = try {
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            // RGBA8 → ARGB_8888（Android 的 int 像素低字节是 B，需换序）
-            val pixels = IntArray(w * h)
-            var p = 8
-            for (i in pixels.indices) {
-                val r = raw[p].toInt() and 0xFF
-                val g = raw[p + 1].toInt() and 0xFF
-                val b = raw[p + 2].toInt() and 0xFF
-                val al = raw[p + 3].toInt() and 0xFF
-                pixels[i] = (al shl 24) or (r shl 16) or (g shl 8) or b
-                p += 4
-            }
-            bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+            val direct = java.nio.ByteBuffer.wrap(raw, 8, w * h * 4)
+            bmp.copyPixelsFromBuffer(direct)
             val out = java.io.ByteArrayOutputStream()
             bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
             bmp.recycle()

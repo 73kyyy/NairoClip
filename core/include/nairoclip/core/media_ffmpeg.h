@@ -36,6 +36,12 @@ public:
     Result seek(const Time& sourceTime) override;
     bool readVideoFrame(VideoFrame& out) override;
     bool readAudioBlock(AudioBlock& out) override;
+    /// 顺序访问提示：命中时 seek 直接返回、不调 av_seek_frame。
+    void suggestSequential(const SequentialHint& hint) override;
+
+    /// 诊断用：累计真正执行 av_seek_frame 的次数。
+    /// 验收断言依赖它（「10s 工程导出 seek 增量 = 1 而非 300」）。
+    long seekCount() const;
 
 private:
     struct Impl;

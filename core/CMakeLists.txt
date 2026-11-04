@@ -13,6 +13,9 @@ add_library(nairoclip_core STATIC
     src/json.cpp
     src/serialization.cpp
     src/recovery.cpp
+    src/perf_probe.cpp
+    src/thread_pool.cpp
+    src/simd.cpp
     src/animation.cpp
     src/export_plan.cpp
     src/capi.cpp

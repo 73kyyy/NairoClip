@@ -100,11 +100,34 @@ struct VideoFrame {
     std::vector<std::uint8_t> pixels;  // RGBA8，已旋转到正确朝向
 };
 
+/// 顺序访问提示（可选能力，不是新接口）。
+///
+/// 语义：调用方承诺「接下来会依次请求**不早于** nextExpected 的帧」。
+/// 实现可据此跳过 seek、复用解码器状态，避免每帧都
+/// `av_seek_frame` + `avcodec_flush_buffers` + 从关键帧重解。
+///
+/// **不调用 = 保持现状**（每帧 seek），行为完全不变 ——
+/// 这是「可选能力」而不是「必须改造」的关键：老调用方零改动。
+struct SequentialHint {
+    bool active = false;
+    /// 期望的下一帧时间（源时间轴）。
+    Time nextExpected{};
+    /// 允许的偏差（秒）。超出即失效，回退到 seek。
+    /// 导出用 0.5/fps，播放可用 1/fps。
+    double tolerance = 0.0;
+};
+
 /// 媒体读取器接口：由平台层实现（FFmpeg / 系统 API）。
 /// 线程约束：单个实例不允许多线程并发调用。
 class MediaReader {
 public:
     virtual ~MediaReader() = default;
+
+    /// 顺序访问提示。默认空实现 —— 不支持的实现自然退化为每帧 seek。
+    ///
+    /// 调用方责任：**暂停 / 拖动 / 随机跳转必须显式传 active=false**，
+    /// 否则实现会误以为访问仍是顺序的，返回旧位置的帧。
+    virtual void suggestSequential(const SequentialHint& hint) { (void)hint; }
 
     /// 打开媒体文件。
     virtual Result open(const std::string& path) = 0;

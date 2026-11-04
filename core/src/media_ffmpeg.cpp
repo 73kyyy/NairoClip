@@ -185,6 +185,11 @@ struct FFmpegMediaReader::Impl {
     // 重采样输出格式
     int outSampleRate = 0;
     int outChannels = 0;
+    /// 重采样器上次构建时的输入/输出参数（用于判断能否复用，见 readAudioBlock）。
+    int swrSrcRate = -1;
+    int swrSrcFmt = -1;
+    int swrOutRate = -1;
+    int swrOutChannels = -1;
     // seek 目标
     Time seekTarget;
     bool afterSeek = false;
@@ -193,6 +198,19 @@ struct FFmpegMediaReader::Impl {
     bool audioAfterSeek = false;
     /// 容器显示旋转角（0/90/180/270）。open 时读一次，readVideoFrame 每帧应用。
     int rotationDeg = 0;
+
+    /* ---- 顺序访问快路径（PD）----
+       目标：把「每输出 1 帧就 seek + flush + 从关键帧重解 125 帧」
+       降为「每输出 1 帧只解 1 帧」。
+
+       生效条件（全部满足才走快路径）：
+         1. seqHint.active
+         2. |seek目标 - hint.nextExpected| <= tolerance
+         3. 解码器没 EOF（EOF 后必须 seek 才能回到前面）
+       任一不满足 → 清标志，走原 seek 路径，行为与改动前完全一致。 */
+    SequentialHint seqHint;
+    /// 真正执行 av_seek_frame 的次数（验收断言用）。
+    long seekCount = 0;
     // 解码器冲刷标志（输入 EOF 后发送空包取缓冲帧）
     bool videoEof = false;
     bool audioEof = false;
@@ -231,6 +249,12 @@ struct FFmpegMediaReader::Impl {
         videoEof = false;
         audioEof = false;
         rotationDeg = 0;
+        seqHint = SequentialHint{};
+        seekCount = 0;
+        swrSrcRate = -1;
+        swrSrcFmt = -1;
+        swrOutRate = -1;
+        swrOutChannels = -1;
     }
 };
 
@@ -280,6 +304,20 @@ Result FFmpegMediaReader::open(const std::string& path) {
             return Result::fail(ErrorCode::Unsupported, "视频流参数复制失败");
         }
         impl.videoCodec->pkt_timebase = stream->time_base;
+        /* 解码器多线程（PD 第 4 条）。
+           原来直接 avcodec_open2(..., nullptr)，thread_count 保持库默认
+           （通常 1）—— 多核完全闲置。多核机解码段耗时理论上可降到 1/N。
+
+           thread_count = 0 → FFmpeg 自选（= CPU 核数）；
+           thread_type = FF_THREAD_FRAME → 帧级并行（H.264/HEVC 最有效）。
+           不用 FF_THREAD_SLICE：帧级并行对 GOP 内依赖的处理更简单，
+           且延迟更可控（切片并行需要等同一帧的所有切片，首帧延迟更高）。
+
+           注意：帧级并行会让解码器**内部缓存若干帧**，因此 seek 后
+           不能假设「下一次 receive 就是目标帧」—— 这点由 readVideoFrame
+           里既有的 afterSeek 跳过逻辑处理（按时间戳过滤，不看序号）。 */
+        impl.videoCodec->thread_count = 0;
+        impl.videoCodec->thread_type = FF_THREAD_FRAME;
         err = avcodec_open2(impl.videoCodec, codec, nullptr);
         if (err < 0) {
             close();
@@ -361,6 +399,16 @@ bool FFmpegMediaReader::isOpen() const { return impl_ != nullptr && impl_->open;
 
 const MediaProbeResult& FFmpegMediaReader::probe() const { return impl_->probe; }
 
+void FFmpegMediaReader::suggestSequential(const SequentialHint& hint) {
+    Impl& impl = *impl_;
+    impl.seqHint = hint;
+    /* 关闭提示时顺手清 EOF 标志？不能清 —— EOF 是解码器真实状态，
+       清了会让 readVideoFrame 继续在已耗尽的解码器上取帧（永远 EAGAIN）。
+       交给下一次真 seek 去复位。 */
+}
+
+long FFmpegMediaReader::seekCount() const { return impl_->seekCount; }
+
 Result FFmpegMediaReader::seek(const Time& sourceTime) {
     Impl& impl = *impl_;
     if (!impl.open) {
@@ -370,6 +418,33 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
         return Result::fail(ErrorCode::OutOfRange, "seek 目标为负");
     }
     const std::int64_t targetUs = toMicroseconds(sourceTime);
+
+    /* ---- 顺序访问快路径（PD）----
+       命中判定：调用方提示「接下来要 t」，而我们现在就要 t —— 说明解码器
+       已经停在正确位置，无需 seek。
+
+       为什么必须检查 videoEof：EOF 之后 avcodec_receive_frame 会一直返回
+       AVERROR_EOF，不 seek 就永远拿不到帧。此时必须走慢路径。
+
+       为什么必须检查 afterSeek：上一帧读取过程中可能已消费了目标之后的帧
+       （readVideoFrame 返回时就 av_frame_unref 了，但解码器内部位置仍在前）。
+       保守起见，只要 afterSeek 为 true 就说明位置已不可信，走慢路径。 */
+    if (impl.seqHint.active && !impl.videoEof) {
+        const double dtSec = std::fabs(
+            static_cast<double>(targetUs - toMicroseconds(impl.seqHint.nextExpected)) / 1e6);
+        if (dtSec <= impl.seqHint.tolerance) {
+            /* 位置可用：只更新「期望的下一帧」标记，不动解码器。
+               afterSeek = false 是关键 —— 否则 readVideoFrame 会把
+               接下来的正常帧当成「seek 前的旧帧」丢掉。 */
+            impl.seekTarget = sourceTime;
+            impl.afterSeek = false;
+            impl.frameReady = false;
+            return Result::ok();
+        }
+        /* 超容差（跳章/倒放/随机跳转）→ 提示失效，往下走真 seek */
+        impl.seqHint.active = false;
+    }
+
     // 定位策略（修复「MP4/AAC 音频 seek 内容错位」缺陷）：
     //   容器同时含音频+视频时，按 stream_index = -1 定位在 MP4 上只会移动到
     //   「视频关键帧」，音频解复用器位置不会移动到目标附近——实测含视频的
@@ -386,6 +461,7 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
         seekIndex = impl.audioStream;
         seekTimestamp = av_rescale_q(targetUs, AV_TIME_BASE_Q, audioStream->time_base);
     }
+    ++impl.seekCount;
     const int err = av_seek_frame(impl.format, seekIndex, seekTimestamp, AVSEEK_FLAG_BACKWARD);
     if (err < 0) {
         return Result::fail(ErrorCode::OutOfRange, "seek 失败: " + avErrorString(err));
@@ -572,18 +648,44 @@ bool FFmpegMediaReader::readAudioBlock(AudioBlock& out) {
     while (true) {
         const int err = avcodec_receive_frame(impl.audioCodec, impl.frame);
         if (err == 0) {
-            // 设置重采样器（swr_alloc_set_opts2 就地初始化传入的指针）
-            AVChannelLayout outLayout;
-            av_channel_layout_default(&outLayout, outChannels);
-            swr_free(&impl.swr);
-            const int allocErr = swr_alloc_set_opts2(
-                &impl.swr, &outLayout, AV_SAMPLE_FMT_FLT, outSampleRate,
-                &impl.audioCodec->ch_layout, impl.audioCodec->sample_fmt,
-                impl.audioCodec->sample_rate, 0, nullptr);
-            av_channel_layout_uninit(&outLayout);
-            if (allocErr < 0 || impl.swr == nullptr || swr_init(impl.swr) < 0) {
-                av_frame_unref(impl.frame);
-                return false;
+            /* 重采样器：**参数变化时才重建**，不要每帧重建。
+               ------------------------------------------------------------
+               原实现每解一帧就 swr_free + swr_alloc_set_opts2 + swr_init。
+               swr_init 会重算整张滤波器系数表（重采样有几十个抽头，
+               48k→44.1k 这类非整数比更贵），而输入格式在整条流里
+               通常**恒定不变** —— 每帧重建纯属浪费。
+
+               复用与 sws_getCachedContext 同一范式：
+                 输入/输出参数没变 → 直接用；变了才 free + 重建。
+
+               ⚠️ 注意：seek 后必须**保留** swr（不能随 flush 一起清）。
+               avcodec_flush_buffers 只清解码器内部状态，不改变采样格式；
+               重采样器里的 delay 由 swr_convert 自身维护，重建反而会丢掉
+               已缓冲的样本，导致 seek 后开头出现轻微爆音。 */
+            const bool swrMatches =
+                impl.swr != nullptr &&
+                impl.swrSrcRate == impl.audioCodec->sample_rate &&
+                impl.swrSrcFmt == impl.audioCodec->sample_fmt &&
+                impl.swrOutRate == outSampleRate &&
+                impl.swrOutChannels == outChannels;
+
+            if (!swrMatches) {
+                AVChannelLayout outLayout;
+                av_channel_layout_default(&outLayout, outChannels);
+                swr_free(&impl.swr);
+                const int allocErr = swr_alloc_set_opts2(
+                    &impl.swr, &outLayout, AV_SAMPLE_FMT_FLT, outSampleRate,
+                    &impl.audioCodec->ch_layout, impl.audioCodec->sample_fmt,
+                    impl.audioCodec->sample_rate, 0, nullptr);
+                av_channel_layout_uninit(&outLayout);
+                if (allocErr < 0 || impl.swr == nullptr || swr_init(impl.swr) < 0) {
+                    av_frame_unref(impl.frame);
+                    return false;
+                }
+                impl.swrSrcRate = impl.audioCodec->sample_rate;
+                impl.swrSrcFmt = impl.audioCodec->sample_fmt;
+                impl.swrOutRate = outSampleRate;
+                impl.swrOutChannels = outChannels;
             }
             // 容量算式：输出率放分子、输入率放分母（N * out / in）。
             // ⚠️ 原来写反成 N * in / out：升采样时会算小，

@@ -1859,6 +1859,32 @@ int32_t nc_template_apply_slots(NcEditor* editor, const char* template_id,
                                 const int32_t* slot_indices, const uint64_t* material_ids,
                                 int32_t count, char** out_summary, char** out_error);
 
+/* ══════════════════════════════════════════════════════════════════════════
+   性能埋点（P0）
+   ══════════════════════════════════════════════════════════════════════════
+   五段计时：0=decode 1=fit 2=effect 3=composite 4=transfer。
+   默认关闭，`nc_perf_probe_enable(1)` 或环境变量 `NC_PERF=1` 启用。
+
+   为什么要暴露到 ABI：UI 层需要在设置页/调试面板显示「当前瓶颈在哪一段」，
+   否则每次排查都要重新编译带日志的包。 */
+
+/// 启用/关闭埋点。关闭时埋点开销 = 一次 bool 判断。
+void nc_perf_probe_enable(int32_t on);
+/// 当前是否启用。
+int32_t nc_perf_probe_enabled(void);
+/// 清空统计。
+void nc_perf_probe_reset(void);
+
+/// 取某阶段的统计（毫秒）。
+/// - stage：0..4，越界返回 NC_ERROR_OUT_OF_RANGE
+/// - 任一 out 指针可为 NULL
+/// - out_count：累计样本数（不是环形缓冲里的数量）
+int32_t nc_perf_probe_get(int32_t stage, double* out_avg_ms, double* out_p99_ms,
+                          double* out_max_ms, uint64_t* out_count);
+
+/// 阶段名（"decode" / "fit" / ...）。返回静态字符串，**不需要** nc_free_string。
+const char* nc_perf_stage_name(int32_t stage);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

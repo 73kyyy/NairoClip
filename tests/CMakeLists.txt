@@ -61,6 +61,7 @@ add_executable(nairoclip_tests
     test_ripple.cpp
     test_frame_fit.cpp
     test_xform.cpp
+    test_perf_p0_p4.cpp
     test_beat_detect.cpp
     test_auto_duck.cpp
     test_compound.cpp

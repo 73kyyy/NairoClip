@@ -46,8 +46,25 @@ struct Lut3D {
     /// 标题（TITLE 行，可为空）。
     std::string title;
 
+    /// **整型快速路径**（P1）：size³×3 字节，由 buildFastTable() 生成。
+    ///
+    /// 为什么需要：`data` 是 double 且 lutSample 要做三线性插值 ——
+    /// 每像素 3 通道 × 8 次查表 + 插值，浮点运算数十次。
+    /// 33³ 的表只有 107KB，完全放得进 L2，改成整型查表后
+    /// 每像素只剩 6 次整数乘加 + 边界处理。
+    ///
+    /// 为什么不直接替换 data：导出高质量路径与单测需要 double 版做基准
+    /// （逐像素差 ≤ 2 的验收断言依赖两套实现并存）。
+    /// 空 = 尚未构建；applyLutToRgba 发现为空时会就地构建。
+    mutable std::vector<std::uint8_t> fast;
+
     /// 数据是否自洽（size 与 data 长度匹配、域范围有效）。
     bool valid() const;
+
+    /// 构建整型快速表。成功返回 true（已存在则直接返回 true）。
+    /// 失败（size 无效 / data 长度不符）返回 false，fast 保持为空，
+    /// 调用方应回退到 double 路径 —— 不要假设「构建失败 = 不能用」。
+    bool buildFastTable() const;
 };
 
 /// 解析 .cube 文本。

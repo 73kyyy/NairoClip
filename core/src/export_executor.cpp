@@ -567,6 +567,23 @@ ExportStats executeExport(
             // 真实解码：seek 到源时间并读取一帧
             bool decoded = false;
             if (reader->isOpen()) {
+                /* 顺序访问提示（PD）：**导出是严格顺序的** —— 帧按时间递增，
+                   而且同一条素材在一段连续区间内被连续取用。
+                   提示之后，FFmpegMediaReader 会跳过 av_seek_frame，
+                   直接从解码器当前位置继续读，省掉「每帧从关键帧重解」。
+
+                   tolerance 取半帧：相邻帧间隔约 1/fps，允许半帧偏差
+                   足以覆盖微秒取整，又不会把「跳过一帧」误判成顺序。
+                   素材切换（换 clip / 换素材）时 nextExpected 会跳变，
+                   超出容差 → 自动回退 seek，无需调用方特殊处理。 */
+                const double fpsValue = std::max(1.0, fps.toDouble());
+                const double frameDur = 1.0 / fpsValue;
+                SequentialHint hint;
+                hint.active = true;
+                hint.nextExpected = sourceTime;
+                hint.tolerance = frameDur * 0.5;
+                reader->suggestSequential(hint);
+
                 if (reader->seek(sourceTime).isOk()) {
                     VideoFrame source;
                     if (reader->readVideoFrame(source)) {

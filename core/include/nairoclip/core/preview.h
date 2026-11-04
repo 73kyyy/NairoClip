@@ -4,6 +4,7 @@
 #include "nairoclip/core/export_plan.h"
 #include "nairoclip/core/lut.h"
 #include "nairoclip/core/media_io.h"
+#include "nairoclip/core/render_engine.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/subtitle.h"
 
@@ -87,6 +88,31 @@ public:
     /// - 字幕：取序列字幕轨中所有可见字幕
     /// - 动画：应用片段动画通道（透明度/缩放/位移/旋转）
     /// 命中帧缓存时直接返回缓存副本（不重新解码）。
+    /// 设置渲染质量（P2 代理渲染 + 丢帧）。
+    ///
+    /// 默认 = 全质量（scale=1），与改动前行为完全一致。
+    /// 平台层按实测单帧耗时调用 setQuality(RenderQuality::previewQuality(0.5)) 降级。
+    ///
+    /// **导出路径不走这里** —— 导出有自己的 ExportQuality，恒为 1.0。
+    /// 若这里被设成 scale<1，只影响预览帧的尺寸，不影响导出。
+    void setQuality(const RenderQuality& quality);
+    const RenderQuality& quality() const;
+    /// 丢帧统计（播放时上一帧未完成则跳过本帧）。
+    std::uint64_t droppedFrames() const;
+
+    /// 按实测单帧耗时自动选档（P2 的「自动档」）。
+    ///
+    /// 规则（与文档一致）：
+    ///   单帧 > 40ms  → scale = 0.5
+    ///   单帧 > 25ms  → scale = 0.75
+    ///   否则         → scale = 1.0
+    ///
+    /// 为什么让调用方传入耗时而不是内部计时：耗时统计需要**跨调用**
+    /// 平滑（每 30 帧评估一次），放在调用方（播放循环/平台层）更自然，
+    /// 也避免 PreviewRenderer 变成有状态的自适应黑盒。
+    /// 返回是否改变了档位。
+    bool autoAdjustQuality(double avgFrameMs);
+
     PreviewFrame renderAt(const Time& timelineTime);
 
     /// 便捷：只取字幕。
@@ -134,6 +160,9 @@ private:
     MediaReader* readerFor(AssetId asset);
     /// 应用调整图层（B2-6）：对已合成的整帧依次应用 effects 与 LUT。
     void applyAdjustmentLayers(PreviewFrame& frame, const Time& timelineTime);
+
+    RenderQuality quality_{RenderQuality::exportQuality()};
+    std::uint64_t droppedFrames_ = 0;
 
     const Project& project_;
     MediaReaderFactory& readerFactory_;

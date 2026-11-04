@@ -1,4 +1,5 @@
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/thread_pool.h"
 
 #include "nairoclip/core/atmosphere_effects.h"
 #include "nairoclip/core/motion_effects.h"
@@ -217,16 +218,34 @@ void ColorTransform::apply(double& r, double& g, double& b) const {
 
 void applyColorTransformToRgba(std::uint8_t* pixels, std::size_t pixelCount,
                                const ColorTransform& transform) {
-    for (std::size_t i = 0; i < pixelCount; ++i) {
-        double r = static_cast<double>(pixels[i * 4]) / 255.0;
-        double g = static_cast<double>(pixels[i * 4 + 1]) / 255.0;
-        double b = static_cast<double>(pixels[i * 4 + 2]) / 255.0;
-        transform.apply(r, g, b);
-        pixels[i * 4] = static_cast<std::uint8_t>(r * 255.0 + 0.5);
-        pixels[i * 4 + 1] = static_cast<std::uint8_t>(g * 255.0 + 0.5);
-        pixels[i * 4 + 2] = static_cast<std::uint8_t>(b * 255.0 + 0.5);
-        // alpha 保持不变
-    }
+    /* 逐像素调色（P3 并行化）。
+       -----------------------------------------------------------------
+       为什么能安全并行：每个像素只读写自己的 4 字节，**没有任何跨像素依赖**
+       （对比：模糊/锐化需要读取邻居，不能用这个切法）。
+       按**像素区间**切分而不是按行：本函数拿不到高度，也不需要 ——
+       区间边界对齐到 4 字节（RGBA），各段互不重叠。
+
+       为什么结果 bit-exact：每个像素的计算与并行与否完全无关
+       （同一组输入 → 同一组浮点运算 → 同一结果）。不存在「浮点累加顺序
+       变化导致末位不同」的问题，因为根本没有跨像素的累加。
+
+       小图（< 64K 像素）线程池会退化为同步执行，调度开销不反超。 */
+    if (pixels == nullptr || pixelCount == 0) return;
+
+    ThreadPool::instance().parallelFor(
+        pixelCount, ThreadPool::kMinPixelsForParallel / 4,
+        [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                double r = static_cast<double>(pixels[i * 4]) / 255.0;
+                double g = static_cast<double>(pixels[i * 4 + 1]) / 255.0;
+                double b = static_cast<double>(pixels[i * 4 + 2]) / 255.0;
+                transform.apply(r, g, b);
+                pixels[i * 4] = static_cast<std::uint8_t>(r * 255.0 + 0.5);
+                pixels[i * 4 + 1] = static_cast<std::uint8_t>(g * 255.0 + 0.5);
+                pixels[i * 4 + 2] = static_cast<std::uint8_t>(b * 255.0 + 0.5);
+                // alpha 保持不变
+            }
+        });
 }
 
 ColorTransform evaluateColorTransform(const EffectStack& stack) {

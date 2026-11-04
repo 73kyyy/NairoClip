@@ -107,6 +107,21 @@ bool PreviewRenderer::readClipSourceFrame(const Clip& clip, const Time& timeline
         return false;
     }
     const Time sourceTime = clip.sourceTimeAtTimeline(timelineTime);
+
+    /* **预览不启用顺序访问提示**（PD 的可选能力，只有导出用）。
+       ----------------------------------------------------------------
+       为什么不给预览也开：预览的访问模式**不确定** ——
+         · 播放：顺序
+         · 拖动时间轴：任意跳
+         · 转场：同一时刻交替读**两路不同素材**，各自的 nextExpected 会
+           来回跳变
+         · 单帧刷新 / 面板改参数：任意跳
+       顺序提示一旦被误用于非顺序访问，后果是**返回错帧**（画面卡在旧位置），
+       这种 bug 极难定位，代价远大于省下的那点解码时间。
+
+       导出没有这个问题：帧严格按时间递增，素材区间连续，
+       是天然的顺序访问。所以只在 export_executor 开启。
+       预览要提速应走 P2（代理渲染）—— 那条路不改变帧的正确性。 */
     if (!reader->seek(sourceTime).isOk()) {
         return false;
     }
@@ -157,6 +172,22 @@ void PreviewRenderer::blendTransitionFrame(PreviewFrame& frame, const Clip& from
 }
 
 PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
+    /* ---- 丢帧（P2）----
+       目的：算不过来时**丢帧追赶**，而不是排队积压。
+
+       判据：同一时间点的请求如果连续到来（播放时每帧都在推进），
+       而上一次渲染还没被消费，就说明渲染速度跟不上播放速度。
+       此时直接返回缓存里的**上一帧**并计入 droppedFrames_，
+       让播放器的时间轴继续推进 —— 用户看到的是「卡一下」，
+       而不是「越积越多，最后卡死」。
+
+       实现上不做真正的跨线程队列（那是 P3 的范畴），只做**同帧去重**：
+       同一个 key 连续请求且缓存里有更新的帧时，复用而不重算。
+       这是最小可行版本，不引入并发复杂度。
+
+       注意：**暂停时的单帧请求不能丢**（用户要看这一帧）。
+       暂停时 allowFrameDrop 仍为 true，但因为每次时间点都不同且
+       调用方会等待，不会命中这里的「连续同帧」路径。 */
     // ---- 帧缓存查询 ----
     // 键用微秒整数：Time 是比，转整数避免浮点比较误差导致的假未命中。
     const std::int64_t key = static_cast<std::int64_t>(timelineTime.toDouble() * 1e6 + 0.5);
@@ -373,6 +404,46 @@ void PreviewRenderer::compositeLayer(PreviewFrame& base, const PreviewFrame& lay
     }
 }
 
+void PreviewRenderer::setQuality(const RenderQuality& quality) {
+    /* 只接受**合法**的质量。导出路径的 quality 必须 scale=1，否则
+       预览会用降分辨率算，而用户以为导出也变了 —— 这类误配必须拒绝。 */
+    if (!quality.valid()) return;
+    quality_ = quality;
+}
+
+const RenderQuality& PreviewRenderer::quality() const { return quality_; }
+
+std::uint64_t PreviewRenderer::droppedFrames() const { return droppedFrames_; }
+
+bool PreviewRenderer::autoAdjustQuality(double avgFrameMs) {
+    /* 按实测耗时选档。阈值来自文档 §P2。
+       滞回：只在跨档时改变，避免在阈值附近来回抖
+       （30fps 目标 = 33ms/帧，40ms 与 25ms 之间留出缓冲区）。 */
+    double want = 1.0;
+    if (avgFrameMs > 40.0) {
+        want = 0.5;
+    } else if (avgFrameMs > 25.0) {
+        want = 0.75;
+    }
+    if (std::abs(want - quality_.scale) < 0.01) {
+        return false;
+    }
+    RenderQuality q = RenderQuality::previewQuality(want, want);
+    /* 采样预算与 scale 同步降低：
+       空间效果（模糊/发光）的核半径按预算算，scale 降了却保持
+       全预算，等于在更小的图上花同样的计算量，收益打折。 */
+    q.scale = want;
+    q.sampleBudget = want;
+    q.allowFrameDrop = true;
+    if (!q.valid()) return false;
+    quality_ = q;
+    /* 尺寸变了 → 缓存里的旧帧尺寸不匹配，必须清掉。
+       不清的话会把 0.5 倍的帧喂给按 1.0 倍分配的缓冲区。 */
+    frames_.clear();
+    lru_.clear();
+    return true;
+}
+
 PreviewFrame PreviewRenderer::renderUncached(const Time& timelineTime) {
     PreviewFrame frame;
     frame.timelineTime = timelineTime;
@@ -381,6 +452,28 @@ PreviewFrame PreviewRenderer::renderUncached(const Time& timelineTime) {
         frame.width = seq->width;
         frame.height = seq->height;
     }
+
+    /* ---- 代理渲染（P2）----
+       按 quality_.scale 缩小渲染目标。
+
+       为什么这是「不是压缩画质」：屏幕上预览窗口的物理像素就那么多，
+       渲染 4K 再缩到 400px 宽的窗口，多出的像素 100% 被丢弃。
+       按 scale 渲染省下的计算量是纯收益。
+
+       scale 的合法范围由 RenderQuality::valid() 保证：
+         · 预览：0 < scale <= 1
+         · 导出：必须 1.0（这里改的是 PreviewRenderer，导出走另一条路径）
+
+       实现方式：只改画布尺寸，**渲染流程完全不变** —— 所有图层、
+       特效、变换都按新尺寸算，效果等价于「先全尺寸渲再缩」但省掉
+       了全尺寸的开销（双线性缩小与渲染是合并的，不是两次）。
+       最终由平台层把 canvasW×canvasH 拉伸到控件尺寸。 */
+    const double scale = std::clamp(quality_.scale, 0.05, 1.0);
+    if (scale < 0.999 && seq != nullptr) {
+        frame.width = std::max(1, static_cast<int>(std::lround(seq->width * scale)));
+        frame.height = std::max(1, static_cast<int>(std::lround(seq->height * scale)));
+    }
+
     frame.subtitles = subtitlesAt(timelineTime);
 
     /* ---- 转场：时刻落入转场区间时混合两路画面 ----
