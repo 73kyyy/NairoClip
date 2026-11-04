@@ -7,6 +7,9 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/display.h>
+#include <libavutil/pixdesc.h>
+#include <libavutil/mastering_display_metadata.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
@@ -41,6 +44,91 @@ FrameRate frameRateOf(const AVStream* stream) {
         return fps30();
     }
     return FrameRate::of(rate.num, rate.den);
+}
+
+/// 读取容器的显示旋转角（顺时针，0/90/180/270）。
+///
+/// 来源优先级：
+///   1. 流级 display matrix 侧数据（手机竖拍 MP4 走这条，最常见）
+///   2. stream->metadata 的 "rotate" 键（老文件/某些封装）
+///   3. 都没有 → 0
+///
+/// 为什么不用 av_display_rotation_get 直接用：它返回的是「逆时针弧度 +
+/// 需要取负」的约定，容易搞反。这里统一归一化到 [0,360) 的顺时针角度，
+/// 并且把非 90 倍数（少数设备会写 89.9 之类）四舍五入到最近的 90 倍数 ——
+/// 只支持正交旋转：任意角度的旋转需要重采样，那是一块独立的几何变换工作，
+/// 不属于「读元数据」的范畴，强行支持会引入插值糊边。
+int displayRotationOf(const AVStream* stream) {
+    double deg = 0.0;
+    bool found = false;
+
+    const AVPacketSideData* sd =
+        av_packet_side_data_get(stream->codecpar->coded_side_data,
+                                stream->codecpar->nb_coded_side_data,
+                                AV_PKT_DATA_DISPLAYMATRIX);
+    if (sd != nullptr && sd->size >= 9 * sizeof(std::int32_t)) {
+        // av_display_rotation_get 返回逆时针角度；取负得到顺时针。
+        deg = -av_display_rotation_get(reinterpret_cast<const std::int32_t*>(sd->data));
+        found = true;
+    }
+
+    if (!found) {
+        const AVDictionaryEntry* tag = av_dict_get(stream->metadata, "rotate", nullptr, 0);
+        if (tag != nullptr && tag->value != nullptr) {
+            deg = std::atof(tag->value);
+            found = true;
+        }
+    }
+
+    if (!found || !std::isfinite(deg)) return 0;
+
+    // 归一化到 [0, 360)
+    double norm = std::fmod(deg, 360.0);
+    if (norm < 0) norm += 360.0;
+    // 吸附到最近的 90 度
+    int quarter = static_cast<int>(std::lround(norm / 90.0)) % 4;
+    if (quarter < 0) quarter += 4;
+    return quarter * 90;
+}
+
+/// 把 src（RGBA8）按顺时针 deg 度旋转，写入 dst。
+/// 90/270 时宽高互换。deg 必须是 0/90/180/270。
+void rotateRgba(const std::uint8_t* src, int sw, int sh, int sStride,
+                std::uint8_t* dst, int dw, int dh, int dStride, int deg) {
+    if (deg == 0) {
+        for (int y = 0; y < sh; ++y) {
+            std::memcpy(dst + static_cast<std::size_t>(y) * dStride,
+                        src + static_cast<std::size_t>(y) * sStride,
+                        static_cast<std::size_t>(sw) * 4);
+        }
+        return;
+    }
+    for (int y = 0; y < sh; ++y) {
+        const std::uint8_t* row = src + static_cast<std::size_t>(y) * sStride;
+        for (int x = 0; x < sw; ++x) {
+            const std::uint8_t* p = row + static_cast<std::size_t>(x) * 4;
+            int dx = 0;
+            int dy = 0;
+            switch (deg) {
+                case 90:   // 顺时针 90：(x,y) -> (sh-1-y, x)
+                    dx = sh - 1 - y;
+                    dy = x;
+                    break;
+                case 180:  // (x,y) -> (sw-1-x, sh-1-y)
+                    dx = sw - 1 - x;
+                    dy = sh - 1 - y;
+                    break;
+                case 270:  // 顺时针 270：(x,y) -> (y, sw-1-x)
+                    dx = y;
+                    dy = sw - 1 - x;
+                    break;
+                default:
+                    break;
+            }
+            std::memcpy(dst + static_cast<std::size_t>(dy) * dStride +
+                        static_cast<std::size_t>(dx) * 4, p, 4);
+        }
+    }
 }
 
 }  // namespace
@@ -103,6 +191,8 @@ struct FFmpegMediaReader::Impl {
     /// 音频 seek 后「待跳过」标志：readAudioBlock 丢弃目标之前的音频帧
     /// （与 readVideoFrame 的 seek 跳过逻辑对称；见 seek 注释）。
     bool audioAfterSeek = false;
+    /// 容器显示旋转角（0/90/180/270）。open 时读一次，readVideoFrame 每帧应用。
+    int rotationDeg = 0;
     // 解码器冲刷标志（输入 EOF 后发送空包取缓冲帧）
     bool videoEof = false;
     bool audioEof = false;
@@ -140,6 +230,7 @@ struct FFmpegMediaReader::Impl {
         audioAfterSeek = false;
         videoEof = false;
         audioEof = false;
+        rotationDeg = 0;
     }
 };
 
@@ -196,8 +287,20 @@ Result FFmpegMediaReader::open(const std::string& path) {
                                 "视频解码器打开失败: " + avErrorString(err));
         }
         impl.probe.type = impl.audioStream >= 0 ? MediaType::Video : MediaType::Video;
-        impl.probe.width = impl.videoCodec->width;
-        impl.probe.height = impl.videoCodec->height;
+        /* 读容器旋转角。手机竖拍的 MP4 编码尺寸是 1920x1080（横向），
+           真正的朝向写在 display matrix 侧数据里。解码器不会自动应用 ——
+           不读它，竖拍视频在预览和导出里都会横过来。
+
+           读到的角度同时用于：
+             · probe.width/height 报「显示尺寸」（竖拍 = 1080x1920）
+             · readVideoFrame 转完 RGBA 后实际旋转像素
+           所以下游拿到的帧永远已经是正确朝向，不需要各自再处理一次
+           （多处各自处理必然漂移，这是历来最典型的一类 bug）。 */
+        impl.rotationDeg = displayRotationOf(stream);
+        impl.probe.rotationDeg = impl.rotationDeg;
+        const bool swap = (impl.rotationDeg == 90 || impl.rotationDeg == 270);
+        impl.probe.width = swap ? impl.videoCodec->height : impl.videoCodec->width;
+        impl.probe.height = swap ? impl.videoCodec->width : impl.videoCodec->height;
         impl.probe.frameRate = frameRateOf(stream);
         impl.probe.codec = avcodec_get_name(codec->id);
     }
@@ -340,12 +443,55 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
                 return false;
             }
             mediaHeapCheck("sws_getCachedContext 之后");
+
+            /* YUV → RGBA 的色彩空间对齐。
+               ------------------------------------------------------------------
+               不设的话 sws 默认按 BT.601 的系数转换。但 720p 及以上（以及
+               绝大多数手机视频）实际是 BT.709 —— 用 601 转 709 素材，
+               红色会偏橙、整体泛灰，肉眼一眼能看出「颜色不对」。
+
+               判据优先级：
+                 1. 码流自带的 color_space（最准，容器里写了就用它）
+                 2. 否则按分辨率推断：height >= 720 → 709，否则 601
+                    （这是业界通行的启发式，FFmpeg/Chrome 都这么做）
+
+               同时对齐 range：手机录像多为 limited(16-235)，
+               电脑录屏/合成素材多为 full(0-255)。用错 range 会「发白发灰」
+               或「死黑死白」。 */
+            int swsFlags = SWS_BILINEAR | SWS_FULL_CHR_H_INT | SWS_ACCURATE_RND;
+            const int* coeffs = nullptr;
+            int dstRange = 0;
+            const int srcRange = (impl.frame->color_range == AVCOL_RANGE_JPEG) ? 1 : 0;
+
+            const AVColorSpace cs = impl.frame->colorspace;
+            bool useBt709 = false;
+            if (cs == AVCOL_SPC_BT709) {
+                useBt709 = true;
+            } else if (cs == AVCOL_SPC_BT470BG || cs == AVCOL_SPC_SMPTE170M) {
+                useBt709 = false;
+            } else {
+                useBt709 = (height >= 720);
+            }
+            const int* coeff = useBt709 ? sws_getCoefficients(SWS_CS_ITU709)
+                                        : sws_getCoefficients(SWS_CS_ITU601);
+            coeffs = coeff;
+            dstRange = 0;   // 输出 RGBA 用 limited，与后续滤镜链一致
+            sws_setColorspaceDetails(impl.sws, coeff, srcRange, coeff, dstRange,
+                                     0, 1 << 16, 1 << 16);
+            (void)swsFlags;
+
             out.timestamp = frameTime;
-            out.width = width;
-            out.height = height;
-            out.stride = width * 4;
+            /* 旋转后的显示尺寸：90/270 时宽高互换。
+               这里就换掉，下游一律按 out.width/height 走，
+               不需要知道「源是横的但显示是竖的」这回事。 */
+            const bool swap = (impl.rotationDeg == 90 || impl.rotationDeg == 270);
+            const int dispW = swap ? height : width;
+            const int dispH = swap ? width : height;
+            out.width = dispW;
+            out.height = dispH;
+            out.stride = dispW * 4;
             const std::size_t frameBytes =
-                static_cast<std::size_t>(out.stride) * static_cast<std::size_t>(height);
+                static_cast<std::size_t>(out.stride) * static_cast<std::size_t>(dispH);
             out.pixels.resize(frameBytes);
             /* sws_scale 必须写到一块**尾部有余量**的缓冲上。
                ----------------------------------------------------------------
@@ -365,11 +511,23 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
                pixels.size() == stride*height 断言帧大小，改变它会造成
                语义破坏。代价是一次 frameBytes 的拷贝，换取缓冲区契约不变。 */
             constexpr std::size_t kTailPadding = 64;
-            std::vector<std::uint8_t> scratch(frameBytes + kTailPadding, 0);
+            /* 两步走：先 sws 转到「编码尺寸」的 RGBA，再按需旋转到显示尺寸。
+               为什么不直接让 sws 输出旋转后的尺寸：sws 只做缩放/色彩转换，
+               不做旋转；想一步到位得用 sws_rotate 或滤镜图，代价大得多。
+               正交旋转是一次 memcpy 级别的像素搬运，自己做更可控。 */
+            const std::size_t rawBytes =
+                static_cast<std::size_t>(width) * 4 * static_cast<std::size_t>(height);
+            std::vector<std::uint8_t> scratch(rawBytes + kTailPadding, 0);
             std::uint8_t* dst[4] = {scratch.data(), nullptr, nullptr, nullptr};
-            const int dstStride[4] = {out.stride, 0, 0, 0};
+            const int rawStride = width * 4;
+            const int dstStride[4] = {rawStride, 0, 0, 0};
             sws_scale(impl.sws, impl.frame->data, impl.frame->linesize, 0, height, dst, dstStride);
-            std::memcpy(out.pixels.data(), scratch.data(), frameBytes);
+            if (impl.rotationDeg != 0) {
+                rotateRgba(scratch.data(), width, height, rawStride,
+                           out.pixels.data(), dispW, dispH, out.stride, impl.rotationDeg);
+            } else {
+                std::memcpy(out.pixels.data(), scratch.data(), frameBytes);
+            }
             mediaHeapCheck("sws_scale 之后");
             av_frame_unref(impl.frame);
             mediaHeapCheck("av_frame_unref 之后");

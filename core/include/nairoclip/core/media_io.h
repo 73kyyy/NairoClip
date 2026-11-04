@@ -19,11 +19,23 @@ struct MediaProbeResult {
     MediaType type = MediaType::Unknown;
     Time duration;
     FrameRate frameRate;
+    /// **已应用旋转后**的显示尺寸（竖拍视频这里就是 1080x1920）。
     int width = 0;
     int height = 0;
     int sampleRate = 0;
     int channels = 0;
     std::string codec;  // 如 "h264"（展示用）
+
+    /// 容器里的旋转角（顺时针，0/90/180/270）。
+    ///
+    /// 为什么必须有：手机竖拍的 MP4，编码尺寸通常是 1920x1080（横向），
+    /// 真正的朝向写在 display matrix 侧数据里。不读它，竖拍视频会**横过来**。
+    /// 解码器**不会**自动应用这个角度 —— FFmpeg 的 avcodec 只输出编码尺寸，
+    /// 旋转是「显示提示」，由使用方负责。
+    ///
+    /// 这里由 readVideoFrame 在转 RGBA 后**实际旋转**像素，
+    /// 所以 width/height 已是旋转后的显示尺寸；该字段保留供调试与诊断。
+    int rotationDeg = 0;
 };
 
 /// 一帧音频采样块（交错格式，16-bit 或 float 由实现约定；
@@ -81,10 +93,11 @@ struct OutputAudioBlock {
 struct VideoFrame {
     /// 时间戳（源素材时间轴）。
     Time timestamp;
+    /// 显示尺寸：**已应用容器旋转角**（竖拍视频为 1080x1920，不是 1920x1080）。
     int width = 0;
     int height = 0;
-    int stride = 0;  // 每行字节数
-    std::vector<std::uint8_t> pixels;  // RGBA8
+    int stride = 0;  // 每行字节数 (= width * 4)
+    std::vector<std::uint8_t> pixels;  // RGBA8，已旋转到正确朝向
 };
 
 /// 媒体读取器接口：由平台层实现（FFmpeg / 系统 API）。
