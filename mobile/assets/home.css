@@ -171,3 +171,8 @@ body { background: var(--bg-void); font-family: var(--font); color: var(--text-h
   .hero .txt span { display: none; }
   .q span { font-size: 9px; }
 }
+
+/* 协议未同意时：首页内容整体隐藏，只留协议弹窗。
+   为什么连顶栏也藏：顶栏有「我的」「设置」入口，
+   能绕开协议直接进二级页面。 */
+body.consent-pending .screen { visibility: hidden; }

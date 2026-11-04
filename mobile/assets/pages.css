@@ -82,14 +82,8 @@ body { background: var(--bg-app); font-family: var(--font); color: var(--text-hi
 .empty small { font-size: 10.5px; color: #4B504E; }
 
 /* ---------- 底部 Tab ---------- */
-.tabs { flex: none; height: clamp(50px, 6.4vh, 62px); display: grid;
-        grid-template-columns: repeat(4, 1fr); background: #101312;
-        border-top: 1px solid #1E2221; }
-.tab { border: 0; background: transparent; display: flex; flex-direction: column;
-       align-items: center; justify-content: center; gap: 4px;
-       color: #686E6C; font-family: var(--font); font-size: 10px; padding: 0; }
-.tab .i { width: 21px; height: 21px; }
-.tab.on { color: #FFFFFF; }
+/* 底部 Tab 样式已删除（用户 2026-11-04：「下面就不要导航键了」）。
+   首页左上角人像=我的、右上角齿轮=设置，入口已够，不需要重复的 Tab 栏。 */
 
 /* ---------- 我的：用户卡 ---------- */
 .user { display: flex; align-items: center; gap: 12px; padding: 14px 2px 6px; }
@@ -149,6 +143,11 @@ button.line {
   appearance: none;
 }
 button.line:active { color: #C4CAC8; }
+
+/* 深层法务入口：比普通行更弱一档，不抢视线
+   （用户 2026-11-04：「藏到最下面，不容易发现也就行了」）。
+   用更暗的字色 + 更小的字号，但**保持可点**、保持可访问性对比度。 */
+.acc-body .line.muted { font-size: 10.5px; color: #5F6764; }
 button.line + button.line { border-top: 1px solid #22262a; }
 
 /* 下拉选择（设置页通用/外观） */

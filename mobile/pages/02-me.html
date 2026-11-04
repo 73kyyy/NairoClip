@@ -87,6 +87,14 @@
       <div class="acc-body">
         <div class="line">意见反馈<span class="val">›</span></div>
         <div class="line">常见问题<span class="val">›</span></div>
+        <!-- 「版权与许可」「AI 标识/模型说明」按用户要求藏在这里
+             （2026-11-04：「藏到帮助与反馈里面，藏到最下面，
+               不容易发现也就行了，但是可以找到，极深越好」）。
+             放在展开区的最后两行，视觉上不显眼但路径可达：
+             我的 → 帮助与反馈 → 展开 → 滚到最底 → 点击 -->
+        <button class="line muted" data-doc="copyright">版权与许可<span class="val">›</span></button>
+        <button class="line muted" data-doc="aiNotice">AI 生成内容标识说明<span class="val">›</span></button>
+        <button class="line muted" data-doc="aiModels">AI 功能与模型说明<span class="val">›</span></button>
       </div>
     </div>
 
@@ -100,11 +108,8 @@
       <div class="acc-body">
         <div class="line">版本<span class="val" id="about-build">—</span></div>
         <div class="line">AI 引擎<span class="val" id="about-ai">—</span></div>
-        <button class="line" data-doc="aiNotice">AI 生成内容标识说明<span class="val">›</span></button>
-        <button class="line" data-doc="aiModels">AI 功能与模型说明<span class="val">›</span></button>
         <button class="line" data-doc="terms">用户协议<span class="val">›</span></button>
         <button class="line" data-doc="privacy">隐私政策<span class="val">›</span></button>
-        <button class="line" data-doc="copyright">版权与许可<span class="val">›</span></button>
       </div>
     </div>
 
@@ -112,12 +117,11 @@
     <div class="copy">© 2026 NairoClip · 纯本地处理，素材不上传</div>
   </div>
 
-  <nav class="tabs">
-    <button class="tab" data-tab="home"><svg class="i"><use href="#i-clip"/></svg><span>剪辑</span></button>
-    <button class="tab" data-tab="template"><svg class="i"><use href="#i-layers"/></svg><span>模板</span></button>
-    <button class="tab" data-tab="message"><svg class="i"><use href="#i-bell"/></svg><span>消息</span></button>
-    <button class="tab on" data-tab="me"><svg class="i"><use href="#i-person"/></svg><span>我的</span></button>
-  </nav>
+  <!-- 底部导航已删除（用户 2026-11-04：「下面就不要导航键了」）。
+       理由：首页左上角人像 = 我的，右上角齿轮 = 设置，
+       功能都已可达，底部再放一排 Tab 是重复入口。
+       原本的「剪辑/模板/消息」三个 Tab 里，只有「剪辑」能用，
+       另两个是空的，留着反而暗示有未实现的功能。 -->
 </div>
 
 <script src="../assets/icons.js"></script>

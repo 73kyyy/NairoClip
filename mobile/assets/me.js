@@ -138,16 +138,8 @@ $('btn-logout').addEventListener('click', () => {
   paintUser();
 });
 
-document.querySelectorAll('.tab').forEach((t) => {
-  t.addEventListener('click', () => {
-    if (t.dataset.tab === 'home') {
-      const q = new URLSearchParams(location.search).get('api');
-      location.href = `01-home.html${q ? `?api=${encodeURIComponent(q)}` : ''}`;
-      return;
-    }
-    toast('功能开发中', 1500);
-  });
-});
+/* 底部 Tab 的绑定已删除（DOM 一起删了，见 02-me.html）。
+   返回首页走左上角的 btn-back，不需要 Tab。 */
 
 
 /* ---------- 登录态 ---------- */

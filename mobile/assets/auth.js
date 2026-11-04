@@ -308,7 +308,14 @@ if (PAGE === 'phone') {
 document.querySelectorAll('[data-doc]').forEach((a) => {
   a.addEventListener('click', (e) => {
     e.preventDefault();
-    toast(a.dataset.doc === 'terms' ? '用户协议：待接入正式文本' : '隐私政策：待接入正式文本');
+    /* 原来这里只弹「待接入正式文本」的 toast，但文本早就写在
+       assets/legal/legal-text.js 里了（05-legal.html 也能正常渲染）。
+       属于漏接线 —— 现在跳到阅读页，点完用浏览器返回回到本页。 */
+    const doc = a.dataset.doc || 'terms';
+    const back = location.pathname.split('/').pop() +
+                 (location.search || '');
+    location.href = `05-legal.html?doc=${encodeURIComponent(doc)}` +
+                    `&from=${encodeURIComponent(back)}`;
   });
 });
 

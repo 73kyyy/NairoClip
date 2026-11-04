@@ -84,6 +84,21 @@
 </div>
 
 <script src="../assets/icons.js"></script>
+<!-- 协议文本（单一事实来源）+ 启动协议弹窗 -->
+<script src="../assets/legal/legal-text.js"></script>
+<script src="../assets/legal/consent-gate.js"></script>
 <script src="../assets/home.js"></script>
+<script>
+  /* 启动门禁：未同意当前版本协议时先弹窗，同意后才加载首页数据。
+     必须在 home.js 之后执行 —— home.js 的 boot() 是异步的，
+     弹窗会盖在上面；但为了让「未同意」时也看不到草稿列表，
+     这里在 load 前就把内容区藏起来（同意后再放行）。 */
+  (function () {
+    var masked = NCConsent.gate({
+      onAccept: function () { document.body.classList.remove('consent-pending'); }
+    });
+    if (masked) document.body.classList.add('consent-pending');
+  })();
+</script>
 </body>
 </html>
