@@ -94,6 +94,13 @@
                  opts: ['#FFFFFF', '#F0A63E', '#E5484D', '#2D8CFF', '#7ED957', '#16171C'] },
     bgcolor:   { kind: 'color', name: '背景色', def: '#000000',
                  opts: ['#000000', '#FFFFFF', '#232323', '#1B3A46', '#3A2A18', '#2A1B3A'] },
+    /* 画幅适配三选一（对应 FrameFit 0/1/2）：
+         适应           = Fit  等比内缩，留白填背景
+         拉伸           = Crop 1:1 不缩放居中裁切
+         填充组合区域   = Fill 等比放大铺满，溢出裁切
+       顺序与 FrameFit 枚举值一致，下标即 mode，避免再做映射表。 */
+    fitmode:   { kind: 'seg', name: '填满方式',
+                 opts: ['适应', '拉伸', '填充组合区域'], def: 0 },
     canvasc:   { kind: 'color', name: '画布色', def: '#000000',
                  opts: ['#000000', '#FFFFFF', '#111413', '#202224'] },
     ratioW:    { kind: 'number', name: '宽', min: 16, max: 8192, def: 1080, unit: 'px' },
@@ -386,7 +393,11 @@
     },
 
     /* ===== 背景 ===== */
-    bgcolor: { title: '背景颜色', mode: 'single', groups: [['bgcolor', 'opacity']] },
+    /* 「填充组合区域」放在背景颜色面板里（用户要求「同一面板再加一个」）。
+       做成三选一段控件而不是两个独立按钮 —— 「拉伸」与「填充组合区域」
+       互斥，两个按钮能同时点亮会产生歧义（见 §4.9 的说明）。 */
+    bgcolor: { title: '背景颜色', mode: 'single',
+               groups: [['bgcolor', 'fitmode', 'opacity']] },
     bgblur:  { title: '背景模糊', mode: 'single', groups: [['blur']] },
     bgstyle: {
       title: '画布样式', mode: 'grid', gridKind: 'style',

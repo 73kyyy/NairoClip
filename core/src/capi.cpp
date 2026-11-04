@@ -510,6 +510,7 @@ uint64_t nc_add_track(NcEditor* editor, const char* name, int32_t track_type) {
         case 1: type = TrackType::Audio; break;
         case 2: type = TrackType::Subtitle; break;
         case 3: type = TrackType::Adjustment; break;
+        case 4: type = TrackType::Text; break;   // §4.6 文本轨
         default: return 0;
     }
     TrackId id;
@@ -581,6 +582,7 @@ int32_t nc_track_get(const NcEditor* editor, int32_t track_index, uint64_t* out_
             case TrackType::Audio: *out_type = 1; break;
             case TrackType::Subtitle: *out_type = 2; break;
             case TrackType::Adjustment: *out_type = 3; break;
+            case TrackType::Text: *out_type = 4; break;
         }
     }
     if (out_locked != nullptr) *out_locked = track.locked ? 1 : 0;
@@ -6934,6 +6936,8 @@ std::string placementRejectReason(TrackType trackType, MediaType mediaType) {
             return "字幕轨不接受片段（字幕请用字幕编辑）";
         case TrackType::Adjustment:
             return "调整图层不接受片段";
+        case TrackType::Text:
+            return "文本轨只接受文本片段";
     }
     return "不能放入该轨道";
 }

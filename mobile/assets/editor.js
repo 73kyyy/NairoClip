@@ -485,7 +485,10 @@ const L2 = {
   bg: [
     { id: 'bgcolor', name: '颜色', icon: 'i-palette' },
     { id: 'bgblur', name: '模糊', icon: 'i-bg' },
-    { id: 'bgstyle', name: '画布样式', icon: 'i-layers' }
+    { id: 'bgstyle', name: '画布样式', icon: 'i-layers' },
+    /* §4.9「填充」：与「颜色」的区别是**用户不指定颜色，系统随机生成**。
+       用户要求「不新增随机按钮，默认即是随机」，所以点进来就已有颜色。 */
+    { id: 'bgfill', name: '填充', icon: 'i-bg' }
   ],
   mask: [
     { id: 'maskshape', name: '形状', icon: 'i-mask' },
@@ -667,6 +670,12 @@ function runFunction(cat, f) {
     case 'bgcolor':    return openL3('bgcolor', { allowNoClip: true });
     case 'bgblur':     return openL3('bgblur', { allowNoClip: true });
     case 'bgstyle':    return openL3('bgstyle', { allowNoClip: true });
+    case 'bgfill':
+      /* 「填充」= 颜色模式的随机版。
+         进入时若当前背景色仍是默认值（用户没主动选过），
+         就生成一个随机色 —— 否则点「填充」看到一片黑会以为坏了。 */
+      ensureRandomBgColor();
+      return openL3('bgcolor', { allowNoClip: true });
     /* 蒙版 */
     case 'maskshape':   return openL3('maskshape');
     case 'maskfeather': return openL3('maskfeather');
@@ -2930,6 +2939,63 @@ function toggleGuides(btn) {
   }
 }
 
+/* ---------------- 4.9「填充」的默认随机色 ---------------- */
+
+/* 在 HSV 空间生成一个「不刺眼」的背景色。
+   -----------------------------------------------------------------
+   为什么不用纯随机 RGB：三个通道各自 0..255 均匀随机，数学期望
+   是「中灰」，但方差极大 —— 经常出现 (255,0,0) 这种纯红或
+   (0,0,255) 纯蓝，在我们的深色 UI 里非常刺眼，而且和画面主体抢视线。
+
+   取 HSV 的好处是可以**分别约束**三个感知维度：
+     · H（色相）随机 —— 保证每次不同
+     · S（饱和）0.25~0.55 —— 不出现纯色
+     · V（明度）0.55~0.80 —— 中等偏亮，既不像黑也不刺眼
+   这三条来自 PERF_XFORM_PLAN.md §4.9 的验收要求：
+   「生成的色 S ≤ 0.55、V ≤ 0.80」。 */
+function hsvToRgb(h, s, v) {
+  const c = v * s;
+  const hp = (h % 360) / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r = 0, g = 0, b = 0;
+  if (hp < 1) { r = c; g = x; }
+  else if (hp < 2) { r = x; g = c; }
+  else if (hp < 3) { g = c; b = x; }
+  else if (hp < 4) { g = x; b = c; }
+  else if (hp < 5) { r = x; b = c; }
+  else { r = c; b = x; }
+  const m = v - c;
+  return [
+    Math.round((r + m) * 255),
+    Math.round((g + m) * 255),
+    Math.round((b + m) * 255)
+  ];
+}
+
+/// 生成一个符合约束的随机背景色（返回 0xRRGGBBAA）。
+function randomBgColor() {
+  const h = Math.random() * 360;
+  const s = 0.25 + Math.random() * 0.30;   // 0.25..0.55
+  const v = 0.55 + Math.random() * 0.25;   // 0.55..0.80
+  const [r, g, b] = hsvToRgb(h, s, v);
+  return ((r << 24) | (g << 16) | (b << 8) | 0xFF) >>> 0;
+}
+
+/* 点「填充」时调用：当前背景若还是默认黑，就换成随机色。
+   为什么要判「是否默认」而不是无条件换：用户可能已经手动选过
+   一个满意的颜色，再点「填充」就把他选的冲掉了 —— 那是数据丢失。 */
+function ensureRandomBgColor() {
+  const cur = S.project && typeof S.project.backgroundRgba === 'number'
+    ? S.project.backgroundRgba : 0x000000FF;
+  // 默认黑（含 alpha 变体）才算「没选过」
+  const isDefaultBlack = ((cur >>> 8) & 0xFFFFFF) === 0;
+  if (!isDefaultBlack) return;
+  const rgba = randomBgColor();
+  const r = engineCall('nc_set_background_color', { rgba });
+  if (!r || !r.ok) return;   // 失败静默：进面板后用户仍可手动选色
+  try { applyState(fetchState()); } catch (_) {}
+}
+
 /* ---------------- 8. 图片与背景 ----------------
    两件事合一个面板：
    · 列出项目里所有图片素材（type=2），可删除；
@@ -4709,8 +4775,13 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
   loadBlendModes();
   // 首次载入：把整个工程缩放进来（用户手动缩放后不再覆盖）
   if (!/\bzoom=/.test(location.search)) fitToSeq();
-  // 预览按 fill 输出（铺满居中裁切）：与 9:16 画布一致，不出现上下黑边
-  try { await edit({ op: 'frame_fit', mode: 1 }); } catch (err) { /* 老引擎无此接口时保持默认 */ }
+  /* 预览按 fill 输出（铺满居中裁切）：与 9:16 画布一致，不出现上下黑边。
+     ⚠️ 这里原来写 `op: 'frame_fit'` —— edit() 把 op 直接当引擎函数名，
+     于是调用了不存在的 `nc_frame_fit`，永远失败并被 catch 吞掉。
+     正确函数名是 `nc_set_frame_fit`（capi.h:1095）。
+     这个 bug 一直没被发现，因为失败被 catch 静默处理，
+     表现是「预览一直是默认的 Fit，上下有黑边」。 */
+  try { await edit({ op: 'nc_set_frame_fit', mode: 1 }); } catch (err) { /* 老引擎无此接口时保持默认 */ }
   renderAll();
 
   const q = new URLSearchParams(location.search);

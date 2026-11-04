@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 #include <jni.h>
+#include "nairoclip/core/text_content.h"
 #include "nairoclip/core/simd.h"
 
 #include <cstdint>
@@ -1800,6 +1801,167 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeWaveform(
     }
     j += "]}";
     return ToJStr(env, j);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   文本栅格化桥（§4.6 / §4.10）
+   ══════════════════════════════════════════════════════════════════════════
+   设计：内核通过虚接口 TextRasterizer 取位图，不知道谁实现的。
+   这里用一个「回跳到 Kotlin」的实现 —— 把栅格化交给
+   AndroidTextRasterizer.rasterize()，它内部用 StaticLayout。
+
+   为什么不让 C++ 自己栅格化：
+     · 内核不链接任何字体库（Android/iOS/桌面各有系统字体引擎）
+     · StaticLayout 负责换行/字距/emoji 回退，手写必然出错
+   详见 PERF_XFORM_PLAN.md §4.10 的定案说明。 */
+
+namespace {
+
+/// 保存 JVM 与 Java 方法 ID（缓存，避免每次调用都查找）。
+struct TextBridgeState {
+    JavaVM* vm = nullptr;
+    jobject rasterizerObj = nullptr;   // 全局引用
+    jmethodID rasterizeMethod = nullptr;
+};
+
+TextBridgeState g_textBridge;
+
+/// C++ 侧实现：转发给 Kotlin。
+class JniTextRasterizer final : public nairoclip::core::TextRasterizer {
+public:
+    bool rasterize(const nairoclip::core::TextContent& text, int maxWidth, int maxHeight,
+                   std::vector<std::uint8_t>& outRgba, int& outW, int& outH) override {
+        if (g_textBridge.vm == nullptr || g_textBridge.rasterizerObj == nullptr ||
+            g_textBridge.rasterizeMethod == nullptr) {
+            return false;   // 未注册 → 显式降级
+        }
+
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        const jint getEnvRc = g_textBridge.vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (getEnvRc == JNI_EDETACHED) {
+            if (g_textBridge.vm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+                return false;
+            }
+            attached = true;
+        } else if (getEnvRc != JNI_OK) {
+            return false;
+        }
+
+        bool ok = false;
+        jbyteArray arr = nullptr;
+        jstring jText = nullptr;
+        jstring jFont = nullptr;
+        jstring jColor = nullptr;
+        jstring jOutline = nullptr;
+        jstring jBg = nullptr;
+
+        do {
+            jText = env->NewStringUTF(text.text.c_str());
+            jFont = env->NewStringUTF(text.style.fontFamily.c_str());
+            jColor = env->NewStringUTF(text.style.color.c_str());
+            jOutline = env->NewStringUTF(text.style.outlineColor.c_str());
+            jBg = env->NewStringUTF(text.style.backgroundColor.c_str());
+            if (jText == nullptr || jFont == nullptr || jColor == nullptr ||
+                jOutline == nullptr || jBg == nullptr) {
+                break;
+            }
+
+            arr = static_cast<jbyteArray>(env->CallObjectMethod(
+                g_textBridge.rasterizerObj, g_textBridge.rasterizeMethod,
+                jText, jFont,
+                static_cast<jfloat>(text.style.fontSize),
+                jColor, jOutline,
+                static_cast<jfloat>(text.style.outlineWidth),
+                jBg,
+                static_cast<jfloat>(text.style.backgroundPadding),
+                static_cast<jint>(text.style.alignment),
+                static_cast<jint>(maxWidth),
+                static_cast<jint>(maxHeight)));
+
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                break;
+            }
+            if (arr == nullptr) break;
+
+            const jsize len = env->GetArrayLength(arr);
+            if (len < 8) break;
+
+            std::vector<std::uint8_t> raw(static_cast<std::size_t>(len));
+            env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(raw.data()));
+
+            // [w:int32][h:int32][RGBA...]，小端
+            const int32_t w = static_cast<int32_t>(
+                raw[0] | (raw[1] << 8) | (raw[2] << 16) | (raw[3] << 24));
+            const int32_t hgt = static_cast<int32_t>(
+                raw[4] | (raw[5] << 8) | (raw[6] << 16) | (raw[7] << 24));
+            if (w <= 0 || hgt <= 0) break;
+
+            const std::size_t need =
+                static_cast<std::size_t>(w) * static_cast<std::size_t>(hgt) * 4u;
+            if (static_cast<std::size_t>(len) - 8u < need) break;
+
+            outRgba.assign(raw.begin() + 8, raw.begin() + 8 + static_cast<long>(need));
+            outW = w;
+            outH = hgt;
+            ok = true;
+        } while (false);
+
+        if (jText != nullptr) env->DeleteLocalRef(jText);
+        if (jFont != nullptr) env->DeleteLocalRef(jFont);
+        if (jColor != nullptr) env->DeleteLocalRef(jColor);
+        if (jOutline != nullptr) env->DeleteLocalRef(jOutline);
+        if (jBg != nullptr) env->DeleteLocalRef(jBg);
+        if (arr != nullptr) env->DeleteLocalRef(arr);
+
+        if (attached) {
+            g_textBridge.vm->DetachCurrentThread();
+        }
+        return ok;
+    }
+};
+
+JniTextRasterizer g_jniTextRasterizer;
+
+}  // namespace
+
+JNIEXPORT void JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeRegisterTextRasterizer(
+    JNIEnv* env, jobject, jobject rasterizer) {
+    /* 注册/注销 Kotlin 的栅格化器。
+       传 null = 注销（例如 Activity 销毁时），之后文本不再渲染，
+       但不会崩溃 —— 这是显式的降级路径。 */
+    if (g_textBridge.rasterizerObj != nullptr) {
+        env->DeleteGlobalRef(g_textBridge.rasterizerObj);
+        g_textBridge.rasterizerObj = nullptr;
+    }
+    g_textBridge.rasterizeMethod = nullptr;
+
+    if (rasterizer == nullptr) {
+        nairoclip::core::setTextRasterizer(nullptr);
+        return;
+    }
+
+    env->GetJavaVM(&g_textBridge.vm);
+    g_textBridge.rasterizerObj = env->NewGlobalRef(rasterizer);
+
+    jclass cls = env->GetObjectClass(rasterizer);
+    g_textBridge.rasterizeMethod = env->GetMethodID(
+        cls, "rasterize",
+        "(Ljava/lang/String;Ljava/lang/String;FLjava/lang/String;Ljava/lang/String;F"
+        "Ljava/lang/String;FIII)[B");
+    env->DeleteLocalRef(cls);
+
+    if (g_textBridge.rasterizeMethod == nullptr) {
+        // 方法签名不匹配 —— 清掉状态并明确报告，不留半可用状态
+        env->ExceptionClear();
+        env->DeleteGlobalRef(g_textBridge.rasterizerObj);
+        g_textBridge.rasterizerObj = nullptr;
+        return;
+    }
+
+    nairoclip::core::setTextRasterizer(&g_jniTextRasterizer);
 }
 
 }  // extern "C"

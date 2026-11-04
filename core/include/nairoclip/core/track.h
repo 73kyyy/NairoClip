@@ -1,8 +1,10 @@
 #pragma once
 
+#include "nairoclip/core/animation.h"
 #include "nairoclip/core/clip.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/transition_types.h"
+#include "nairoclip/core/xform.h"
 
 #include <string>
 #include <vector>
@@ -19,10 +21,25 @@ enum class TrackType {
     /// 数值固定为 3 —— 老工程文件与 C ABI 的 `track_type == 3` 都映射到这里，
     /// **不可改变数值**，否则历史工程会轨道错位。
     ///
-    /// 当前状态：**尚未有渲染代码消费它**，创建后放入的内容不会生效。
-    /// 因此 `validateClipPlacement` 拒绝任何 Clip 落入（见 B0-7），
-    /// UI 侧也应禁止用户创建，等 B2-6 落地后再开放。
+    /// 调整图层容器（B0-8 由 `Effect` 更名而来）。
+    ///
+    /// 数值固定为 3 —— 老工程文件与 C ABI 的 `track_type == 3` 都映射到这里，
+    /// **不可改变数值**，否则历史工程会轨道错位。
+    ///
+    /// 渲染已实现（B2-6 + §4.7）：effects / LUT / xforms / opacity /
+    /// 关键帧全部可用。`validateClipPlacement` 仍拒绝 Clip 落入 ——
+    /// 调整图层的参数挂在 Track 上（`Track::adjustment*`），
+    /// 不需要也不应该有 Clip。
     Adjustment,
+
+    /// 文本轨（§4.6 文本素材化）。
+    ///
+    /// **数值必须是 4**，追加在末尾 —— 插入中间会让历史工程的
+    /// 轨道类型全部错位（3 变成 Text、4 变成 Adjustment）。
+    ///
+    /// 与其他轨的区别：只接受文本片段（`Clip::text.has_value()`），
+    /// 不接受任何媒体素材。
+    Text,
 };
 
 /// 音频自动闪避（Auto Ducking）设置——轨道级属性。
@@ -101,10 +118,38 @@ struct Track {
     std::string adjustmentLutPath;
     double adjustmentLutStrength = 1.0;
 
+    /* ---- 4.7 调整图层全功能 ----
+       用户原话：「调整图层相当于一个调节的图层，可以在里面加任何功能，
+       之后应用到它下面的所有轨道。」
+
+       原来只有 effects + LUT，用户无法对整帧做几何变换或调透明度。
+       补齐三项，使其功能真正与普通片段「平行」：
+         · xforms     —— 8 项几何变换作用于**已合成的整帧**
+         · opacity    —— 整帧 alpha
+         · animation  —— 关键帧（独立实例，不与任何 Clip 共用）
+    */
+
+    /// 8 项几何变换（作用于下方所有轨道合成后的整帧）。
+    XformStack adjustmentXforms;
+    /// 整帧不透明度。1.0 = 不变；0.0 = 完全透明（等于关闭这层）。
+    double adjustmentOpacity = 1.0;
+    /// 关键帧动画。与 ClipAnimation 同构但是**独立实例** ——
+    /// 调整图层没有 Clip，共用一份会导致两处写入互相覆盖。
+    ClipAnimation adjustmentAnimation;
+
     /// 是否为「有实际效果的」调整图层。
+    ///
+    /// 判据要与渲染路径一致：只要有一项会产生变化就算有。
+    /// 漏判会导致「用户设了效果但渲染被跳过」——这类 bug 表现为
+    /// 「调了半天没反应」，最难查。因此宁可多重算一次也不漏。
     bool hasAdjustment() const {
-        return type == TrackType::Adjustment &&
-               (!adjustmentEffects.empty() || !adjustmentLutPath.empty());
+        if (type != TrackType::Adjustment) return false;
+        if (!adjustmentEffects.empty()) return true;
+        if (!adjustmentLutPath.empty()) return true;
+        if (adjustmentXforms.anyEnabled()) return true;
+        if (adjustmentOpacity < 0.999) return true;
+        if (!adjustmentAnimation.empty()) return true;
+        return false;
     }
     /// 轨道在时间轴上的显示高度（像素，B2-10）。
     ///

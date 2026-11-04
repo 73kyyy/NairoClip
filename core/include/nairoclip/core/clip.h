@@ -10,12 +10,14 @@
 #include "nairoclip/core/mask.h"
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/speed_curve.h"
+#include "nairoclip/core/text_content.h"
 #include "nairoclip/core/xform.h"
 #include "nairoclip/core/rational.h"
 #include "nairoclip/core/time.h"
 #include "nairoclip/core/types.h"
 
 #include <string>
+#include <optional>
 
 namespace nairoclip {
 namespace core {
@@ -46,6 +48,22 @@ struct ClipTransform {
 struct Clip {
     ClipId id;
     AssetId asset;    // 引用的素材（可为空，如文字片段）
+
+    /// 文本内容（§4.6 文本素材化）。
+    ///
+    /// 非空时本片段是**文本片段**：不引用素材文件，画面由平台侧
+    /// 栅格化 TextContent 得到。这是「文本与视频同等地位」的实现方式 ——
+    /// 有了这个字段，XformStack / EffectStack / ClipAnimation
+    /// 全部可以直接复用，不需要为文本另写一套渲染分支。
+    ///
+    /// 为什么用 std::optional 而不是「空字符串表示没有文本」：
+    /// 空文本的文本片段是**合法但不该存在**的状态（用户删光了字）。
+    /// 用 optional 能区分「不是文本片段」与「是文本但内容为空」，
+    /// 后者可以在校验时拒绝，前者完全不受影响。
+    std::optional<TextContent> text;
+
+    /// 是否为文本片段。
+    bool isText() const { return text.has_value(); }
     /// 嵌套序列引用（复合片段：非空时本片段代表另一条序列的渲染结果，
     /// 文档第 3 部分「嵌套序列/复合片段」）。
     /// 语义：asset 与 nestedSequence 二选一（嵌套时 asset 应为空）；

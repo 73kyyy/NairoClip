@@ -287,6 +287,8 @@ class NativeEngineBridge(
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
     private external fun nativeWaveform(handle: Long, assetId: Long): String
     private external fun nativeModels(handle: Long): String
+    /** 注册/注销文本栅格化器（§4.6）。传 null 注销。 */
+    private external fun nativeRegisterTextRasterizer(rasterizer: Any?)
     private external fun nativeInstallModel(handle: Long, modelId: String, data: ByteArray,
                                             path: String, sha256: String,
                                             nowUnix: Long): String
@@ -297,6 +299,33 @@ class NativeEngineBridge(
         @JvmStatic
         fun loadLibrary() {
             System.loadLibrary("nc_jni")
+        }
+
+        /**
+         * 注册文本栅格化器（§4.6）。
+         *
+         * 必须在 loadLibrary() 之后、任何预览渲染之前调用。
+         * 不调用也能跑 —— 文本片段不会渲染（显式降级），
+         * 其余功能完全正常。这是刻意的：文本不可见比崩溃好。
+         *
+         * 用 object 实例而不是类引用：JNI 侧要拿它的 jmethodID，
+         * object 的方法签名是实例方法 `(…)[B`，与 Kotlin object 的
+         * 实际编译结果一致（object 的 @JvmStatic 才是静态方法，
+         * 这里刻意不加，避免签名对不上）。
+         */
+        fun registerTextRasterizer() {
+            try {
+                nativeRegisterTextRasterizer(AndroidTextRasterizer)
+            } catch (e: Throwable) {
+                // 老 so 可能没有这个符号 —— 不让它影响启动
+            }
+        }
+
+        fun unregisterTextRasterizer() {
+            try {
+                nativeRegisterTextRasterizer(null)
+            } catch (e: Throwable) {
+            }
         }
     }
 }

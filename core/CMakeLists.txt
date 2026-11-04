@@ -16,6 +16,7 @@ add_library(nairoclip_core STATIC
     src/perf_probe.cpp
     src/thread_pool.cpp
     src/simd.cpp
+    src/text_content.cpp
     src/animation.cpp
     src/export_plan.cpp
     src/capi.cpp

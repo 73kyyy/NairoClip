@@ -784,6 +784,20 @@
         return;   // 静态值已提交，不再走下面的关键帧循环
       }
 
+      /* 填满方式（§4.9）：适应/拉伸/填充组合区域 → FrameFit 0/1/2。
+         注意语义映射容易搞反：
+           适应          = Fit(0)  等比内缩，留白填背景
+           拉伸          = Crop(2) 1:1 不缩放居中裁切
+           填充组合区域  = Fill(1) 等比放大铺满，溢出裁切
+         段控件的下标顺序与 FrameFit 枚举**不同**（拉伸↔Fill 位置相反），
+         所以必须显式映射，不能直接拿下标当 mode。 */
+      if (typeof v.fitmode === 'number') {
+        const FIT_OF_SEG = [0, 2, 1];   // 段下标 → FrameFit
+        const mode = FIT_OF_SEG[Math.max(0, Math.min(2, v.fitmode))];
+        await h.edit({ op: 'nc_set_frame_fit', mode });
+        await h.reload();
+      }
+
       /* LUT 强度（P-01）：只有片段已经设了 LUT 才提交。
          没设 LUT 时拖动强度滑块是无意义的（改的是「不存在的映射」），
          静默跳过比写一条空 LUT 更诚实。 */

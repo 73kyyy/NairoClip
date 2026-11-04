@@ -42,6 +42,11 @@ class MainActivity : AppCompatActivity() {
 
         // libnc_jni.so：NativeEngineBridge 里 external 方法的实现
         NativeEngineBridge.loadLibrary()
+        /* 注册文本栅格化器（§4.6）：之后文本片段才能渲染。
+           放在 loadLibrary 之后、WebView 加载之前 ——
+           晚于这个时机会出现「首次预览没有文字」。
+           失败不影响启动（文本不显示，其余功能正常）。 */
+        NativeEngineBridge.registerTextRasterizer()
 
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))

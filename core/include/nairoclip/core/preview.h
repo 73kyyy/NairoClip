@@ -153,6 +153,8 @@ private:
                         double topAlpha);
     /// 读取片段在时间轴时刻对应的源帧（自动打开并缓存 reader）。
     bool readClipSourceFrame(const Clip& clip, const Time& timelineTime, VideoFrame& out);
+    /// 文本片段栅格化（§4.6）。平台层未注册 rasterizer 时返回 false。
+    bool rasterizeTextClip(const Clip& clip, VideoFrame& out);
     /// 转场混合：读取两路源帧，混合写回 frame（含尺寸初始化）。
     void blendTransitionFrame(PreviewFrame& frame, const Clip& from, const Clip& to,
                               const Time& timelineTime, double progress);

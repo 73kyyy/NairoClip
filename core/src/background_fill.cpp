@@ -53,6 +53,7 @@ const char* backgroundModeName(BackgroundMode mode) {
         case BackgroundMode::Color: return "color";
         case BackgroundMode::Blur: return "blur";
         case BackgroundMode::Style: return "style";
+        case BackgroundMode::CopyBackground: return "copy_background";
     }
     return "none";
 }
@@ -90,11 +91,18 @@ bool backgroundModeFromString(const char* text, BackgroundMode& out) {
     if (s == "color" || s == "颜色") { out = BackgroundMode::Color; return true; }
     if (s == "blur" || s == "模糊") { out = BackgroundMode::Blur; return true; }
     if (s == "style" || s == "画布样式") { out = BackgroundMode::Style; return true; }
+    // 「复制背景」：接受多种写法，避免前端拼错就静默失效
+    if (s == "copy_background" || s == "copybackground" || s == "copy" ||
+        s == "复制背景") {
+        out = BackgroundMode::CopyBackground;
+        return true;
+    }
     return false;
 }
 
 bool backgroundModeFromInt(int value, BackgroundMode& out) {
-    if (value < 0 || value > 3) {
+    // 上限随 CopyBackground 从 3 提到 4（§4.8）。
+    if (value < 0 || value > 4) {
         return false;
     }
     out = static_cast<BackgroundMode>(value);
@@ -304,8 +312,15 @@ bool applyBackgroundFill(std::uint8_t* canvas, const std::uint8_t* source,
             }
             return true;
         }
+        /* Blur 与 CopyBackground 的**渲染算法完全相同**，
+           唯一区别是 source 的来历：
+             · Blur           —— 调用方传「本片段画面」
+             · CopyBackground —— 调用方传「下方所有轨道合成后的画面」
+           所以这里合并处理，不为第 4 档复制一份模糊代码
+           （复制会导致后续调参时两处不同步，这是典型的维护陷阱）。 */
+        case BackgroundMode::CopyBackground:
         case BackgroundMode::Blur: {
-            // 文档 11.1「模糊」：素材放大 + 高斯模糊后铺满空白区域。
+            // 「模糊/复制背景」：素材放大 + 高斯模糊后铺满空白区域。
             // 实现：对 source（须提供）做盒式模糊（半径随模糊度与质量分级），
             //       按画布坐标中心对称放大采样（铺满），写入空白区域。
             if (source == nullptr) {

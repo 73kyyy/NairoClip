@@ -26,6 +26,7 @@ const char* trackTypeLabel(TrackType t) {
         case TrackType::Audio: return "音频轨";
         case TrackType::Subtitle: return "字幕轨";
         case TrackType::Adjustment: return "调整图层";
+        case TrackType::Text: return "文本轨";
     }
     return "轨道";
 }
@@ -68,6 +69,12 @@ PlacementCompat trackAcceptsClipType(TrackType trackType, MediaType mediaType) {
         case TrackType::Subtitle:
             // 字幕走 SubtitleEvent，不接受任何 Clip
             return PlacementCompat::Rejected;
+        case TrackType::Text:
+            // 文本轨只承载文本片段。文本片段没有 asset（内容在 Clip::text），
+            // 所以「按素材类型判断」这条路径本来就到不了这里；
+            // 但必须显式返回，否则 switch 落空会让新枚举值走到未定义语义。
+            // 真正的准入判断在 validateClipPlacement 里（看 clip.isText()）。
+            return PlacementCompat::Rejected;
         case TrackType::Adjustment:
             // 调整图层不接受任何 Clip —— 这不是「还没做」，而是它的语义：
             // 效果与 LUT 挂在**轨道**上（Track::adjustmentEffects /
@@ -108,8 +115,24 @@ Result validateClipPlacement(const Project& project, const Track& track, const C
                                 std::string("片段类型（") + mediaTypeLabel(asset->type) +
                                     "）不能放入" + trackTypeLabel(track.type));
         }
-    } else if (track.type == TrackType::Subtitle || track.type == TrackType::Adjustment) {
-        // 无素材引用的片段（文字/占位）：字幕轨与特效轨仍不接受
+    } else if (clip.isText()) {
+        /* 文本片段（§4.6）：没有 asset，内容在 clip.text 里。
+           只有 Text 轨接受它 —— 文本要能加几何变换/关键帧，
+           必须作为真正的轨道片段存在，不能挂在字幕集合里。 */
+        if (track.type != TrackType::Text) {
+            return Result::fail(ErrorCode::InvalidArgument,
+                                std::string("文本片段不能放入") +
+                                    trackTypeLabel(track.type));
+        }
+        if (clip.text->empty()) {
+            /* 空文本片段是「合法但不该存在」的状态 ——
+               用户把字全删了。允许它会导致轨道上出现一个看不见的片段，
+               用户既选不中也删不掉（视觉上没东西可点）。 */
+            return Result::fail(ErrorCode::InvalidArgument, "文本内容为空");
+        }
+    } else if (track.type == TrackType::Subtitle || track.type == TrackType::Adjustment ||
+               track.type == TrackType::Text) {
+        // 无素材引用且非文本的片段：这三种轨都不接受
         return Result::fail(ErrorCode::InvalidArgument,
                             std::string(trackTypeLabel(track.type)) + "不接受片段");
     }

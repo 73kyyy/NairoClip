@@ -105,7 +105,11 @@ NC_TEST(BackgroundFill, ModeNames) {
     NC_CHECK(!backgroundModeFromString("bogus", mode));
     NC_CHECK(backgroundModeFromInt(0, mode) && mode == BackgroundMode::None);
     NC_CHECK(backgroundModeFromInt(3, mode) && mode == BackgroundMode::Style);
-    NC_CHECK(!backgroundModeFromInt(4, mode));
+    /* §4.8 新增 CopyBackground = 4 后，4 变成合法值，越界断言上移到 5。
+       这不是「放宽测试」—— 合法域确实从 0..3 扩到了 0..4。 */
+    NC_CHECK(backgroundModeFromInt(4, mode));
+    NC_CHECK(mode == BackgroundMode::CopyBackground);
+    NC_CHECK(!backgroundModeFromInt(5, mode));
 }
 
 NC_TEST(BackgroundFill, StyleNames) {

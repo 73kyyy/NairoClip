@@ -102,6 +102,11 @@ std::vector<std::string> PreviewRenderer::subtitlesAt(const Time& timelineTime) 
 
 bool PreviewRenderer::readClipSourceFrame(const Clip& clip, const Time& timelineTime,
                                          VideoFrame& out) {
+    /* ---- 文本片段（§4.6）：走平台侧栅格化，不走解码器 ---- */
+    if (clip.isText()) {
+        return rasterizeTextClip(clip, out);
+    }
+
     MediaReader* reader = readerFor(clip.asset);
     if (reader == nullptr) {
         return false;
@@ -126,6 +131,54 @@ bool PreviewRenderer::readClipSourceFrame(const Clip& clip, const Time& timeline
         return false;
     }
     return reader->readVideoFrame(out);
+}
+
+bool PreviewRenderer::rasterizeTextClip(const Clip& clip, VideoFrame& out) {
+    TextRasterizer* rasterizer = textRasterizer();
+    if (rasterizer == nullptr) {
+        /* 平台层没注册栅格化器 —— 显式降级为「不渲染文本」，
+           而不是崩溃或渲染垃圾。调用方会得到 false，
+           继续合成其他层（文字暂时不可见，但画面其余部分正常）。 */
+        return false;
+    }
+    if (!clip.text.has_value() || clip.text->empty()) {
+        return false;
+    }
+
+    /* 栅格化尺寸：按画布尺寸算（预览走代理分辨率时画布已经是缩放后的）。
+       为什么不按片段显示尺寸算：文本的换行位置取决于可用宽度，
+       按显示尺寸算会在缩放时改变换行 —— 用户看到「放大后排版变了」。
+       统一按画布宽算，缩放由后续 XformStack 的重采样完成。 */
+    const Sequence* seq = project_.mainSequence();
+    const int canvasW = seq != nullptr ? seq->width : 1080;
+    const int canvasH = seq != nullptr ? seq->height : 1920;
+    const double scale = std::clamp(quality_.scale, 0.05, 1.0);
+    const int targetW = std::max(1, static_cast<int>(std::lround(canvasW * scale)));
+    const int targetH = std::max(1, static_cast<int>(std::lround(canvasH * scale)));
+
+    int w = 0;
+    int hgt = 0;
+    std::vector<std::uint8_t> rgba;
+    if (!rasterizer->rasterize(*clip.text, targetW, targetH, rgba, w, hgt)) {
+        return false;
+    }
+    if (w <= 0 || hgt <= 0 ||
+        rgba.size() < static_cast<std::size_t>(w) * static_cast<std::size_t>(hgt) * 4u) {
+        return false;
+    }
+
+    out.width = w;
+    out.height = hgt;
+    out.stride = w * 4;
+    out.pixels = std::move(rgba);
+    /* 文本没有「源时间」概念 —— 内容不随时间变化，
+       随时间变化的是动画通道（ClipAnimation，在别的环节应用）。
+       这里填零：下游若按 timestamp 排序，文本层排在最前，
+       这正好符合「文本通常压在最上层」的直觉。
+       不要填画布时间——那会让同一文本在不同帧有不同的 timestamp，
+       帧缓存键会误判成「不同内容」。 */
+    out.timestamp = Time{};
+    return true;
 }
 
 void PreviewRenderer::blendTransitionFrame(PreviewFrame& frame, const Clip& from,
@@ -240,7 +293,12 @@ std::vector<PreviewRenderer::ActiveLayer> PreviewRenderer::collectActiveLayers(
                                      反向 → layers[0] = 最顶层，向前找下层
        改动任何一侧都要回头确认另一侧，否则「预览 ≠ 导出」。 */
     for (const auto& track : seq->tracks) {
-        if (track.type != TrackType::Video || track.hidden) {
+        /* 文本轨也参与合成（§4.6）：文本片段有像素（由平台层栅格化），
+           要与视频层一样按顺序叠加。
+           为什么不再限定 Video：文本要能加几何变换、被上层调整图层作用，
+           就必须走同一条合成管线；单独一条路径必然与视频层行为漂移。 */
+        if ((track.type != TrackType::Video && track.type != TrackType::Text) ||
+            track.hidden) {
             continue;
         }
         for (const auto& clip : track.clips) {
@@ -593,6 +651,63 @@ void PreviewRenderer::applyAdjustmentLayers(PreviewFrame& frame, const Time& tim
     for (const auto& track : seq->tracks) {
         if (track.type != TrackType::Adjustment || track.hidden) continue;
         if (!track.hasAdjustment()) continue;
+
+        /* ---- 4.7 调整图层全功能 ----
+           顺序（与文档 §4.7 一致）：
+             1) xforms  —— 整帧几何变换
+             2) opacity —— 整帧 alpha
+             3) effects —— 已有
+             4) LUT     —— 已有
+
+           为什么几何在最前：effects/LUT 都是逐像素颜色运算，
+           几何变换会重采样（双线性），若放在颜色之后，
+           插值会「混合已调色的像素」，边缘出现色边；
+           放在最前则是对原始画面重采样，之后统一调色，结果更干净。
+           这也是 AE/剪映 的通行顺序（transform 在 effects 之前）。 */
+        /* 调整图层没有起始时间概念 —— 它从工程开头一直作用到结尾。
+           所以「本地时间」就是时间轴时间本身，不做偏移。
+           （若将来支持「调整图层只在一段区间内生效」，这里才需要减偏移。） */
+        const Time localTime = timelineTime;
+        if (track.adjustmentXforms.anyEnabled()) {
+            std::vector<std::uint8_t> canvas(
+                static_cast<std::size_t>(frame.width) * frame.height * 4, 0);
+            /* edge 用背景填充：调整图层的几何变换可能把画面缩小，
+               露出的区域应当是序列背景色，而不是上一次的残留像素。 */
+            const std::uint8_t bg[4] = {0, 0, 0, 255};
+            applyXformStack(frame.rgba.data(), frame.width, frame.height, frame.width * 4,
+                            canvas.data(), frame.width, frame.height,
+                            track.adjustmentXforms, timelineTime.toDouble(),
+                            FrameFit::Fit, EdgeMode::Background,
+                            (static_cast<std::uint32_t>(bg[0]) << 24) |
+                                (static_cast<std::uint32_t>(bg[1]) << 16) |
+                                (static_cast<std::uint32_t>(bg[2]) << 8) |
+                                static_cast<std::uint32_t>(bg[3]),
+                            true, Affine2D{});
+            frame.rgba.swap(canvas);
+        }
+
+        /* 透明度：静态值与关键帧取较强者还是相乘？
+           这里用「关键帧存在时以关键帧为准，否则用静态值」——
+           与 ClipAnimation::sample 的契约一致（无曲线时返回默认值）。
+           若改成相乘，用户既设静态值又打关键帧时会出现双重衰减，
+           表现为「调了 0.5 但实际只有 0.25」，很难理解。 */
+        double opacity = track.adjustmentOpacity;
+        if (!track.adjustmentAnimation.empty()) {
+            opacity = track.adjustmentAnimation.sample(ClipProperty::Opacity, localTime);
+        }
+        if (opacity < 0.999) {
+            const int w = static_cast<int>(std::clamp(opacity, 0.0, 1.0) * 256.0 + 0.5);
+            const std::size_t pixels =
+                static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height);
+            /* 逐通道乘 alpha：只缩放 alpha，RGB 不动。
+               为什么不是整体 lerp 到黑：调整图层是「叠加层」，
+               降低不透明度应让它「变淡」（露出下层），
+               而不是「变暗」（把下层也压暗）。 */
+            for (std::size_t i = 0; i < pixels; ++i) {
+                frame.rgba[i * 4 + 3] = static_cast<std::uint8_t>(
+                    (static_cast<int>(frame.rgba[i * 4 + 3]) * w) >> 8);
+            }
+        }
 
         if (!track.adjustmentEffects.empty()) {
             applyEffectStackToFrame(frame.rgba.data(), frame.width, frame.height,

@@ -21,6 +21,7 @@
 //     片段设置了背景填充时覆盖该片段的留白区域。
 
 #include <cstdint>
+#include <cmath>
 #include <vector>
 
 #include "nairoclip/core/render_engine.h"
@@ -28,12 +29,22 @@
 namespace nairoclip {
 namespace core {
 
-/// 背景填充模式（文档 11.1 三 Tab；互斥）。
+/// 背景填充模式（互斥；四种只能选一个）。
+///
+/// **Blur 与 CopyBackground 的区别（最容易混淆的一对）**：
+///   · Blur           —— 取**当前片段自己**的画面，放大模糊铺满
+///   · CopyBackground —— 取**当前帧下方所有轨道合成后的完整画面**
+///                       作背景（可以是多层叠加结果）
+///
+/// 典型场景：竖屏素材放进横屏工程，且下方还有画中画。
+///   Blur 只会看到竖屏那一层的模糊版（画中画不会出现在背景里）；
+///   CopyBackground 会把「竖屏 + 画中画」的合成画面一起做背景。
 enum class BackgroundMode {
     None = 0,   ///< 未设置（留白 = 序列背景色）
-    Color = 1,  ///< 颜色
-    Blur = 2,   ///< 模糊（素材放大模糊）
+    Color = 1,  ///< 颜色（可随机生成）
+    Blur = 2,   ///< 模糊（本片段素材放大模糊）
     Style = 3,  ///< 画布样式（预制纹理）
+    CopyBackground = 4,  ///< **新增**：复制下方合成画面作背景（§4.8）
 };
 
 /// 深度图应用效果模式（文档 Part 4-C 13.2；互斥）。
@@ -50,12 +61,44 @@ const char* depthEffectModeName(DepthEffectMode mode);
 /// 从整数解析（0..4）。
 bool depthEffectModeFromInt(int value, DepthEffectMode& out);
 
-/// 模式名称（"none"/"color"/"blur"/"style"）。
+/// 模式名称（"none"/"color"/"blur"/"style"/"copy_background"）。
 const char* backgroundModeName(BackgroundMode mode);
-/// 从字符串解析（大小写不敏感；支持中文「颜色」/「模糊」/「画布样式」）。
+/// 从字符串解析（大小写不敏感；中文支持「颜色」/「模糊」/「画布样式」/「复制背景」）。
 bool backgroundModeFromString(const char* text, BackgroundMode& out);
-/// 从整数解析（0..3）。
+/// 从整数解析（0..4）。越界返回 false，out 不变。
 bool backgroundModeFromInt(int value, BackgroundMode& out);
+
+/// 背景填充的可调参数（§4.8 表格）。
+///
+/// 为什么单独一个结构而不是塞进 BackgroundMode：模式是**互斥枚举**
+/// （只能选一个），参数是**连续量**（可打关键帧）。混在一起会让
+/// 序列化变成「用不到的模式也存一堆参数」。
+///
+/// 这些参数只对 Blur / CopyBackground 有意义；Color/Style 用不到
+/// （Color 只需 rgb，Style 只需 styleId）。
+struct BackgroundFillParams {
+    /// 快照整体不透明度 0..1。
+    double opacity = 1.0;
+    /// 背景虚化半径（像素）；0 = 不模糊。
+    /// 默认 12：竖屏进横屏最常用的「不抢主体视线」档位。
+    double blurPx = 12.0;
+    /// 放大倍率 0.5..2.0（默认 1.1）。
+    /// >1 是为了避免边缘露出 —— 模糊会让边缘透出底色。
+    double scale = 1.1;
+    /// 亮度偏移 -1..1。
+    double brightness = 0.0;
+    /// 饱和度倍率 0..2（1 = 不变）。
+    double saturation = 1.0;
+    /// 边缘羽化 0..1（0 = 硬边）。
+    double feather = 0.0;
+
+    /// 是否全部为默认值（用于「无效果」快速判断，跳过整条渲染）。
+    bool isDefault() const {
+        return opacity >= 0.999 && blurPx <= 0.001 && std::abs(scale - 1.0) <= 0.001 &&
+               std::abs(brightness) <= 0.001 && std::abs(saturation - 1.0) <= 0.001 &&
+               feather <= 0.001;
+    }
+};
 
 /// 画布样式预设（文档 11.1「木纹/纸张/渐变等」；数量由设计团队确定——此处 16 种）。
 enum class CanvasStyle {
