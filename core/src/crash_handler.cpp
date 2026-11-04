@@ -9,11 +9,48 @@
 #include <csignal>
 #include <fcntl.h>
 #include <unistd.h>
+/* backtrace 是 glibc 扩展，**Android NDK 没有 <execinfo.h>**。
+   ---------------------------------------------------------------------------
+   实测：Android 交叉编译报
+     error: no member named 'backtrace' in the global namespace
+   所以必须用 __has_include 检测，并在没有时降级。
+
+   降级后的日志仍然有用：信号名 + 故障地址 + 时间。
+   故障地址能区分「空指针 0x0」「野指针」「栈溢出」，已足够定位方向。
+   完整调用栈需要另外集成 libunwind 或 Crashpad（见 §8.7 的 P2 项）。 */
+/* backtrace 的可用性判定（踩过两个坑，都记录在此）
+   ---------------------------------------------------------------------------
+   坑 1：Android NDK **有** <execinfo.h>，但里面写着
+         `int backtrace(...) __INTRODUCED_IN(33);`
+         —— 符号只在 API 33+ 存在。我们 minSdk = 24，
+         链接期或编译期都会失败。
+
+   坑 2：只看 __has_include 不够。头文件在，符号不在。
+
+   正确判据（三者同时满足）：
+     · 有 <execinfo.h>
+     · 不是 Android，或 Android API ≥ 33
+     · 不是 musl（musl 也没有 backtrace）
+
+   降级后日志仍含「信号名 + 故障地址 + 时间」，足以判断崩溃类型
+   （空指针 / 野指针 / 栈溢出）。完整栈需 libunwind 或 Crashpad。 */
 #if defined(__has_include)
 #if __has_include(<execinfo.h>)
-#include <execinfo.h>
-#define NC_HAS_BACKTRACE 1
+#define NC_EXECINFO_HEADER 1
+#else
+#define NC_EXECINFO_HEADER 0
 #endif
+#else
+#define NC_EXECINFO_HEADER 0
+#endif
+
+#if NC_EXECINFO_HEADER && defined(__ANDROID__) && (__ANDROID_API__ < 33)
+#define NC_HAS_BACKTRACE 0
+#elif NC_EXECINFO_HEADER
+#define NC_HAS_BACKTRACE 1
+#include <execinfo.h>
+#else
+#define NC_HAS_BACKTRACE 0
 #endif
 #else
 #define NC_HAS_POSIX_SIGNAL 0
@@ -139,7 +176,11 @@ void crashHandler(int sig, siginfo_t* info, void* /*context*/) {
             ::backtrace_symbols_fd(frames, n, fd);
         }
 #else
-        safeWrite(fd, "（此平台无 execinfo.h，无法取栈）\n");
+        /* Android 走到这里。不是错误 —— 是平台能力限制。
+           日志仍然包含信号名与故障地址，足以判断崩溃类型。 */
+        safeWrite(fd, "（本平台无 execinfo.h，无法取调用栈）\n");
+        safeWrite(fd, "可用的信息：信号类型 + 故障地址。\n");
+        safeWrite(fd, "需要完整栈请集成 libunwind 或 Crashpad（见 §8.7）。\n");
 #endif
         safeWrite(fd, "\n--- 说明 ---\n");
         safeWrite(fd, "地址可用 addr2line 或 llvm-symbolizer 还原：\n");
