@@ -377,6 +377,9 @@ std::string BuildState(NcEditor* ed) {
         }
         j += "{\"id\":" + std::to_string(id);
         j += ",\"name\":\"" + JEsc(aname ? aname : "") + "\"";
+        /* HDR 标记（§8.7）：前端据此提示「此素材为 HDR，当前按 SDR 显示」。
+           不提示的话用户会以为应用把画质弄坏了。 */
+        j += ",\"is_hdr\":" + std::to_string(nc_asset_is_hdr(ed, id) == 1 ? 1 : 0);
         j += ",\"path\":\"" + JEsc(apath ? apath : "") + "\"";
         j += ",\"type\":" + std::to_string(type);
         j += ",\"duration_us\":" + std::to_string(adur) + "}";

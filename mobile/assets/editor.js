@@ -195,6 +195,7 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const E = {
   app: $('app'), stage: $('stage'), canvas: $('canvas'), still: $('still'),
+  hdrBadge: $('hdr-badge'),
   pipBox: $('pip-box'),
   /* zoomRange / zoomIn / zoomOut 已随滑杆 DOM 一起删除
      （用户 2026-11-03：「不做那个按键」「删掉，手势够用」）。 */
@@ -280,8 +281,12 @@ const kindOf = (type) => (
 
 function applyState(st) {
   if (!st) return;
+  /* HDR 标记（§8.7）：保留在模型里，供选中素材时提示。
+     不提示的话用户会以为「应用把画质弄坏了」——
+     实际是 HDR 素材按 SDR 显示导致的发灰，原因不在我们的错误。 */
   S.assets = (st.assets || []).map((a) => ({
-    id: a.id, name: a.name, dur: a.duration_us / 1e6, kind: a.type
+    id: a.id, name: a.name, dur: a.duration_us / 1e6, kind: a.type,
+    isHdr: a.is_hdr === 1
   }));
   S.groups = (st.groups || []).map((g) => ({
     id: g.id, name: g.name, trackCount: g.track_count || 0
@@ -1122,6 +1127,26 @@ async function loadWaveform(assetId) {
 
 /* ---------------- 渲染 ---------------- */
 let frameSeq = 0;
+/* HDR 提示（§8.7）：当前时刻若命中 HDR 素材，在预览区显示角标。
+   -----------------------------------------------------------------
+   为什么必须提示：我们的渲染链只做 SDR 的 BT.601/709 转换。
+   HDR 素材（手机录像常见 HLG、影视素材常见 PQ）按 SDR 处理会
+   **明显发灰、高光死白**。不说明原因的话，用户会认为
+   「这个 App 把画质弄坏了」并给差评 —— 而实际是色彩管线的边界。
+
+   只提示、不做 tone mapping：后者是独立的大工程（需要 float 域
+   与曲线映射），硬塞进来会引入新的偏色风险。 */
+function updateHdrBadge() {
+  const badge = E.hdrBadge;
+  if (!badge) return;
+  const sel = S.selected;
+  if (!sel) { badge.hidden = true; return; }
+  const tr = S.tracks.find((t) => t.id === sel.trackId);
+  const c = tr && tr.clips.find((x) => x.id === sel.clipId);
+  const a = c && S.assets.find((x) => x.id === c.assetId);
+  badge.hidden = !(a && a.isHdr);
+}
+
 function syncPreview() {
   // 空态提示只在轨道背板显示；预览区没有画面时就是纯黑，不再叠字
   if (!Engine.online) {
@@ -1130,6 +1155,26 @@ function syncPreview() {
   }
   const us = Math.round(S.time * 1e6);
   const token = ++frameSeq;
+
+  /* ---- 暂停 / 拖动结束 → 回到全质量（§8.3.1）----
+     ----------------------------------------------------------------
+     为什么这条比「调低降级阈值」更重要：
+       用户不会抱怨拖动时糊，但**一定会抱怨「暂停后画面还是模糊的」**。
+     引擎侧的 renderUncached 会按 quality.scale 缩小渲染目标；
+     不在暂停时复位，用户看到的就是降级后的图。
+
+     判据：既没在播放、也没在拖动 = 静止状态。
+     调用 nc_preview_reset_full_quality 只在**确实降级过**时清缓存，
+     不会每次重绘都清（否则缓存永远命中不了）。 */
+  if (!S.playing && !S.dragging && Engine.online) {
+    try {
+      const r = engineCall('nc_preview_reset_full_quality', {});
+      if (r && r.ok && r.result === 1) {
+        /* 刚复位：缓存已被引擎清空，这一帧必须重渲。
+           无需额外动作 —— 下面的 blitFrame / frameUrl 本来就会取新帧。 */
+      }
+    } catch (e) { /* 老引擎无此接口时忽略 */ }
+  }
 
   /* ---- 优先走 Surface 直写（P6）----
      ----------------------------------------------------------------
@@ -1927,6 +1972,7 @@ function fitCanvas() {
 
 function renderAll() {
   if (E.hint) E.hint.hidden = S.tracks.some((t) => t.clips && t.clips.length > 0);
+  updateHdrBadge();
   fitCanvas();
   renderTracks();
   renderBar(false);

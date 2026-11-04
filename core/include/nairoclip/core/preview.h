@@ -75,6 +75,16 @@ public:
     /// 帧数上限（避免 240p 之类极小画幅把缓存堆成几万帧）
     static constexpr std::size_t kFrameCacheMaxFrames = 48;
 
+    /// 预览渲染的**短边下限**（像素）。用户 2026-11-04 定案。
+    ///
+    /// 依据：预览区物理像素约 660px（393×852 @3x，9:16 画布），
+    /// 渲染 720p 已是「往下缩」，视觉无损。
+    /// 低于这个值用户能看出糊 —— 那不是「流畅」，是「降质」。
+    ///
+    /// 注意：这条只约束**预览**。导出永远按工程分辨率渲染，
+    /// 不受此常量影响。
+    static constexpr int kMinRenderShortSide = 720;
+
     PreviewRenderer(const Project& project, MediaReaderFactory& readerFactory);
     ~PreviewRenderer();
 
@@ -112,6 +122,29 @@ public:
     /// 也避免 PreviewRenderer 变成有状态的自适应黑盒。
     /// 返回是否改变了档位。
     bool autoAdjustQuality(double avgFrameMs);
+
+    /// 降采样下限：渲染画面**短边不低于 720px**（用户 2026-11-04 定案）。
+    ///
+    /// 为什么是 720p 而不是 1080p / 4K：
+    ///   · 预览区物理像素约 660px（393×852 @3x 屏，9:16 画布），
+    ///     渲染 720p 已是「往下缩」，视觉无损；
+    ///   · 1080p 下限会让 1080p 工程的 scale 永远不能 < 1.0，
+    ///     代理渲染完全失效；
+    ///   · 4K 下限是浪费 —— 屏幕根本显示不了那么多像素。
+    ///
+    /// 返回值：允许的最小 scale（0 < x ≤ 1）。
+    /// 平台层在 autoAdjustQuality 之后调用它做钳制。
+    double minAllowedScale() const;
+
+    /// 暂停/单帧刷新时回到全质量（§8.3.1）。
+    ///
+    /// 为什么这条比「调低降级阈值」更重要：
+    ///   用户不会抱怨拖动时糊，但一定会抱怨「暂停后画面还是模糊的」。
+    /// 返回是否发生了改变（改变时缓存已清）。
+    bool resetToFullQuality();
+
+    /// 当前是否为降级状态（供 UI 显示「流畅预览」角标）。
+    bool isDegraded() const;
 
     PreviewFrame renderAt(const Time& timelineTime);
 

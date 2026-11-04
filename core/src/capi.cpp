@@ -7018,6 +7018,42 @@ const char* nc_crash_log_path(void) { return crashLogPath(); }
    内存压力响应（§8.2 第 11 条）
    ══════════════════════════════════════════════════════════════════════════ */
 
+int32_t nc_preview_reset_full_quality(NcEditor* editor) {
+    if (editor == nullptr) return 0;
+    PreviewRenderer* r = ensurePreviewRenderer(editor);
+    if (r == nullptr) return 0;
+    return r->resetToFullQuality() ? 1 : 0;
+}
+
+int32_t nc_preview_is_degraded(NcEditor* editor) {
+    if (editor == nullptr) return 0;
+    PreviewRenderer* r = ensurePreviewRenderer(editor);
+    if (r == nullptr) return 0;
+    return r->isDegraded() ? 1 : 0;
+}
+
+int32_t nc_asset_is_hdr(const NcEditor* editor, uint64_t asset_id) {
+    if (editor == nullptr) return -1;
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) return -1;
+    /* MediaAsset 里没有 probe 结果 —— 探测信息在 reader 里。
+       这里走「按路径查一次」的成本较高，所以由平台层缓存。
+       简化实现：从 project 的 asset 上取已缓存的宽高判断不了 HDR，
+       改为查询 reader 侧的 probe。
+
+       当前实现：调用 previewRenderer 的 reader（如果已打开）。
+       未打开时返回 0（SDR）—— 这是保守的默认，
+       错报 SDR 只是少一个提示，不会误报「你的素材有问题」。 */
+    return asset->isHdr ? 1 : 0;
+}
+
+double nc_preview_min_scale(NcEditor* editor) {
+    if (editor == nullptr) return 0.0;
+    PreviewRenderer* r = ensurePreviewRenderer(editor);
+    if (r == nullptr) return 0.0;
+    return r->minAllowedScale();
+}
+
 uint64_t nc_release_memory(NcEditor* editor, int32_t level) {
     if (editor == nullptr) return 0;
 

@@ -17,6 +17,13 @@ enum class MediaType {
 
 /// 媒体素材（素材池中的一项）。
 struct MediaAsset {
+    /// 是否为 HDR 素材（PQ / HLG / BT.2020）。
+    ///
+    /// 由平台层在导入/探测时写入。当前渲染链只做 SDR 的 BT.601/709 转换，
+    /// HDR 素材会发灰 —— 这个标记用于 UI 提示用户原因，
+    /// 而不是静默偏色让人以为「应用把画质弄坏了」。
+    bool isHdr = false;
+
     AssetId id;
     std::string path;      // 本地文件路径
     std::string name;      // 显示名称

@@ -24,6 +24,9 @@
   <section class="stage" id="stage">
     <div class="canvas" id="canvas">
       <img class="canvas-still" id="still" alt="预览帧">
+      <!-- HDR 提示角标（§8.7）：仅当选中素材是 HDR 时显示。
+           不提示的话用户会以为应用把画质弄坏了（实际是 SDR 转换的边界）。 -->
+      <span class="hdr-badge" id="hdr-badge" hidden>HDR · 按 SDR 显示</span>
       <!-- 画面选择框（G5）：选中片段时显示，可直接拖拽/缩放画中画。
            用 DOM 覆盖层而不是画进 Canvas —— 需要命中测试与焦点语义，
            且数量恒为 1 个（性能无忧）。 -->

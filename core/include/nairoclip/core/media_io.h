@@ -36,6 +36,17 @@ struct MediaProbeResult {
     /// 这里由 readVideoFrame 在转 RGBA 后**实际旋转**像素，
     /// 所以 width/height 已是旋转后的显示尺寸；该字段保留供调试与诊断。
     int rotationDeg = 0;
+
+    /// 是否为 HDR 素材（PQ / HLG 传输函数，或 BT.2020 广色域）。
+    ///
+    /// **为什么必须有这个字段**：当前的色彩处理链只做 SDR 的
+    /// BT.601/709 转换。HDR 素材（手机录像常见 HLG、影视素材常见 PQ）
+    /// 如果按 SDR 处理，画面会**严重发灰、高光死白** ——
+    /// 而不告诉用户原因的话，用户会以为是「应用把画质弄坏了」。
+    ///
+    /// 短期不改渲染管线（tone mapping 是独立的大工程），
+    /// 但至少让 UI 能诚实提示：「此素材为 HDR，当前按 SDR 显示」。
+    bool isHdr = false;
 };
 
 /// 一帧音频采样块（交错格式，16-bit 或 float 由实现约定；

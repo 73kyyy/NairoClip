@@ -539,7 +539,21 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
             int dstRange = 0;
             const int srcRange = (impl.frame->color_range == AVCOL_RANGE_JPEG) ? 1 : 0;
 
-            const AVColorSpace cs = impl.frame->colorspace;
+            /* HDR 检测（§8.7 P1）。
+           PQ（SMPTE2084）与 HLG（ARIB_STD_B67）是两种 HDR 传输函数，
+           手机录像多用 HLG、影视素材多用 PQ。BT.2020 广色域也按 HDR 处理。
+
+           检测到之后**不改渲染**（tone mapping 是独立大工程），
+           只在 probe 里标记，由 UI 提示用户 —— 这比静默偏色诚实。 */
+        const AVColorTransferCharacteristic trc = impl.frame->color_trc;
+        const AVColorPrimaries pri = impl.frame->color_primaries;
+        const bool hdrNow = (trc == AVCOL_TRC_SMPTE2084 || trc == AVCOL_TRC_ARIB_STD_B67 ||
+                             pri == AVCOL_PRI_BT2020);
+        if (hdrNow) {
+            impl.probe.isHdr = true;
+        }
+
+        const AVColorSpace cs = impl.frame->colorspace;
             bool useBt709 = false;
             if (cs == AVCOL_SPC_BT709) {
                 useBt709 = true;

@@ -473,6 +473,40 @@ const RenderQuality& PreviewRenderer::quality() const { return quality_; }
 
 std::uint64_t PreviewRenderer::droppedFrames() const { return droppedFrames_; }
 
+double PreviewRenderer::minAllowedScale() const {
+    /* 短边 720px 对应的 scale。
+       画布尺寸从主序列取；取不到时返回 1.0（不限制）。 */
+    const Sequence* seq = project_.mainSequence();
+    if (seq == nullptr || seq->width <= 0 || seq->height <= 0) {
+        return 1.0;
+    }
+    const int shortSide = std::min(seq->width, seq->height);
+    if (shortSide <= kMinRenderShortSide) {
+        /* 画布本身就不足 720p —— 不能再降，否则就是糊。 */
+        return 1.0;
+    }
+    const double scale = static_cast<double>(kMinRenderShortSide) /
+                         static_cast<double>(shortSide);
+    return std::clamp(scale, 0.05, 1.0);
+}
+
+bool PreviewRenderer::resetToFullQuality() {
+    /* 暂停/单帧：强制回 1.0。
+       同时清缓存 —— 降级时缓存的是小图，直接拿来显示会糊。 */
+    if (quality_.scale >= 0.999) {
+        return false;
+    }
+    RenderQuality q = RenderQuality::exportQuality();
+    q.path = RenderPath::Preview;     // 预览路径仍允许后续再降
+    q.allowFrameDrop = true;
+    quality_ = q;
+    frames_.clear();
+    lru_.clear();
+    return true;
+}
+
+bool PreviewRenderer::isDegraded() const { return quality_.scale < 0.999; }
+
 bool PreviewRenderer::autoAdjustQuality(double avgFrameMs) {
     /* 按实测耗时选档。阈值来自文档 §P2。
        滞回：只在跨档时改变，避免在阈值附近来回抖
@@ -483,6 +517,13 @@ bool PreviewRenderer::autoAdjustQuality(double avgFrameMs) {
     } else if (avgFrameMs > 25.0) {
         want = 0.75;
     }
+
+    /* **下限钳制**（用户定案：短边不低于 720px）。
+       没有这一步，「算力不足就降到 0.5」在 720p 画布上会降到 360p ——
+       用户会看到明显马赛克，而不是「流畅」。 */
+    const double floor = minAllowedScale();
+    if (want < floor) want = floor;
+
     if (std::abs(want - quality_.scale) < 0.01) {
         return false;
     }
