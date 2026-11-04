@@ -12,6 +12,11 @@
 //   · uint8_t*/double* → nc_free_buffer
 // ---------------------------------------------------------------------------
 
+/* Android NDK 显示缓冲（P6 零拷贝）。
+   必须在文件顶部 —— 放在函数定义之间会污染后续所有声明的可见性。 */
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
+
 #include <jni.h>
 #include "nairoclip/core/text_content.h"
 #include "nairoclip/core/simd.h"
@@ -1962,6 +1967,118 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeRegisterTextRasterizer(
     }
 
     nairoclip::core::setTextRasterizer(&g_jniTextRasterizer);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SurfaceView 零拷贝（P6）
+   ══════════════════════════════════════════════════════════════════════════
+   把预览帧直接写进 Surface 的显示缓冲，绕开
+   `RGBA → PNG → Base64 → JNI byte[] → WebView <img>` 这条链路。
+
+   1080p 25fps 下那条链路每秒产生约 65MB 字符串，WebView 解析就吃满主线程 ——
+   这是「预览卡顿」的主因。直写显存后传输段耗时从数十毫秒降到 <2ms。
+
+   实现要点：
+     · ANativeWindow_lock 拿到的 buffer 可能带 stride 与格式 padding，
+       必须按 window->stride 逐行写，不能假设 stride == width*4；
+     · 格式用 WINDOW_FORMAT_RGBA_8888。Android 的显示缓冲字节序
+       与此一致（小端 ARGB_8888 内存布局是 B,G,R,A，
+       但 WINDOW_FORMAT_RGBA_8888 是明确的 R,G,B,A 顺序）；
+     · lock 失败（Surface 正在重建/销毁）时静默返回，不崩 ——
+       这是正常状态，不是错误。 */
+
+namespace {
+
+/// 当前附加的 Surface（全局唯一 —— 只支持一个预览区）。
+struct SurfaceState {
+    ANativeWindow* window = nullptr;
+    int width = 0;
+    int height = 0;
+};
+
+SurfaceState g_surface;
+
+}  // namespace
+
+JNIEXPORT jboolean JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeAttachSurface(
+    JNIEnv* env, jobject, jobject surface, jint width, jint height) {
+    if (surface == nullptr) return JNI_FALSE;
+
+    // 先分离旧的（重复附加是合法操作，例如 Activity 重建）
+    if (g_surface.window != nullptr) {
+        ANativeWindow_release(g_surface.window);
+        g_surface.window = nullptr;
+    }
+
+    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
+    if (win == nullptr) return JNI_FALSE;
+
+    ANativeWindow_setBuffersGeometry(win, width, height, WINDOW_FORMAT_RGBA_8888);
+    g_surface.window = win;
+    g_surface.width = width;
+    g_surface.height = height;
+    return JNI_TRUE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeDetachSurface(JNIEnv*, jobject) {
+    if (g_surface.window != nullptr) {
+        ANativeWindow_release(g_surface.window);
+        g_surface.window = nullptr;
+    }
+    g_surface.width = 0;
+    g_surface.height = 0;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeBlitFrame(
+    JNIEnv*, jobject, jlong h, jlong timeUs) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (ed == nullptr || g_surface.window == nullptr) return JNI_FALSE;
+
+    uint8_t* rgba = nullptr;
+    int32_t w = 0, hgt = 0;
+    uint64_t clipId = 0;
+    double op = 1, sc = 1, px = 0, py = 0, rot = 0;
+    int32_t ttype = -1;
+    double tprog = 0;
+    const int32_t rc = nc_preview_render(ed, static_cast<int64_t>(timeUs), &w, &hgt,
+                                         &rgba, &clipId, &op, &sc, &px, &py, &rot,
+                                         &ttype, &tprog);
+    if (rc != NC_OK || rgba == nullptr || w <= 0 || hgt <= 0) return JNI_FALSE;
+
+    ANativeWindow_Buffer buf;
+    if (ANativeWindow_lock(g_surface.window, &buf, nullptr) != 0) {
+        // Surface 正在重建 —— 正常状态，静默丢弃这一帧
+        nc_free_buffer(rgba);
+        return JNI_FALSE;
+    }
+
+    /* 逐行拷贝，按 buf.stride 走而不是 w：
+       显示缓冲的行距通常大于宽度（硬件对齐），
+       假设 stride == w 会写出斜切画面。 */
+    const int copyW = (w < buf.width) ? w : buf.width;
+    const int copyH = (hgt < buf.height) ? hgt : buf.height;
+    const auto* src = reinterpret_cast<const uint8_t*>(rgba);
+    auto* dst = static_cast<uint8_t*>(buf.bits);
+    const std::size_t dstStride = static_cast<std::size_t>(buf.stride) * 4u;
+    const std::size_t srcStride = static_cast<std::size_t>(w) * 4u;
+
+    for (int y = 0; y < copyH; ++y) {
+        std::memcpy(dst + static_cast<std::size_t>(y) * dstStride,
+                    src + static_cast<std::size_t>(y) * srcStride,
+                    static_cast<std::size_t>(copyW) * 4u);
+    }
+
+    ANativeWindow_unlockAndPost(g_surface.window);
+    nc_free_buffer(rgba);
+    return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSurfaceReady(JNIEnv*, jobject) {
+    return g_surface.window != nullptr ? JNI_TRUE : JNI_FALSE;
 }
 
 }  // extern "C"

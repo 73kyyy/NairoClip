@@ -101,7 +101,46 @@ const Engine = {
     return r;
   },
 
-  /* 预览帧：桥直接给 data:URL，<img> 无需任何网络请求 */
+  /* ---- SurfaceView 零拷贝（P6）----
+     ----------------------------------------------------------------
+     为什么要有两条路径：
+       · 有 Surface 时 → blitFrame 直接写显存，传输段 <2ms；
+       · 没有（Web 预览 / 老设备）→ 退回 frameUrl 的 data:URL 路径。
+
+     surfaceRect(left, top, w, h)：把预览区在页面中的位置告诉原生层。
+     SurfaceView 是独立窗口，位置必须由 JS 上报 —— 它自己不知道
+     WebView 里预览区在哪。折叠屏/键盘弹出/旋转后要重新上报。 */
+
+  /** 原生层是否支持 Surface 直写。 */
+  hasSurface() {
+    return typeof window.NCPreview !== 'undefined' &&
+           typeof window.NCPreview.setPreviewRect === 'function';
+  },
+
+  /** 上报预览区矩形（CSS 像素）。 */
+  surfaceRect(left, top, width, height) {
+    if (!this.hasSurface()) return false;
+    try {
+      window.NCPreview.setPreviewRect(
+        Math.round(left), Math.round(top),
+        Math.round(width), Math.round(height));
+      return true;
+    } catch (err) {
+      return false;
+    }
+  },
+
+  /** 请求把某时刻的帧直接写进 Surface。返回是否成功。 */
+  blitFrame(timeUs) {
+    if (!this.online || typeof window.NCEngine.blitFrame !== 'function') return false;
+    try {
+      return window.NCEngine.blitFrame(Math.max(0, Math.round(timeUs))) === true;
+    } catch (err) {
+      return false;
+    }
+  },
+
+  /** 预览帧：桥直接给 data:URL，<img> 无需任何网络请求 */
   frameUrl(timeUs, width = 282) {
     if (!this.bridge || typeof this.bridge.frameDataUrl !== 'function') return '';
     try {

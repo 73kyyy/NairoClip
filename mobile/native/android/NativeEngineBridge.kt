@@ -289,6 +289,16 @@ class NativeEngineBridge(
     private external fun nativeModels(handle: Long): String
     /** 注册/注销文本栅格化器（§4.6）。传 null 注销。 */
     private external fun nativeRegisterTextRasterizer(rasterizer: Any?)
+
+    /* ---- SurfaceView 零拷贝（P6）---- */
+    /** 附加显示 Surface。返回是否成功。 */
+    private external fun nativeAttachSurface(surface: android.view.Surface?, width: Int, height: Int): Boolean
+    /** 分离显示 Surface。 */
+    private external fun nativeDetachSurface()
+    /** 把 timeUs 时刻的帧直接写进 Surface。返回是否写入。 */
+    private external fun nativeBlitFrame(handle: Long, timeUs: Long): Boolean
+    /** Surface 是否已就绪。 */
+    private external fun nativeSurfaceReady(): Boolean
     private external fun nativeInstallModel(handle: Long, modelId: String, data: ByteArray,
                                             path: String, sha256: String,
                                             nowUnix: Long): String
@@ -326,6 +336,52 @@ class NativeEngineBridge(
                 nativeRegisterTextRasterizer(null)
             } catch (e: Throwable) {
             }
+        }
+
+        /* ---- SurfaceView 零拷贝（P6）----
+           这些是 companion 方法，供 MainActivity 调用；
+           内部转发到实例 external（external 必须是非静态的，
+           因为 JNI 签名带 jobject self）。 */
+
+        private var instanceForSurface: NativeEngineBridge? = null
+
+        fun attachSurface(surface: android.view.Surface?, width: Int, height: Int): Boolean {
+            val inst = instanceForSurface ?: return false
+            return try {
+                inst.nativeAttachSurface(surface, width, height)
+            } catch (e: Throwable) {
+                false
+            }
+        }
+
+        fun detachSurface() {
+            try {
+                instanceForSurface?.nativeDetachSurface()
+            } catch (e: Throwable) {
+            }
+        }
+
+        fun blitFrame(handle: Long, timeUs: Long): Boolean {
+            val inst = instanceForSurface ?: return false
+            return try {
+                inst.nativeBlitFrame(handle, timeUs)
+            } catch (e: Throwable) {
+                false
+            }
+        }
+
+        fun surfaceReady(): Boolean {
+            val inst = instanceForSurface ?: return false
+            return try {
+                inst.nativeSurfaceReady()
+            } catch (e: Throwable) {
+                false
+            }
+        }
+
+        /** 由实例构造时登记（Activity 创建后调用一次）。 */
+        fun bindInstance(inst: NativeEngineBridge) {
+            instanceForSurface = inst
         }
     }
 }

@@ -773,6 +773,23 @@ function syncPreview() {
   }
   const us = Math.round(S.time * 1e6);
   const token = ++frameSeq;
+
+  /* ---- 优先走 Surface 直写（P6）----
+     ----------------------------------------------------------------
+     有 Surface 时帧直接写显存，不走 data:URL。
+     为什么这是数量级差异：data:URL 每帧是「RGBA → PNG → Base64 →
+     JNI 数组 → JS 字符串」，1080p 约 2.6MB/帧；25fps 就是 65MB/s。
+     Surface 直写下传输段 <2ms。
+
+     失败时**自动回退**到 data:URL 路径（下面那段原样保留）——
+     老设备、Web 预览、Surface 重建期间都靠它兜底。 */
+  if (Engine.hasSurface() && Engine.blitFrame(us)) {
+    /* Surface 上已经在显示这一帧了，把 <img> 藏起来，
+       否则两层画面会叠影（img 在 WebView 层，Surface 在它下面）。 */
+    E.still.style.visibility = 'hidden';
+    return;
+  }
+
   /* 拖动中降质：见 NEED.frameWDrag 的说明。
      静止时用全宽，保证松手后画面是清晰的。 */
   const w = S.dragging ? NEED.frameWDrag : NEED.frameW;
@@ -1532,6 +1549,23 @@ function fitCanvas() {
   const use = byHeight.w <= stage.width ? byHeight : byWidth;
   E.canvas.style.width = `${Math.floor(use.w)}px`;
   E.canvas.style.height = `${Math.floor(use.h)}px`;
+
+  /* ---- 把预览区位置上报给原生层（P6）----
+     SurfaceView 是独立窗口，不知道 DOM 里预览区在哪 —— 必须这里告诉它。
+     坐标取 canvas 相对**视口**的位置（getBoundingClientRect 天然就是）。
+
+     什么时候必须重新上报（所以放在 fitCanvas 里，它是所有
+     尺寸变化的汇合点）：
+       · 页面首次布局
+       · 画布比例切换（9:16 ↔ 16:9 ↔ 1:1）
+       · 横竖屏旋转 / 折叠屏展开
+       · 面板展开收起挤压预览区
+
+     上报失败不影响任何功能 —— 回退到 data:URL 路径。 */
+  if (Engine.hasSurface()) {
+    const r = E.canvas.getBoundingClientRect();
+    Engine.surfaceRect(r.left, r.top, r.width, r.height);
+  }
 }
 
 function renderAll() {

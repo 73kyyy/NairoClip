@@ -20,6 +20,8 @@ import androidx.webkit.WebViewClientCompat
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    /// 预览 Surface（P6 零拷贝）。垫在 WebView 下层，预览画面直接写显存。
+    private lateinit var previewSurface: PreviewSurfaceView
     private var engine: NativeEngineBridge? = null
 
     /**
@@ -114,7 +116,13 @@ class MainActivity : AppCompatActivity() {
         val eng = NativeEngineBridge(applicationContext, ::updatePanelDepth)
         engine = eng
         webView.addJavascriptInterface(eng, "NCEngine")
+        /* 登记实例供 Surface 相关 companion 方法转发（P6）。
+           必须在 WebView 加载页面之前 —— JS 一加载就可能请求帧。 */
+        NativeEngineBridge.bindInstance(eng)
         webView.addJavascriptInterface(NativeAuthBridge(this, webView), "NCAndroid")
+        /* 预览区坐标桥（P6）：JS 上报预览区位置，SurfaceView 据此定位。
+           独立命名空间，不与认证桥混用。 */
+        webView.addJavascriptInterface(PreviewBridge(this, webView), "NCPreview")
 
         /* 入口用**页面版**而不是静态版。
            assets/nairoclip-home.html 是 make_static.py / make_pages_static.py
@@ -154,7 +162,41 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        setContentView(webView)
+        /* ---- SurfaceView 零拷贝布局（P6）----
+         *
+         * 层级（从下到上）：
+         *   previewSurface （SurfaceView，独立窗口，只能在最下层）
+         *   webView        （全屏，预览区背景透明，露出下面的 Surface）
+         *
+         * 为什么必须这样：
+         *   SurfaceView 是**独立窗口**，不能夹在 WebView 的两个图层之间。
+         *   要么全在下面、要么全在上面。放下面 + WebView 预览区透明，
+         *   就能让「预览画面来自 Surface、UI 来自 WebView」共存。
+         *
+         * 为什么用 FrameLayout 而不是直接 setContentView(webView)：
+         *   需要两个子 View 叠放。FrameLayout 的后添加者在上层，
+         *   所以先加 Surface、后加 WebView。
+         *
+         * 已知限制（文档 §P6 标注的风险）：
+         *   · SurfaceView 不支持圆角 —— 预览区那 8px 圆角靠 WebView 画遮罩；
+         *   · 折叠屏/键盘弹出时坐标要重新上报（setPreviewRect）。
+         */
+        val root = android.widget.FrameLayout(this)
+        previewSurface = PreviewSurfaceView(this).apply {
+            onSurfaceAvailable = { surface ->
+                NativeEngineBridge.attachSurface(surface, width, height)
+            }
+            onSurfaceDestroyed = {
+                NativeEngineBridge.detachSurface()
+            }
+            // 初始给一个占位尺寸，JS 上报后会被 setPreviewRect 覆盖
+            layout(0, 0, 1080, 1920)
+        }
+        root.addView(previewSurface)
+        // WebView 背景透明：让下层 Surface 的画面透出来
+        webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        root.addView(webView)
+        setContentView(root)
     }
 
     override fun onDestroy() {
