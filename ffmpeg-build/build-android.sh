@@ -42,7 +42,17 @@ fi
 build_abi() {
     local ABI="$1" TRIPLE="$2" CPU="$3"
     local PREFIX="$OUT/$ABI"
-    local TOOLCHAIN="$ANDROID_NDK/build/cmake/android.toolchain.cmake"
+
+    # 每个 ABI 的 API 级别要与 android-apk.yml 的 core 构建保持一致：
+    #   arm64-v8a → 24，armeabi-v7a → 21，x86_64 → 21
+    # 不一致会导致 FFmpeg 的 .so 要求更高 API，
+    # 而 core 按低 API 编译，装到老设备上直接找不到符号。
+    local API="$ANDROID_API"
+    case "$ABI" in
+        arm64-v8a)   API=24 ;;
+        armeabi-v7a) API=21 ;;
+        x86_64)      API=21 ;;
+    esac
 
     echo "==> 构建 $ABI ($CPU)"
     rm -rf "$PREFIX"
@@ -58,17 +68,26 @@ build_abi() {
     cd "$SRC"
     make distclean >/dev/null 2>&1 || true
 
+    # 说明（放在命令外，避免 shell 把 /* */ 当参数）：
+    #   --host-cc       configure 需要一个**能在构建机上跑**的编译器做探测，
+    #                   不是目标编译器。不指定时它会猜，猜错就是
+    #                   「C compiler test failed」。
+    #   --cross-prefix 留空：cc/cxx 已给完整路径，再加前缀会拼出错误路径。
+    #   --disable-doc  连同 html/man/pod/txt 一起关，
+    #                   否则会 INSTALL 一堆 doc/examples 占时间。
     ./configure \
         --prefix="$PREFIX" \
         --target-os=android \
         --arch="$CPU" \
-        --cc="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/${TRIPLE}${ANDROID_API}-clang" \
-        --cxx="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/${TRIPLE}${ANDROID_API}-clang++" \
+        --cc="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/${TRIPLE}${API}-clang" \
+        --cxx="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/${TRIPLE}${API}-clang++" \
         --ar="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" \
         --ranlib="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
         --strip="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
         --sysroot="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot" \
         --enable-cross-compile \
+        --host-cc="gcc" \
+        --cross-prefix="" \
         --enable-shared \
         --disable-static \
         --disable-gpl \
@@ -76,6 +95,10 @@ build_abi() {
         --disable-version3 \
         --disable-programs \
         --disable-doc \
+        --disable-htmlpages \
+        --disable-manpages \
+        --disable-podpages \
+        --disable-txtpages \
         --disable-avdevice \
         --disable-postproc \
         --disable-swscale-alpha \
@@ -102,8 +125,12 @@ build_abi() {
     ls -lh "$PREFIX/lib"
 }
 
-build_abi arm64-v8a   aarch64-linux-android arm64
-build_abi armeabi-v7a arm-linux-androideabi arm
-build_abi x86_64      x86_64-linux-android  x86_64
+# armeabi-v7a 的 triple 是 **armv7a**-linux-androideabi，不是 arm-linux-androideabi。
+# 用错会得到「unable to create an executable file / C compiler test failed」——
+# 因为 NDK 的 clang wrapper 按 triple 名找目标文件，名字不对就找不到。
+# --arch 用 FFmpeg 的命名：arm / aarch64 / x86_64（不是 arm64）。
+build_abi arm64-v8a   aarch64-linux-android  aarch64
+build_abi armeabi-v7a armv7a-linux-androideabi arm
+build_abi x86_64      x86_64-linux-android   x86_64
 
 echo "==> 完成。产物在 $OUT/<abi>/lib"
