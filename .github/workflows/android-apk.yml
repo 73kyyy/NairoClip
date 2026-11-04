@@ -80,6 +80,49 @@ jobs:
             if [ -e "$d" ]; then echo "❌ 仍存在: $d"; exit 1; else echo "✅ 已剔除: $d"; fi
           done
 
+      # ---------------------------------------------------------------------
+      # 构建 FFmpeg 共享库（LGPL 动态链接）
+      # ---------------------------------------------------------------------
+      # 这是「打开被关掉的那个」：此前 core 构建传了
+      #   -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON
+      # 导致 NAIROCLIP_HAS_FFMPEG 永远未定义，APK 里编进去的是
+      # MockMediaReader —— 装到手机上能打开、但导入真实视频直接失败。
+      #
+      # 现在按 ABI 编出 libav*.so，拷进 jniLibs，由 Gradle 打进 APK。
+      # 缓存：FFmpeg 源码下载 + 编译约 15-25 分钟，按 VERSION 文件做 key。
+      - name: Cache FFmpeg sources
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-build/src
+          key: ffmpeg-src-${{ hashFiles('ffmpeg-build/VERSION') }}
+
+      - name: Build FFmpeg shared libs (LGPL, 3 ABIs)
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK="${{ steps.ndk.outputs.ndk-path }}"
+          export ANDROID_API=24
+          chmod +x ffmpeg-build/build-android.sh
+          ./ffmpeg-build/build-android.sh
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            DEST="android/app/src/main/jniLibs/$ABI"
+            mkdir -p "$DEST"
+            cp ffmpeg-build/out/$ABI/lib/libav*.so "$DEST/"
+            ls -lh "$DEST"
+          done
+
+      - name: Verify FFmpeg is dynamically linked (LGPL requirement)
+        run: |
+          set -euo pipefail
+          NDK="${{ steps.ndk.outputs.ndk-path }}"
+          READELF="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            LIB="android/app/src/main/jniLibs/$ABI/libavcodec.so"
+            [ -f "$LIB" ] || { echo "❌ 缺少 $LIB"; exit 1; }
+            "$READELF" -h "$LIB" | grep -q 'DYN (Shared object file)' \
+              || { echo "❌ $LIB 不是共享库"; exit 1; }
+            echo "✅ $ABI libavcodec.so 是共享库"
+          done
+
       - name: Build core for each ABI
         run: |
           set -euo pipefail
@@ -98,13 +141,27 @@ jobs:
               -DCMAKE_BUILD_TYPE=Release \
               -DNAIROCLIP_BUILD_TESTS=OFF \
               -DNAIROCLIP_ORT_ROOT=OFF \
-              -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON
+              -DNAIROCLIP_FFMPEG_ROOT="$(pwd)/ffmpeg-build/out/$ABI"
             cmake --build "build-core-$ABI" --parallel 4 --target nairoclip_core
             DEST="android/app/src/main/cpp/prebuilt/$ABI"
             mkdir -p "$DEST"
             find "build-core-$ABI" -name 'libnairoclip_core.a' -exec cp {} "$DEST/" \;
             ls -lh "$DEST/"
           done
+
+      - name: Assert FFmpeg actually compiled in
+        run: |
+          set -euo pipefail
+          NDK="${{ steps.ndk.outputs.ndk-path }}"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          LIB="android/app/src/main/cpp/prebuilt/arm64-v8a/libnairoclip_core.a"
+          # 有符号 = FFmpeg 路径真的编进去了；没有 = 还在用 Mock
+          if "$NM" "$LIB" 2>/dev/null | grep -q 'avcodec_send_packet'; then
+            echo "✅ libnairoclip_core.a 含 FFmpeg 符号"
+          else
+            echo "❌ 未找到 FFmpeg 符号 —— NAIROCLIP_HAS_FFMPEG 未生效"
+            exit 1
+          fi
 
       - name: Write local.properties
         run: |

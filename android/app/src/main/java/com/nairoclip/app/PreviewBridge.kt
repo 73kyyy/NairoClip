@@ -80,6 +80,61 @@ class PreviewBridge(
     @JavascriptInterface
     fun isSurfaceEnabled(): Boolean = surfaceEnabled
 
+    /* ---------------- 崩溃日志（§8.1） ---------------- */
+
+    /** 是否存在崩溃日志（没崩过就不显示入口）。 */
+    @JavascriptInterface
+    fun hasCrashLog(): Boolean {
+        return try {
+            val f = java.io.File(activity.filesDir, "crash.log")
+            f.exists() && f.length() > 0
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 读取崩溃日志全文。
+     *
+     * 为什么限制大小：日志里有 64 帧调用栈，正常几十 KB。
+     * 若文件异常大（比如被追加了多次），截断到 256KB ——
+     * 一次传 10MB 字符串过 WebView 桥会把主线程卡住。
+     */
+    @JavascriptInterface
+    fun readCrashLog(): String {
+        return try {
+            val f = java.io.File(activity.filesDir, "crash.log")
+            if (!f.exists()) return ""
+            val maxBytes = 256 * 1024
+            if (f.length() > maxBytes) {
+                f.inputStream().use { input ->
+                    val buf = ByteArray(maxBytes)
+                    var read = 0
+                    while (read < maxBytes) {
+                        val n = input.read(buf, read, maxBytes - read)
+                        if (n <= 0) break
+                        read += n
+                    }
+                    String(buf, 0, read, Charsets.UTF_8) +
+                        "\n\n[日志超过 256KB，已截断]"
+                }
+            } else {
+                f.readText(Charsets.UTF_8)
+            }
+        } catch (e: Throwable) {
+            ""
+        }
+    }
+
+    /** 清除崩溃日志（用户确认已处理或无需求时）。 */
+    @JavascriptInterface
+    fun clearCrashLog() {
+        try {
+            java.io.File(activity.filesDir, "crash.log").delete()
+        } catch (e: Throwable) {
+        }
+    }
+
     /**
      * 隐藏/显示 Surface。
      *

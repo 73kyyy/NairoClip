@@ -183,3 +183,40 @@ document.querySelectorAll('[data-doc]').forEach((el) => {
 });
 
 })();
+/* ---------- 帮助与反馈的子入口（2026-11-04 新增） ----------
+   意见反馈 / 常见问题 / 崩溃日志 / 更多信息 */
+(function bindHelpEntries() {
+  const q = new URLSearchParams(location.search).get('api');
+  const url = (name) => `${name}${q ? `?api=${encodeURIComponent(q)}` : ''}`;
+
+  const fb = document.getElementById('btn-feedback');
+  if (fb) fb.addEventListener('click', () => { location.href = url('06-feedback.html'); });
+
+  const faq = document.getElementById('btn-faq');
+  if (faq) faq.addEventListener('click', () => { location.href = url('07-faq.html'); });
+
+  const crash = document.getElementById('btn-crashlog');
+  if (crash) {
+    /* 只有确实存在崩溃日志时才显示这一行。
+       没崩过的用户看到「崩溃日志」会疑惑，甚至会以为应用有问题。 */
+    let hasLog = false;
+    try {
+      if (window.NCAndroid && typeof window.NCAndroid.hasCrashLog === 'function') {
+        hasLog = window.NCAndroid.hasCrashLog() === true;
+      }
+    } catch (e) { hasLog = false; }
+    crash.hidden = !hasLog;
+    crash.addEventListener('click', () => { location.href = url('08-crashlog.html'); });
+  }
+
+  /* 「更多信息」：展开后才露出三个法务条目。
+     藏得深是刻意的 —— 用户要求「藏得非常的深，用户一般找不到」。 */
+  const more = document.getElementById('btn-more-info');
+  const panel = document.getElementById('more-info');
+  if (more && panel) {
+    more.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      more.classList.toggle('open', !panel.hidden);
+    });
+  }
+})();

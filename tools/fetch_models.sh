@@ -30,6 +30,21 @@ JOBS=(
   # ⚠️ 待核对：锁定清单要求 Voc_FT 权重，此处为 kara2 变体
   "musetric/uvr-mdxnet-kara2-onnx/resolve/main/kara2.onnx|stem_sep/model.onnx"
 
+  # 人像抠像：MODNet（Apache-2.0）
+  #
+  # 选它而不是 MediaPipe Selfie Segmentation 的原因：
+  #   · 边缘质量高（发丝级），MediaPipe 只有"中"
+  #   · Apache-2.0 可商用
+  #   · 25MB / 256x256 输入，手机上跑得动
+  # 代价：2021 年后无更新。但权重本身不会"过期"，
+  # 且推理代码 matting_ai.cpp 已按 MODNet 的预处理约定实现
+  # （RGB 通道序 + [-1,1]，见 preprocessModnet 注释）。
+  #
+  # ⚠️ docs/MASTER_FRAMEWORK.md §3.1 记录过「Xenova/modnet 导出实测恒 0」。
+  # 那是特定导出的问题，不是模型本身。落地后必须跑
+  # MattingAI.RealInferenceProducesAlpha 断言输出非恒定。
+  "Xenova/modnet/resolve/main/onnx/model.onnx|matting_basic/model.onnx"
+
   # 字幕翻译：OPUS-MT-ZH-EN（Apache-2.0；全本地运行，不接云端）
   # 必须用**分体导出**三件：merged 版在 cache 分支下 encoder KV 会收缩，
   # 导致译文退化（详见 docs/ROADMAP.md §5.6）。

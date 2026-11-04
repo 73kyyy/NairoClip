@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>意见反馈</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/components.css">
+<link rel="stylesheet" href="../assets/page.css">
+</head>
+<body>
+<div class="screen">
+  <header class="hd">
+    <button class="hd-btn" id="btn-back" aria-label="返回"><svg class="i"><use href="#i-chevron"/></svg></button>
+    <h1 class="hd-title">意见反馈</h1>
+  </header>
+
+  <div class="scroll" style="padding:0 16px 24px">
+    <p class="fb-hint">
+      遇到问题或有建议，告诉我们。反馈内容会附带设备型号与系统版本，
+      便于定位问题 —— <b>不会包含你的素材或工程内容</b>。
+    </p>
+
+    <label class="fb-label">反馈类型</label>
+    <div class="fb-types" id="fb-types">
+      <button class="fb-type on" data-type="bug">功能异常</button>
+      <button class="fb-type" data-type="idea">功能建议</button>
+      <button class="fb-type" data-type="ui">界面问题</button>
+      <button class="fb-type" data-type="other">其他</button>
+    </div>
+
+    <label class="fb-label" for="fb-text">详细描述</label>
+    <textarea id="fb-text" class="fb-text" rows="7"
+      placeholder="请描述你遇到的问题或建议…&#10;&#10;如果是功能异常，请说明：&#10;· 做了什么操作&#10;· 期望的结果&#10;· 实际的结果"></textarea>
+
+    <label class="fb-label">联系方式（选填）</label>
+    <input id="fb-contact" class="fb-input" type="text" placeholder="邮箱或手机号，便于回复你">
+
+    <div class="fb-actions">
+      <button class="primary" id="btn-submit">提交反馈</button>
+      <button class="ghost" id="btn-copy">复制反馈内容</button>
+    </div>
+
+    <p class="fb-note" id="fb-note"></p>
+  </div>
+</div>
+<script src="../assets/icons.js"></script>
+<script src="../assets/feedback.js"></script>
+</body>
+</html>

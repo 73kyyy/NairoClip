@@ -85,16 +85,27 @@
         <svg class="i chev"><use href="#i-chevron-right"/></svg>
       </button>
       <div class="acc-body">
-        <div class="line">意见反馈<span class="val">›</span></div>
-        <div class="line">常见问题<span class="val">›</span></div>
-        <!-- 「版权与许可」「AI 标识/模型说明」按用户要求藏在这里
-             （2026-11-04：「藏到帮助与反馈里面，藏到最下面，
-               不容易发现也就行了，但是可以找到，极深越好」）。
-             放在展开区的最后两行，视觉上不显眼但路径可达：
-             我的 → 帮助与反馈 → 展开 → 滚到最底 → 点击 -->
-        <button class="line muted" data-doc="copyright">版权与许可<span class="val">›</span></button>
-        <button class="line muted" data-doc="aiNotice">AI 生成内容标识说明<span class="val">›</span></button>
-        <button class="line muted" data-doc="aiModels">AI 功能与模型说明<span class="val">›</span></button>
+        <!-- 意见反馈 / 常见问题：正常入口，用户会用 -->
+        <button class="line" id="btn-feedback">意见反馈<span class="val">›</span></button>
+        <button class="line" id="btn-faq">常见问题<span class="val">›</span></button>
+
+        <!-- 崩溃日志：**只在确实存在日志时**由 JS 插入。
+             用户没崩过就看不到这一行，界面更干净。
+             （用户要求：「崩溃日志放帮助与反馈的 L1 页面」） -->
+        <button class="line" id="btn-crashlog" hidden>崩溃日志<span class="val">›</span></button>
+
+        <!-- 「版权与许可」「AI 标识/模型说明」：藏得极深
+             （用户 2026-11-04：「不需要那种长按，但是你需要藏得非常的深，
+               用户一般找不到」）。
+             路径：我的 → 帮助与反馈 → 展开 → 滚到最底 → 点「更多信息」
+                  → 才看到这三项。
+             普通用户不会走到「更多信息」这一步。 -->
+        <button class="line muted" id="btn-more-info">更多信息<span class="val">›</span></button>
+        <div class="acc-body" id="more-info" hidden>
+          <button class="line muted" data-doc="copyright">版权与许可<span class="val">›</span></button>
+          <button class="line muted" data-doc="aiNotice">AI 生成内容标识说明<span class="val">›</span></button>
+          <button class="line muted" data-doc="aiModels">AI 功能与模型说明<span class="val">›</span></button>
+        </div>
       </div>
     </div>
 

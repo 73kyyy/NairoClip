@@ -28,6 +28,32 @@ else()
         "或用 tools/fetch_android_core.sh 下载。")
 endif()
 
+# ---- FFmpeg 共享库（LGPL 动态链接）----
+# 目录约定：android/app/src/main/jniLibs/<abi>/libav*.so
+# CI 会把 ffmpeg-build 的产物拷到这里（见 android-apk.yml）。
+#
+# 为什么必须动态链接：
+#   LGPL 允许应用闭源，但要求「用户可以替换被链接的库」。
+#   静态链接（.a）无法替换，等于要求整个 App 按 LGPL 开源 ——
+#   与闭源策略冲突。所以这里只接受 .so，找不到就报错，
+#   **不静默退回 Mock**（那会让 APK 装上去能开但导不了视频）。
+set(NC_FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../jniLibs/${ANDROID_ABI}")
+set(NC_FFMPEG_LIBS
+    "${NC_FFMPEG_LIB_DIR}/libavformat.so"
+    "${NC_FFMPEG_LIB_DIR}/libavcodec.so"
+    "${NC_FFMPEG_LIB_DIR}/libswscale.so"
+    "${NC_FFMPEG_LIB_DIR}/libswresample.so"
+    "${NC_FFMPEG_LIB_DIR}/libavutil.so")
+if(EXISTS "${NC_FFMPEG_LIB_DIR}/libavcodec.so")
+    target_link_libraries(nc_jni ${NC_FFMPEG_LIBS})
+    message(STATUS "nc_jni: FFmpeg 动态库已链接 ${NC_FFMPEG_LIB_DIR}")
+else()
+    message(WARNING
+        "nc_jni: 未找到 FFmpeg 动态库（${NC_FFMPEG_LIB_DIR}）。\n"
+        "APK 会退化为 Mock 解码器 —— 真实视频无法导入。\n"
+        "请运行 ffmpeg-build/build-android.sh 并把产物拷到 jniLibs/<abi>/。")
+endif()
+
 # 依赖的系统库
 find_library(log-lib log)
 find_library(android-lib android)

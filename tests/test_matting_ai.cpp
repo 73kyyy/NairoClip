@@ -17,11 +17,39 @@ using namespace nairoclip::core;
 
 namespace {
 
+/// 抠像模型路径：**优先仓库内 models/**，回退开发机的 deps/。
+///
+/// 为什么优先仓库内：`models/` 是产品实际加载的路径，
+/// 而 `/workspace/deps/` 只是开发机上的临时文件。
+/// 历史上测试只认 deps，导致「测试通过 ≠ 产品可用」
+/// （见 docs/MASTER_FRAMEWORK.md §9.2 记录的脱节风险）。
+const char* mattingModelPath() {
+    static const char* kCandidates[] = {
+        "models/matting_basic/model.onnx",
+        "../models/matting_basic/model.onnx",
+        "../../models/matting_basic/model.onnx",
+        "/workspace/deps/modnet.onnx",
+    };
+    static const char* cached = nullptr;
+    if (cached != nullptr) return cached;
+    for (const char* p : kCandidates) {
+        FILE* f = std::fopen(p, "rb");
+        if (f != nullptr) {
+            std::fclose(f);
+            cached = p;
+            return cached;
+        }
+    }
+    cached = "/workspace/deps/modnet.onnx";   // 全不存在时返回原路径，让断言失败
+    return cached;
+}
+
+
 bool mattingModelAvailable() {
     if (!aiEngineAvailable()) {
         return false;
     }
-    FILE* f = std::fopen("/workspace/deps/modnet.onnx", "rb");
+    FILE* f = std::fopen(mattingModelPath(), "rb");
     if (f == nullptr) {
         return false;
     }
@@ -94,7 +122,7 @@ NC_TEST(MattingAI, RealInferenceProducesAlpha) {
     if (!mattingModelAvailable()) return;
     MattingEstimator estimator;
     std::string failure;
-    NC_CHECK(estimator.load("/workspace/deps/modnet.onnx", &failure));
+    NC_CHECK(estimator.load(mattingModelPath(), &failure));
     NC_CHECK(estimator.loaded());
     const int W = 160;
     const int H = 120;
@@ -135,7 +163,7 @@ NC_TEST(MattingAI, QualityLevelsWork) {
     if (!mattingModelAvailable()) return;
     MattingEstimator estimator;
     std::string failure;
-    NC_CHECK(estimator.load("/workspace/deps/modnet.onnx", &failure));
+    NC_CHECK(estimator.load(mattingModelPath(), &failure));
     const int W = 64;
     const int H = 64;
     const std::vector<std::uint8_t> frame = makePortraitFrame(W, H);
@@ -151,7 +179,7 @@ NC_TEST(MattingAI, FeatherAffectsEdges) {
     if (!mattingModelAvailable()) return;
     MattingEstimator estimator;
     std::string failure;
-    NC_CHECK(estimator.load("/workspace/deps/modnet.onnx", &failure));
+    NC_CHECK(estimator.load(mattingModelPath(), &failure));
     const int W = 64;
     const int H = 64;
     const std::vector<std::uint8_t> frame = makePortraitFrame(W, H);
@@ -180,7 +208,7 @@ NC_TEST(MattingAI, FailurePaths) {
     // 不存在的模型
     NC_CHECK(!estimator.load("/tmp/nonexistent_matting_model.onnx", &failure));
     // 非法帧
-    NC_CHECK(estimator.load("/workspace/deps/modnet.onnx", &failure));
+    NC_CHECK(estimator.load(mattingModelPath(), &failure));
     NC_CHECK(!estimator.estimate(nullptr, 32, 32, MattingQuality::Basic, 35.0, alpha,
                                  &failure));
     NC_CHECK(!estimator.estimate(frame.data(), 0, 32, MattingQuality::Basic, 35.0, alpha,
@@ -195,7 +223,7 @@ NC_TEST(MattingAI, AlphaUnlocksSlimAndGlow) {
     if (!mattingModelAvailable()) return;
     MattingEstimator estimator;
     std::string failure;
-    NC_CHECK(estimator.load("/workspace/deps/modnet.onnx", &failure));
+    NC_CHECK(estimator.load(mattingModelPath(), &failure));
     // 中心椭圆人像（肌肤纹理 + 高频细节；较大帧使 MODNet 更可靠）
     const int W = 160;
     const int H = 120;

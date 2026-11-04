@@ -234,3 +234,55 @@ button.line.danger:active { color: #FF6B6F; }
 
 /* hidden 必须彻底隐藏，避免空态与网格同时出现 */
 .drafts[hidden], .empty[hidden] { display: none !important; }
+
+/* ============================================================================
+   意见反馈 / 常见问题（06-feedback / 07-faq）
+   ============================================================================ */
+
+.fb-hint { font-size: 12px; line-height: 1.7; color: #8B918F; margin: 14px 0 18px; }
+.fb-label { display: block; font-size: 12px; color: #9AA09E; margin: 16px 0 8px; }
+
+.fb-types { display: flex; gap: 8px; flex-wrap: wrap; }
+.fb-type {
+  padding: 7px 14px; border-radius: 999px; border: 1px solid #2A302E;
+  background: transparent; color: #9AA09E; font-size: 12px;
+}
+.fb-type.on { background: #1F8A57; border-color: #1F8A57; color: #fff; }
+
+.fb-text, .fb-input {
+  width: 100%; box-sizing: border-box;
+  background: #14181 7; border: 1px solid #2A302E; border-radius: 10px;
+  color: #E6ECE9; font-size: 13px; line-height: 1.6; padding: 10px 12px;
+  font-family: inherit; resize: vertical;
+}
+.fb-text::placeholder, .fb-input::placeholder { color: #5B6360; }
+.fb-text:focus, .fb-input:focus { outline: none; border-color: #1F8A57; }
+
+.fb-actions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+.fb-actions .primary, .fb-actions .ghost {
+  flex: 1 1 auto; padding: 11px 16px; border-radius: 10px;
+  font-size: 14px; font-weight: 600; border: 0;
+}
+.fb-actions .primary { background: #111413; color: #fff; }
+.fb-actions .ghost {
+  background: transparent; color: #9AA09E; border: 1px solid #2A302E; font-weight: 500;
+}
+.fb-note { margin-top: 14px; font-size: 12px; line-height: 1.7; color: #6F7774; }
+
+/* ---- FAQ 折叠项 ---- */
+.faq-item { border-bottom: 1px solid #1E2221; }
+.faq-q {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  background: transparent; border: 0; padding: 15px 2px;
+  color: #E6ECE9; font-size: 13.5px; line-height: 1.5; text-align: left;
+}
+.faq-q span { flex: 1 1 auto; }
+.faq-arrow {
+  flex: none; font-style: normal; color: #6F7774; font-size: 15px;
+  transition: transform .18s ease;
+}
+.faq-item.open .faq-arrow { transform: rotate(90deg); }
+.faq-a {
+  padding: 0 2px 16px; font-size: 12.5px; line-height: 1.75;
+  color: #9AA09E; white-space: pre-wrap;
+}

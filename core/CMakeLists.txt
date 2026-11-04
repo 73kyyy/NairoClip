@@ -106,21 +106,63 @@ else()
     message(STATUS "NairoClip: RELEASE compliance mode — GPL encoders denied")
 endif()
 
-# ---- FFmpeg 可选集成 ----
-# 通过 pkg-config 检测；未安装 FFmpeg 时功能自动降级（Mock 路径仍可用）。
-find_package(PkgConfig QUIET)
+# ---- FFmpeg 集成 ----
+#
+# 两条查找路径：
+#
+#   1) **显式根目录**（Android 交叉编译走这条）
+#      -DNAIROCLIP_FFMPEG_ROOT=/path/to/ffmpeg/<abi>
+#      目录结构约定：<root>/include/  +  <root>/lib/libav*.so
+#      Android 上没有 pkg-config 的 sysroot 配置，且 NDK 构建时
+#      `-DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON` 会让 pkg-config 直接失效 ——
+#      所以必须支持显式路径。
+#
+#   2) pkg-config（Linux/macOS 桌面构建走这条）
+#
+# ⚠️ **曾经的问题**：Android CI 里传了
+#      -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON
+#    于是 pkg-config 分支永远不成立 → NAIROCLIP_HAS_FFMPEG 未定义
+#    → APK 里编进去的是 MockMediaReader，**导入真实视频直接失败**。
+#    这不是"可选降级"，是功能缺失。
 set(NAIROCLIP_FFMPEG_FOUND FALSE)
-if(PkgConfig_FOUND)
-    pkg_check_modules(FFMPEG QUIET IMPORTED_TARGET
-        libavformat libavcodec libavutil libswscale libswresample)
-    if(FFMPEG_FOUND)
+
+if(DEFINED NAIROCLIP_FFMPEG_ROOT AND NOT NAIROCLIP_FFMPEG_ROOT STREQUAL "" AND
+   NOT NAIROCLIP_FFMPEG_ROOT STREQUAL "OFF")
+    set(_ff_inc "${NAIROCLIP_FFMPEG_ROOT}/include")
+    if(EXISTS "${_ff_inc}/libavcodec/avcodec.h")
         set(NAIROCLIP_FFMPEG_FOUND TRUE)
         target_sources(nairoclip_core PRIVATE src/media_ffmpeg.cpp src/media_ffmpeg_writer.cpp)
-        target_link_libraries(nairoclip_core PUBLIC PkgConfig::FFMPEG)
+        target_include_directories(nairoclip_core PUBLIC "${_ff_inc}")
+        # 显式列出五个库：顺序有意义（avformat 依赖 avcodec/avutil）
+        target_link_libraries(nairoclip_core PUBLIC
+            "${NAIROCLIP_FFMPEG_ROOT}/lib/libavformat.so"
+            "${NAIROCLIP_FFMPEG_ROOT}/lib/libavcodec.so"
+            "${NAIROCLIP_FFMPEG_ROOT}/lib/libswscale.so"
+            "${NAIROCLIP_FFMPEG_ROOT}/lib/libswresample.so"
+            "${NAIROCLIP_FFMPEG_ROOT}/lib/libavutil.so")
         target_compile_definitions(nairoclip_core PUBLIC NAIROCLIP_HAS_FFMPEG=1)
-        message(STATUS "NairoClip: FFmpeg found — real media decoding enabled")
+        message(STATUS "NairoClip: FFmpeg (explicit root) — ${NAIROCLIP_FFMPEG_ROOT}")
+    else()
+        message(FATAL_ERROR
+            "NAIROCLIP_FFMPEG_ROOT 指定了但找不到头文件：${_ff_inc}/libavcodec/avcodec.h")
     endif()
 endif()
+
+if(NOT NAIROCLIP_FFMPEG_FOUND)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FFMPEG QUIET IMPORTED_TARGET
+            libavformat libavcodec libavutil libswscale libswresample)
+        if(FFMPEG_FOUND)
+            set(NAIROCLIP_FFMPEG_FOUND TRUE)
+            target_sources(nairoclip_core PRIVATE src/media_ffmpeg.cpp src/media_ffmpeg_writer.cpp)
+            target_link_libraries(nairoclip_core PUBLIC PkgConfig::FFMPEG)
+            target_compile_definitions(nairoclip_core PUBLIC NAIROCLIP_HAS_FFMPEG=1)
+            message(STATUS "NairoClip: FFmpeg (pkg-config) — real media decoding enabled")
+        endif()
+    endif()
+endif()
+
 if(NOT NAIROCLIP_FFMPEG_FOUND)
     message(STATUS "NairoClip: FFmpeg not found — using Mock media readers")
 endif()

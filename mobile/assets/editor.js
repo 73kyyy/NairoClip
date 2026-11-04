@@ -350,13 +350,370 @@ function fetchState() {
   return s;
 }
 
-/* 编辑：调桥，成功后刷新快照并重绘 */
+/* =============================================================================
+   编辑操作 → C ABI 函数名映射
+   -----------------------------------------------------------------------------
+   **这是前端与引擎之间的关键一环，此前完全缺失。**
+
+   `guardedEdit({ op: 'split', ... })` 的 `op` 是**产品语义**（分割），
+   不是引擎函数名（`nc_split_clip`）。改造前 `edit()` 把 `op` 直接当函数名
+   传给桥，于是调用了不存在的 `nc_split` —— 引擎返回错误，
+   `guardedEdit` 把错误吞成 toast。
+
+   **表现**：用户点「分割」没反应 / 弹一句「操作失败」，
+   而不是「一切正常但什么都没发生」—— 后者更难查。
+
+   映射表的形式：op → { fn, map(args) → 引擎参数 }
+   map 负责字段改名（clip → clip_id、at_us → at_us）与缺省值。
+   ============================================================================= */
+const OP_TO_ABI = {
+  /* ---- 片段基本操作 ---- */
+  split: {
+    fn: 'nc_split_clip',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, at_us: a.at_us })
+  },
+  delete: {
+    fn: 'nc_remove_clip',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip })
+  },
+  duplicate: {
+    fn: 'nc_duplicate_clip',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip })
+  },
+  move: {
+    fn: 'nc_move_clip',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, start_us: a.start_us })
+  },
+  move_to_track: {
+    fn: 'nc_move_clip_to_track',
+    map: (a) => ({
+      from_track: a.from_track !== undefined ? a.from_track : a.track,
+      to_track: a.to_track,
+      clip_id: a.clip,
+      start_us: a.start_us
+    })
+  },
+  trim_start: {
+    fn: 'nc_trim_clip_start',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, start_us: a.start_us })
+  },
+  trim_end: {
+    fn: 'nc_trim_clip_end',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, end_us: a.end_us })
+  },
+  enabled: {
+    fn: 'nc_set_clip_enabled',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, enabled: a.enabled ? 1 : 0 })
+  },
+  opacity: {
+    fn: 'nc_set_clip_opacity',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, opacity: a.value })
+  },
+  speed: {
+    fn: 'nc_set_clip_speed',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      num: a.num !== undefined ? a.num : 100,
+      den: a.den !== undefined ? a.den : 100
+    })
+  },
+  speed_curve: {
+    fn: 'nc_set_clip_speed_curve',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      times: a.times, speeds: a.speeds, easing: a.easing || 0
+    })
+  },
+  freeze: {
+    fn: 'nc_freeze_frame',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      at_us: a.at_us, duration_us: a.duration_us
+    })
+  },
+  reverse: {
+    fn: 'nc_reverse_clip',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip })
+  },
+  ripple_delete: {
+    fn: 'nc_ripple_delete',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip })
+  },
+
+  /* ---- 特效 / 滤镜 ---- */
+  effect_add: {
+    fn: 'nc_add_effect',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      type: a.type, value: a.value !== undefined ? a.value : 0
+    })
+  },
+  effect_remove: {
+    fn: 'nc_remove_effect',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, effect_id: a.effect_id })
+  },
+  effect_update: {
+    fn: 'nc_update_effect',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip, effect_id: a.effect_id,
+      value: a.value, enabled: a.enabled
+    })
+  },
+  effect_enabled: {
+    fn: 'nc_set_effect_enabled',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip, effect_id: a.effect_id,
+      enabled: a.enabled ? 1 : 0
+    })
+  },
+  filter: {
+    fn: 'nc_set_clip_filter',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      style: a.style, intensity: a.intensity !== undefined ? a.intensity : 1.0
+    })
+  },
+  lut: {
+    fn: 'nc_set_clip_lut',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      path: a.path || '', strength: a.strength !== undefined ? a.strength : 1.0
+    })
+  },
+
+  /* ---- 蒙版 / 抠像 / 混合 ---- */
+  mask: {
+    fn: 'nc_set_clip_mask',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      shape: a.shape, feather: a.feather, inverted: a.inverted ? 1 : 0
+    })
+  },
+  chroma: {
+    fn: 'nc_set_clip_chroma_key',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      enabled: a.enabled ? 1 : 0,
+      key_r: a.key_r, key_g: a.key_g, key_b: a.key_b,
+      similarity: a.similarity, smoothness: a.smoothness
+    })
+  },
+  blend: {
+    fn: 'nc_set_clip_blend_mode',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, mode: a.mode })
+  },
+
+  /* ---- 几何变换 ---- */
+  transform_set: {
+    fn: 'nc_set_clip_transform',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      enabled: a.enabled !== undefined ? a.enabled : 1,
+      scale: a.scale !== undefined ? a.scale : 1,
+      pos_x: a.pos_x !== undefined ? a.pos_x : 0,
+      pos_y: a.pos_y !== undefined ? a.pos_y : 0,
+      rotation: a.rotation !== undefined ? a.rotation : 0,
+      anchor: a.anchor !== undefined ? a.anchor : 4
+    })
+  },
+  transform_clear: {
+    fn: 'nc_clear_clip_transform',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip })
+  },
+  xform_set: {
+    fn: 'nc_set_clip_xform',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip, kind: a.kind,
+      value: a.value !== undefined ? a.value : 0,
+      angle: a.angle !== undefined ? a.angle : 0,
+      freq: a.freq !== undefined ? a.freq : 0,
+      phase: a.phase !== undefined ? a.phase : 0,
+      axis: a.axis !== undefined ? a.axis : 0,
+      cols: a.cols !== undefined ? a.cols : 1,
+      rows: a.rows !== undefined ? a.rows : 1,
+      gap: a.gap !== undefined ? a.gap : 0,
+      anchor: a.anchor !== undefined ? a.anchor : 4,
+      enabled: a.enabled !== undefined ? a.enabled : 1
+    })
+  },
+  xform_clear: {
+    fn: 'nc_clear_clip_xform',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, kind: a.kind })
+  },
+  shake_set: {
+    fn: 'nc_set_clip_shake',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      amplitude: a.amplitude, frequency: a.frequency,
+      enabled: a.enabled !== undefined ? a.enabled : 1
+    })
+  },
+  frame_fit: {
+    fn: 'nc_set_frame_fit',
+    map: (a) => ({ mode: a.mode })
+  },
+
+  /* ---- 关键帧 / 标记 / 转场 ---- */
+  keyframe: {
+    fn: 'nc_insert_keyframe',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      property: a.property, time_us: a.time_us, value: a.value
+    })
+  },
+  remove_keyframe: {
+    fn: 'nc_remove_keyframe',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      property: a.property, time_us: a.time_us
+    })
+  },
+  marker: {
+    fn: 'nc_add_marker',
+    map: (a) => ({
+      time_us: a.time_us, name: a.name || '',
+      color: a.color || '#FF3B30'
+    })
+  },
+  marker_color: {
+    fn: 'nc_add_marker',
+    map: (a) => ({
+      time_us: a.time_us, name: a.name || '',
+      color: a.color || '#FF3B30'
+    })
+  },
+  transition: {
+    fn: 'nc_add_transition',
+    map: (a) => ({
+      track_index: a.track, transition_type: a.type,
+      from_clip: a.from_clip, to_clip: a.to_clip,
+      duration_us: a.duration_us
+    })
+  },
+  remove_transition: {
+    fn: 'nc_remove_transition',
+    map: (a) => ({ track_index: a.track, transition_id: a.transition_id })
+  },
+
+  /* ---- 轨道 ---- */
+  track_flag: {
+    fn: 'nc_set_track_hidden',   // 由下方 map 按 flag 再分发
+    map: (a) => ({ track_index: a.track, hidden: a.value ? 1 : 0 })
+  },
+  track_gain: {
+    fn: 'nc_set_track_gain',
+    map: (a) => ({ track_index: a.track, gain_db: a.gain_db })
+  },
+  rename_track: {
+    fn: 'nc_rename_track',
+    map: (a) => ({ track_index: a.track, new_name: a.name })
+  },
+  add_track: {
+    fn: 'nc_add_track',
+    map: (a) => ({ track_type: a.track_type, name: a.name || '' })
+  },
+  set_track_view: {
+    fn: 'nc_set_track_view',
+    map: (a) => ({
+      track_index: a.track, height_px: a.height_px,
+      collapsed: a.collapsed !== undefined ? a.collapsed : 0
+    })
+  },
+
+  /* ---- 撤销 / 重做 ---- */
+  undo: { fn: 'nc_undo', map: () => ({}) },
+  redo: { fn: 'nc_redo', map: () => ({}) },
+
+  /* ---- 工程 ---- */
+  canvas: {
+    fn: 'nc_set_project_canvas',
+    map: (a) => ({ width: a.width, height: a.height })
+  },
+  rename_project: {
+    fn: 'nc_set_project_name',
+    map: (a) => ({ name: a.name })
+  },
+
+  /* ---- 音频 ---- */
+  audio: {
+    fn: 'nc_set_clip_audio',
+    map: (a) => ({ track_index: a.track, clip_id: a.clip, gain_db: a.gain_db })
+  },
+  denoise: {
+    fn: 'nc_set_clip_denoise',
+    map: (a) => ({
+      track_index: a.track, clip_id: a.clip,
+      enabled: a.enabled !== undefined ? a.enabled : 1,
+      strength: a.strength !== undefined ? a.strength : 0.5
+    })
+  },
+
+  /* ---- 调整图层（§4.7）---- */
+  adjust_effect_add: {
+    fn: 'nc_adjustment_add_effect',
+    map: (a) => ({ track_index: a.track, type: a.type, value: a.value })
+  },
+  adjust_effect_remove: {
+    fn: 'nc_adjustment_remove_effect',
+    map: (a) => ({ track_index: a.track, effect_id: a.effect_id })
+  },
+  adjust_lut: {
+    fn: 'nc_adjustment_set_lut',
+    map: (a) => ({
+      track_index: a.track, path: a.path || '',
+      strength: a.strength !== undefined ? a.strength : 1.0
+    })
+  },
+
+  /* ---- 已经写成 nc_* 的（历史遗留，直接透传）---- */
+  nc_set_frame_fit: { fn: 'nc_set_frame_fit', map: (a) => a },
+  nc_set_track_view: {
+    fn: 'nc_set_track_view',
+    map: (a) => ({
+      track_index: a.track_index, height_px: a.height_px, collapsed: a.collapsed
+    })
+  }
+};
+
+/* track_flag 的 flag 分流：hidden / muted / locked 三个开关。
+   为什么不拆成三个 op：调用方（工具栏）本来就是一个函数带 flag 参数，
+   拆开会让调用点各写一遍 if。 */
+function resolveTrackFlag(payload) {
+  const flag = payload.flag;
+  const value = payload.value ? 1 : 0;
+  const track = payload.track;
+  if (flag === 'hidden') return { fn: 'nc_set_track_hidden', args: { track_index: track, hidden: value } };
+  if (flag === 'muted') return { fn: 'nc_set_track_muted', args: { track_index: track, muted: value } };
+  if (flag === 'locked') return { fn: 'nc_set_track_locked', args: { track_index: track, locked: value } };
+  return null;
+}
+
+/* 编辑：按映射表调桥，成功后刷新快照并重绘 */
 function edit(payload) {
   if (!Engine.bridge) throw new Error('引擎未连接');
   const op = payload && payload.op;
-  const args = Object.assign({}, payload);
-  delete args.op;
-  const r = engineCall(op, args);
+  if (!op) throw new Error('缺少 op');
+
+  /* track_flag 单独处理（一个 op 对应三个函数） */
+  let fn;
+  let args;
+  if (op === 'track_flag') {
+    const resolved = resolveTrackFlag(payload);
+    if (resolved === null) throw new Error(`未知的轨道标记：${payload.flag}`);
+    fn = resolved.fn;
+    args = resolved.args;
+  } else {
+    const spec = OP_TO_ABI[op];
+    if (!spec) {
+      /* **不要静默透传** —— 透传会调 `nc_<op>`，那函数多半不存在，
+         错误信息变成「未知函数」，掩盖真正的原因。 */
+      throw new Error(`未映射的编辑操作：${op}（需在 OP_TO_ABI 中登记）`);
+    }
+    fn = spec.fn;
+    args = spec.map(payload);
+  }
+
+  const r = engineCall(fn, args);
   if (!r || !r.ok) throw new Error((r && r.message) || `操作失败（${(r && r.code) ?? '未知'}）`);
   applyState(fetchState());
   renderAll();

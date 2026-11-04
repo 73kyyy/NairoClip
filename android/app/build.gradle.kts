@@ -29,6 +29,17 @@ android {
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+
+            /* 保留调试符号（§8.1 崩溃捕获的有效性前提）。
+               AGP 在 release 构建里**默认 strip** native 库。
+               一旦 strip，崩溃日志里的地址就是裸地址 ——
+               llvm-symbolizer / addr2line 都还原不出函数名，
+               等于「抓了崩溃但看不懂」。
+
+               FULL 会把符号打进 APK（体积增大），但这是唯一能让
+               用户设备上的崩溃地址可还原的方式（我们没有服务端
+               做离线符号化）。 */
+            debugSymbolLevel = "FULL"
         }
     }
 
