@@ -69,7 +69,31 @@ public:
     /// 1080p（约 8MB/帧）是 96MB 还能接受，
     /// 但 4K（约 33MB/帧）就是 400MB —— 移动端会被系统直接杀掉。
     /// 用户可以选择任意分辨率与帧率，所以容量必须随画幅自适应。
+    /// 帧缓存字节预算（默认值 = 中端设备）。
+    ///
+    /// **为什么不再固定 96MB**：96MB 对旗舰机太保守（8GB/12GB 机型完全
+    /// 可以给 128MB，多缓存十几帧能让长镜头拖动更顺），对低端机又太激进
+    /// （2–3GB 机型上 96MB 会挤压解码器与 WebView）。
+    ///
+    /// 现在由平台层按设备内存分级调用 setFrameCacheBudgetBytes()；
+    /// 未调用时保持 96MB 的保守默认（与改动前逐字节一致）。
     static constexpr std::size_t kFrameCacheBudgetBytes = 96u * 1024u * 1024u;
+
+    /// 设置帧缓存字节预算（平台层按设备内存分级调用）。
+    ///
+    /// 建议值（Android ActivityManager.getMemoryClass 为参考）：
+    ///   · memoryClass >= 512（旗舰）→ 128 MB
+    ///   · memoryClass >= 256（中端）→ 96 MB（默认）
+    ///   · 其它（低端）              → 48 MB
+    ///
+    /// 与 Kotlin 侧 MemoryGuard.frameCacheBudgetBytes() 的取值范围一致
+    /// （clamp(memoryClass × 30%, 48MB, 128MB)）—— 两处必须对齐，
+    /// 否则「Kotlin 算出的预算」与「core 实际用的」不同，参数形同虚设。
+    ///
+    /// 下限 24MB / 上限 256MB：防止误传导致缓存过小（等于关掉缓存）
+    /// 或过大（挤爆低端机）。
+    void setFrameCacheBudgetBytes(std::size_t bytes);
+    std::size_t frameCacheBudgetBytes() const { return frameCacheBudget_; }
     /// 帧数下限（保证小画幅下也有基本的来回拖动命中）
     static constexpr std::size_t kFrameCacheMinFrames = 4;
     /// 帧数上限（避免 240p 之类极小画幅把缓存堆成几万帧）
@@ -157,6 +181,11 @@ public:
         std::size_t frameMisses = 0;    ///< 未命中（走完整渲染）的次数
         std::size_t readerOpens = 0;    ///< 真正 open 解码器的次数
         std::size_t cachedFrames = 0;   ///< 当前缓存中的帧数
+        /// 因「内容变了」而作废的缓存项数（P2 分层失效的观测量）。
+        /// 与 frameMisses 分开统计：miss 是「没这个时间点」，
+        /// invalidated 是「有这个时间点但内容过期了」——
+        /// 前者是正常的首次渲染，后者才反映编辑的代价。
+        std::size_t invalidatedByEdit = 0;
     };
     CacheStats cacheStats() const;
 
@@ -198,6 +227,8 @@ private:
 
     RenderQuality quality_{RenderQuality::exportQuality()};
     std::uint64_t droppedFrames_ = 0;
+    /// 帧缓存字节预算（默认 96MB；平台层可按设备分级覆盖）。
+    std::size_t frameCacheBudget_ = kFrameCacheBudgetBytes;
 
     const Project& project_;
     MediaReaderFactory& readerFactory_;
@@ -208,10 +239,29 @@ private:
     struct CacheEntry {
         PreviewFrame frame;
         std::list<std::int64_t>::iterator lruIt;
+        /// 生成这一帧时的「层内容指纹」。见 contentFingerprint()。
+        std::uint64_t fingerprint = 0;
     };
     std::map<std::int64_t, CacheEntry> frames_;
     std::list<std::int64_t> lru_;   ///< front = 最近使用
     mutable CacheStats stats_;
+
+    /// 计算「当前时刻参与合成的所有层」的内容指纹。
+    ///
+    /// **为什么需要它（P2 分层失效的核心）**：
+    /// 原来缓存键只有时间戳，于是一旦改动任何属性（哪怕只改第 3 层的
+    /// 一点不透明度），整个缓存对同一个时间点都失效 —— 因为旧的缓存项
+    /// 还在 map 里但内容已经错了，只能整体 clear。用户拖一下滑块，
+    /// 整条时间轴的缓存全部作废，下一帧要重新解码所有层。
+    ///
+    /// 现在把「层内容」也算进键里：
+    ///   · 改第 3 层 → 只有含第 3 层的时间点的指纹变了；
+    ///   · 改第 1 层 → 同理；
+    ///   · 什么都不改 → 指纹不变 → 缓存继续命中。
+    ///
+    /// 指纹只覆盖**影响像素的字段**（不含 clipId 之类纯标识），
+    /// 否则拖动选择框也会让缓存全失效。
+    std::uint64_t contentFingerprint(const Time& timelineTime) const;
 
     /// 调整图层 LUT 缓存（键 = 路径）。
     ///

@@ -1332,6 +1332,60 @@ int32_t nc_proxy_usage(const NcEditor* editor, int32_t* out_ready_count,
 /// 说明：core 不触碰文件系统，平台层据记录列表删除文件。
 int32_t nc_proxy_clear_records(NcEditor* editor);
 
+/// 生成代理文件（P2 代理模式的核心动作）。
+///
+/// `generateProxyFrames()` 早就实现了（读原片 → 双线性缩放 → 写代理），
+/// 但没有 C ABI —— 于是平台层只能自己拼 MediaReader/MediaWriter，
+/// 而它拿不到 FFmpeg 实现。现在由 core 直接驱动转码。
+///
+/// - asset_id：视频素材（音频素材无意义，会返回 INVALID_ARGUMENT）；
+/// - out_path：代理文件路径（**由平台层决定**，core 不碰文件系统）；
+/// - quality：0 = 1/2 分辨率（默认）  1 = 1/4；
+/// - crf：编码质量（<=0 用默认 28）；
+/// - max_frames：最大帧数（0 = 不限；测试/取消保护用）；
+/// - progress_cb：进度 0..1，返回 0 取消（可为 NULL）；
+/// - out_frames/out_width/out_height：实际产出（可为 NULL）。
+///
+/// 成功时自动登记为「已就绪」（nc_proxy_get_record 可查到）。
+///
+/// **注意编码器**：代理默认用 h264，而发布构建里 H.264 只走系统硬件
+/// 编码器。设备无硬件编码器时本函数返回 NC_ERROR_UNSUPPORTED ——
+/// 平台层应提示「本设备不支持生成代理」，而不是静默失败。
+/// 预热预览开头几帧（P2「工程首次打开预热」）。
+///
+/// 问题：工程刚打开时帧缓存全空，用户第一件事（拖播放头/按播放）
+/// 要连续解码合成前几帧，体感是「刚打开特别卡，过一会儿才顺」。
+///
+/// 做法：同步预渲染开头 N 帧。代价是打开多花几百毫秒，
+/// 换来首屏拖动立刻跟手。
+///
+/// - frame_count：预渲染帧数（<=0 用默认 6；上限 30）；
+/// 返回：实际预渲染的帧数（>=0）；失败返回负错误码。
+///
+/// 已在 nc_project_load 成功后**自动调用**（6 帧），
+/// 一般不需要手动调 —— 这里暴露出来是给「用户切到某个时间点前先预热」用。
+/// 设置帧缓存字节预算（P1 内存按设备分级）。
+///
+/// 原来固定 96MB —— 对旗舰机太保守（8/12GB 机型可以给 128MB），
+/// 对低端机又太激进（2–3GB 机型会挤压解码器与 WebView）。
+///
+/// 建议由平台层按 ActivityManager.getMemoryClass 计算：
+///   clamp(memoryClass × 30%, 48MB, 128MB)
+/// 与 Kotlin 侧 MemoryGuard.frameCacheBudgetBytes() 保持一致。
+///
+/// bytes 会被夹在 [24MB, 256MB]。返回 NC_OK / 错误码。
+int32_t nc_preview_set_cache_budget(NcEditor* editor, int32_t bytes);
+
+/// 读取当前帧缓存预算（字节；句柄为空返回 -1）。
+int64_t nc_preview_get_cache_budget(const NcEditor* editor);
+
+int32_t nc_preview_prewarm(NcEditor* editor, int32_t frame_count);
+
+int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_path,
+                          int32_t quality, int32_t crf, int32_t max_frames,
+                          int32_t (*progress_cb)(double), int32_t* out_frames,
+                          int32_t* out_width, int32_t* out_height, char** out_error);
+
 // ---- 导出预设 / 资源预估（文档 6.1「导出页 & 快速导出预设库」）----
 
 /// 列举内置预设（供 UI 快速预设列表）。

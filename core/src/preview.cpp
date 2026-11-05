@@ -1,5 +1,7 @@
 #include "nairoclip/core/filters.h"
 #include "nairoclip/core/preview.h"
+
+#include <cstring>
 #include "nairoclip/core/transition_render.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/shake_effect.h"
@@ -51,6 +53,207 @@ MediaReader* PreviewRenderer::readerFor(AssetId asset) {
     return raw;
 }
 
+namespace {
+
+/// 影响像素的属性通道（ClipProperty 没有 Count 哨兵，显式列举）。
+///
+/// 为什么不写 `for (i = 0; i < N; ++i)`：枚举可能被后续追加，
+/// 显式列一遍能在「加了通道却忘了混进指纹」时立刻看出来 ——
+/// 漏掉一个通道的后果是「改它不刷新预览」，非常难查。
+///
+/// 不含 Volume：音量不影响画面像素（音频走另一条路径）。
+static const ClipProperty kVisualProps[] = {
+    ClipProperty::Opacity, ClipProperty::Scale,   ClipProperty::PositionX,
+    ClipProperty::PositionY, ClipProperty::Rotation,
+};
+
+/// FNV-1a 64 位。选它而不是 std::hash：标准对 std::hash 的实现不作保证，
+/// 跨编译器/跨版本结果可能不同，而缓存失效判定**不该依赖未指定行为**。
+inline std::uint64_t fnvMix(std::uint64_t h, std::uint64_t v) {
+    for (int i = 0; i < 8; ++i) {
+        h ^= (v >> (i * 8)) & 0xFF;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+inline std::uint64_t fnvMixDouble(std::uint64_t h, double v) {
+    // 浮点按位混合：+0.0 与 -0.0 会被视作不同，但那种差异在时间轴上无意义，
+    // 且这里只用于「变了没变」的判定，误判的代价是多渲染一帧。
+    std::uint64_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(v), "double 必须 8 字节");
+    std::memcpy(&bits, &v, sizeof(bits));
+    return fnvMix(h, bits);
+}
+
+inline std::uint64_t fnvMixStr(std::uint64_t h, const std::string& s) {
+    for (unsigned char c : s) {
+        h ^= static_cast<std::uint64_t>(c);
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+/// 把一组「影响像素的数值」混进指纹。
+/// 只取数值，不取 clipId —— 选择框/当前片段变化不该让缓存失效。
+std::uint64_t mixClipVisuals(std::uint64_t h, const Clip& clip) {
+    /* 时间与速度按 double 混入：Rational 的内部表示（num/den 约分与否）
+       不该影响「内容是否变了」的判定 —— 1/30 与 2/60 是同一点。 */
+    h = fnvMixDouble(h, clip.start.toDouble());
+    h = fnvMixDouble(h, clip.duration.toDouble());
+    h = fnvMixDouble(h, clip.sourceIn.toDouble());
+    h = fnvMixDouble(h, clip.speed.toDouble());
+
+    // 变换（画中画位置/大小/旋转）
+    h = fnvMixDouble(h, clip.transform.scale);
+    h = fnvMixDouble(h, clip.transform.posX);
+    h = fnvMixDouble(h, clip.transform.posY);
+    h = fnvMixDouble(h, clip.transform.rotation);
+    h = fnvMix(h, static_cast<std::uint64_t>(clip.transform.anchor));
+    h = fnvMix(h, clip.transform.enabled ? 1u : 0u);
+
+    // 混合与外观
+    h = fnvMix(h, static_cast<std::uint64_t>(clip.blendMode));
+    h = fnvMix(h, clip.hasMask ? 1u : 0u);
+    h = fnvMix(h, clip.hasChromaKey ? 1u : 0u);
+
+    // 效果栈：数量 + 每个 effect 的类型/取值/启用态
+    h = fnvMix(h, static_cast<std::uint64_t>(clip.effects.size()));
+    for (const auto& effect : clip.effects.effects()) {
+        h = fnvMix(h, static_cast<std::uint64_t>(effect.type));
+        h = fnvMixDouble(h, effect.value);
+        h = fnvMix(h, effect.enabled ? 1u : 0u);
+    }
+
+    // 8 槽几何变换：只混启用且有值的槽（关掉的槽不影响像素）
+    for (int i = 0; i < static_cast<int>(XformKind::Count); ++i) {
+        const XformParams& x = clip.xforms.slots[i];
+        if (!x.enabled) {
+            continue;
+        }
+        h = fnvMix(h, static_cast<std::uint64_t>(i));
+        h = fnvMixDouble(h, x.value);
+        h = fnvMix(h, static_cast<std::uint64_t>(x.edge));
+    }
+
+    // 关键帧动画：曲线数量 + 每条曲线的采样值
+    // （只混数量不够 —— 拖关键帧不改数量但改取值。）
+    for (ClipProperty prop : kVisualProps) {
+        const KeyframeTrack* curve = clip.animation.findCurve(prop);
+        if (curve == nullptr || curve->empty()) {
+            continue;
+        }
+        h = fnvMix(h, static_cast<std::uint64_t>(prop));
+        h = fnvMix(h, static_cast<std::uint64_t>(curve->size()));
+        for (const auto& k : curve->keyframes()) {
+            h = fnvMixDouble(h, k.time.toDouble());
+            h = fnvMixDouble(h, k.value);
+        }
+    }
+
+    // 滤镜 / LUT（只混标识，文件内容变不变由文件系统负责）
+    h = fnvMix(h, static_cast<std::uint64_t>(clip.filterStyle));
+    h = fnvMixDouble(h, clip.filterIntensity);
+    h = fnvMixStr(h, clip.lutPath);
+    h = fnvMixDouble(h, clip.lutStrength);
+
+    // 文本内容（栅格化结果随正文/样式变）
+    if (clip.text.has_value()) {
+        h = fnvMixStr(h, clip.text->text);
+        h = fnvMixDouble(h, clip.text->style.fontSize);
+        h = fnvMixStr(h, clip.text->style.color);
+        h = fnvMixStr(h, clip.text->style.outlineColor);
+        h = fnvMixDouble(h, clip.text->style.outlineWidth);
+        h = fnvMix(h, static_cast<std::uint64_t>(clip.text->style.alignment));
+        h = fnvMixDouble(h, clip.text->style.anchorX);
+        h = fnvMixDouble(h, clip.text->style.anchorY);
+    }
+    return h;
+}
+
+}  // namespace
+
+std::uint64_t PreviewRenderer::contentFingerprint(const Time& timelineTime) const {
+    std::uint64_t h = 1469598103934665603ULL;   // FNV offset basis
+
+    const Sequence* seq = project_.mainSequence();
+    if (seq == nullptr) {
+        return h;
+    }
+    // 画幅与背景色也影响像素
+    h = fnvMix(h, static_cast<std::uint64_t>(seq->width));
+    h = fnvMix(h, static_cast<std::uint64_t>(seq->height));
+    h = fnvMix(h, static_cast<std::uint64_t>(seq->backgroundRgba));
+    h = fnvMix(h, static_cast<std::uint64_t>(seq->frameFit));
+
+    int layerCount = 0;
+    for (const auto& track : seq->tracks) {
+        if ((track.type != TrackType::Video && track.type != TrackType::Text) || track.hidden) {
+            continue;
+        }
+        for (const auto& clip : track.clips) {
+            if (!clip.enabled || !clip.contains(timelineTime)) {
+                continue;
+            }
+            h = fnvMix(h, static_cast<std::uint64_t>(layerCount++));
+            h = mixClipVisuals(h, clip);
+
+            /* 调整图层：作用于「下方累积结果」，必须一并混进来 ——
+               否则改调整图层的 LUT 不会让缓存失效，
+               用户会看到「拖了没反应」（直到换个时间点才刷新）。 */
+            if (track.type == TrackType::Adjustment || track.hasAdjustment()) {
+                h = fnvMix(h, 0xA5A5A5A5ULL);   // 分隔标记，避免与上一层混淆
+                h = fnvMixDouble(h, track.adjustmentOpacity);
+                /* adjustmentXforms 是 XformStack（定长 8 槽），不是容器。
+                   只混启用槽 —— 关掉的槽不影响像素。 */
+                for (int i = 0; i < static_cast<int>(XformKind::Count); ++i) {
+                    const XformParams& x = track.adjustmentXforms.slots[i];
+                    if (!x.enabled) {
+                        continue;
+                    }
+                    h = fnvMix(h, static_cast<std::uint64_t>(i));
+                    h = fnvMixDouble(h, x.value);
+                    h = fnvMix(h, static_cast<std::uint64_t>(x.edge));
+                }
+                // 调整图层的独立关键帧动画
+                for (ClipProperty prop : kVisualProps) {
+                    const KeyframeTrack* curve = track.adjustmentAnimation.findCurve(prop);
+                    if (curve == nullptr || curve->empty()) {
+                        continue;
+                    }
+                    h = fnvMix(h, static_cast<std::uint64_t>(prop));
+                    for (const auto& k : curve->keyframes()) {
+                        h = fnvMixDouble(h, k.time.toDouble());
+                        h = fnvMixDouble(h, k.value);
+                    }
+                }
+                h = fnvMixStr(h, track.adjustmentLutPath);
+            }
+            break;   // 同轨片段不重叠，取到即跳出（与 collectActiveLayers 一致）
+        }
+    }
+    h = fnvMix(h, static_cast<std::uint64_t>(layerCount));
+    return h;
+}
+
+void PreviewRenderer::setFrameCacheBudgetBytes(std::size_t bytes) {
+    /* 分级预算的入口。夹在 [24MB, 256MB]：
+       · 下限 24MB —— 再小就等于关掉缓存（1080p 只够 3 帧），
+         拖动会退化成每帧全量解码，比不做分级更糟；
+       · 上限 256MB —— 保护低端机被误配置成旗舰值。 */
+    constexpr std::size_t kMin = 24u * 1024u * 1024u;
+    constexpr std::size_t kMax = 256u * 1024u * 1024u;
+    frameCacheBudget_ = bytes < kMin ? kMin : (bytes > kMax ? kMax : bytes);
+    /* 预算变小后，已有缓存可能超限 —— 立刻按新容量淘汰，
+       否则「设置了预算但内存没降下来」，分级就没有意义。 */
+    const std::size_t capacity = cacheCapacity();
+    while (frames_.size() > capacity && !lru_.empty()) {
+        const std::int64_t victim = lru_.back();
+        lru_.pop_back();
+        frames_.erase(victim);
+    }
+}
+
 void PreviewRenderer::clearFrameCache() {
     frames_.clear();
     lru_.clear();
@@ -76,7 +279,7 @@ std::size_t PreviewRenderer::cacheCapacity() const {
         return kFrameCacheMaxFrames;   // 未知画幅：先按上限，首次渲染后自动收敛
     }
     const std::size_t frameBytes = w * h * 4;
-    std::size_t cap = kFrameCacheBudgetBytes / frameBytes;
+    std::size_t cap = frameCacheBudget_ / frameBytes;
     if (cap < kFrameCacheMinFrames) cap = kFrameCacheMinFrames;
     if (cap > kFrameCacheMaxFrames) cap = kFrameCacheMaxFrames;
     return cap;
@@ -244,14 +447,36 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
     // ---- 帧缓存查询 ----
     // 键用微秒整数：Time 是比，转整数避免浮点比较误差导致的假未命中。
     const std::int64_t key = static_cast<std::int64_t>(timelineTime.toDouble() * 1e6 + 0.5);
+
+    /* P2 分层失效：命中条件从「时间点相同」升级为「时间点 + 内容都相同」。
+       ----------------------------------------------------------------------
+       原来只比时间点，于是任何编辑都会让同一时间点的旧缓存变成**错的**，
+       只能靠调用方 clearFrameCache() 整体清空 —— 拖一下滑块就把整条
+       时间轴的缓存全废掉，下一帧要重新解码所有层。
+
+       现在每项记录生成时的 contentFingerprint。查询时：
+         · 时间点相同 + 指纹相同 → 命中（改动没影响这一帧）；
+         · 时间点相同 + 指纹不同 → 视为未命中，**原地淘汰**这一项后重渲染
+           （不整表清空：其它时间点的缓存仍然有效）。
+
+       为什么不去 map 里按指纹反查：同一时间点只可能有一份当前内容，
+       反查多个版本没有意义，还白占内存。 */
+    const std::uint64_t fingerprint = contentFingerprint(timelineTime);
     auto hit = frames_.find(key);
     if (hit != frames_.end()) {
-        // LRU 提升到队首
+        if (hit->second.fingerprint == fingerprint) {
+            // LRU 提升到队首
+            lru_.erase(hit->second.lruIt);
+            lru_.push_front(key);
+            hit->second.lruIt = lru_.begin();
+            ++stats_.frameHits;
+            return hit->second.frame;
+        }
+        /* 内容变了：这一项作废。删掉后继续走下面的重渲染流程，
+           渲染完会以新指纹重新插入。 */
         lru_.erase(hit->second.lruIt);
-        lru_.push_front(key);
-        hit->second.lruIt = lru_.begin();
-        ++stats_.frameHits;
-        return hit->second.frame;
+        frames_.erase(hit);
+        ++stats_.invalidatedByEdit;
     }
     ++stats_.frameMisses;
 
@@ -270,7 +495,7 @@ PreviewFrame PreviewRenderer::renderAt(const Time& timelineTime) {
     // 注意：这里必须拷贝进缓存（缓存要长期持有），
     // 然后把局部对象 move 出去，避免返回时再拷一次大 buffer。
     auto inserted = frames_.emplace(
-        key, CacheEntry{PreviewFrame{}, lru_.begin()});
+        key, CacheEntry{PreviewFrame{}, lru_.begin(), fingerprint});
     inserted.first->second.frame = std::move(frame);
     stats_.cachedFrames = frames_.size();
     return inserted.first->second.frame;   // 返回缓存中的副本（调用方要独立持有）

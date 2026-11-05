@@ -185,6 +185,10 @@ const S = {
   time: 0,
   pxPerSec: 44,
   playing: false,
+  /* 上一帧的预览渲染耗时（ms）与累计丢帧数 —— 供 tick 的自适应跳帧判定，
+     也方便调试时在控制台看 S.lastRenderMs / S.droppedFrames。 */
+  lastRenderMs: 0,
+  droppedFrames: 0,
   level: 1,              // 1 = 一级工具栏；2 = 二级
   activeL1: null,
   markerMode: false,
@@ -2933,9 +2937,44 @@ function tick(ts) {
   // 时间轴内容跟随：整体平移，不重建节点
   scrollTimelineToTime();
 
-  // 画面：隔帧取，减轻桥与 PNG 编码压力（30fps 画面 / 60fps 时间码）
+  /* ---- 画面：自适应跳帧（P1 丢帧队列的真实现）----
+     ------------------------------------------------------------------------
+     原来是死板的「隔帧取」（`(tickFrame & 1) === 0`），问题在于：
+       · 渲染很快时（小画幅 / 简单工程）白白少画一半帧，看着不流畅；
+       · 渲染很慢时（4K / 多层）隔帧仍然跟不上，rAF 被同步 JNI 调用撑大，
+         实际帧率掉到 10fps 以下，而且**没有任何地方反映"我在丢帧"**。
+
+     现在按**实测渲染耗时**决定这一帧要不要请求渲染：
+
+       · 上一帧渲染耗时长（> 33ms，即 30fps 的预算）→ 跳过本帧，
+         让 rAF 有时间继续推进时间轴（时间码/播放头仍在动，观感不僵）；
+       · 耗时短（≤ 33ms）→ 正常渲染，恢复满帧。
+
+     为什么不是「丢帧队列」：当前 `nc_preview_render` 是**同步阻塞**调用，
+     天然不会积压（背压直接作用在 rAF 上）。真要异步队列，得把渲染挪到
+     后台线程 + 前端轮询取帧 —— 那是 P3 的重构，不是这里能顺手做的。
+     自适应跳帧解决的是同一个问题（跟不上时别硬撑），代价小得多。
+
+     阈值取 33ms 而不是 40ms：留 10ms 给 JS 侧（时间码/DOM 更新），
+     否则「渲染刚好 33ms + 更新 10ms」会把 rAF 挤到 43ms（23fps）。 */
+  const renderBudgetMs = 33;
+  const lastMs = S.lastRenderMs || 0;
+  const shouldRender = lastMs <= renderBudgetMs;
+  if (shouldRender) {
+    const t0 = performance.now();
+    syncPreview();
+    S.lastRenderMs = performance.now() - t0;
+  } else {
+    S.droppedFrames = (S.droppedFrames || 0) + 1;
+    /* 连续跳过要有上限：如果一直超预算（比如工程本来就重），
+       每 3 帧至少画一帧，否则用户会觉得「画面完全不动」。 */
+    if ((S.droppedFrames % 3) === 0) {
+      const t0 = performance.now();
+      syncPreview();
+      S.lastRenderMs = performance.now() - t0;
+    }
+  }
   tickFrame++;
-  if ((tickFrame & 1) === 0) syncPreview();
 
   // 兜底：每 1.5s 做一次全量重建，修正轻量更新可能的漂移
   //（例如片段在播放中因其他原因改变）

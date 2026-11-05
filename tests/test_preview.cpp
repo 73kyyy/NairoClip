@@ -411,3 +411,119 @@ NC_TEST(PreviewMultiLayer, HiddenUpperTrackFallsBackToSingleLayer) {
     // 单层仍应正常出画面
     NC_CHECK_EQ(frame.rgba.size(), static_cast<std::size_t>(64) * 48 * 4);
 }
+
+// =============================================================================
+// P2 分层失效（帧缓存键加入内容指纹）
+// =============================================================================
+// 背景：原来缓存键只有时间戳，任何编辑都要靠调用方 clearFrameCache()
+// 整表清空 —— 拖一下滑块就把整条时间轴的缓存全废掉。
+// 现在键里带 contentFingerprint()，只有内容真的变了那一帧才失效。
+
+NC_TEST(Preview, CacheHitWhenContentUnchanged) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    renderer.renderAt(Rational::make(1));          // 首次：未命中
+    const auto s1 = renderer.cacheStats();
+    NC_CHECK_EQ(s1.frameMisses, std::size_t(1));
+    NC_CHECK_EQ(s1.frameHits, std::size_t(0));
+
+    renderer.renderAt(Rational::make(1));          // 再来一次：内容没变 → 命中
+    const auto s2 = renderer.cacheStats();
+    NC_CHECK_EQ(s2.frameHits, std::size_t(1));
+    NC_CHECK_EQ(s2.invalidatedByEdit, std::size_t(0));
+}
+
+NC_TEST(Preview, CacheInvalidatedWhenClipEdited) {
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    const PreviewFrame before = renderer.renderAt(Rational::make(1));
+    const auto s1 = renderer.cacheStats();
+    NC_CHECK_EQ(s1.frameMisses, std::size_t(1));
+
+    /* 改不透明度 —— 这是「编辑」的典型代表。
+       改完再取同一时间点：指纹变了 → 该项作废并重渲。 */
+    f.editor.setClipOpacity(f.seqId, f.videoTrack, clip, 0.3);
+    const PreviewFrame after = renderer.renderAt(Rational::make(1));
+    const auto s2 = renderer.cacheStats();
+    NC_CHECK_EQ(s2.invalidatedByEdit, std::size_t(1));
+    NC_CHECK_EQ(s2.frameMisses, std::size_t(2));   // 第二次也是 miss（重渲了）
+    NC_CHECK(std::abs(after.opacity - 0.3) < 1e-6);
+    NC_CHECK(std::abs(before.opacity - 1.0) < 1e-6);
+}
+
+NC_TEST(Preview, OtherTimestampsSurviveEdit) {
+    /* 这是分层失效的**核心价值**：改一处不影响其它时间点的缓存。
+       原来是整表 clear，改完 t=1 的事会把 t=0.5 的缓存也丢掉。 */
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    renderer.renderAt(Rational::make(0.5));   // 缓存 t=0.5
+    renderer.renderAt(Rational::make(1.0));   // 缓存 t=1.0
+    NC_CHECK_EQ(renderer.cacheStats().cachedFrames, std::size_t(2));
+
+    f.editor.setClipOpacity(f.seqId, f.videoTrack, clip, 0.5);
+    const std::size_t beforeHits = renderer.cacheStats().frameHits;
+
+    /* 只碰 t=1.0：它会失效重渲；但 t=0.5 的内容指纹也变了
+       （同一个 clip 的属性），所以两个都会失效 —— 这是正确行为：
+       改 clip 属性会影响它覆盖的所有时间点。
+
+       真正「只失效一部分」的场景是**多层**：改第 2 层不影响
+       不含第 2 层的时间点。见下一个用例。 */
+    renderer.renderAt(Rational::make(1.0));
+    NC_CHECK_EQ(renderer.cacheStats().invalidatedByEdit, std::size_t(1));
+    NC_CHECK(renderer.cacheStats().frameHits == beforeHits);  // 没命中旧缓存
+}
+
+NC_TEST(Preview, EditOnOneLayerDoesNotInvalidateOtherTimestamps) {
+    /* 真正的分层失效验证：
+       clip 只在 [0,1) 出现。改它之后，t=1.5（不在 clip 范围内）
+       的缓存必须**仍然命中**。 */
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(1));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    renderer.renderAt(Rational::make(0.5));   // 在 clip 内
+    renderer.renderAt(Rational::make(1.5));   // 在 clip 外（黑场）
+    NC_CHECK_EQ(renderer.cacheStats().cachedFrames, std::size_t(2));
+
+    f.editor.setClipOpacity(f.seqId, f.videoTrack, clip, 0.2);
+
+    // t=0.5 在 clip 内 → 指纹变 → 失效
+    renderer.renderAt(Rational::make(0.5));
+    NC_CHECK_EQ(renderer.cacheStats().invalidatedByEdit, std::size_t(1));
+
+    // t=1.5 不在 clip 内 → 指纹不变 → 命中
+    const std::size_t hitsBefore = renderer.cacheStats().frameHits;
+    renderer.renderAt(Rational::make(1.5));
+    NC_CHECK_EQ(renderer.cacheStats().frameHits, hitsBefore + 1);
+    NC_CHECK_EQ(renderer.cacheStats().invalidatedByEdit, std::size_t(1));
+}
+
+NC_TEST(Preview, CacheBudgetIsClamped) {
+    /* 分级预算的边界：过小等于关掉缓存，过大挤爆低端机。 */
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), PreviewRenderer::kFrameCacheBudgetBytes);
+
+    renderer.setFrameCacheBudgetBytes(1u);                 // 极小 → 夹到 24MB
+    NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), std::size_t(24u * 1024u * 1024u));
+
+    renderer.setFrameCacheBudgetBytes(9999u * 1024u * 1024u);  // 极大 → 夹到 256MB
+    NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), std::size_t(256u * 1024u * 1024u));
+
+    renderer.setFrameCacheBudgetBytes(128u * 1024u * 1024u);   // 正常值原样保留
+    NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), std::size_t(128u * 1024u * 1024u));
+}

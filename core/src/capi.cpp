@@ -236,6 +236,78 @@ char* nc_project_save(const NcEditor* editor) {
     return dupString(saveProjectToNclip(editor->project));
 }
 
+/* ============================================================================
+   工程预热（P2「首次打开预热」）
+   ============================================================================
+   问题：工程刚打开时，所有帧缓存都是空的。用户第一件事通常是拖播放头
+   或按播放 —— 那一刻要连续解码并合成前几帧，每帧都要 open 解码器 +
+   seek + 解码 + 合成，体感是「刚打开时特别卡，过一会儿才顺」。
+
+   做法：加载完成后**同步预渲染开头几帧**。代价是打开工程多花几百毫秒，
+   换来首屏拖动立刻跟手。
+
+   为什么放在 core 而不是平台层：预热要用 PreviewRenderer（含解码器与
+   帧缓存），而它只有 core 能构造。平台层调一个 C ABI 就能触发。
+
+   帧数取 6 而不是 30：预热只解决「首屏」，做太多会让打开变慢。
+   6 帧足够覆盖首屏拖动的前几下（每帧缓存约 8MB@1080p，6 帧 ≈ 48MB，
+   在 96MB 预算内）。
+*/
+// 前向声明：定义在文件下方（预览渲染器构造）。
+PreviewRenderer* ensurePreviewRenderer(NcEditor* editor);
+
+/// 设置帧缓存字节预算（P1 内存分级）。平台层按设备内存调用。
+int32_t nc_preview_set_cache_budget(NcEditor* editor, int32_t bytes) {
+    if (editor == nullptr || bytes <= 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    PreviewRenderer* renderer = ensurePreviewRenderer(editor);
+    if (renderer == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
+    }
+    renderer->setFrameCacheBudgetBytes(static_cast<std::size_t>(bytes));
+    return NC_OK;
+}
+
+/// 读取当前帧缓存预算（字节；句柄为空返回 -1）。
+int64_t nc_preview_get_cache_budget(const NcEditor* editor) {
+    if (editor == nullptr || editor->previewRenderer == nullptr) {
+        return -1;
+    }
+    return static_cast<int64_t>(editor->previewRenderer->frameCacheBudgetBytes());
+}
+
+int32_t nc_preview_prewarm(NcEditor* editor, int32_t frame_count) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "工程没有主序列");
+    }
+    PreviewRenderer* renderer = ensurePreviewRenderer(editor);
+    if (renderer == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
+    }
+    int count = frame_count > 0 ? frame_count : 6;
+    if (count > 30) {
+        count = 30;   // 上限保护：别把打开工程变成转码
+    }
+    const double fps = seq->frameRate.toDouble() > 0 ? seq->frameRate.toDouble() : 30.0;
+    const double totalSec = seq->duration().toDouble();
+    int rendered = 0;
+    for (int i = 0; i < count; ++i) {
+        const double t = static_cast<double>(i) / fps;
+        if (t >= totalSec) {
+            break;   // 工程比预热的帧数还短
+        }
+        // 预热失败不视为错误：可能是某层素材缺失，正式渲染时会再报一次
+        (void)renderer->renderAt(fromMicroseconds(static_cast<std::int64_t>(t * 1e6)));
+        ++rendered;
+    }
+    return rendered;
+}
+
 int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail) {
     if (editor == nullptr || nclip_text == nullptr) {
         setDetail(detail, "参数为空");
@@ -255,6 +327,9 @@ int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail)
         setDetail(detail, "内存分配失败");
         return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
+    /* 加载后预热开头几帧（P2）。
+       失败不影响加载结果 —— 预热只是「让首屏更快」，不是功能本身。 */
+    (void)nc_preview_prewarm(editor, 6);
     return NC_OK;
 }
 
@@ -3193,6 +3268,125 @@ int32_t nc_proxy_usage(const NcEditor* editor, int32_t* out_ready_count,
         *out_total_bytes = editor->project.proxies.totalSizeBytes();
     }
     return NC_OK;
+}
+
+/* ============================================================================
+   代理文件生成（P2 代理模式）—— 补齐 C ABI
+   ============================================================================
+   `generateProxyFrames()` 早就实现了（读原片 → 双线性缩放 → 写代理），
+   26 个单测也都在，但**没有 C ABI** —— 于是平台层没法真正生成代理，
+   「代理模式」在产品里只有登记表和开关，没有文件。
+
+   设计取舍：**由 core 直接驱动转码**，而不是把 MediaReader/MediaWriter
+   交给平台层自己拼。理由：
+     · 平台层拿不到 MediaReader 的实现（FFmpeg 编解码器在 core 里）；
+     · 逐帧缩放逻辑（双线性 + 边界）在 core 里已经写好且被测试覆盖；
+     · 平台层只需要「给我一个路径，我告诉你进度」这种简单契约。
+
+   代理文件本体仍由平台层管理（路径由参数传入，core 不碰文件系统）——
+   这与既有的 proxy 模块约定一致。
+*/
+int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_path,
+                          int32_t quality, int32_t crf, int32_t max_frames,
+                          int32_t (*progress_cb)(double), int32_t* out_frames,
+                          int32_t* out_width, int32_t* out_height, char** out_error) {
+    if (editor == nullptr || out_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    if (out_frames != nullptr) *out_frames = 0;
+    if (out_width != nullptr) *out_width = 0;
+    if (out_height != nullptr) *out_height = 0;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    // 1) 找素材
+    const MediaAsset* asset = nullptr;
+    for (const auto& a : editor->project.assets) {
+        if (a.id.value == asset_id) {
+            asset = &a;
+            break;
+        }
+    }
+    if (asset == nullptr) {
+        setDetail(out_error, "找不到该素材");
+        return failNc(NC_ERROR_NOT_FOUND, "素材不存在");
+    }
+    if (asset->type != MediaType::Video) {
+        setDetail(out_error, "代理只对视频素材有意义（音频解码开销本来就低）");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "素材类型不支持");
+    }
+
+    // 2) 算代理尺寸
+    const ProxyQuality q = (quality == 1) ? ProxyQuality::Quarter : ProxyQuality::Half;
+    int tw = 0;
+    int th = 0;
+    proxyTargetSize(asset->width, asset->height, q, tw, th);
+    if (tw <= 0 || th <= 0) {
+        setDetail(out_error, "无法计算代理尺寸（素材尺寸未知）");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "素材尺寸非法");
+    }
+
+    // 3) 打开原片与代理写入器
+    FFmpegMediaReader reader;
+    const Result openResult = reader.open(asset->path);
+    if (!openResult.isOk()) {
+        setDetail(out_error, openResult.message);
+        return failNc(NC_ERROR_NOT_FOUND, "原片打开失败");
+    }
+    FFmpegMediaWriter writer;
+    WriterConfig config;
+    config.width = tw;
+    config.height = th;
+    config.frameRate = asset->frameRate;
+    config.crf = crf > 0 ? crf : 28;
+    config.includeAudio = false;   // 代理为纯视频（约定见 proxy.h）
+    /* 编码格式：**默认 h264，但发布构建里只走系统硬件编码器**。
+       无硬件编码器时这里会失败并返回明确错误 —— 平台层应提示
+       「本设备不支持生成代理」，而不是静默失败。 */
+    const Result writerOpen = writer.open(out_path, config);
+    if (!writerOpen.isOk()) {
+        setDetail(out_error, writerOpen.message);
+        return failNc(NC_ERROR_UNSUPPORTED, "代理写入器打开失败（可能没有可用编码器）");
+    }
+
+    // 4) 逐帧转码
+    /* 三元不能混 lambda 与 nullptr_t（类型不同）。
+       先构造 std::function，再传 —— 空 function 与「不传」等价。 */
+    std::function<bool(double)> progress;
+    if (progress_cb != nullptr) {
+        progress = [progress_cb](double p) { return progress_cb(p) != 0; };
+    }
+    const ProxyGenerateResult gen =
+        generateProxyFrames(reader, writer, tw, th, max_frames, progress);
+    reader.close();
+    if (!gen.result.isOk()) {
+        writer.abort();
+        setDetail(out_error, gen.result.message);
+        // 用户取消 → 用 CANCELLED 语义返回，平台层据此不提示「失败」
+        return gen.cancelled ? failNc(NC_ERROR_CANCELLED, "已取消")
+                             : failNc(NC_ERROR_INTERNAL, "代理转码失败");
+    }
+    if (!writer.finish().isOk()) {
+        setDetail(out_error, "代理文件收尾失败");
+        return failNc(NC_ERROR_INTERNAL, "代理文件写入失败");
+    }
+
+    if (out_frames != nullptr) *out_frames = static_cast<int32_t>(gen.framesWritten);
+    if (out_width != nullptr) *out_width = gen.proxyWidth;
+    if (out_height != nullptr) *out_height = gen.proxyHeight;
+
+    // 5) 登记为「已就绪」
+    ProxyRecord record;
+    record.asset = AssetId{asset_id};
+    record.path = out_path;
+    record.width = gen.proxyWidth;
+    record.height = gen.proxyHeight;
+    record.quality = q;
+    record.status = ProxyStatus::Ready;
+    editor->project.proxies.upsert(std::move(record));
+    return NC_OK;
+#else
+    setDetail(out_error, "此构建未包含 FFmpeg");
+    return failNc(NC_ERROR_UNSUPPORTED, "不支持");
+#endif
 }
 
 int32_t nc_proxy_clear_records(NcEditor* editor) {
