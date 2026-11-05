@@ -2043,6 +2043,48 @@ Result SetClipOpacityCommand::revert(Project& project) {
 }
 
 // ---------------------------------------------------------------------------
+// 修改文本片段内容（§4.6 文本素材化）
+// ---------------------------------------------------------------------------
+
+SetClipTextCommand::SetClipTextCommand(SequenceId sequenceId, TrackId trackId,
+                                       ClipId clipId, TextContent content)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), after_(std::move(content)) {}
+
+Result SetClipTextCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (after_.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, "文本内容不能为空");
+    }
+    // 快照整个 TextContent（不只是 text 字段）——
+    // 正文与样式是同一份数据，分开快照在 revert 时会漏字段。
+    if (!before_.has_value()) {
+        before_ = clip->text.has_value() ? *clip->text : TextContent{};
+    }
+    clip->text = after_;
+    return Result::ok();
+}
+
+Result SetClipTextCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少文本快照");
+    }
+    // 原本没有 text（把普通片段改成文本后撤销）→ 清空 optional
+    if (before_->empty() && before_->style.fontSize <= 0.0) {
+        clip->text.reset();
+    } else {
+        clip->text = before_;
+    }
+    return Result::ok();
+}
+
+// ---------------------------------------------------------------------------
 // 设置片段滤镜（文档 Part 4-B 第 7 节「滤镜」）
 // ---------------------------------------------------------------------------
 

@@ -21,14 +21,23 @@ JOBS=(
   "onnx-community/whisper-small/resolve/main/config.json|whisper_zh/config.json"
   "onnx-community/whisper-small/resolve/main/tokenizer.json|whisper_zh/tokenizer.json"
 
-  # 深度图：MiDaS（MIT；上游 Intel/dpt-hybrid-midas 为 Apache-2.0）
-  # 实测可用：输入 [1,3,384,384]，预处理 mean/std = 0.5
-  "Xenova/dpt-hybrid-midas/resolve/main/onnx/model.onnx|depth_midas/model.onnx"
-  "Xenova/dpt-hybrid-midas/resolve/main/preprocessor_config.json|depth_midas/preprocessor_config.json"
+  # 深度图：Depth-Anything V2 Small（Apache-2.0）
+  #
+  # **2026-11-05 变更：从 dpt-hybrid-midas（509MB）换成 Depth-Anything V2 small（95MB）。**
+  # 理由：体积降到 1/5.4，效果反而更好（V2 是 MiDaS 的后续工作），
+  # 且推理更快。
+  #
+  # 与 MiDaS 的两处差异已由代码处理（depth_ai.cpp 的模型族探测）：
+  #   · 归一化：V2 用 ImageNet 统计量，MiDaS 用 mean=std=0.5；
+  #   · 输入尺寸：V2 的 patch=14，输入必须是 14 的倍数（用 392=14×28）。
+  "depth-anything/Depth-Anything-V2-Small-hf/resolve/main/onnx/model.onnx|depth_midas/model.onnx"
 
   # 人声分离：UVR-MDX-NET（MIT）
-  # ⚠️ 待核对：锁定清单要求 Voc_FT 权重，此处为 kara2 变体
-  "musetric/uvr-mdxnet-kara2-onnx/resolve/main/kara2.onnx|stem_sep/model.onnx"
+  # **2026-11-05 修正**：原 kara2 模型是 [1,4,**2048**,256]，
+  # 而 stem_ai.cpp 固定按 kFftSize=6144 / kDimF=3072 构造 STFT 张量 ——
+  # 形状不匹配，加载必然失败，人声分离一直是坏的。
+  # 换成 3072 频点的 UVR-MDX-NET 权重（锁定清单要求的 Voc_FT 类）。
+  "uvr-mdx-net/UVR-MDX-NET-Voc_FT/resolve/main/model.onnx|stem_sep/model.onnx"
 
   # 人像抠像：MODNet（Apache-2.0）
   #
@@ -45,13 +54,17 @@ JOBS=(
   # MattingAI.RealInferenceProducesAlpha 断言输出非恒定。
   "Xenova/modnet/resolve/main/onnx/model.onnx|matting_basic/model.onnx"
 
-  # 字幕翻译：OPUS-MT-ZH-EN（Apache-2.0；全本地运行，不接云端）
+  # 字幕翻译：m2m100-418M（MIT；全本地运行，不接云端）
+  #
+  # **2026-11-05 变更：移除 OPUS-MT（translate_zh_en），只保留 m2m100。**
+  # 原因：OPUS-MT 存在严重复读退化（输出 "park park park"），
+  # 修了 4 个叠加缺陷后仍有问题；m2m100 实测 14 句抽样全部无复读
+  # （详见 docs/ROADMAP.md §5.6、docs/TRANSLATE_FRAMEWORK.md §4）。
+  # 两个模型同时分发没有意义 —— 用户只会选好的那个，
+  # 而差的那个多占 1.1GB 下载量。
+  #
   # 必须用**分体导出**三件：merged 版在 cache 分支下 encoder KV 会收缩，
-  # 导致译文退化（详见 docs/ROADMAP.md §5.6）。
-  "Xenova/opus-mt-zh-en/resolve/main/onnx/encoder_model.onnx|translate_zh_en/encoder_split.onnx"
-  "Xenova/opus-mt-zh-en/resolve/main/onnx/decoder_model.onnx|translate_zh_en/decoder_split.onnx"
-  "Xenova/opus-mt-zh-en/resolve/main/onnx/decoder_with_past_model.onnx|translate_zh_en/decoder_with_past.onnx"
-  "Xenova/opus-mt-zh-en/resolve/main/tokenizer.json|translate_zh_en/tokenizer.json"
+  # 导致译文退化（OPUS-MT 已踩过这个坑）。
 
   # 字幕翻译（首选）：m2m100-418M（MIT，核查记录 docs/licenses/m2m100_418M.md）
   # 相对 OPUS-MT 的关键优势：无短语复读，短句收尾稳定（14 句抽样 0 退化）。

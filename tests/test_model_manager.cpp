@@ -40,13 +40,15 @@ NC_TEST(ModelManager, CatalogHasExpectedEntries) {
     const auto& catalog = builtinModelCatalog();
     // 文档第 5 部分列举：抠像（高精度）、Whisper、光流补帧；第 7 部分补充超分/TTS/人声分离/翻译。
     NC_CHECK(catalog.size() >= 8);
-    NC_CHECK(findBuiltinModel("matting_hq") != nullptr);
+    NC_CHECK(findBuiltinModel("matting_basic") != nullptr);
     NC_CHECK(findBuiltinModel("whisper_zh") != nullptr);
     NC_CHECK(findBuiltinModel("flow_interp") != nullptr);
     NC_CHECK(findBuiltinModel("super_res_2x4x") != nullptr);
     NC_CHECK(findBuiltinModel("tts_zh") != nullptr);
     NC_CHECK(findBuiltinModel("stem_sep") != nullptr);
-    NC_CHECK(findBuiltinModel("translate_zh_en") != nullptr);
+    /* 翻译只剩 m2m100（OPUS-MT 因复读退化已移除，2026-11-05） */
+    NC_CHECK(findBuiltinModel("translate_zh_en_m2m") != nullptr);
+    NC_CHECK(findBuiltinModel("translate_zh_en") == nullptr);
     NC_CHECK(findBuiltinModel("not_exist") == nullptr);
 }
 
@@ -60,10 +62,12 @@ NC_TEST(ModelManager, CatalogEntriesAreValid) {
 
 NC_TEST(ModelManager, CatalogSizesMatchDocument) {
     // 文档第 5 部分展示：高精度抠像 120MB、Whisper 240MB、光流补帧 85MB。
-    const ModelInfo* matting = findBuiltinModel("matting_hq");
+    /* matting_basic 标称 60MB（原用例写 120MB —— 那是 matting_hq 的值，
+       matting_hq 于 2026-11-05 移除后此处失配）。 */
+    const ModelInfo* matting = findBuiltinModel("matting_basic");
     NC_CHECK(matting != nullptr);
     if (matting != nullptr) {
-        NC_CHECK_EQ(matting->sizeBytes, std::int64_t(120) * 1024 * 1024);
+        NC_CHECK_EQ(matting->sizeBytes, std::int64_t(60) * 1024 * 1024);
     }
     const ModelInfo* whisper = findBuiltinModel("whisper_zh");
     NC_CHECK(whisper != nullptr);
@@ -101,14 +105,19 @@ NC_TEST(ModelManager, CapabilityNameRoundTrip) {
 // 权益门控（与 Entitlement 单一事实来源一致）
 // =============================================================================
 
-NC_TEST(ModelManager, HighPrecisionMattingRequiresPro) {
-    const ModelInfo* info = findBuiltinModel("matting_hq");
+NC_TEST(ModelManager, ProModelRequiresEntitlement) {
+    /* matting_hq 移除后，Pro 能力的代表改用 translate_zh_en_m2m
+       （1.9GB，必须 Pro —— 理由不是功能收费，而是「下载 1.9GB
+       要用户主动同意」，不能静默消耗流量）。
+       原用例叫 HighPrecisionMattingRequiresPro，改名的原因：
+       它测的是「Pro 模型的门控语义」，不该绑定某个具体模型。 */
+    const ModelInfo* info = findBuiltinModel("translate_zh_en_m2m");
     NC_CHECK(info != nullptr);
     if (info == nullptr) return;
     const std::int64_t now = 1000;
-    NC_CHECK(!modelAccessAllowed(*info, Entitlement{}, now));            // 免费
-    NC_CHECK(modelAccessAllowed(*info, proEntitlement(), now));          // Pro
-    NC_CHECK(!modelAccessAllowed(*info, proEntitlement(500), now));      // 已过期
+    NC_CHECK(!modelAccessAllowed(*info, Entitlement{}, now));            // 免费版不可用
+    NC_CHECK(modelAccessAllowed(*info, proEntitlement(), now));          // Pro 可用
+    NC_CHECK(!modelAccessAllowed(*info, proEntitlement(500), now));      // 已过期不可用
 }
 
 NC_TEST(ModelManager, FrameInterpolationRequiresPro) {
@@ -122,8 +131,9 @@ NC_TEST(ModelManager, FrameInterpolationRequiresPro) {
 
 NC_TEST(ModelManager, FreeCapabilitiesAllowedLocally) {
     // 免费能力本地放行（配额由服务端计数裁决）。
+    /* translate 是 Pro（1.9GB 需用户主动同意），故不在此列 */
     const char* freeIds[] = {"matting_basic", "whisper_zh", "super_res_2x4x",
-                             "tts_zh", "stem_sep", "translate_zh_en"};
+                             "tts_zh", "stem_sep"};
     for (const char* id : freeIds) {
         const ModelInfo* info = findBuiltinModel(id);
         NC_CHECK(info != nullptr);
@@ -328,7 +338,7 @@ NC_TEST(ModelManager, DeriveCounterDeterministic) {
     NC_CHECK(std::memcmp(a, b, kAesCtrCounterSize) == 0);
 
     std::uint8_t c[kAesCtrCounterSize];
-    deriveModelCounter("matting_hq", "2.0.0", c);
+    deriveModelCounter("matting_basic", "2.0.0", c);
     NC_CHECK(std::memcmp(a, c, kAesCtrCounterSize) != 0);  // 不同模型不同计数器
 
     std::uint8_t d[kAesCtrCounterSize];
@@ -609,9 +619,9 @@ NC_TEST(ModelManager, SignedUrlFailClosed) {
 NC_TEST(ModelManager, StoreJsonRoundTrip) {
     ModelStore store;
     ModelRecord a;
-    a.modelId = "matting_hq";
+    a.modelId = "matting_basic";
     a.version = "1.1.0";
-    a.path = "/data/models/matting_hq.bin";
+    a.path = "/data/models/matting_basic.bin";
     a.sizeBytes = 120 * 1024 * 1024;
     a.sha256 = std::string(64, 'b');
     a.installedAtUnix = 1700000000;
@@ -634,7 +644,7 @@ NC_TEST(ModelManager, StoreJsonRoundTrip) {
     std::string error;
     NC_CHECK(loadModelStoreFromJson(json, loaded, &error));
     NC_CHECK_EQ(loaded.records.size(), std::size_t(2));
-    const ModelRecord* ra = loaded.find("matting_hq");
+    const ModelRecord* ra = loaded.find("matting_basic");
     NC_CHECK(ra != nullptr);
     if (ra != nullptr) {
         NC_CHECK_EQ(ra->version, std::string("1.1.0"));
@@ -777,11 +787,11 @@ NC_TEST(DeviceTier, DownloadRequestAssembly) {
     mobileHigh.totalRamMb = 8192;
     mobileHigh.hasVectorExtensions = true;
     const ModelDownloadRequestParams params =
-        buildModelDownloadRequest("matting_hq", mobileHigh);
-    NC_CHECK_EQ(params.modelId, std::string("matting_hq"));
+        buildModelDownloadRequest("matting_basic", mobileHigh);
+    NC_CHECK_EQ(params.modelId, std::string("matting_basic"));
     NC_CHECK(params.tier == DeviceTier::High);
     NC_CHECK(params.quantization == QuantizationLevel::Fp16);
-    NC_CHECK(params.summary().find("matting_hq") != std::string::npos);
+    NC_CHECK(params.summary().find("matting_basic") != std::string::npos);
     NC_CHECK(params.summary().find("fp16") != std::string::npos);
     // 桌面：FP32
     DeviceProfile desktop;

@@ -972,19 +972,19 @@ NC_TEST(Capi, ModelCatalogAndInfo) {
 NC_TEST(Capi, ModelStatusLifecycle) {
     NcEditor* editor = nc_editor_create();
     // 初始未下载
-    NC_CHECK_EQ(nc_model_status(editor, "matting_hq"), 0);
+    NC_CHECK_EQ(nc_model_status(editor, "matting_basic"), 0);
     const std::int64_t now = 1700000000;
 
     // 开始下载（120MB）
     const int64_t total = 120LL * 1024 * 1024;
-    NC_CHECK_EQ(nc_model_download_begin(editor, "matting_hq", total, now), NC_OK);
-    NC_CHECK_EQ(nc_model_status(editor, "matting_hq"), 1);  // Downloading
+    NC_CHECK_EQ(nc_model_download_begin(editor, "matting_basic", total, now), NC_OK);
+    NC_CHECK_EQ(nc_model_status(editor, "matting_basic"), 1);  // Downloading
 
     int32_t phase = -1;
     int64_t outTotal = 0;
     int64_t outDone = 0;
     char* message = nullptr;
-    NC_CHECK_EQ(nc_model_download_state(editor, "matting_hq", &phase, &outTotal, &outDone,
+    NC_CHECK_EQ(nc_model_download_state(editor, "matting_basic", &phase, &outTotal, &outDone,
                                         &message),
                 1);
     NC_CHECK_EQ(phase, 1);
@@ -992,23 +992,23 @@ NC_TEST(Capi, ModelStatusLifecycle) {
     nc_free_string(message);
 
     // 进度更新
-    NC_CHECK_EQ(nc_model_download_progress(editor, "matting_hq", total / 2, now + 1), NC_OK);
-    NC_CHECK_EQ(nc_model_download_state(editor, "matting_hq", nullptr, nullptr, &outDone,
+    NC_CHECK_EQ(nc_model_download_progress(editor, "matting_basic", total / 2, now + 1), NC_OK);
+    NC_CHECK_EQ(nc_model_download_state(editor, "matting_basic", nullptr, nullptr, &outDone,
                                         nullptr),
                 1);
     NC_CHECK_EQ(outDone, total / 2);
 
     // 暂停 → 恢复（断点保留）
-    NC_CHECK_EQ(nc_model_download_pause(editor, "matting_hq", now + 2), NC_OK);
-    NC_CHECK_EQ(nc_model_download_resume(editor, "matting_hq", now + 3), NC_OK);
-    NC_CHECK_EQ(nc_model_download_state(editor, "matting_hq", nullptr, nullptr, &outDone,
+    NC_CHECK_EQ(nc_model_download_pause(editor, "matting_basic", now + 2), NC_OK);
+    NC_CHECK_EQ(nc_model_download_resume(editor, "matting_basic", now + 3), NC_OK);
+    NC_CHECK_EQ(nc_model_download_state(editor, "matting_basic", nullptr, nullptr, &outDone,
                                         nullptr),
                 1);
     NC_CHECK_EQ(outDone, total / 2);
 
     // 下载完成 → 校验 → 安装（提供正确摘要）
-    NC_CHECK_EQ(nc_model_download_finish(editor, "matting_hq", now + 4), NC_OK);
-    NC_CHECK_EQ(nc_model_status(editor, "matting_hq"), 5);  // Verifying
+    NC_CHECK_EQ(nc_model_download_finish(editor, "matting_basic", now + 4), NC_OK);
+    NC_CHECK_EQ(nc_model_status(editor, "matting_basic"), 5);  // Verifying
 
     // 构造密文载荷 + 摘要（模拟真实下载结果）
     std::vector<std::uint8_t> payload(1024);
@@ -1018,18 +1018,18 @@ NC_TEST(Capi, ModelStatusLifecycle) {
     // 摘要由测试侧计算（内部 API 可用；此处用 C ABI 安装路径验证校验逻辑）
     char* installMessage = nullptr;
     int32_t installed = -1;
-    NC_CHECK_EQ(nc_model_install(editor, "matting_hq", payload.data(),
-                                 static_cast<int64_t>(payload.size()), "/models/matting_hq.bin",
+    NC_CHECK_EQ(nc_model_install(editor, "matting_basic", payload.data(),
+                                 static_cast<int64_t>(payload.size()), "/models/matting_basic.bin",
                                  "deadbeef", now + 5, &installed, &installMessage),
                 NC_OK);
     NC_CHECK_EQ(installed, 0);  // 摘要不匹配 → 拒绝
     NC_CHECK(installMessage != nullptr);
     nc_free_string(installMessage);
-    NC_CHECK_EQ(nc_model_status(editor, "matting_hq"), 3);  // Corrupt
+    NC_CHECK_EQ(nc_model_status(editor, "matting_basic"), 3);  // Corrupt
 
     // 删除记录
-    NC_CHECK_EQ(nc_model_remove(editor, "matting_hq"), NC_OK);
-    NC_CHECK_EQ(nc_model_status(editor, "matting_hq"), 0);
+    NC_CHECK_EQ(nc_model_remove(editor, "matting_basic"), NC_OK);
+    NC_CHECK_EQ(nc_model_status(editor, "matting_basic"), 0);
 
     // 空安全
     NC_CHECK_EQ(nc_model_status(nullptr, "x"), -1);
@@ -1039,23 +1039,27 @@ NC_TEST(Capi, ModelStatusLifecycle) {
 
 NC_TEST(Capi, ModelAccessGating) {
     NcEditor* editor = nc_editor_create();
-    // 免费版：高精度抠像/补帧不可用；基础能力可用
-    NC_CHECK_EQ(nc_model_access_allowed(editor, "matting_hq"), 0);
+    /* 免费版：Pro 能力（补帧 / 翻译）不可用；基础能力可用。
+       注意：原用例用 matting_basic 测「不可用」是错的 ——
+       它是免费能力，两道断言互相矛盾（同一个 id 先期望 0 再期望 1）。
+       2026-11-05 matting_hq 移除后改成 matting_basic，冲突才暴露出来。 */
     NC_CHECK_EQ(nc_model_access_allowed(editor, "flow_interp"), 0);
+    NC_CHECK_EQ(nc_model_access_allowed(editor, "translate_zh_en_m2m"), 0);
     NC_CHECK_EQ(nc_model_access_allowed(editor, "matting_basic"), 1);
     NC_CHECK_EQ(nc_model_access_allowed(editor, "whisper_zh"), 1);
 
     // Pro（无到期）→ 全部可用
     NC_CHECK_EQ(nc_set_entitlement(editor, 1, 0, 0), NC_OK);
-    NC_CHECK_EQ(nc_model_access_allowed(editor, "matting_hq"), 1);
+    NC_CHECK_EQ(nc_model_access_allowed(editor, "matting_basic"), 1);
     NC_CHECK_EQ(nc_model_access_allowed(editor, "flow_interp"), 1);
 
     // 过期 Pro → 降级
     NC_CHECK_EQ(nc_set_entitlement(editor, 1, 0, 1), NC_OK);  // 1970-01-01 到期
-    NC_CHECK_EQ(nc_model_access_allowed(editor, "matting_hq"), 0);
+    NC_CHECK_EQ(nc_model_access_allowed(editor, "flow_interp"), 0);
+    NC_CHECK_EQ(nc_model_access_allowed(editor, "matting_basic"), 1);  // 免费能力不受影响
 
     NC_CHECK_EQ(nc_model_access_allowed(editor, "nope"), -1);
-    NC_CHECK_EQ(nc_model_access_allowed(nullptr, "matting_hq"), -1);
+    NC_CHECK_EQ(nc_model_access_allowed(nullptr, "matting_basic"), -1);
     nc_editor_destroy(editor);
 }
 

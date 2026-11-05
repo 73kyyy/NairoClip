@@ -43,6 +43,8 @@
 #include "nairoclip/core/matting_ai.h"
 #include "nairoclip/core/speech_ai.h"
 #include "nairoclip/core/super_res_ai.h"
+#include "nairoclip/core/stem_ai.h"
+#include "nairoclip/core/interpolation_ai.h"
 #include "nairoclip/core/translate_ai.h"
 #include "nairoclip/core/person_effects.h"
 #include "nairoclip/core/template_apply.h"
@@ -101,6 +103,12 @@ struct NcEditor {
     std::unique_ptr<SpeechRecognizer> speechRecognizer;
     std::unique_ptr<SuperResEstimator> superResEstimator;
     std::unique_ptr<Translator> translator;
+    /* 人声分离 / 光流补帧（§AI 能力对齐）。
+       之前这两个模块有完整实现（stem_ai.cpp / interpolation_ai.cpp）
+       却没有 C ABI，也没有 editor 成员 —— 于是「有代码、能单测、
+       产品里点不到」，等于不可用。 */
+    std::unique_ptr<StemSeparator> stemSeparator;
+    std::unique_ptr<InterpolationEngine> interpolationEngine;
     /// 预览渲染器缓存（nc_preview_render；编辑操作后失效重建）。
     std::unique_ptr<PreviewRenderer> previewRenderer;
     /// 预览缓存有效性签名（编辑历史数 + 载入代次 + 直接修改代次 + 画布）。
@@ -542,6 +550,207 @@ uint64_t nc_insert_clip(NcEditor* editor, int32_t track_index, uint64_t asset_id
         return 0;
     }
     return outId.value;
+}
+
+/* ---- 文本片段（§4.6 文本素材化）----
+   ==========================================================================
+   为什么需要这几个 C ABI：内核早就支持 TextContent 与 TrackType::Text，
+   但一直没暴露给前端 —— 于是 editor.js 里「新建文本」按钮
+   (`case 'newtext'`) 只能打开面板，点了什么都不会发生。
+   这是「内核有能力、界面无入口」的典型缺口。
+
+   设计取舍：用一次调用建好整条文本片段，而不是「建轨 → 建片段 →
+   再逐字段设样式」三步。理由：
+     · 文本片段的最小可用状态是「有文字」，没有文字的文本片段是无效数据；
+     · 分步调用会产生中间态（空文本片段），需要额外的事务/校验逻辑；
+     · 前端一次调用更好写，失败时也不会留下半成品。 */
+
+uint64_t nc_add_text_clip(NcEditor* editor, const char* text, int64_t start_us,
+                          int64_t duration_us, double font_size,
+                          const char* color, int32_t alignment, double anchor_x,
+                          double anchor_y) {
+    if (editor == nullptr || text == nullptr || text[0] == '\0' || start_us < 0 ||
+        duration_us <= 0) {
+        failNc(NC_ERROR_INVALID_ARGUMENT,
+               "参数非法：text 不能为空，start_us >= 0，duration_us > 0");
+        return 0;
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        failNc(NC_ERROR_NOT_FOUND, "工程没有主序列");
+        return 0;
+    }
+
+    // 1) 找或建一条文本轨
+    /* 为什么不复用视频轨：文本轨的 trackAcceptsClipType 与视频轨不同，
+       混用会让「拖视频到文本轨」这类操作静默失败。
+       也不每条文本都新建轨（轨数会爆炸）—— 复用第一条文本轨。 */
+    TrackId trackId;
+    bool reused = false;
+    for (const auto& track : main->tracks) {
+        if (track.type == TrackType::Text) {
+            trackId = track.id;
+            reused = true;
+            break;
+        }
+    }
+    if (!reused) {
+        const Result addResult = editor->editor->addTrack(main->id, TrackType::Text,
+                                                          "文本", &trackId);
+        if (!addResult.isOk()) {
+            failNc(NC_ERROR_INTERNAL, addResult.message);
+            return 0;
+        }
+    }
+
+    // 2) 构造带 TextContent 的片段
+    Clip clip;
+    clip.start = fromMicroseconds(start_us);
+    clip.duration = fromMicroseconds(duration_us);
+    TextContent content;
+    content.text = text;
+    if (font_size > 0.0) {
+        content.style.fontSize = font_size;
+    }
+    if (color != nullptr && color[0] != '\0') {
+        content.style.color = color;
+    }
+    content.style.alignment = (alignment >= 0 && alignment <= 2) ? alignment : 1;
+    content.style.anchorX = (anchor_x >= 0.0 && anchor_x <= 1.0) ? anchor_x : 0.5;
+    content.style.anchorY = (anchor_y >= 0.0 && anchor_y <= 1.0) ? anchor_y : 0.9;
+    clip.text = std::move(content);
+
+    ClipId outId;
+    const Result insertResult =
+        editor->editor->insertClip(main->id, trackId, std::move(clip), &outId);
+    if (!insertResult.isOk()) {
+        failNc(NC_ERROR_INTERNAL, insertResult.message);
+        return 0;
+    }
+    return outId.value;
+}
+
+int32_t nc_set_clip_text(NcEditor* editor, uint64_t clip_id, const char* text) {
+    if (editor == nullptr || text == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    /* 按 clip_id 全局查找所属轨道：前端通常只知道 clip_id
+       （从选中态拿到），要它先查轨道索引是多余的负担。
+       内部仍走 editor->setClipText，保证进 undo 栈 ——
+       直接改 project 会让「撤销」失效，是这类功能的常见坑。 */
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "工程没有主序列");
+    }
+    for (const auto& track : seq->tracks) {
+        for (const auto& clip : track.clips) {
+            if (clip.id.value != clip_id) {
+                continue;
+            }
+            if (!clip.text.has_value()) {
+                return failNc(NC_ERROR_INVALID_ARGUMENT,
+                              "该片段不是文本片段（没有 text 内容）");
+            }
+            TextContent content = *clip.text;   // 保留样式
+            content.text = text;
+            return failResult(editor->editor->setClipText(seq->id, track.id,
+                                                          ClipId{clip_id}, std::move(content)));
+        }
+    }
+    return failNc(NC_ERROR_NOT_FOUND, "找不到该片段");
+}
+
+int32_t nc_get_clip_text(NcEditor* editor, uint64_t clip_id, char** out_text) {
+    if (editor == nullptr || out_text == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "工程没有主序列");
+    }
+    for (const auto& track : seq->tracks) {
+        for (const auto& clip : track.clips) {
+            if (clip.id.value != clip_id) {
+                continue;
+            }
+            if (!clip.text.has_value()) {
+                return failNc(NC_ERROR_INVALID_ARGUMENT, "该片段不是文本片段");
+            }
+            *out_text = dupString(clip.text->text);
+            return NC_OK;
+        }
+    }
+    return failNc(NC_ERROR_NOT_FOUND, "找不到该片段");
+}
+
+int32_t nc_set_text_style(NcEditor* editor, uint64_t clip_id, double font_size,
+                          const char* color, const char* outline_color,
+                          double outline_width, int32_t alignment, double anchor_x,
+                          double anchor_y) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "工程没有主序列");
+    }
+    for (const auto& track : seq->tracks) {
+        for (const auto& clip : track.clips) {
+            if (clip.id.value != clip_id) {
+                continue;
+            }
+            if (!clip.text.has_value()) {
+                return failNc(NC_ERROR_INVALID_ARGUMENT, "该片段不是文本片段");
+            }
+            TextContent content = *clip.text;   // 拷贝出来改，避免直接改工程
+            /* 每个参数：<=0 / 空串 / 超出范围 表示「这一项不改」，
+               而不是「改成 0」。这样平台层只调它关心的字段时
+               不会把其它样式意外清零。 */
+            if (font_size > 0.0) {
+                content.style.fontSize = font_size;
+            }
+            if (color != nullptr && color[0] != '\0') {
+                content.style.color = color;
+            }
+            if (outline_color != nullptr && outline_color[0] != '\0') {
+                content.style.outlineColor = outline_color;
+            }
+            if (outline_width >= 0.0) {
+                content.style.outlineWidth = outline_width;
+            }
+            if (alignment >= 0 && alignment <= 2) {
+                content.style.alignment = alignment;
+            }
+            if (anchor_x >= 0.0 && anchor_x <= 1.0) {
+                content.style.anchorX = anchor_x;
+            }
+            if (anchor_y >= 0.0 && anchor_y <= 1.0) {
+                content.style.anchorY = anchor_y;
+            }
+            return failResult(editor->editor->setClipText(seq->id, track.id,
+                                                          ClipId{clip_id}, std::move(content)));
+        }
+    }
+    return failNc(NC_ERROR_NOT_FOUND, "找不到该片段");
+}
+
+int32_t nc_text_clip_count(NcEditor* editor) {
+    if (editor == nullptr) {
+        return -1;
+    }
+    const Sequence* seq = editor->project.mainSequence();
+    if (seq == nullptr) {
+        return 0;
+    }
+    int count = 0;
+    for (const auto& track : seq->tracks) {
+        for (const auto& clip : track.clips) {
+            if (clip.text.has_value()) {
+                ++count;
+            }
+        }
+    }
+    return count;
 }
 
 int32_t nc_undo(NcEditor* editor) {
@@ -5264,6 +5473,209 @@ int32_t nc_superres_loaded(const NcEditor* editor) {
         return 0;
     }
     return editor->superResEstimator->loaded() ? 1 : 0;
+}
+
+/* ============================================================================
+   人声分离（UVR-MDX）—— 补齐 C ABI
+   ============================================================================
+   stem_ai.cpp 早就有完整实现与单测，但一直没暴露给前端：
+   于是「人声分离」这个功能在 App 里点不到，模型 51MB 白放着。
+
+   与超分/抠像不同，人声分离的产物是**音频**，不是像素：
+   返回两条 PCM 轨（人声 / 伴奏），由平台层决定怎么用
+   （替换原音轨 / 新增一条音轨 / 只导出伴奏）。
+   内核不替调用方决定，因为「分离后要不要替换原音轨」是产品决策。
+*/
+
+int32_t nc_stem_load(NcEditor* editor, const char* model_path, char** out_error) {
+    if (editor == nullptr || model_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    if (editor->stemSeparator == nullptr) {
+        editor->stemSeparator.reset(new (std::nothrow) StemSeparator());
+    }
+    if (editor->stemSeparator == nullptr) {
+        return failNc(NC_ERROR_INTERNAL, "内存分配失败");
+    }
+    std::string failure;
+    if (!editor->stemSeparator->load(model_path, &failure)) {
+        setDetail(out_error, failure);
+        return failNc(NC_ERROR_UNSUPPORTED, "人声分离模型加载失败");
+    }
+    return NC_OK;
+}
+
+int32_t nc_stem_unload(NcEditor* editor) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (editor->stemSeparator != nullptr) {
+        editor->stemSeparator->unload();
+    }
+    return NC_OK;
+}
+
+int32_t nc_stem_loaded(const NcEditor* editor) {
+    if (editor == nullptr || editor->stemSeparator == nullptr) {
+        return 0;
+    }
+    return editor->stemSeparator->loaded() ? 1 : 0;
+}
+
+/// 分离音频。
+/// - samples: 交错 PCM，[-1,1]，frameCount × channels 个 float；
+/// - mode: 0=人声+伴奏 1=只要人声 2=只要伴奏；
+/// - intensity: 0..100（掩码软硬）。
+/// 输出 out_vocals / out_instrumental 为**新分配的 float 缓冲**，
+/// 长度为 out_frames × out_channels（由调用方 nc_free_buffer 释放）。
+int32_t nc_stem_separate(NcEditor* editor, const float* samples, int64_t frame_count,
+                         int32_t channels, int32_t sample_rate, int32_t mode,
+                         double intensity, float** out_vocals, int64_t* out_vocal_frames,
+                         float** out_instrumental, int64_t* out_instrumental_frames,
+                         int32_t* out_sample_rate, int32_t* out_channels, char** out_error) {
+    if (editor == nullptr || samples == nullptr || frame_count <= 0 || channels <= 0 ||
+        sample_rate <= 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (editor->stemSeparator == nullptr || !editor->stemSeparator->loaded()) {
+        setDetail(out_error, "人声分离模型未加载（先调用 nc_stem_load）");
+        return failNc(NC_ERROR_UNSUPPORTED, "状态非法");
+    }
+    /* 与 stemModeName/StemMode 枚举一致：0=人声 1=伴奏 2=两者。
+       顺序照枚举定义写，不要按「直觉」重排 —— 前端传的是枚举值。 */
+    StemMode stemMode = StemMode::Both;
+    if (mode == 0) {
+        stemMode = StemMode::VocalsOnly;
+    } else if (mode == 1) {
+        stemMode = StemMode::InstrumentalOnly;
+    } else if (mode == 2) {
+        stemMode = StemMode::Both;
+    }
+    StemResult result;
+    std::string failure;
+    if (!editor->stemSeparator->separate(samples, static_cast<std::size_t>(frame_count), channels,
+                                        sample_rate, stemMode,
+                                        std::max(0.0, std::min(100.0, intensity)), result,
+                                        nullptr, &failure)) {
+        setDetail(out_error, failure);
+        return failNc(NC_ERROR_INTERNAL, "分离失败");
+    }
+    /* 拷贝出参。为什么用 new[] 而不是 malloc：
+       nc_free_buffer 的实现就是 delete[]，必须配对。 */
+    const auto copyOut = [](const std::vector<float>& src, float** out,
+                            int64_t* outFrames, int32_t ch) {
+        if (out == nullptr) {
+            return;
+        }
+        *out = nullptr;
+        if (outFrames != nullptr) {
+            *outFrames = 0;
+        }
+        if (src.empty()) {
+            return;
+        }
+        float* buffer = new (std::nothrow) float[src.size()];
+        if (buffer == nullptr) {
+            return;
+        }
+        std::copy(src.begin(), src.end(), buffer);
+        *out = buffer;
+        if (outFrames != nullptr) {
+            *outFrames = static_cast<int64_t>(src.size() / static_cast<std::size_t>(ch));
+        }
+    };
+    copyOut(result.vocals, out_vocals, out_vocal_frames, result.channels);
+    copyOut(result.instrumental, out_instrumental, out_instrumental_frames, result.channels);
+    if (out_sample_rate != nullptr) *out_sample_rate = result.sampleRate;
+    if (out_channels != nullptr) *out_channels = result.channels;
+    return NC_OK;
+}
+
+/* ============================================================================
+   光流补帧（RIFE）—— 补齐 C ABI
+   ============================================================================
+   interpolation_ai.cpp 同样有完整实现但无 ABI。
+   补帧与其它 AI 能力不同：它**一次只处理两帧**，真正的「补帧到 60fps」
+   需要调用方逐对调用。这样设计的原因：
+     · 内核不该知道「目标帧率」这种时间轴语义（那是 editor 层的事）；
+     · 逐对调用让平台层可以按进度更新 UI、随时取消；
+     · 顺序调用对显存友好（不缓存整段视频的帧）。
+
+   典型用法（平台层）：
+     for 每对相邻帧 (f0, f1):
+        interpolate(f0, f1, 0.5, ...) → mid
+        输出顺序：f0, mid, f1
+*/
+
+int32_t nc_interpolation_load(NcEditor* editor, const char* model_path, char** out_error) {
+    if (editor == nullptr || model_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    if (editor->interpolationEngine == nullptr) {
+        editor->interpolationEngine.reset(new (std::nothrow) InterpolationEngine());
+    }
+    if (editor->interpolationEngine == nullptr) {
+        return failNc(NC_ERROR_INTERNAL, "内存分配失败");
+    }
+    std::string failure;
+    if (!editor->interpolationEngine->load(model_path, &failure)) {
+        setDetail(out_error, failure);
+        return failNc(NC_ERROR_UNSUPPORTED, "补帧模型加载失败");
+    }
+    return NC_OK;
+}
+
+int32_t nc_interpolation_unload(NcEditor* editor) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (editor->interpolationEngine != nullptr) {
+        editor->interpolationEngine->unload();
+    }
+    return NC_OK;
+}
+
+int32_t nc_interpolation_loaded(const NcEditor* editor) {
+    if (editor == nullptr || editor->interpolationEngine == nullptr) {
+        return 0;
+    }
+    return editor->interpolationEngine->loaded() ? 1 : 0;
+}
+
+/// 两帧之间插一帧。frame0/frame1 为 RGBA8，尺寸必须相同。
+/// out_rgba 为新分配缓冲（width × height × 4；调用方 nc_free_buffer 释放）。
+int32_t nc_interpolation_frame(NcEditor* editor, const uint8_t* frame0, const uint8_t* frame1,
+                               int32_t width, int32_t height, double timestep, int32_t mode,
+                               uint8_t** out_rgba, int32_t* out_width, int32_t* out_height,
+                               char** out_error) {
+    if (editor == nullptr || frame0 == nullptr || frame1 == nullptr || width <= 0 || height <= 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (editor->interpolationEngine == nullptr || !editor->interpolationEngine->loaded()) {
+        setDetail(out_error, "补帧模型未加载（先调用 nc_interpolation_load）");
+        return failNc(NC_ERROR_UNSUPPORTED, "状态非法");
+    }
+    const InterpolationMode interpMode =
+        (mode == 1) ? InterpolationMode::HighPrecision : InterpolationMode::Standard;
+    std::vector<std::uint8_t> out;
+    std::string failure;
+    if (!editor->interpolationEngine->interpolate(frame0, frame1, width, height,
+                                                  std::max(0.0, std::min(1.0, timestep)),
+                                                  interpMode, out, &failure)) {
+        setDetail(out_error, failure);
+        return failNc(NC_ERROR_INTERNAL, "补帧失败");
+    }
+    if (out_rgba != nullptr) {
+        std::uint8_t* buffer = new (std::nothrow) std::uint8_t[out.size()];
+        if (buffer == nullptr) {
+            return failNc(NC_ERROR_INTERNAL, "内存分配失败");
+        }
+        std::copy(out.begin(), out.end(), buffer);
+        *out_rgba = buffer;
+    }
+    if (out_width != nullptr) *out_width = width;
+    if (out_height != nullptr) *out_height = height;
+    return NC_OK;
 }
 
 int32_t nc_superres_upscale(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,

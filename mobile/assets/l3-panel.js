@@ -469,6 +469,8 @@
     if (c.kind === 'number') return numberRow(key, c);
     if (c.kind === 'button') return buttonRow(key, c);
     if (c.kind === 'blend') return blendRow(key, c);
+    if (c.kind === 'text') return textRow(key, c);
+    if (c.kind === 'action') return actionRow(key, c);
     return null;
   }
 
@@ -635,10 +637,13 @@
   const AI_ACTION = {
     subtitle:  { feature: 10, model: 'whisper_zh',      needClip: false, label: '识别字幕' },
     lyrics:    { feature: 10, model: 'whisper_zh',      needClip: false, label: '识别歌词' },
-    translate: { feature: 5,  model: 'translate_zh_en', needClip: true,  label: '字幕翻译' },
+    translate: { feature: 5,  model: 'translate_zh_en_m2m', needClip: true, label: '字幕翻译' },
     tts:       { feature: 6,  model: 'tts_zh',          needClip: false, label: '文本转语音' },
     stem:      { feature: 4,  model: 'stem_sep',        needClip: true,  label: '人声分离' },
-    depth:     { feature: 8,  model: null,              needClip: true,  label: '深度图' },
+    /* depth 此前 model: null —— 深度图功能没有对应模型，
+       用户点「深度图」永远停在「需要下载模型」却又不知道下载哪个。
+       补上 depth_midas（已在产品目录中）。 */
+    depth:     { feature: 8,  model: 'depth_midas',     needClip: true,  label: '深度图' },
     record:    { feature: null, model: null,            needClip: false, label: '录音' }
   };
 
@@ -735,6 +740,99 @@
     });
     return row;
   }
+
+  /* 文本输入框（§4.6）。
+     与 slider/color 的差别：输入是**离散、低频**的（一句话只在敲完时变），
+     所以直接写 ST.values，不需要像滑块那样为了防抖而单独节流 ——
+     markDirty 的 200ms 防抖已经够用。 */
+  function textRow(key, c) {
+    const row = document.createElement('div');
+    row.className = 'prow prow-text';
+    const cur = ST.values[key] ?? '';
+    row.innerHTML = `<svg class="i"><use href="#${c.icon || 'i-text'}"/></svg>
+      <span class="plabel">${c.name}</span>
+      <textarea class="ptext" rows="${c.rows || 3}"
+        placeholder="${c.placeholder || ''}"></textarea>`;
+    const ta = row.querySelector('.ptext');
+    ta.value = cur;
+    ta.addEventListener('input', () => {
+      ST.values[key] = ta.value;
+      markDirty();
+    });
+    /* 阻止 textarea 上的触摸事件冒泡到预览区 ——
+       否则在输入框里滑动光标会触发预览区的手势（缩放/拖动）。 */
+    ta.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    ta.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+    return row;
+  }
+
+  /* 动作按钮（kind: 'action'）。
+     与 kind: 'button' 的区别：那个固定走 startAiAction（AI 任务队列），
+     而这个执行一个具名的同步动作，由 ACTIONS 表派发。
+     分开的原因是语义不同 —— 「创建文本」不是 AI 任务，
+     走 AI 队列会卡在「等待处理中」的状态机里出不来。 */
+  function actionRow(key, c) {
+    const row = document.createElement('div');
+    row.className = 'prow';
+    row.innerHTML = `<button class="act"><svg class="i"><use href="#${c.icon || 'i-ai'}"/></svg>${c.name}</button>`;
+    row.querySelector('.act').addEventListener('click', async () => {
+      const fn = ACTIONS[c.action];
+      if (typeof fn !== 'function') {
+        toast('动作未实现：' + c.action);
+        return;
+      }
+      try {
+        await fn();
+      } catch (err) {
+        toast((err && err.message) || '操作失败');
+      }
+    });
+    return row;
+  }
+
+  /* 面板内的具名同步动作。刻意不放进 editor.js：
+     它们依赖面板的 ST.values（用户还没提交的参数），
+     放在这里能直接读到，不用额外的全局状态。 */
+  const ACTIONS = {
+    /* 用当前面板参数创建一条文本片段（§4.6）。
+       三个关键决定：
+         · 时间范围取「当前播放头 → +3 秒」—— 用户点「新建文本」时
+           播放头通常就在想放文字的位置；
+         · 落库走 nc_add_text_clip（内核会自动找/建文本轨）；
+         · 成功后关面板并重建轨道区，用户立刻能看到那条片段。 */
+    addTextClip: async () => {
+      const text = (ST.values.textbody || '').trim();
+      if (!text) {
+        toast('请先输入文本内容');
+        return;
+      }
+      const startUs = Math.round((S.currentTime || 0) * 1000000);
+      const durationUs = 3000000;   // 3 秒：短到不会盖满整条时间轴
+      const fontSize = ST.values.fontsize || 48;
+      const color = ST.values.textcolor || '#FFFFFF';
+      const alignment = ST.values.valign == null ? 1 : ST.values.valign;
+
+      const id = await engineCall('nc_add_text_clip', {
+        text,
+        start_us: startUs,
+        duration_us: durationUs,
+        font_size: fontSize,
+        color,
+        alignment,
+        anchor_x: 0.5,
+        anchor_y: 0.5
+      });
+      if (!id) {
+        toast('创建文本失败');
+        return;
+      }
+      toast('已创建文本');
+      closePanel();
+      if (typeof window.NC_RELOAD === 'function') {
+        await window.NC_RELOAD();
+      }
+    }
+  };
 
   /* 面板不再有「应用」：参数改动即时写入引擎。
      用 200ms 防抖合并连续拖动，避免每个像素都产生一条撤销记录。 */

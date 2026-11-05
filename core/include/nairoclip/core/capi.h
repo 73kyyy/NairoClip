@@ -800,6 +800,57 @@ int32_t nc_superres_loaded(const NcEditor* editor);
 /// - out_width/out_height：出参（可空）输出尺寸；
 /// - out_tiles/out_fallbacks：出参（可空）分块总数 / 回退块数（诊断）；
 /// - out_error：出参（可空）失败原因（需 nc_free_string）。
+// ---- 人声分离（UVR-MDX；§AI 能力对齐）----
+
+/// 加载人声分离模型（UVR-MDX .onnx，51MB）。重复调用会重新加载。
+int32_t nc_stem_load(NcEditor* editor, const char* model_path, char** out_error);
+/// 卸载模型（释放内存；不影响工程数据）。
+int32_t nc_stem_unload(NcEditor* editor);
+/// 模型是否已加载（0/1）。
+int32_t nc_stem_loaded(const NcEditor* editor);
+
+/// 分离音频为人声 / 伴奏。
+///
+/// - samples：交错 PCM，取值 [-1,1]，共 frame_count × channels 个 float；
+/// - mode：**0=只要人声 1=只要伴奏 2=两者都要**（与 StemMode 枚举一致）；
+/// - intensity：0..100，控制掩码软硬（100 = 硬掩码）。
+///
+/// 输出 out_vocals / out_instrumental 为**新分配的 float 缓冲**，
+/// 长度 = out_*_frames × out_channels；不需要时传 NULL 跳过该轨。
+/// 必须用 nc_free_buffer 释放。
+///
+/// 注意：内核**不替调用方决定**分离结果怎么用（替换原音轨 / 新增轨 /
+/// 只导出伴奏）—— 那是产品决策，由平台层调 nc_set_clip_audio 等接口完成。
+int32_t nc_stem_separate(NcEditor* editor, const float* samples, int64_t frame_count,
+                         int32_t channels, int32_t sample_rate, int32_t mode,
+                         double intensity, float** out_vocals, int64_t* out_vocal_frames,
+                         float** out_instrumental, int64_t* out_instrumental_frames,
+                         int32_t* out_sample_rate, int32_t* out_channels, char** out_error);
+
+// ---- 光流补帧（RIFE；§AI 能力对齐）----
+
+/// 加载补帧模型（RIFE .onnx）。重复调用会重新加载。
+int32_t nc_interpolation_load(NcEditor* editor, const char* model_path, char** out_error);
+/// 卸载模型。
+int32_t nc_interpolation_unload(NcEditor* editor);
+/// 模型是否已加载（0/1）。
+int32_t nc_interpolation_loaded(const NcEditor* editor);
+
+/// 在两帧之间插一帧。
+///
+/// - frame0 / frame1：RGBA8，尺寸必须相同（建议 32 的倍数）；
+/// - timestep：0..1（0.5 = 正中间）；
+/// - mode：0=标准（快） 1=高精度（内部放大推理再降采样）；
+/// - out_rgba：新分配缓冲（width × height × 4），必须 nc_free_buffer 释放。
+///
+/// **一次只处理两帧**：真正的「补帧到 60fps」由平台层逐对调用
+/// （f0,mid,f1 的顺序输出）。这样设计是为了让调用方控制进度与取消，
+/// 且对显存友好（不必缓存整段视频的帧）。
+int32_t nc_interpolation_frame(NcEditor* editor, const uint8_t* frame0, const uint8_t* frame1,
+                               int32_t width, int32_t height, double timestep, int32_t mode,
+                               uint8_t** out_rgba, int32_t* out_width, int32_t* out_height,
+                               char** out_error);
+
 int32_t nc_superres_upscale(NcEditor* editor, const uint8_t* rgba, int32_t width, int32_t height,
                             int32_t scale, uint8_t** out_rgba, int32_t* out_width,
                             int32_t* out_height, int32_t* out_tiles, int32_t* out_fallbacks,
@@ -1110,6 +1161,43 @@ int64_t nc_export_run_ex(NcEditor* editor, const char* out_path, int32_t crf,
                          int32_t include_audio, int32_t attach_ai_label,
                          const char* ai_label_text, const char* video_codec,
                          int32_t (*progress_cb)(double), char** out_error);
+
+// ---- 文本片段（§4.6 文本素材化）----
+
+/// 新建一个文本片段（自动找或建文本轨）。
+///
+/// 一次调用建好整条片段，而不是「建轨 → 建片段 → 设样式」三步：
+/// 文本的最小可用状态是「有文字」，分步会产生空文本片段的中间态。
+///
+/// - text：正文，支持 \n 换行（断行由平台层布局引擎处理）；
+/// - start_us / duration_us：时间轴区间（微秒）；
+/// - font_size：字号（画布坐标系点数）；<=0 用默认 48；
+/// - color："#RRGGBB" 或 "#RRGGBBAA"；NULL/空串用默认白色；
+/// - alignment：0=左 1=中 2=右；越界按居中；
+/// - anchor_x / anchor_y：归一化位置（0..1）；越界用默认 (0.5, 0.9)。
+///
+/// 返回：成功 = 片段 ID（>0）；失败 = 0（错误信息见 nc_last_error）。
+uint64_t nc_add_text_clip(NcEditor* editor, const char* text, int64_t start_us,
+                          int64_t duration_us, double font_size,
+                          const char* color, int32_t alignment, double anchor_x,
+                          double anchor_y);
+
+/// 修改文本片段正文（保留原样式）。clip_id 为 nc_add_text_clip 的返回值。
+int32_t nc_set_clip_text(NcEditor* editor, uint64_t clip_id, const char* text);
+
+/// 读取文本片段正文（需 nc_free_string 释放）。
+int32_t nc_get_clip_text(NcEditor* editor, uint64_t clip_id, char** out_text);
+
+/// 修改文本样式。**每个参数传「不改」的哨兵值表示该字段保持原值**：
+/// font_size<=0 / color 为空 / outline_width<0 / alignment 越界 /
+/// anchor 越界 → 对应字段不变（而不是被清零）。
+int32_t nc_set_text_style(NcEditor* editor, uint64_t clip_id, double font_size,
+                          const char* color, const char* outline_color,
+                          double outline_width, int32_t alignment, double anchor_x,
+                          double anchor_y);
+
+/// 当前工程里的文本片段数量（含所有轨道；句柄为空返回 -1）。
+int32_t nc_text_clip_count(NcEditor* editor);
 
 // ---- 画幅适配（导出预设 9:16 / 16:9 / 1:1、智能重构图横转竖）----
 

@@ -10,17 +10,30 @@ namespace core {
 
 namespace {
 
-/// 双线性缩放 RGBA8 → RGB float（0..1）并归一化（DPT/MiDaS 预处理）。
-/// 输出布局：[1, 3, H, W]（CHW）。
-/// 归一化参数取自模型自带 preprocessor_config.json：
-///   image_mean = [0.5, 0.5, 0.5]，image_std = [0.5, 0.5, 0.5]，
-///   rescale_factor = 1/255（即先除以 255 再 (x-0.5)/0.5）。
-/// 注意：**不是** ImageNet 均值/方差（那是 Depth-Anything 的约定）。
-/// 用错会让深度图对比度与远近关系失真（此前实现即为此缺陷）。
+/// 预处理归一化族（不同模型系列的约定不同，用错会让深度关系失真）。
+enum class NormFamily {
+    /// DPT / MiDaS：mean = std = 0.5，即 (x/255 - 0.5) / 0.5
+    HalfHalf = 0,
+    /// Depth-Anything V2：ImageNet 统计量
+    ///   mean = [0.485, 0.456, 0.406]，std = [0.229, 0.224, 0.225]
+    ImageNet = 1,
+};
+
+/// 双线性缩放 RGBA8 → RGB float 并归一化。输出布局 [1, 3, H, W]（CHW）。
+///
+/// **为什么需要两套归一化**：
+///   · MiDaS（dpt-hybrid）用 mean=std=0.5；
+///   · Depth-Anything V2 用 ImageNet 统计量。
+/// 两者混用的后果是深度图的**对比度与远近关系整体失真** ——
+/// 图还是能出，但看起来"灰蒙蒙、近处不亮远处不暗"，
+/// 这种问题很难归因（会以为是模型不行）。
 void preprocessToCHW(const std::uint8_t* pixels, int srcW, int srcH, int dstW, int dstH,
-                     std::vector<float>& out) {
-    static constexpr float kMean[3] = {0.5f, 0.5f, 0.5f};
-    static constexpr float kStd[3] = {0.5f, 0.5f, 0.5f};
+                     NormFamily family, std::vector<float>& out) {
+    static constexpr float kHalf[3] = {0.5f, 0.5f, 0.5f};
+    static constexpr float kImageNetMean[3] = {0.485f, 0.456f, 0.406f};
+    static constexpr float kImageNetStd[3] = {0.229f, 0.224f, 0.225f};
+    const float* kMean = (family == NormFamily::ImageNet) ? kImageNetMean : kHalf;
+    const float* kStd = (family == NormFamily::ImageNet) ? kImageNetStd : kHalf;
     out.assign(static_cast<std::size_t>(3) * static_cast<std::size_t>(dstH) *
                    static_cast<std::size_t>(dstW),
                0.0f);
@@ -142,6 +155,10 @@ struct DepthEstimator::Impl {
     AiSession session;
     std::string inputName;
     std::string outputName;
+    /// 预处理族（加载时按模型输入形状与名称探测，见 load）。
+    NormFamily normFamily = NormFamily::HalfHalf;
+    /// 推理输入边长（必须是 14 的倍数：Depth-Anything 输出为 14*floor(n/14)）。
+    int inputSize = 384;
 };
 
 DepthEstimator::DepthEstimator() : impl_(new (std::nothrow) Impl()) {}
@@ -170,6 +187,32 @@ bool DepthEstimator::load(const std::string& modelPath, std::string* outputFailu
     }
     impl_->inputName = inputs[0].name;
     impl_->outputName = outputs[0].name;
+
+    /* 探测模型族 —— 决定预处理归一化与输入尺寸。
+       ----------------------------------------------------------------------
+       判据：Depth-Anything V2 的输入名是 `pixel_values` 且通道维**写死为 3**
+       （`[batch_size, 3, height, width]`），输出形状是
+       `['batch', '14*floor(height/14)', '14*floor(width/14)']`；
+       而 DPT/MiDaS 的通道维是符号 `num_channels`，输出直接是
+       `[batch, height, width]`。
+
+       用输入形状判而不是文件路径：模型文件可能被重命名或换目录，
+       形状是模型自身的属性，不会骗人。 */
+    const auto& shape = inputs[0].shape;
+    const bool looksDepthAnything =
+        inputs[0].name == "pixel_values" || (shape.size() == 4 && shape[1] == 3) ||
+        (outputs[0].shape.size() == 3 && outputs[0].shape[0] != -1 &&
+         outputs[0].shape[1] == -1);   // 输出第 0 维不是 batch（V2 的 floor 表达式）
+
+    if (looksDepthAnything) {
+        impl_->normFamily = NormFamily::ImageNet;
+        /* 392 = 14 × 28。用 392 而不是 384（384 不是 14 的整数倍），
+           否则输出会比输入小一圈，resize 回原尺寸时出现边缘拉伸。 */
+        impl_->inputSize = 392;
+    } else {
+        impl_->normFamily = NormFamily::HalfHalf;
+        impl_->inputSize = 384;
+    }
     loaded_ = true;
     return true;
 }
@@ -193,11 +236,15 @@ bool DepthEstimator::estimate(const std::uint8_t* pixels, int width, int height,
         if (outputFailure != nullptr) *outputFailure = "帧尺寸非法";
         return false;
     }
-    const int size = inputSize();
+    /* 输入尺寸：Depth-Anything V2 的 patch 是 14，输出尺寸是
+       14*floor(H/14) —— 所以输入必须是 14 的倍数，否则 ONNX 的形状
+       推导会得到比输入小的输出（后续 resize 回原尺寸时错位）。
+       384 恰好是 14 的倍数（14×27=378，不对；修正为 392=14×28）。 */
+    const int size = impl_->inputSize;
     // 预处理 → CHW 张量
     AiTensor input;
     input.shape = {1, 3, size, size};
-    preprocessToCHW(pixels, width, height, size, size, input.dataFloat);
+    preprocessToCHW(pixels, width, height, size, size, impl_->normFamily, input.dataFloat);
     std::vector<AiTensor> outputs;
     if (!impl_->session.run({input}, outputs, outputFailure)) {
         return false;

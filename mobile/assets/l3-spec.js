@@ -107,7 +107,28 @@
     ratioH:    { kind: 'number', name: '高', min: 16, max: 8192, def: 1920, unit: 'px' },
 
     /* —— 动作 —— */
-    aiproc:    { kind: 'button', name: '开始处理', icon: 'i-ai' }
+    aiproc:    { kind: 'button', name: '开始处理', icon: 'i-ai' },
+
+    /* —— 文本片段专用（§4.6）—— */
+    /* 文本输入框：多行，输入即改 ST.values.text。
+       为什么用 textarea 而不是 input：文本片段支持 \n 换行，
+       单行 input 会把换行吃掉，用户在别处粘贴的多行文本会变成一行。 */
+    textbody:  { kind: 'text', name: '文本内容', placeholder: '输入文字…', rows: 3 },
+
+    /* —— 光流补帧（RIFE）—— */
+    /* 目标帧率：补帧到多少 fps。三档对应 InterpolationTarget 枚举。
+       为什么不做滑杆：帧率是离散档位（60/120/240），
+       连续滑杆会让用户以为可以「补到 73fps」这种无意义的中间值。 */
+    interpfps: { kind: 'seg', name: '目标帧率', opts: ['60', '120', '240'], def: 0 },
+    /* 算法模式：标准快 / 高精度慢。 */
+    interpmode: { kind: 'seg', name: '算法模式', opts: ['标准', '高精度'], def: 0 },
+    /* 动作按钮：真正执行补帧。 */
+    runinterp: { kind: 'action', name: '开始补帧', icon: 'i-speed',
+                 action: 'runInterpolation' },
+    /* 「创建文本」动作按钮：把当前面板参数落成一条真实片段。
+       不走 startAiAction（那是给 AI 任务用的），走独立动作。 */
+    addtext:   { kind: 'action', name: '创建文本', icon: 'i-text-add',
+                 action: 'addTextClip' }
   };
 
   /* ---------------- 宫格预设 ---------------- */
@@ -230,6 +251,14 @@
       curve: { presets: CURVE_PRESETS, unit: 'x' },
       pageNames: ['常规', '曲线']
     },
+    /* 光流补帧（RIFE）：把片段补到 60/120/240fps。
+       之前完全没有前端入口 —— interpolation_ai.cpp 有完整实现、
+       模型 62MB 在磁盘上，但用户点不到，等于不可用。 */
+    interp: {
+      title: '光流补帧', mode: 'single',
+      groups: [['interpfps'], ['interpmode'], ['runinterp']],
+      note: '逐对插帧，时长不变、帧数翻倍；处理较慢，建议先试片段'
+    },
     volume: {
       title: '音量', mode: 'dual',
       groups: [['volume']],
@@ -285,7 +314,9 @@
     /* ===== 文字 ===== */
     newtext: {
       title: '新建文本', mode: 'single',
-      groups: [['fontsize', 'textcolor', 'stroke', 'valign']]
+      /* 顺序有意：先输入内容，再调样式，最后「创建文本」——
+         用户在点创建之前就能看到所有参数，符合「先填表后提交」的直觉。 */
+      groups: [['textbody'], ['fontsize', 'textcolor', 'stroke', 'valign'], ['addtext']]
     },
     subtitle: {
       title: '识别字幕', mode: 'single',

@@ -6,7 +6,13 @@
 //   「字幕翻译 [按钮]：中文 → English（默认）
 //     翻译范围 [Radio]：整条轨道 / 选中字幕  默认 整条轨道」
 //
-// 本模块实现真实推理链路（OPUS-MT zh-en，模型 models/translate_zh_en/）：
+// 本模块实现真实推理链路。
+//
+// **2026-11-05**：默认模型改为 m2m100-418M（models/translate_zh_en_m2m/）。
+// OPUS-MT 因严重复读退化已移除（详见 docs/ROADMAP.md §5.6）。
+// 代码仍保留 OPUS 的 Unigram 分词路径 —— 它由 tokenizer.json 的
+// model.type 决定（Unigram / BPE），删掉会让老工程无法加载。
+// 只是不再分发 OPUS 模型文件。
 //   · 分词：SentencePiece Unigram（从 tokenizer.json 运行时加载词表；
 //     Viterbi 最大似然切分 + Metaspace ▁ 空格编码）；
 //   · 编码：encoder（input_ids + attention_mask → last_hidden_state）；

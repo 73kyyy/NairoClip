@@ -775,6 +775,9 @@ const L2 = {
   clip: [
     { id: 'split', name: '分割', icon: 'i-split', kind: 'exec' },
     { id: 'speed', name: '变速', icon: 'i-speed' },
+    /* 光流补帧：与变速同属「时间维度」的操作，放在它后面。
+       （之前内核有实现、模型有文件，但前端无入口 —— 见 l3-spec.js） */
+    { id: 'interp', name: '补帧', icon: 'i-speed' },
     { id: 'volume', name: '音量', icon: 'i-volume' },
     { id: 'delete', name: '删除', icon: 'i-trash', kind: 'exec', danger: true },
     { id: 'copy', name: '复制', icon: 'i-copy', kind: 'exec' },
@@ -990,6 +993,7 @@ function runFunction(cat, f) {
     case 'tmplauto':   return showTemplateSheet();   // 同一个面板，套用即在列表里选
     /* 剪辑 */
     case 'speed':      return openL3('speed');
+    case 'interp':     return openL3('interp');
     case 'volume':     return openL3('volume');
     case 'opacity':    return openL3('opacity');
     case 'denoise':    return openL3('denoise');

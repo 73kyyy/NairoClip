@@ -4,9 +4,10 @@
 // 说明：
 //   · 分词为纯逻辑，始终执行；
 //   · 推理类用例需 ONNX Runtime + 模型产物，缺任一自动跳过；
-//   · 两套模型并存，测试分别覆盖：
-//       - OPUS-MT（Unigram，models/translate_zh_en/）
-//       - m2m100（BPE，   models/translate_zh_en_m2m/）
+//   · **2026-11-05：OPUS-MT 已移除**（复读退化），只测 m2m100（BPE，
+//     models/translate_zh_en_m2m/）。Unigram 分词路径的代码仍保留
+//     （由 tokenizer.json 的 model.type 决定），但不再有模型文件覆盖它 ——
+//     相关用例会自动跳过，不会假通过。
 //   · m2m100 路径有 4 处易踩的解码约束（缺 __zh__ / 缺 </s> /
 //     beam 混排已完成假设 / minLen 强制长度），缺一即退化。
 //     见 docs/TRANSLATE_FRAMEWORK.md §4。下方 Bpe* 用例用于防止回归。
@@ -35,8 +36,9 @@ std::string repoRoot() {
     static const std::string root = [] {
         for (const char* candidate : {"", "../", "../../"}) {
             const std::string prefix = std::string(candidate) + "models/";
-            if (fileExists(prefix + "translate_zh_en/tokenizer.json") ||
-                fileExists(prefix + "translate_zh_en_m2m/tokenizer.json")) {
+            /* 只探测 m2m100 —— OPUS-MT 已移除，
+               若还探测它会让「模型存在」的判断依赖一个不存在的目录。 */
+            if (fileExists(prefix + "translate_zh_en_m2m/tokenizer.json")) {
                 return std::string(candidate);
             }
         }
@@ -47,11 +49,14 @@ std::string repoRoot() {
 
 bool bpeModelsPresent();  // 前置声明（下方定义）
 
-std::string modelDir() { return repoRoot() + "models/translate_zh_en/"; }
+/* 默认模型目录改为 m2m100（OPUS-MT 已移除）。
+   注意：OPUS 专用的 Unigram 用例会因模型缺失自动跳过 ——
+   这是正确的降级，不是隐藏失败。 */
+std::string modelDir() { return repoRoot() + "models/translate_zh_en_m2m/"; }
 
 bool allModelsPresent() {
     const std::string d = modelDir();
-    return fileExists(d + "encoder_split.onnx") && fileExists(d + "decoder_split.onnx") &&
+    return fileExists(d + "encoder.onnx") && fileExists(d + "decoder.onnx") &&
            fileExists(d + "decoder_with_past.onnx") && fileExists(d + "tokenizer.json");
 }
 
@@ -75,7 +80,7 @@ NC_TEST(Translate, TokenizerProducesIdsForChinese) {
     }
     Translator t;
     std::string err;
-    if (!t.load(modelDir() + "encoder_split.onnx", modelDir() + "decoder_split.onnx",
+    if (!t.load(modelDir() + "encoder.onnx", modelDir() + "decoder.onnx",
                 modelDir() + "decoder_with_past.onnx", modelDir() + "tokenizer.json", &err)) {
         std::printf("    [skip] 加载失败：%s\n", err.c_str());
         return;
@@ -93,7 +98,7 @@ NC_TEST(Translate, TokenizerHandlesEmptyAndAscii) {
     if (!allModelsPresent()) return;
     Translator t;
     std::string err;
-    if (!t.load(modelDir() + "encoder_split.onnx", modelDir() + "decoder_split.onnx",
+    if (!t.load(modelDir() + "encoder.onnx", modelDir() + "decoder.onnx",
                 modelDir() + "decoder_with_past.onnx", modelDir() + "tokenizer.json", &err)) {
         return;
     }
@@ -108,7 +113,7 @@ NC_TEST(Translate, DecodeSkipsSpecialTokens) {
     if (!allModelsPresent()) return;
     Translator t;
     std::string err;
-    if (!t.load(modelDir() + "encoder_split.onnx", modelDir() + "decoder_split.onnx",
+    if (!t.load(modelDir() + "encoder.onnx", modelDir() + "decoder.onnx",
                 modelDir() + "decoder_with_past.onnx", modelDir() + "tokenizer.json", &err)) {
         return;
     }
@@ -137,7 +142,7 @@ NC_TEST(Translate, RealInferenceProducesEnglish) {
     }
     Translator t;
     std::string err;
-    if (!t.load(modelDir() + "encoder_split.onnx", modelDir() + "decoder_split.onnx",
+    if (!t.load(modelDir() + "encoder.onnx", modelDir() + "decoder.onnx",
                 modelDir() + "decoder_with_past.onnx", modelDir() + "tokenizer.json", &err)) {
         std::printf("    [skip] 加载失败：%s\n", err.c_str());
         return;
@@ -163,7 +168,7 @@ NC_TEST(Translate, RejectsUnknownDirection) {
     if (!allModelsPresent()) return;
     Translator t;
     std::string err;
-    if (!t.load(modelDir() + "encoder_split.onnx", modelDir() + "decoder_split.onnx",
+    if (!t.load(modelDir() + "encoder.onnx", modelDir() + "decoder.onnx",
                 modelDir() + "decoder_with_past.onnx", modelDir() + "tokenizer.json", &err)) {
         return;
     }
@@ -177,7 +182,7 @@ NC_TEST(Translate, BatchReportsPerLineStatus) {
     if (!allModelsPresent()) return;
     Translator t;
     std::string err;
-    if (!t.load(modelDir() + "encoder_split.onnx", modelDir() + "decoder_split.onnx",
+    if (!t.load(modelDir() + "encoder.onnx", modelDir() + "decoder.onnx",
                 modelDir() + "decoder_with_past.onnx", modelDir() + "tokenizer.json", &err)) {
         return;
     }

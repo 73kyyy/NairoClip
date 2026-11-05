@@ -36,13 +36,16 @@ namespace core {
 enum class ModelCapability {
     None = 0,
     MattingBasic = 1,          ///< 智能抠像（基础版）——免费
-    MattingHighPrecision = 2,  ///< 智能抠像（高精度版）——Pro（文档 5.2）
+    /// 智能抠像（高精度版）——**当前无模型文件，目录里也不列该条目**。
+    /// 保留枚举：序列化(.nclip)与 C ABI 用整数值，删掉会让老工程解析失败。
+    MattingHighPrecision = 2,
     SpeechToText = 3,          ///< 语音转字幕（Whisper 中文优化）
     FrameInterpolation = 4,    ///< 光流补帧——Pro（文档 7.6）
     SuperResolution = 5,       ///< 超分辨率——Pro 无限次（免费 2x 每月 3 次）
     Tts = 6,                   ///< 智能配音（TTS；合规标识见 ai_label）
     StemSeparation = 7,        ///< 人声分离（标准/高精度）
     Translation = 8,           ///< 字幕翻译
+    Depth = 9,                 ///< 深度图（景深虚化等效果的基础）
 };
 
 /// 能力名称（"matting_basic" / ...；序列化与 UI 用）。

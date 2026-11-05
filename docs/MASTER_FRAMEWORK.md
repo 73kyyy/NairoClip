@@ -60,12 +60,13 @@
 | 子系统 | 代码 | 模型 | 模型文件 | 状态 |
 |---|---|---|---|---|
 | 语音转字幕 | `speech_ai.cpp` 692 行 | `whisper_zh` | 4 个 / 927M | ✅ 可用 |
-| 字幕翻译 | `translate_ai.cpp` 835 行 | `translate_zh_en`（OPUS）<br>`translate_zh_en_m2m`（m2m100） | 8 个 / 1.1G<br>5 个 / 1.9G | ✅ 可用（m2m 质量更优，**协议已核 MIT**） |
-| 深度图 | `depth_ai.cpp` 458 行 | `depth_midas` | 3 个 / 509M | ✅ 可用 |
-| 人声分离 | `stem_ai.cpp` 391 行 | `stem_sep` | 1 个 / 51M | ⚠️ 变体待核对（非锁定 Voc_FT） |
-| 光流补帧 | `interpolation_ai.cpp` 259 行 | `flow_interp` | 1 个 / 62M | ⚠️ 非锁定 RIFE，需核协议 |
+| 字幕翻译 | `translate_ai.cpp` 835 行 | `translate_zh_en_m2m`（m2m100） | 4 个 / 1.9G | ✅ 可用（**协议已核 MIT**；OPUS-MT 已移除——复读退化） |
+| 深度图 | `depth_ai.cpp` 458 行 | `depth_midas`（Depth-Anything V2 small） | 1 个 / 95M | ✅ 可用（2026-11-05 从 MiDaS 509M 换成 V2，更小且更好） |
+| 人声分离 | `stem_ai.cpp` 391 行 | `stem_sep`（UVR-MDX 3072 频点） | 1 个 / 64M | ✅ 可用（2026-11-05 修正：原 2048 频点与代码 kDimF=3072 不匹配，加载必失败） |
+| 光流补帧 | `interpolation_ai.cpp` 259 行 | `flow_interp`（rife47） | 1 个 / 21M | ✅ 可用（2026-11-05 修正：原模型仅 2 输入，代码按 RIFE 3 输入实现） |
 | 超分辨率 | `super_res_ai.cpp` 282 行 | `super_res_2x4x` | 1 个 / 21M | ⚠️ 非锁定 Real-ESRGAN |
-| 人像抠像 | `matting_ai.cpp` 243 行 | `matting_basic`<br>`matting_hq` | **0 个**<br>**0 个** | ❌ **空目录，无模型** |
+| 人像抠像 | `matting_ai.cpp` 243 行 | `matting_basic`（MODNet） | 1 个 / 25M | ✅ **已落地**（2026-11-05） |
+| ~~高精度抠像~~ | — | ~~`matting_hq`~~ | — | ❌ **已移除**：无可用模型，空目录属假功能 |
 | TTS | — | `tts_zh` | 1 个 / 116M | ❌ **无 `tts_ai.cpp`** |
 | 音频降噪 | `audio_denoise.cpp` | 算法实现 | — | ✅ 谱减法（非 AI） |
 | 色度抠像 | `chroma_key.cpp` | 算法实现 | — | ✅ 键控算法 |

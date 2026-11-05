@@ -125,8 +125,19 @@ std::vector<ModelInfo> makeCatalog() {
     // 完整性由安装时下发的 SHA-256 保证。
     add("matting_basic", "智能抠像（基础版）", "人像抠像，精度约 85%（免费版可用）", 60 * kMB,
         "1.0.0", ModelCapability::MattingBasic, false);
-    add("matting_hq", "智能抠像（高精度版）", "人像/物品/色度抠像，精度约 98%（Pro）", 120 * kMB,
-        "1.1.0", ModelCapability::MattingHighPrecision, true);
+    /* **matting_hq 已移除（2026-11-05）**。
+       ------------------------------------------------------------------
+       它一直是个**空目录**（0 个文件），也从未有对应的高精度抠像 ONNX。
+       留在目录里的后果：用户在「AI 模型」页看到「高精度抠像（Pro）」，
+       点下载拿不到任何东西，或者下载后调用失败 —— 这是**假功能**，
+       比不提供更糟（用户会以为是自己设备不行）。
+
+       真正要提供高精度抠像时，做法是：
+         1) 找到可商用的高精度人像/物品分割模型（如 BiRefNet、SAM2）；
+         2) 在 model_manager 里重新加回该条目；
+         3) 在 matting_ai.cpp 里按模型能力区分预处理（不同模型的
+            输入归一化与输出后处理不同）。
+       在 1) 完成之前，不列这个条目。 */
     add("whisper_zh", "Whisper 语音转字幕（中文优化）", "本地语音识别，字幕自动打轴", 240 * kMB,
         "2.0.0", ModelCapability::SpeechToText, false);
     add("flow_interp", "光流补帧算法模型", "光流估计与中间帧合成（60/120fps，Pro）", 85 * kMB,
@@ -137,8 +148,31 @@ std::vector<ModelInfo> makeCatalog() {
         ModelCapability::Tts, false);
     add("stem_sep", "人声分离模型", "人声/伴奏分离（标准 / 高精度）", 180 * kMB, "1.0.0",
         ModelCapability::StemSeparation, false);
-    add("translate_zh_en", "字幕翻译模型", "中英互译（免费每月 2 次，Pro 无限）", 110 * kMB, "1.0.0",
-        ModelCapability::Translation, false);
+    /* 字幕翻译：只剩 m2m100-418M（MIT）。
+       ----------------------------------------------------------------
+       **2026-11-05 变更：移除 OPUS-MT（translate_zh_en）。**
+       原因：OPUS-MT 有严重复读退化（"park park park"），
+       m2m100 实测 14 句抽样全部无复读。
+
+       两个模型并存的问题是**用户只能选一个**，而差的那个
+       白占 1.1GB 下载量，还会让用户第一次就撞上退化输出。
+       所以直接删掉差的，不保留「低配备选」—— 备选的前提是
+       「能用」，会复读的版本不算能用。
+
+       体积 1.9GB 标 Pro：不是因为功能要收费，而是「下载 1.9GB
+       必须用户主动同意」，不能静默消耗流量。 */
+    add("translate_zh_en_m2m", "字幕翻译模型", "中英互译，本地推理（1.9GB）",
+        1900 * kMB, "1.0.0", ModelCapability::Translation, true);
+
+    /* 深度图：dpt-hybrid-midas（MIT）。
+       ----------------------------------------------------------------
+       功能实现（depth_ai.cpp）早就可用，模型也在下载脚本里，
+       但**没进产品目录** —— 用户在 AI 模型页面看不到、
+       也就无法加载，功能等于不存在。
+
+       体积按实测 509MB 标（模型文件本体）。 */
+    add("depth_midas", "深度图模型", "景深虚化 / 3D 效果的基础（Pro）", 509 * kMB, "1.0.0",
+        ModelCapability::Depth, true);
     return catalog;
 }
 
@@ -169,12 +203,14 @@ const char* modelCapabilityName(ModelCapability capability) {
         case ModelCapability::Tts: return "tts";
         case ModelCapability::StemSeparation: return "stem_separation";
         case ModelCapability::Translation: return "translation";
+        case ModelCapability::Depth: return "depth";
     }
     return "none";
 }
 
 bool modelCapabilityFromString(const char* text, ModelCapability& out) {
     const ModelCapability all[] = {
+        ModelCapability::Depth,
         ModelCapability::None,         ModelCapability::MattingBasic,
         ModelCapability::MattingHighPrecision, ModelCapability::SpeechToText,
         ModelCapability::FrameInterpolation,   ModelCapability::SuperResolution,
@@ -191,13 +227,28 @@ bool modelCapabilityFromString(const char* text, ModelCapability& out) {
 
 bool modelAccessAllowed(const ModelInfo& info, const Entitlement& entitlement,
                         std::int64_t nowUnix) {
+    /* **先看目录条目的 requiresPro，再看能力细分。**
+       ------------------------------------------------------------------
+       这里曾有个真实缺陷：函数只对 MattingHighPrecision /
+       FrameInterpolation 两类做门控，其余走 default 放行。
+       而 model_manager 的目录里 `requiresPro` 字段是**每条单独标**的 ——
+       于是「标了 Pro 但不是那两类」的条目（如 1.9GB 的
+       translate_zh_en_m2m、509MB 的 depth_midas）会被免费用户直接放行，
+       等于门控形同虚设。
+
+       现在按「字段优先」判断：requiresPro=true 就必须 Pro 有效。
+       能力细分只用于「同一能力内还有额外条件」的场景。 */
+    if (info.requiresPro && !entitlement.proActiveAt(nowUnix)) {
+        return false;
+    }
     switch (info.capability) {
         case ModelCapability::MattingHighPrecision:
             return entitlement.proActiveAt(nowUnix) && entitlement.highPrecisionMatting();
         case ModelCapability::FrameInterpolation:
             return entitlement.proActiveAt(nowUnix) && entitlement.frameInterpolation();
         default:
-            // 其余能力本地放行（配额由服务端计数裁决，见文档 8.3）。
+            // 其余能力：Pro 门槛已由上面的 requiresPro 处理，此处放行
+            //（配额由服务端计数裁决，见文档 8.3）。
             return true;
     }
 }

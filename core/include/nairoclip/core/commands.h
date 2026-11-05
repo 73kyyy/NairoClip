@@ -10,6 +10,7 @@
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/xform.h"
 #include "nairoclip/core/track.h"
+#include "nairoclip/core/text_content.h"
 
 #include <cstddef>
 #include <optional>
@@ -675,6 +676,27 @@ private:
     double opacity_ = 1.0;
     /// 快照：原通道关键帧（nullopt = 原本无曲线）。
     std::optional<KeyframeTrack> beforeCurve_;
+};
+
+/// 修改文本片段的内容（§4.6 文本素材化）。
+///
+/// 快照语义：保存改动前的整个 TextContent（而不只是 text 字段）——
+/// 文本的正文与样式是「同一份数据」，分开快照在 revert 时容易漏字段。
+class SetClipTextCommand : public Command {
+public:
+    SetClipTextCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                       TextContent content);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "修改文本"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    TextContent after_;
+    std::optional<TextContent> before_;
 };
 
 /// 设置片段滤镜（文档 Part 4-B 第 7 节「滤镜」；14 风格 + 强度 0..100）。
