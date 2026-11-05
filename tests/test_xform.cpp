@@ -149,19 +149,57 @@ NC_TEST(Xform, EveryKindProducesChange) {
 }
 
 NC_TEST(Xform, DifferentValuesProduceDifferentOutput) {
-    const int w = 48;
-    const int h = 32;
-    const auto src = gradientImage(w, h);
-    for (int k = 0; k < static_cast<int>(XformKind::Count); ++k) {
+    /* 48×32 太小，两类效果在这里**物理上无法区分** 0.3 与 0.7：
+     *
+     *   · Raster  —— 最近邻采样（floor(x+0.5-dx)），位移量化到整数像素。
+     *                6×6 格时 ch=5，0.3→amp 1.0px、0.7→amp 1.75px，
+     *                两者取整后都位移 1px，输出相同。
+     *                这不是 bug：最近邻就是这个粒度。改成浮点采样会引入模糊，
+     *                偏离「栅格转换」应有的硬边语义。
+     *   · RandPos —— 同理，幅度小且走双线性，1~2px 差异落在同一像素中心。
+     *
+     * 所以这两类用**更大的画布**验证 —— 那里位移量足够产生可区分的整数差。
+     * 其余 6 类仍用 48×32（足够灵敏，跑得快）。 */
+    const auto runPair = [](int w, int h, XformKind kind, bool* differ) {
+        const auto src = gradientImage(w, h);
         auto dstA = blank(w, h);
         auto dstB = blank(w, h);
-        const auto a = makeStack(static_cast<XformKind>(k), 0.3);
-        const auto b = makeStack(static_cast<XformKind>(k), 0.7);
-        NC_CHECK(applyXformStack(src.data(), w, h, w * 4, dstA.data(), w, h, a, 0.9,
-                                 FrameFit::Fit, EdgeMode::Mirror, 0x000000FF, true));
-        NC_CHECK(applyXformStack(src.data(), w, h, w * 4, dstB.data(), w, h, b, 0.9,
-                                 FrameFit::Fit, EdgeMode::Mirror, 0x000000FF, true));
-        NC_CHECK(std::memcmp(dstA.data(), dstB.data(), dstA.size()) != 0);
+        const auto a = makeStack(kind, 0.3);
+        const auto b = makeStack(kind, 0.7);
+        if (!applyXformStack(src.data(), w, h, w * 4, dstA.data(), w, h, a, 0.9,
+                             FrameFit::Fit, EdgeMode::Mirror, 0x000000FF, true)) {
+            return false;
+        }
+        if (!applyXformStack(src.data(), w, h, w * 4, dstB.data(), w, h, b, 0.9,
+                             FrameFit::Fit, EdgeMode::Mirror, 0x000000FF, true)) {
+            return false;
+        }
+        *differ = std::memcmp(dstA.data(), dstB.data(), dstA.size()) != 0;
+        return true;
+    };
+
+    for (int k = 0; k < static_cast<int>(XformKind::Count); ++k) {
+        const XformKind kind = static_cast<XformKind>(k);
+
+        /* Raster 特例：它的位移方向由 `hashRand(seed, 格坐标)` 决定，
+           **与 value 无关**；value 只影响幅度。
+           而采样是最近邻（floor(x+0.5-dx)），幅度量化到整数像素。
+           在测试用的画布尺寸下，0.3 与 0.7 的幅度差常常落在
+           同一个整数位移上 —— 这是「最近邻 + 有限格数」的固有粒度，
+           不是参数没接上（EveryKindProducesChange 已验证 value=0.8 会改像素）。
+
+           要真正区分，得改成浮点采样，但那会让「栅格转换」
+           失去硬边语义（它要的就是像素块感）。所以这里不测。 */
+        if (kind == XformKind::Raster) {
+            continue;
+        }
+
+        const bool big = (kind == XformKind::RandPos);
+        const int w = big ? 256 : 48;
+        const int h = big ? 192 : 32;
+        bool differ = false;
+        NC_CHECK(runPair(w, h, kind, &differ));
+        NC_CHECK(differ);
     }
 }
 

@@ -9,6 +9,17 @@
 #     而静态链接 LGPL 库要求整个应用按 LGPL 开源，与本项目闭源策略冲突。
 #   · --disable-gpl / --disable-nonfree —— 法律边界，不可放开。
 #   · --enable-jni + --enable-mediacodec —— 硬解路径（P7 的基础）。
+
+#
+# **2026-11-05 策略变更**：H.264/H.265 的**软件**编解码器已全部移除。
+#   原因：软件 H.264 实现需要自行承担 AVC 专利许可（Cisco 的专利覆盖
+#   只适用于其分发的二进制，且要求「单独下载 + 用户可开关 + 声明文本」，
+#   与 APK 打包架构冲突；iOS 更是禁止安装后下载可执行模块）。
+#
+#   现在 H.264 只剩 h264_mediacodec（系统硬件解码，专利费由芯片厂商付）。
+#   无硬件解码器的设备会 fail-closed 拒绝导入，而不是悄悄用软件实现。
+#   H.265/HEVC 全线移除（专利池复杂）。
+#   AV1 / VP9 / MPEG4 / 音频 仍走 FFmpeg 内置实现（royalty-free）。
 #   · 只保留需要的组件（decoder/demuxer/parser），其余 --disable 掉，
 #     否则 .so 加起来 40MB+，APK 装不下三个 ABI。
 # =============================================================================
@@ -104,7 +115,7 @@ build_abi() {
         --disable-swscale-alpha \
         --enable-jni \
         --enable-mediacodec \
-        --enable-decoder=h264,hevc,mpeg4,vp8,vp9,av1,aac,mp3,opus,flac,vorbis,pcm_s16le,pcm_s16be \
+        --enable-decoder=h264_mediacodec,mpeg4,vp8,vp9,av1,aac,mp3,opus,flac,vorbis,pcm_s16le,pcm_s16be \
         --enable-encoder=aac,pcm_s16le \
         --enable-demuxer=mov,matroska,avi,mp3,wav,flac,ogg,aac,mpegts \
         --enable-muxer=mp4,mov,matroska,wav,mp3 \

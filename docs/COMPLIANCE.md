@@ -20,10 +20,55 @@
 
 | 类别 | 实现 | 规则 |
 |---|---|---|
-| 硬件 | MediaCodec / VideoToolbox / MF / NVENC / QSV / VAAPI / V4L2M2M / AMF | ✅ 三端统一优先（专利费由设备厂商覆盖） |
-| 宽松软件 | **OpenH264（H.264 兜底）** / libaom-av1 / libsvtav1 / librav1e / libvpx-vp9 / libopus / 内置 AAC | ✅ 可用 |
-| GPL 传染 | **libx264 / libx264rgb / libx265 / libxvid / libfdk_aac** | ❌ 禁止（`libfdk_aac` 为不可分发许可） |
+| **硬件（H.264 唯一路径）** | MediaCodec / VideoToolbox / MF / NVENC / QSV / VAAPI / V4L2M2M / AMF | ✅ **三端统一，且是 H.264 的唯一允许实现**（专利费由设备厂商在 SoC 授权中支付） |
+| 宽松软件（**非 H.264**） | libaom-av1 / libsvtav1 / librav1e / libvpx-vp9 / libopus / 内置 AAC / FLAC | ✅ 可用（royalty-free 或专利已到期） |
+| **软件 H.264（一律禁用）** | **OpenH264（源码或打包）/ FFmpeg 内置 h264 / libx264 / libx264rgb** | ❌ **禁止**——见下方 §1.2.1 |
+| GPL 传染 | libx265 / libxvid / libfdk_aac | ❌ 禁止（`libfdk_aac` 为不可分发许可） |
 | HEVC/H.265 | 全部实现 | ❌ 全线禁止（专利池复杂） |
+
+#### 1.2.1 为什么软件 H.264 一律禁用（2026-11-05 决定）
+
+原设计是「硬件优先 + OpenH264 兜底」。放弃 OpenH264 的三个原因：
+
+**① Cisco 的专利覆盖只适用于其分发的二进制，条件苛刻**
+
+`openh264.org/BINARY_LICENSE.txt` 原文要求：
+
+1. 二进制必须**由最终用户设备单独下载**，不能预先打包进 App；
+2. 最终用户必须能**开启/关闭**该二进制；
+3. 第三方软件在用户可控制的位置必须显示 **"OpenH264 Video Codec provided by Cisco Systems, Inc."**；
+4. EULA 必须完整复述上述条款。
+
+本项目把 `.so` 打进 APK，**不满足条件 1**，专利覆盖不适用。
+
+**② iOS 上根本不可行**
+
+OpenH264 FAQ 原文：
+
+> iOS does not allow for applications to fetch and install modules from the Internet once that application has been installed on the device.
+
+iOS 禁止 App 安装后下载可执行模块，该路径不可用。
+
+**③ 自行编译源码 = 自己承担专利费**
+
+FAQ 原文：
+
+> If I use the source code in my product, and then distribute that product on my own, will Cisco cover the MPEG LA licensing fees which I'd otherwise have to pay? **A: No.**
+
+**结论**：软件 H.264 在任何构建里都不可用。无硬件编码器时 **fail-closed 拒绝导出**，无硬件解码器时 **拒绝导入并提示转码**。
+
+#### 1.2.2 开发构建的例外
+
+本地沙箱 / CI 没有 GPU，也就没有硬件 H.264 编解码器。若严格到底，所有导出与解码测试在本地都跑不了。
+
+因此开发构建（`NAIROCLIP_DEVELOPMENT_GPL_OK=ON`，CMake 默认）允许软件 H.264 作为**最后的应急手段**：
+
+| 场景 | 开发构建 | 发布构建 |
+|---|---|---|
+| 编码 | 硬件 → AV1/VP9 → GPL → 软件 H.264 | 硬件 → AV1/VP9（无则拒绝） |
+| 解码 | 硬件 → 软件 H.264 | 仅硬件（无则拒绝导入） |
+
+发布构建（`-DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF`）下这两条例外都无法生效——双保险，`allowSoftwareH264ForDevelopment` 还必须与 `buildAllowsGplForDevelopment()` 同时为真。
 
 ### 1.3 运行时策略（fail-closed）
 

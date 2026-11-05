@@ -187,13 +187,20 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         return Result::fail(ErrorCode::Internal, "无法创建输出上下文");
     }
 
-    // ---- 视频编码器（合规策略选择；文档第七章：禁用 libx264/libx265）----
+    // ---- 视频编码器（合规策略选择）----
     // 说明：此前的 avcodec_find_encoder(AV_CODEC_ID_H264) 自动选择会解析到
-    // libx264（GPL-2.0），违反协议清单。现改为按 codec_policy 生成候选序列：
-    // 硬件编码器优先 → OpenH264 等宽松软件兜底 → （仅开发构建）GPL 例外；
+    // libx264（GPL-2.0），违反协议清单。现在按 codec_policy 生成候选序列：
+    //
+    //   **H.264 只有硬件实现可用**（2026-11-05 策略变更）。
+    //   软件 H.264（openh264 / FFmpeg 内置 h264 / libx264）一律被
+    //   codec_policy 剔除 —— 前两者要自付 AVC 专利费，后者是 GPL。
+    //
+    //   AV1 / VP9 仍可用软件实现（libsvtav1 / libaom-av1 / libvpx-vp9，
+    //   全部 BSD 且 royalty-free），走 Permissive 组。
+    //
     // 逐个尝试打开（硬件编码器可能因驱动/GPU 缺失失败，如无 GPU 环境下
-    // h264_nvenc 报 "Cannot load libcuda.so.1" → 按序回退）；
-    // 全部失败时 fail-closed 拒绝编码（不静默降级到未授权实现）。
+    // h264_nvenc 报 "Cannot load libcuda.so.1" → 按序回退到下一个硬件后端）；
+    // 全部失败时 fail-closed 拒绝编码，**不静默降级到任何软件 H.264 实现**。
     const std::vector<EncoderCandidate> videoCandidates =
         availableEncodersFor(ffmpegCodecIdFor(config.videoCodec), config.videoCodec.c_str());
     const std::vector<EncoderSelection> rankedVideo =
@@ -256,7 +263,7 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         // 记录实际使用的编码器（诊断与合规审计用）
         impl.encoderNote = candidate.note;
         if (candidate.usedDevelopmentException) {
-            impl.encoderNote += "〔开发例外：发布版本必须替换为硬件/OpenH264〕";
+            impl.encoderNote += "〔开发例外：发布版本必须替换为硬件编码器〕";
         }
         break;
     }
@@ -266,8 +273,10 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
             message += "（尝试失败：" + attempted + "）";
         }
         if (rankedVideo.empty()) {
-            message += "：仅存在被禁用或无匹配格式的实现（发布构建需链接 OpenH264 "
-                       "或使用硬件编码器）";
+            message += "：没有任何可用的硬件编码器。"
+                       "出于编解码授权考虑，本应用不使用软件 H.264 编码——"
+                       "请在有硬件编码器的设备上导出，"
+                       "或改用 AV1 / VP9 格式（这两个是 royalty-free 的软件实现）。";
         }
         return Result::fail(ErrorCode::Unsupported, message);
     }

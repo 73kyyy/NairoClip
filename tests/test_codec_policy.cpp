@@ -49,15 +49,22 @@ NC_TEST(CodecPolicy, LicenseClassification) {
     NC_CHECK(classifyEncoderLicense("hevc_qsv") == EncoderLicenseClass::Hardware);
     NC_CHECK(classifyEncoderLicense("h264_vaapi") == EncoderLicenseClass::Hardware);
     NC_CHECK(classifyEncoderLicense("h264_mf") == EncoderLicenseClass::Hardware);
-    // 宽松软件
-    NC_CHECK(classifyEncoderLicense("openh264") == EncoderLicenseClass::Permissive);
+    /* 软件 H.264（2026-11-05 变更）：不再是 Permissive，改为独立分级。
+       它许可宽松但**AVC 专利要自付**，与 AV1/VP9 的 royalty-free 性质不同。 */
+    NC_CHECK(classifyEncoderLicense("openh264") == EncoderLicenseClass::SoftwareH264);
+    NC_CHECK(classifyEncoderLicense("h264") == EncoderLicenseClass::SoftwareH264);
+    NC_CHECK(classifyEncoderLicense("libopenh264") == EncoderLicenseClass::SoftwareH264);
+    // 宽松软件（**仅非 H.264**）
     NC_CHECK(classifyEncoderLicense("libsvtav1") == EncoderLicenseClass::Permissive);
     NC_CHECK(classifyEncoderLicense("libaom-av1") == EncoderLicenseClass::Permissive);
     NC_CHECK(classifyEncoderLicense("libvpx-vp9") == EncoderLicenseClass::Permissive);
     NC_CHECK(classifyEncoderLicense("libopus") == EncoderLicenseClass::Permissive);
     NC_CHECK(classifyEncoderLicense("aac") == EncoderLicenseClass::Permissive);
-    // 未知 → 保守
-    NC_CHECK(classifyEncoderLicense("x264_custom") == EncoderLicenseClass::Unknown);
+    /* "x264_custom" 含 264 且不是硬件 → 归为 SoftwareH264（保守禁用）。
+       这比 Unknown 更准确：Unknown 是「不认识」，SoftwareH264 是
+       「认识但禁止使用」，后者能给出更有用的提示。 */
+    NC_CHECK(classifyEncoderLicense("x264_custom") == EncoderLicenseClass::SoftwareH264);
+    NC_CHECK(classifyEncoderLicense("mystery_codec") == EncoderLicenseClass::Unknown);
     NC_CHECK(classifyEncoderLicense("") == EncoderLicenseClass::Unknown);
     // 名称
     NC_CHECK_EQ(std::string(encoderLicenseClassName(EncoderLicenseClass::Hardware)),
@@ -85,19 +92,48 @@ NC_TEST(CodecPolicy, HardwarePreferred) {
     NC_CHECK(!selection.usedDevelopmentException);
 }
 
-NC_TEST(CodecPolicy, PermissivePreferredOverGpl) {
-    // 无硬件：OpenH264（宽松）必须优先于 libx264（GPL）
+NC_TEST(CodecPolicy, SoftwareH264NeverPreferredOverGpl) {
+    /* 候选只有 libx264（GPL）与 openh264（软件 H.264）时，
+       开发构建会选 **libx264**，不是 openh264。
+       ------------------------------------------------------------------
+       反直觉但正确：两者都要自付专利费（libx264 是 GPL + 专利，
+       openh264 是专利），而 GPL 的风险只是「不能闭源分发」——
+       在**开发构建**里本来就不分发。软件 H.264 排在 GPL 之后，
+       因为它的唯一价值是「本机能跑测试」，而 libx264 同样能跑且更快。
+
+       发布构建里两者都不可用（见下一个测试）。 */
     const std::vector<EncoderCandidate> available = {
         sw("libx264", "h264"),
         sw("openh264", "h264"),
     };
     EncoderPolicy policy;
-    policy.allowGplForDevelopment = true;  // 即便是开发模式也不该选 GPL
+    policy.allowGplForDevelopment = true;
+    policy.allowSoftwareH264ForDevelopment = true;
     const EncoderSelection selection = selectVideoEncoder("h264", available, policy);
     NC_CHECK(selection.valid());
-    NC_CHECK_EQ(selection.name, std::string("openh264"));
-    NC_CHECK(selection.license == EncoderLicenseClass::Permissive);
-    NC_CHECK(!selection.usedDevelopmentException);
+    NC_CHECK_EQ(selection.name, std::string("libx264"));
+    NC_CHECK(selection.license == EncoderLicenseClass::GplInfectious);
+    NC_CHECK(selection.usedDevelopmentException);
+}
+
+NC_TEST(CodecPolicy, SoftwareH264DeniedInRelease) {
+    /* 发布构建：即使 allowSoftwareH264ForDevelopment 被误设为 true，
+       软件 H.264 也不可用 —— 因为还要过 buildAllowsGplForDevelopment() 这一关。
+       本测试在开发构建下无法验证「构建期开关为假」的场景，
+       但至少验证「开关为 false 时确实不选」。 */
+    const std::vector<EncoderCandidate> available = {sw("openh264", "h264")};
+    EncoderPolicy release;
+    release.allowGplForDevelopment = false;
+    release.allowSoftwareH264ForDevelopment = false;
+    const EncoderSelection selection = selectVideoEncoder("h264", available, release);
+    NC_CHECK(!selection.valid());  // 没有可用编码器 → fail-closed
+
+    // 打开开关但构建期不允许时（发布构建的实际情况）仍然拒绝
+    release.allowSoftwareH264ForDevelopment = true;
+    const EncoderSelection forced = selectVideoEncoder("h264", available, release);
+    if (!buildAllowsGplForDevelopment()) {
+        NC_CHECK(!forced.valid());
+    }
 }
 
 NC_TEST(CodecPolicy, FailClosedWithoutCompliantEncoder) {
@@ -156,13 +192,13 @@ NC_TEST(CodecPolicy, UnknownEncoderSkipped) {
     // 未知实现（不在清单）→ 保守跳过，不参与选择
     const std::vector<EncoderCandidate> available = {
         sw("mystery_codec", "h264"),
-        sw("openh264", "h264"),
+        hw("h264_mediacodec", "h264"),   // 用硬件项做「可用项」
     };
     EncoderPolicy release;
     release.allowGplForDevelopment = false;
     const EncoderSelection selection = selectVideoEncoder("h264", available, release);
     NC_CHECK(selection.valid());
-    NC_CHECK_EQ(selection.name, std::string("openh264"));
+    NC_CHECK_EQ(selection.name, std::string("h264_mediacodec"));
     // 全部未知 → 拒绝
     const EncoderSelection none =
         selectVideoEncoder("h264", {sw("mystery_codec", "h264")}, release);
@@ -174,6 +210,9 @@ NC_TEST(CodecPolicy, UnknownEncoderSkipped) {
 // ---------------------------------------------------------------------------
 
 NC_TEST(CodecPolicy, CandidateRankingOrder) {
+    /* 完整顺序（2026-11-05 策略）：
+         硬件 → Permissive(AV1/VP9) → GPL(开发) → 软件H264(开发最后)
+       软件 H.264 排**最后**：它是「本机没别的可用时」的应急手段。 */
     const std::vector<EncoderCandidate> available = {
         sw("libx264", "h264"),
         hw("h264_nvenc", "h264"),
@@ -182,22 +221,33 @@ NC_TEST(CodecPolicy, CandidateRankingOrder) {
     };
     EncoderPolicy dev;
     dev.allowGplForDevelopment = true;
+    dev.allowSoftwareH264ForDevelopment = true;
     const auto ranked = rankVideoEncoderCandidates("h264", available, dev);
     NC_CHECK_EQ(ranked.size(), std::size_t(4));
-    // 顺序：硬件（移动平台优先）→ 宽松 → GPL
     NC_CHECK_EQ(ranked[0].name, std::string("h264_videotoolbox"));
     NC_CHECK_EQ(ranked[1].name, std::string("h264_nvenc"));
-    NC_CHECK_EQ(ranked[2].name, std::string("openh264"));
-    NC_CHECK_EQ(ranked[3].name, std::string("libx264"));
+    NC_CHECK_EQ(ranked[2].name, std::string("libx264"));
+    NC_CHECK_EQ(ranked[3].name, std::string("openh264"));
+    NC_CHECK(ranked[2].usedDevelopmentException);
     NC_CHECK(ranked[3].usedDevelopmentException);
-    // 发布模式：GPL 不出现在候选序列中
+
+    // 发布模式：GPL 与软件 H.264 都不出现在候选序列中
     EncoderPolicy release;
     release.allowGplForDevelopment = false;
+    release.allowSoftwareH264ForDevelopment = false;
     const auto rankedRelease = rankVideoEncoderCandidates("h264", available, release);
-    NC_CHECK_EQ(rankedRelease.size(), std::size_t(3));
+    NC_CHECK_EQ(rankedRelease.size(), std::size_t(2));  // 只剩两个硬件
     for (const auto& candidate : rankedRelease) {
-        NC_CHECK(candidate.license != EncoderLicenseClass::GplInfectious);
+        NC_CHECK(candidate.license == EncoderLicenseClass::Hardware);
     }
+
+    /* 软件 H.264 排在 GPL **之后**的验证：
+       只给这两个候选，且两者都放开 → 应选 libx264。 */
+    const auto twoOnly = rankVideoEncoderCandidates(
+        "h264", {sw("openh264", "h264"), sw("libx264", "h264")}, dev);
+    NC_CHECK_EQ(twoOnly.size(), std::size_t(2));
+    NC_CHECK_EQ(twoOnly[0].name, std::string("libx264"));
+
     // HEVC → 空序列
     NC_CHECK(rankVideoEncoderCandidates("hevc", available, release).empty());
 }
@@ -230,35 +280,43 @@ NC_TEST(CodecPolicy, EncoderAllowedProxy) {
     EncoderPolicy release;
     release.allowGplForDevelopment = false;
     NC_CHECK(encoderAllowed("h264_videotoolbox", release));
-    NC_CHECK(encoderAllowed("openh264", release));
+    /* 软件 H.264 在任何构建下都不允许 —— 这一点与 GPL 不同：
+       GPL 在开发构建可放开，AVC 专利费不行。 */
+    NC_CHECK(!encoderAllowed("openh264", release));
     NC_CHECK(encoderAllowed("libsvtav1", release));
     NC_CHECK(!encoderAllowed("libx264", release));
     NC_CHECK(!encoderAllowed("libx265", release));
     NC_CHECK(!encoderAllowed("mystery", release));  // 未知保守拒绝
     EncoderPolicy dev;
     dev.allowGplForDevelopment = true;
-    NC_CHECK(encoderAllowed("libx264", dev));  // 开发例外放行
-    NC_CHECK(!encoderAllowed("mystery", dev)); // 未知仍然拒绝
+    NC_CHECK(encoderAllowed("libx264", dev));    // 开发例外放行
+    NC_CHECK(!encoderAllowed("openh264", dev));  // 软件 H.264 仍然拒绝
+    NC_CHECK(!encoderAllowed("mystery", dev));   // 未知仍然拒绝
 }
 
 NC_TEST(CodecPolicy, ComplianceStatementMentionsKeyRules) {
     const std::string statement = codecComplianceStatement();
     NC_CHECK(statement.find("libx264") != std::string::npos);
+    /* OpenH264 已不再是兜底（2026-11-05 策略变更）——
+       声明里现在是「软件 H.264 一律禁用」，应能找到这个表述。 */
     NC_CHECK(statement.find("OpenH264") != std::string::npos);
+    NC_CHECK(statement.find("硬件") != std::string::npos);
     NC_CHECK(statement.find("LGPL") != std::string::npos);
 }
 
 NC_TEST(CodecPolicy, BuildFlagDefaults) {
-    // 测试构建默认启用开发例外（沙箱/CI 仅有 libx264）；发布构建必须显式关闭。
-    // 本断言记录当前构建的开关状态（防止有人误删 CMake 传递）。
-#if defined(NAIROCLIP_DEVELOPMENT_GPL_OK)
-    NC_CHECK(kBuildAllowsGplForDevelopment);
+    /* 开关状态**只能**通过库导出的函数查询，不能用宏。
+       ----------------------------------------------------------------
+       原来这里写的是 `#if defined(NAIROCLIP_DEVELOPMENT_GPL_OK)` +
+       `NC_CHECK(kBuildAllowsGplForDevelopment)`。两个问题：
+         · 宏只在编译 nairoclip_core 时注入，测试 TU 里没有，
+           所以测试永远走 #else 分支 —— 与库的真实行为相反；
+         · 这也掩盖了「库和测试对同一个常量取值不同」的 ODR 缺陷。
+       现在 buildAllowsGplForDevelopment() 在库里定义，取值唯一。 */
+    const bool devOk = buildAllowsGplForDevelopment();
     EncoderPolicy defaultPolicy;
-    NC_CHECK(defaultPolicy.allowGplForDevelopment);
-#else
-    // 无开关：必须默认合规（拒绝 GPL）
-    NC_CHECK(!kBuildAllowsGplForDevelopment);
-    EncoderPolicy defaultPolicy;
-    NC_CHECK(!defaultPolicy.allowGplForDevelopment);
-#endif
+    NC_CHECK_EQ(defaultPolicy.allowGplForDevelopment, devOk);
+    /* 软件 H.264 的默认值同样跟随构建开关，且**必须**与 GPL 开关同时为真
+       才可能生效（双保险，发布构建下恒不可用）。 */
+    NC_CHECK_EQ(defaultPolicy.allowSoftwareH264ForDevelopment, devOk);
 }

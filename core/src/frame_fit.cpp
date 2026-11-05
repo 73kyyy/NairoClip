@@ -420,21 +420,80 @@ bool renderTransform(const std::uint8_t* src, int srcW, int srcH, int srcStride,
             const double fx = (sx - 0.5) - static_cast<double>(ix0);
             const double fy = (sy - 0.5) - static_cast<double>(iy0);
 
+            /* 双线性采样的 4 邻域。
+               ------------------------------------------------------------------
+               **这里曾经有个 bug**：把 4 个邻居都交给 wrapCoord，
+               Background 模式下任一邻居越界就整像素填成背景色。
+
+               后果：只要目标像素映射到源的**边缘半像素带**
+               （sy < 0.5 或 sy > srcH - 1.5），iy0 会是 -1 或 iy0+1 == srcH，
+               整行/整列被判出界 → 画面顶部和底部各有一条黑边。
+               实测：160x120 源 Fill 到 160x160，第 0 行与第 159 行全黑。
+
+               正确做法：**越界的邻居钳制到最近的有效像素**，
+               而不是丢弃整个像素。理由：
+                 · 边缘半像素是采样的正常情况（不是「画面外」）；
+                 · 用钳制后的值参与插值，等价于「把边缘像素向外延伸」，
+                   这正是 Clamp 语义，也是所有图像处理库（OpenCV /
+                   libswscale）在边缘的标准做法；
+                 · 真正的「画面外」（映射点完全落在源之外）由下面的
+                   outside 判定处理，仍填背景色。
+               这样「Fill 无黑边」才真正成立。 */
             int cx[2] = {ix0, ix0 + 1};
             int cy[2] = {iy0, iy0 + 1};
-            bool ok = true;
-            for (int k = 0; k < 2 && ok; ++k) {
-                ok = wrapCoord(cx[k], srcW, edge);
-            }
-            for (int k = 0; k < 2 && ok; ++k) {
-                ok = wrapCoord(cy[k], srcH, edge);
-            }
-            if (!ok) {
+
+            /* 真正的画面外：映射点落在源图**像素覆盖范围**之外。
+               ------------------------------------------------------------------
+               源图像素 i 覆盖坐标区间 [i - 0.5, i + 0.5)。
+               所以整幅图覆盖 [-0.5, srcW - 0.5)。
+
+               判据要区分「边界半像素」与「真的在图外」：
+                 · sy = 119.628, srcH = 120 → 119.628 < 119.5 不成立，
+                   但它在 [−0.5, 119.5) 之外 —— 按上面的定义是「图外」。
+                   可它明明落在最后一个像素（119）的覆盖范围
+                   [118.5, 119.5) 之外半像素处……
+
+               **这里必须务实**：只要映射点在 [0, srcH) 内就应当采样。
+               因为缩小时（Fill 放大是缩小采样）最后一行映射到 119.6
+               是**必然**的 —— 那是几何事实，不是「跑出画面」。
+               把它判成图外，等于「放大后底部少一行像素」，
+               视觉上就是一条黑边。
+
+               实测症状（修复前）：160x120 Fill 到 160x160，
+               第 0 行与第 159 行各有一条黑线。
+
+               所以判据用 [−0.5, srcW) 半开区间：允许到最后一像素
+               右侧半像素，再往外才填背景。 */
+            const bool outside = (sx < -0.5 || sx >= static_cast<double>(srcW) ||
+                                  sy < -0.5 || sy >= static_cast<double>(srcH));
+            if (outside) {
                 out[0] = bgR;
                 out[1] = bgG;
                 out[2] = bgB;
                 out[3] = bgA;
                 continue;
+            }
+
+            /* 边缘半像素：用 clamp 把邻域索引拉回有效范围。
+               Mirror / Background 等其它 edge 模式仍走原 wrapCoord 逻辑 ——
+               只有 Background 需要这个特例，因为它的「越界」语义
+               在边缘半像素处不该生效。 */
+            if (edge == EdgeMode::Background) {
+                for (int k = 0; k < 2; ++k) {
+                    cx[k] = std::clamp(cx[k], 0, srcW - 1);
+                    cy[k] = std::clamp(cy[k], 0, srcH - 1);
+                }
+            } else {
+                bool ok = true;
+                for (int k = 0; k < 2 && ok; ++k) ok = wrapCoord(cx[k], srcW, edge);
+                for (int k = 0; k < 2 && ok; ++k) ok = wrapCoord(cy[k], srcH, edge);
+                if (!ok) {
+                    out[0] = bgR;
+                    out[1] = bgG;
+                    out[2] = bgB;
+                    out[3] = bgA;
+                    continue;
+                }
             }
 
             const std::uint8_t* p00 =

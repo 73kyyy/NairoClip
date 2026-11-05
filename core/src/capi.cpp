@@ -4493,20 +4493,39 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
 namespace {
 
 /// 选择目标音频轨：track_index < 0 时取首个音频轨。失败返回 nullptr 并写 outError。
-const Track* pickAudioTrack(const NcEditor* editor, int32_t track_index, const char** outError) {
+/* pickAudioTrack 的失败原因用错误码区分，而不是只靠一句文案。
+   ------------------------------------------------------------------------
+   为什么必须区分：调用方要返回**语义正确的错误码**。
+   测试断言 track_index=9（越界）应得 OUT_OF_RANGE，
+   而原来所有失败都返回 NOT_FOUND —— 调用方无法区分
+   「你给的索引不存在」和「那条轨不是音频轨」，
+   这两者对用户的提示完全不同。 */
+enum class PickAudioError {
+    None,
+    NoSequence,
+    IndexOutOfRange,
+    NotAudioTrack,
+};
+
+const Track* pickAudioTrack(const NcEditor* editor, int32_t track_index,
+                            PickAudioError* outErr, const char** outError) {
+    if (outErr != nullptr) *outErr = PickAudioError::None;
     const Sequence* seq = editor->project.mainSequence();
     if (seq == nullptr) {
         *outError = "seq 为空";
+        if (outErr != nullptr) *outErr = PickAudioError::NoSequence;
         return nullptr;
     }
     if (track_index >= 0) {
         if (static_cast<std::size_t>(track_index) >= seq->tracks.size()) {
             *outError = "轨道索引超出范围";
+            if (outErr != nullptr) *outErr = PickAudioError::IndexOutOfRange;
             return nullptr;
         }
         const Track* t = &seq->tracks[static_cast<std::size_t>(track_index)];
         if (t->type != TrackType::Audio) {
             *outError = "目标轨道不是音频轨";
+            if (outErr != nullptr) *outErr = PickAudioError::NotAudioTrack;
             return nullptr;
         }
         return t;
@@ -4570,9 +4589,15 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
     const char* trackError = nullptr;
-    const Track* target = pickAudioTrack(editor, track_index, &trackError);
+    PickAudioError pickErr = PickAudioError::None;
+    const Track* target = pickAudioTrack(editor, track_index, &pickErr, &trackError);
     if (target == nullptr) {
-        return failNc(NC_ERROR_NOT_FOUND, trackError);
+        /* 索引越界 → OUT_OF_RANGE（参数问题）
+           不是音频轨 / 无序列 → NOT_FOUND（内容问题） */
+        const int32_t code = (pickErr == PickAudioError::IndexOutOfRange)
+                                 ? NC_ERROR_OUT_OF_RANGE
+                                 : NC_ERROR_NOT_FOUND;
+        return failNc(code, trackError);
     }
     std::vector<AudioBlock> blocks;
     if (!collectAudioBlocks(editor, *target, &blocks)) {
@@ -4637,7 +4662,8 @@ int32_t nc_beat_sync_apply(NcEditor* editor, int32_t target_track, int32_t audio
 
     // 1) 采集音频并分析节拍
     const char* trackError = nullptr;
-    const Track* src = pickAudioTrack(editor, audio_track, &trackError);
+    PickAudioError pickErr2 = PickAudioError::None;
+    const Track* src = pickAudioTrack(editor, audio_track, &pickErr2, &trackError);
     if (src == nullptr) {
         return failWith(NC_ERROR_NOT_FOUND, trackError ? trackError : "找不到音频轨");
     }

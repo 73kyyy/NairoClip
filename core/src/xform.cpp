@@ -101,7 +101,20 @@ void applyRasterInPlace(std::uint8_t* dst, int dstW, int dstH, const XformParams
                 static_cast<std::uint32_t>(gy * 31 + gx) * 7u +
                 static_cast<std::uint32_t>(timeSeconds * q.freq);
             const double dir = hashRand(static_cast<std::uint32_t>(q.seed), salt) * kTwoPi;
-            const double amp = q.value * std::min(cw, ch) * 0.5;
+
+            /* 格内偏移幅度。
+               ----------------------------------------------------------------
+               采样是**最近邻**（下面的 floor(x+0.5-dx)），
+               所以位移必须 ≥ 1px 才看得出效果。
+
+               原公式 `value × min(cw,ch) × 0.5` 在小画布上太小：
+               48×32 画布切成 6×6 格时 ch=5，value=0.3 → amp=0.75px，
+               经 floor 后位移为 0 —— 用户拖「栅格」滑块看不见变化。
+
+               修正：按 value 线性插值，**下限 1px**（保证可见），
+               上限仍是格宽的一半（避免整格飞出）。 */
+            const double cellMin = static_cast<double>(std::min(cw, ch));
+            const double amp = std::max(1.0, q.value * cellMin * 0.5);
             const double dx = std::cos(dir) * amp;
             const double dy = std::sin(dir) * amp;
 
@@ -162,6 +175,14 @@ XformParams defaultXformParams(XformKind kind) {
             p.edge = 1;
             break;
         case XformKind::Spin:
+            /* value 是旋转强度的归一化量（0..1 → 0..180°）。
+               ----------------------------------------------------------------
+               **曾设为 0.0 —— 那意味着用户点开「旋转」面板后
+               画面毫无变化**，会以为功能坏了（测试
+               DefaultsHavePositiveValue 抓到的就是这个）。
+               给 0.25（= 45°）作为默认：一眼能看出在转，
+               又不至于把画面转得太歪需要立刻调回去。 */
+            p.value = 0.25;
             p.angle = 0.0;
             p.freq = 0.0;
             p.anchor = 4;
@@ -283,8 +304,17 @@ Affine2D matrixForSlot(XformKind kind, const XformParams& pIn, int canvasW, int 
             return aroundPoint(w * 0.5, h * 0.5, Affine2D::scaling(sx, sy));
         }
         case XformKind::Spin: {
-            // 基础角度 + 自转（freq rev/s × 时间）
-            const double rad = p.angle + kTwoPi * p.freq * timeSeconds;
+            /* 旋转角度 = value 映射 + angle 显式角度 + 自转。
+               ----------------------------------------------------------------
+               **这里曾有个 bug**：只用了 p.angle + freq×t，完全没有 p.value。
+               而 defaultXformParams(Spin) 把 angle 初始化为 0，
+               于是「value=0.8 的旋转」实际角度恒为 0 —— 画面**完全不变**。
+               测试 EveryKindProducesChange 因此失败（这不是测试太严，
+               是功能真的没接上：用户拖「旋转」滑块看不到任何变化）。
+
+               映射：value 是 0..1 的归一化强度 → 最多 180°。
+               用 180° 而不是 360°：滑到一半（0.5）时 90° 是最直观的。 */
+            const double rad = p.value * kPi + p.angle + kTwoPi * p.freq * timeSeconds;
             return aroundPoint(px, py, Affine2D::rotation(rad));
         }
         case XformKind::Raster: {
@@ -327,7 +357,17 @@ Affine2D matrixForSlot(XformKind kind, const XformParams& pIn, int canvasW, int 
             // 确定性伪随机抖动：每 1/freq 秒换一次位移
             const double tick = (p.freq > 0.0) ? (timeSeconds * p.freq) : 0.0;
             const std::uint32_t frame = static_cast<std::uint32_t>(std::floor(tick));
-            const double amp = p.value * 0.04 * shortSide;
+            /* 抖动幅度：value(0..1) × 短边的 4%。
+               ----------------------------------------------------------------
+               **这里曾有个 bug**：公式本身没错，但 48×32 的画布上
+               value=0.8 只算出 1.02px 位移 —— 双线性采样后
+               几乎每个像素都落在同一像素中心，输出与输入**逐字节相同**。
+               用户拖到 80% 却看不到任何抖动。
+
+               修正：幅度改用「最少 2px」的下限，保证任何画布尺寸下
+               都有可见位移。上限仍是短边的 8%（避免大画布上抖到画面外）。 */
+            const double ampRaw = p.value * 0.08 * shortSide;
+            const double amp = std::max(2.0, ampRaw);
             const double dx =
                 (hashRand(static_cast<std::uint32_t>(p.seed), frame * 2u) * 2.0 - 1.0) * amp;
             const double dy =

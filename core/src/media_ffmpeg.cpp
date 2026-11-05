@@ -287,12 +287,122 @@ Result FFmpegMediaReader::open(const std::string& path) {
     // 打开视频解码器
     if (impl.videoStream >= 0) {
         AVStream* stream = impl.format->streams[impl.videoStream];
-        const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
-        if (codec == nullptr) {
-            close();
-            return Result::fail(ErrorCode::Unsupported, "不支持的视频编解码器");
+        /* 解码器选择：**硬件优先**，软件只对非 H.264 兜底。
+           ==================================================================
+           **2026-11-05 变更背景**：FFmpeg 构建里已移除 h264/hevc 解码器
+           （`--enable-decoder` 不再含它们），原因是软件 H.264 解码需要
+           自行承担 AVC 专利许可。所以：
+
+             · H.264 → 必须走 `h264_mediacodec`（Android）/
+                       `h264_videotoolbox`（Apple）—— 系统硬件解码，
+                       专利费已由芯片厂商支付；
+             · H.265 → 同上下架（本就全线禁用）；
+             · AV1/VP9/MPEG4 等 → FFmpeg 内置软件解码器（royalty-free，无顾虑）。
+
+           **重要**：如果硬件解码器不可用（老设备 / 特殊容器），
+           H.264 素材会**无法导入**并给出明确错误，而不是悄悄用软件解码。
+           这是有意的 fail-closed：宁可告诉用户「此设备不支持」，
+           也不在发布构建里使用需要自付专利费的实现。
+
+           硬件解码优先还有额外收益：耗电低、4K 流畅、不占 CPU 线程
+           （不跟渲染线程抢核）。 */
+        const AVCodec* codec = nullptr;
+        const bool isH264 = (stream->codecpar->codec_id == AV_CODEC_ID_H264);
+        if (isH264) {
+            /* 先构造候选名序列，**逐个真正尝试 open**。
+               ------------------------------------------------------------------
+               **为什么要真试**：`avcodec_find_decoder_by_name("h264_cuvid")`
+               在没装 NVIDIA 驱动的机器上**也返回非 null**（解码器在 FFmpeg
+               注册表里，只是运行时缺 libnvcuvid.so）。如果只看指针非空就
+               选定它，会在 avcodec_open2 阶段才失败 ——
+               而那时我们已经跳出选择逻辑，只能报「打开失败」，
+               看起来像「设备没有解码器」，实际是**选错了候选**。
+               实测踩过：本机选了 h264_cuvid，报
+               "视频解码器打开失败: Operation not permitted"。 */
+            std::vector<const char*> decoderCandidates;
+#if defined(__ANDROID__)
+            decoderCandidates.push_back("h264_mediacodec");
+#elif defined(__APPLE__)
+            decoderCandidates.push_back("h264_videotoolbox");
+#else
+            /* 桌面：按平台普及度排列独立硬件**解码器**。
+               注意：这里只能列真正的 decoder 名——
+               `h264_d3d11va` / `h264_dxva2` 是 **hwaccel**（挂在通用
+               `h264` 解码器上用），而发布构建里没有通用 h264 解码器，
+               所以它们不能出现在这里（写了也永远打不开）。
+               `h264_nvenc` 是编码器，同理不可用；NVIDIA 的解码器是 `h264_cuvid`。 */
+            decoderCandidates.push_back("h264_mf");        // Windows Media Foundation
+            decoderCandidates.push_back("h264_qsv");       // Intel Quick Sync
+            decoderCandidates.push_back("h264_cuvid");     // NVIDIA NVDEC
+            decoderCandidates.push_back("h264_amf");       // AMD
+            decoderCandidates.push_back("h264_vaapi");     // Linux VA-API
+            decoderCandidates.push_back("h264_v4l2m2m");   // Linux V4L2
+            decoderCandidates.push_back("h264_videotoolbox");  // macOS 兜底
+#endif
+#if defined(NAIROCLIP_DEVELOPMENT_GPL_OK)
+            /* 开发构建：软件解码器排**最后**作为兜底（仅本地可测）。
+               发布构建不加入这个候选 —— 那是 AVC 专利费问题，不是开发便利问题。 */
+            decoderCandidates.push_back("h264");
+#endif
+
+            /* 逐个尝试 open2：成功即采用，失败换下一个。
+               注意 videoCodec 的分配/参数复制/线程设置都在循环内完成，
+               因为每次换候选都要用全新的 context（复用会带上脏状态）。 */
+            std::string lastOpenError;
+            for (const char* candidateName : decoderCandidates) {
+                const AVCodec* candidateCodec =
+                    avcodec_find_decoder_by_name(candidateName);
+                if (candidateCodec == nullptr) {
+                    continue;  // 该实现没编进构建
+                }
+                AVCodecContext* candidateCtx = avcodec_alloc_context3(candidateCodec);
+                if (candidateCtx == nullptr) {
+                    continue;
+                }
+                if (avcodec_parameters_to_context(candidateCtx, stream->codecpar) < 0) {
+                    avcodec_free_context(&candidateCtx);
+                    continue;
+                }
+                candidateCtx->pkt_timebase = stream->time_base;
+                candidateCtx->thread_count = 0;
+                candidateCtx->thread_type = FF_THREAD_FRAME;
+                const int openErr = avcodec_open2(candidateCtx, candidateCodec, nullptr);
+                if (openErr < 0) {
+                    lastOpenError = std::string(candidateName) + ": " + avErrorString(openErr);
+                    avcodec_free_context(&candidateCtx);
+                    continue;
+                }
+                impl.videoCodec = candidateCtx;
+                codec = candidateCodec;
+                break;
+            }
+
+            if (codec == nullptr) {
+                close();
+                std::string msg =
+                    "本设备没有可用的 H.264 硬件解码器。"
+                    "出于编解码授权考虑，本应用不使用软件 H.264 解码。"
+                    "请升级系统，或先将素材转码为 AV1/VP9 后导入。";
+                if (!lastOpenError.empty()) {
+                    msg += "（尝试详情：" + lastOpenError + "）";
+                }
+                return Result::fail(ErrorCode::Unsupported, msg);
+            }
+        } else {
+            codec = avcodec_find_decoder(stream->codecpar->codec_id);
+            if (codec == nullptr) {
+                close();
+                const std::string codecName = avcodec_get_name(stream->codecpar->codec_id);
+                return Result::fail(ErrorCode::Unsupported,
+                                    "不支持的视频编解码器：" + codecName);
+            }
+            /* 非 H.264 走通用路径：这里还没 open，由下方统一处理。 */
+            impl.videoCodec = avcodec_alloc_context3(codec);
         }
-        impl.videoCodec = avcodec_alloc_context3(codec);
+        /* H.264 分支在上面已经 open 成功（context 也已就绪），
+           不能再走一遍下面的 alloc/open —— 会泄漏 context 并重复打开。
+           所以下面这一段只在「非 H.264」时执行。 */
+        if (!isH264) {
         if (impl.videoCodec == nullptr) {
             close();
             return Result::fail(ErrorCode::Internal, "视频解码器上下文分配失败");
@@ -324,6 +434,7 @@ Result FFmpegMediaReader::open(const std::string& path) {
             return Result::fail(ErrorCode::Unsupported,
                                 "视频解码器打开失败: " + avErrorString(err));
         }
+        }  // if (!isH264) —— H.264 已在候选循环里 open 完毕
         impl.probe.type = impl.audioStream >= 0 ? MediaType::Video : MediaType::Video;
         /* 读容器旋转角。手机竖拍的 MP4 编码尺寸是 1920x1080（横向），
            真正的朝向写在 display matrix 侧数据里。解码器不会自动应用 ——

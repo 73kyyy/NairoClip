@@ -4,9 +4,23 @@
 //   —— 《NairoClip 所有模型协议和其它要求》第七章「FFmpeg 编解码器协议与三端
 //      规格要求」+ 第九章强制校验规则
 // =============================================================================
-// 产品对应（原文）：
+// **2026-11-05 策略变更（用户决定）**：软件 H.264 编码器全部撤出。
+//
+// 原先的设计是「硬件优先 + OpenH264 兜底」。放弃 OpenH264 的原因：
+//   ① Cisco 的专利覆盖只适用于**其分发的二进制**，且要求
+//      「单独下载到用户设备」「用户可开关」「显示声明文本」——
+//      与本项目「.so 打进 APK」的架构冲突；
+//   ② iOS 明确禁止 App 安装后下载可执行模块，该路径在 iOS 上不可用；
+//   ③ 若改用 OpenH264 源码自行编译，Cisco 的专利覆盖**不适用**，
+//      等于自己承担 AVC 专利费。
+//
+// 现行：只有硬件编码器可用，其余（含 openh264 / 内置 h264）一律拒绝。
+// 无硬件编码器时 fail-closed 拒绝导出（不静默降级到软件实现）。
+//
+// 产品对应（原文，部分已被上述决定取代）：
 //   · 「H.264软件编码 libx264：GPL-2.0-or-later，禁止静态链接商用」；
-//   · 「H.264软件编码兜底 OpenH264：Simplified BSD + Cisco 承担专利费覆盖」；
+//   · ~~「H.264软件编码兜底 OpenH264：Simplified BSD + Cisco 承担专利费覆盖」~~
+//     → **已取消**，见上；
 //   · 「H.265/HEVC 编码 libx265：全线禁止使用」；
 //   · 「AV1/VP9/Opus：BSD/royalty-free，推荐」；
 //   · 「FFmpeg 编译参数必须锁定（禁用 --enable-gpl / --enable-nonfree），
@@ -42,18 +56,44 @@ namespace core {
 /// 构建期开发开关（CMake 选项 NAIROCLIP_DEVELOPMENT_GPL_OK；默认 ON）。
 /// 发布构建（-DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF）下，EncoderPolicy 的默认值
 /// 为「拒绝 GPL」，即使调用方未显式设置也合规。
-#ifdef NAIROCLIP_DEVELOPMENT_GPL_OK
-constexpr bool kBuildAllowsGplForDevelopment = true;
-#else
-constexpr bool kBuildAllowsGplForDevelopment = false;
-#endif
+///
+/// **为什么是函数而不是 constexpr 常量**：
+/// 原来是 `constexpr bool kBuildAllowsGplForDevelopment = ...`，
+/// 由 `#ifdef NAIROCLIP_DEVELOPMENT_GPL_OK` 决定取值。这有个隐蔽的 ODR 问题：
+/// 该宏只在编译 `nairoclip_core` 时由 target_compile_definitions 注入，
+/// **使用方（测试程序、平台层）没有这个宏** —— 于是同一个 `constexpr`
+/// 在库里算 true，在测试里算 false，两边的 EncoderPolicy 默认值不同。
+/// 表现出来就是「库内部能选到软件 H.264，测试侧却认为一个都没有」，
+/// 极难定位（实测踩过：库里逻辑全对，测试仍报无可用编码器）。
+///
+/// 改为导出函数：取值由库内部编译决定，只有一处定义，不存在歧义。
+/// 保留旧名字作为内联包装，避免调用方改动。
+bool buildAllowsGplForDevelopment();
+
+/// 兼容别名（内联转发到函数，不再依赖宏）。
+inline bool kBuildAllowsGplForDevelopmentFn() { return buildAllowsGplForDevelopment(); }
 
 /// 编码器许可分级（合规判定的单一事实来源）。
+///
+/// **2026-11-05 策略变更（用户决定）**：软件 H.264 编码器全部撤出。
+///
+/// 原因：软件 H.264 编码器（OpenH264 内置版 / FFmpeg 内置 h264）需要
+/// 自行承担 AVC 专利许可。Via LA 的免费额度与条件（单独下载、
+/// 用户可开关、声明文本）与「把 .so 打进 APK」的架构冲突，
+/// 且 iOS 禁止安装后下载可执行模块 —— 该路径在 iOS 上根本不可用。
+///
+/// 现行做法：**只允许硬件编码器**（MediaCodec / VideoToolbox /
+/// NVENC / QSV / VAAPI / MF / AMF）。芯片厂商已在 SoC 授权中支付
+/// AVC 专利费，我们只调用系统 API，不构成 "AVC Product"。
+///
+/// 代价：设备无硬件编码器时 **fail-closed 拒绝导出**（而不是偷偷用软件实现）。
+/// 现实中 Android 5.0+ / iOS 全版本都有 H.264 硬件编码，影响面极小。
 enum class EncoderLicenseClass {
-    Hardware = 0,      ///< 系统硬件编码器（MediaCodec/VideoToolbox/MF/VAAPI/NVENC/QSV/V4L2）
-    Permissive = 1,    ///< 宽松软件实现（OpenH264/libaom/libvpx/libopus/FFmpeg 内置 AAC）
+    Hardware = 0,      ///< 系统硬件编码器（唯一允许的 H.264 路径）
+    Permissive = 1,    ///< 宽松软件实现（**仅非 H.264**：AV1/VP9/Opus/AAC）
     GplInfectious = 2, ///< GPL 传染（libx264/libx265 等）——禁止商用发布
-    Unknown = 3,       ///< 未在清单中（保守视为不可用）
+    SoftwareH264 = 3,  ///< **软件 H.264 编码器**：需自付专利费，一律禁用
+    Unknown = 4,       ///< 未在清单中（保守视为不可用）
 };
 
 /// 许可分级名称（"hardware" / "permissive" / "gpl" / "unknown"；供日志/UI）。
@@ -77,7 +117,28 @@ struct EncoderPolicy {
     /// 开发例外：允许选择 GPL 编码器（仅开发构建可用；发布构建置 false）。
     /// 说明：默认跟随构建期开关（kBuildAllowsGplForDevelopment）——沙箱/CI
     /// 只有 libx264 时测试可跑；发布构建默认合规（fail-closed）。
-    bool allowGplForDevelopment = kBuildAllowsGplForDevelopment;
+    bool allowGplForDevelopment = buildAllowsGplForDevelopment();
+
+    /// 开发例外：允许把**软件 H.264** 作为最后手段（仅开发构建可用）。
+    ///
+    /// 为什么单独一个开关：软件 H.264 的风险是 **AVC 专利费**，
+    /// 与 GPL 的「源码传染」是两类完全不同的风险，不该共用一个开关。
+    ///
+    /// 生效条件（必须同时满足）：
+    ///   ① allowSoftwareH264ForDevelopment == true
+    ///   ② kBuildAllowsGplForDevelopment == true（即构建期未设 OFF）
+    ///
+    /// 发布构建（-DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF）下
+    /// kBuildAllowsGplForDevelopment 为 false，本开关即使被误设为 true
+    /// 也不会生效 —— 双保险。
+    /// 默认值跟随构建期开关：开发构建（NAIROCLIP_DEVELOPMENT_GPL_OK=ON 时为真）
+    /// 打开，发布构建恒为 false。
+    ///
+    /// 为什么不写成恒 false：本地沙箱没有 GPU，也就没有硬件 H.264 编码器，
+    /// 写成恒 false 会让所有导出测试在本地跑不了，等于放弃本地回归能力。
+    /// 而发布构建里 kBuildAllowsGplForDevelopment 是 false，
+    /// 所以这里的默认值会被「与」运算吃掉，不会泄漏到发布包。
+    bool allowSoftwareH264ForDevelopment = buildAllowsGplForDevelopment();
     /// 是否优先硬件编码器（文档：三端统一优先级最高）。恒为 true 时才尝试硬件；
     /// 提供开关仅供平台层在特定设备上强制软件路径（如硬件编码器有已知缺陷）。
     bool preferHardware = true;
