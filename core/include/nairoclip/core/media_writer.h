@@ -17,8 +17,20 @@ struct WriterConfig {
     int width = 0;
     int height = 0;
     FrameRate frameRate = fps30();
-    /// 目标视频编码格式（"h264" 默认 / "av1" / "vp9"；HEVC 按协议清单禁用）。
-    /// 编码器实现由 codec_policy 按合规策略选择（硬件优先，OpenH264 兜底）。
+    /// 目标视频编码格式（"h264" / "av1" / "vp9"；HEVC 按协议清单禁用）。
+    ///
+    /// **默认 h264，但含义是「h264 硬件编码」** —— 发布构建里软件 H.264
+    /// 已被完全移除（AVC 专利费，见 docs/COMPLIANCE.md §1.2.1），
+    /// 所以实际走的是 MediaCodec / VideoToolbox / NVENC 等系统硬件编码器。
+    ///
+    /// 为什么默认仍是 h264：兼容性。用户导出的视频要发给别人、传平台，
+    /// 而 H.264 是唯一「到处都能放」的格式（iOS 全版本、旧安卓、
+    /// 微信/抖音后台转码都接受）。VP9/AV1 体积更小但兼容性差得多，
+    /// 应作为**可选格式**由用户显式选择，不能做默认。
+    ///
+    /// 设备无 H.264 硬件编码器时：writeVideoFrame 前会 fail-closed 报错，
+    /// 平台层应捕获并提示用户改用 VP9/AV1（或换设备）。
+    /// 不静默降级到软件实现 —— 那会把专利风险带回产品里。
     std::string videoCodec = "h264";
     int crf = 23;              // 质量（0-51，越低越好；23 默认）
     std::string preset = "veryfast";  // 编码器 preset

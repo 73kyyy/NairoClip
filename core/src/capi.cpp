@@ -3599,9 +3599,19 @@ int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profil
 }
 
 #ifdef NAIROCLIP_HAS_FFMPEG
-int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32_t include_audio,
-                      int32_t attach_ai_label, const char* ai_label_text,
-                      int32_t (*progress_cb)(double), char** out_error) {
+/* 导出实现的公共内核：额外接受视频编码格式。
+   ------------------------------------------------------------------------
+   拆出这一层的原因：`nc_export_run` 原先硬编码默认编码格式（h264），
+   调用方无法指定。而在「H.264 只走系统硬件编码器」的策略下，
+   无硬件编码器的设备会 fail-closed —— 此时用户需要能改用 VP9/AV1。
+   没有这个参数，产品就没有任何退路。
+
+   保留原 `nc_export_run` 签名（转发到这里，video_codec=nullptr → 默认 h264），
+   避免破坏既有调用方与已发布的 ABI。 */
+static int64_t ncExportRunImpl(NcEditor* editor, const char* out_path, int32_t crf,
+                               int32_t include_audio, int32_t attach_ai_label,
+                               const char* ai_label_text, const char* video_codec,
+                               int32_t (*progress_cb)(double), char** out_error) {
     if (editor == nullptr || out_path == nullptr) {
         if (out_error != nullptr) *out_error = dupString("参数为空");
         return -1;
@@ -3626,6 +3636,13 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
     config.writer.height = plan.height;
     config.writer.frameRate = plan.frameRate;
     config.writer.crf = crf > 0 ? crf : 23;
+    /* 编码格式：nullptr / 空串 → 保持 WriterConfig 默认（h264，兼容性优先）。
+       合法值："h264" / "vp9" / "av1"。其它值按默认处理（不报错，
+       因为这是「格式偏好」而非「必须成功」——真正不可用时编码器
+       选择阶段会 fail-closed 并给出明确错误）。 */
+    if (video_codec != nullptr && video_codec[0] != '\0') {
+        config.writer.videoCodec = video_codec;
+    }
     config.writer.includeAudio = include_audio != 0;
     // 必须同步 executor 侧：ExportExecutorOptions::outputAudio 默认是 true，
     // 不跟着 include_audio 走的话，include_audio=0 时会出现
@@ -3685,10 +3702,32 @@ int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32
     return static_cast<int64_t>(result.stats.framesWritten);
 }
 
+int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32_t include_audio,
+                      int32_t attach_ai_label, const char* ai_label_text,
+                      int32_t (*progress_cb)(double), char** out_error) {
+    // 兼容入口：不指定编码格式 → 用默认（h264，走系统硬件编码器）
+    return ncExportRunImpl(editor, out_path, crf, include_audio, attach_ai_label,
+                           ai_label_text, nullptr, progress_cb, out_error);
+}
+
+int64_t nc_export_run_ex(NcEditor* editor, const char* out_path, int32_t crf,
+                         int32_t include_audio, int32_t attach_ai_label,
+                         const char* ai_label_text, const char* video_codec,
+                         int32_t (*progress_cb)(double), char** out_error) {
+    return ncExportRunImpl(editor, out_path, crf, include_audio, attach_ai_label,
+                           ai_label_text, video_codec, progress_cb, out_error);
+}
+
 #else
 
 int64_t nc_export_run(NcEditor*, const char*, int32_t, int32_t, int32_t, const char*,
                       int32_t (*)(double), char** out_error) {
+    if (out_error != nullptr) *out_error = dupString("此构建未包含 FFmpeg");
+    return -1;
+}
+
+int64_t nc_export_run_ex(NcEditor*, const char*, int32_t, int32_t, int32_t, const char*,
+                         const char*, int32_t (*)(double), char** out_error) {
     if (out_error != nullptr) *out_error = dupString("此构建未包含 FFmpeg");
     return -1;
 }

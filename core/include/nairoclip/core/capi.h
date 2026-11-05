@@ -1084,9 +1084,32 @@ int32_t nc_clear_clip_xform(NcEditor* editor, int32_t track_index, uint64_t clip
 ///  - progress_cb：进度回调（0..1，返回 0 取消）；可为 NULL；
 ///  - out_error：错误信息（需 nc_free_string）；可为 NULL。
 /// 返回：成功 = 输出帧数（>=0）；失败 = -1。
+///
+/// **注意编码格式**：本函数不指定编码格式，使用默认值 h264。
+/// 而 H.264 在发布构建里**只走系统硬件编码器**（软件实现因 AVC 专利
+/// 全部移除，见 docs/COMPLIANCE.md §1.2.1）。设备无硬件 H.264 编码器时
+/// 本函数会失败并返回明确错误 —— 此时应改用 nc_export_run_ex 指定
+/// "vp9" 或 "av1"（这两个有 royalty-free 软件实现，任何设备都能编）。
 int64_t nc_export_run(NcEditor* editor, const char* out_path, int32_t crf, int32_t include_audio,
                       int32_t attach_ai_label, const char* ai_label_text,
                       int32_t (*progress_cb)(double), char** out_error);
+
+/// 导出（可指定视频编码格式）。
+///
+/// 与 nc_export_run 的唯一区别是多一个 video_codec 参数：
+///  - "h264"：兼容性最好（iOS 全版本、旧安卓、各平台都能放），
+///            但需要设备有硬件 H.264 编码器；
+///  - "vp9" ：体积比 H.264 小 30~50%，royalty-free；
+///            iOS 无法播放，国内平台多数需要转码 —— 适合自己存档；
+///  - "av1" ：体积最小，royalty-free；兼容性最差且编码慢。
+///  - nullptr / ""：等同 "h264"（默认）。
+///
+/// 平台层应在「默认格式导出失败（无硬件编码器）」时提示用户改用
+/// vp9/av1，而不是让用户以为导出功能坏了。
+int64_t nc_export_run_ex(NcEditor* editor, const char* out_path, int32_t crf,
+                         int32_t include_audio, int32_t attach_ai_label,
+                         const char* ai_label_text, const char* video_codec,
+                         int32_t (*progress_cb)(double), char** out_error);
 
 // ---- 画幅适配（导出预设 9:16 / 16:9 / 1:1、智能重构图横转竖）----
 

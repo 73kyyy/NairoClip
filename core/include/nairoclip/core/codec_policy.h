@@ -119,26 +119,6 @@ struct EncoderPolicy {
     /// 只有 libx264 时测试可跑；发布构建默认合规（fail-closed）。
     bool allowGplForDevelopment = buildAllowsGplForDevelopment();
 
-    /// 开发例外：允许把**软件 H.264** 作为最后手段（仅开发构建可用）。
-    ///
-    /// 为什么单独一个开关：软件 H.264 的风险是 **AVC 专利费**，
-    /// 与 GPL 的「源码传染」是两类完全不同的风险，不该共用一个开关。
-    ///
-    /// 生效条件（必须同时满足）：
-    ///   ① allowSoftwareH264ForDevelopment == true
-    ///   ② kBuildAllowsGplForDevelopment == true（即构建期未设 OFF）
-    ///
-    /// 发布构建（-DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF）下
-    /// kBuildAllowsGplForDevelopment 为 false，本开关即使被误设为 true
-    /// 也不会生效 —— 双保险。
-    /// 默认值跟随构建期开关：开发构建（NAIROCLIP_DEVELOPMENT_GPL_OK=ON 时为真）
-    /// 打开，发布构建恒为 false。
-    ///
-    /// 为什么不写成恒 false：本地沙箱没有 GPU，也就没有硬件 H.264 编码器，
-    /// 写成恒 false 会让所有导出测试在本地跑不了，等于放弃本地回归能力。
-    /// 而发布构建里 kBuildAllowsGplForDevelopment 是 false，
-    /// 所以这里的默认值会被「与」运算吃掉，不会泄漏到发布包。
-    bool allowSoftwareH264ForDevelopment = buildAllowsGplForDevelopment();
     /// 是否优先硬件编码器（文档：三端统一优先级最高）。恒为 true 时才尝试硬件；
     /// 提供开关仅供平台层在特定设备上强制软件路径（如硬件编码器有已知缺陷）。
     bool preferHardware = true;

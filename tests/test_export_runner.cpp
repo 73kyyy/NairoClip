@@ -54,6 +54,15 @@ struct Fixture {
     }
 };
 }  // namespace
+namespace {
+/* 本机可用的测试用视频编码格式。
+   产品默认 h264（兼容性），但 H.264 **只走系统硬件编码器**——
+   软件实现已按合规要求移除（AVC 专利费，docs/COMPLIANCE.md §1.2.1）。
+   CI / 本地沙箱没有 GPU，所以测试显式用 VP9（libvpx-vp9，royalty-free）。
+   H.264 硬件编码路径由真机验证承担。 */
+inline std::string testVideoCodec() { return "vp9"; }
+}  // namespace
+
 NC_TEST(ExportRunner, SuccessfulExport) {
     Fixture f;
     Clip c;
@@ -67,6 +76,7 @@ NC_TEST(ExportRunner, SuccessfulExport) {
     ExportRunConfig config;
     config.outputPath = "/tmp/export_test.mp4";
     config.writer.width = 64;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 64;
     config.writer.includeAudio = false;
     const ExportRunResult result =
@@ -89,6 +99,7 @@ NC_TEST(ExportRunner, CancelledExportAborts) {
     ExportRunConfig config;
     config.outputPath = "/tmp/export_cancel.mp4";
     config.writer.width = 64;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 64;
     config.writer.includeAudio = false;
     // 进度到 30% 时取消
@@ -112,6 +123,7 @@ NC_TEST(ExportRunner, WriterOpenFailurePropagates) {
     ExportRunConfig config;
     config.outputPath = "";  // 空路径 → open 失败
     config.writer.width = 64;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 64;
     const ExportRunResult result =
         runExport(plan, readerFactory, writerFactory, config);
@@ -146,6 +158,7 @@ NC_TEST(ExportRunner, RealEncodeEndToEnd) {
     ExportRunConfig config;
     config.outputPath = path;
     config.writer.width = 64;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 64;
     config.writer.frameRate = fps30();
     config.writer.crf = 30;
@@ -212,6 +225,7 @@ NC_TEST(ExportRunner, RealDecodeWithFFmpegSource) {
     ExportRunConfig config;
     config.outputPath = "/tmp/media_gen/runner_decoded.mp4";
     config.writer.width = 160;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 120;
     config.writer.crf = 28;
     config.writer.includeAudio = false;
@@ -290,6 +304,7 @@ NC_TEST(ExportRunner, RealAudioMixToEncodedFile) {
     ExportRunConfig config;
     config.outputPath = "/tmp/media_gen/runner_audio.mp4";
     config.writer.width = 160;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 120;
     config.writer.crf = 30;
     config.writer.includeAudio = true;
@@ -369,6 +384,7 @@ NC_TEST(ExportRunner, AudioGainAndFadeApplied) {
     ExportRunConfig config;
     config.outputPath = "/tmp/media_gen/runner_gain.mp4";
     config.writer.width = 160;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 120;
     config.writer.crf = 35;
     config.writer.includeAudio = true;
@@ -427,6 +443,7 @@ NC_TEST(ExportRunner, SubtitlesAttachedToFrames) {
     ExportRunConfig config;
     config.outputPath = "/tmp/sub_test.mp4";
     config.writer.width = 64;
+    config.writer.videoCodec = testVideoCodec();
     config.writer.height = 64;
     config.writer.includeAudio = false;
     int framesWithSub = 0;

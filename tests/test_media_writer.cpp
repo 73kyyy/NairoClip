@@ -13,6 +13,19 @@ OutputVideoFrame solidFrame(int w, int h, std::uint8_t gray, const Time& ts) {
     }
     return frame;
 }
+/* 本机可用的测试用视频编码格式。
+   ------------------------------------------------------------------------
+   产品的默认格式是 h264（兼容性考虑），但**H.264 只走系统硬件编码器**——
+   软件实现已按合规要求全部移除（AVC 专利费，见 docs/COMPLIANCE.md §1.2.1）。
+
+   而 CI / 本地沙箱没有 GPU，也就没有硬件 H.264 编码器。
+   所以这些测试显式指定 VP9（libvpx-vp9，BSD-3，royalty-free），
+   这样在纯 CPU 环境也能完整验证「编码 → 落盘 → 回读」链路。
+
+   注意：这不是「测试绕过产品限制」——VP9 是产品正式支持的导出格式，
+   测试只是选了本机确实能编码的那一个。H.264 硬件编码路径由真机验证承担。 */
+inline std::string testVideoCodec() { return "vp9"; }
+
 OutputAudioBlock toneBlock(int frames, int channels, int rate, float amplitude) {
     OutputAudioBlock block;
     block.sampleRate = rate;
@@ -26,6 +39,7 @@ NC_TEST(MediaWriter, MockLifecycle) {
     MockMediaWriter writer;
     NC_CHECK(!writer.isOpen());
     WriterConfig config;
+    config.videoCodec = testVideoCodec();  // 本机无硬件 H.264 编码器
     config.width = 64;
     config.height = 64;
     NC_CHECK(writer.open("/tmp/out.mp4", config).isOk());
@@ -52,6 +66,7 @@ NC_TEST(MediaWriter, MockLifecycle) {
 NC_TEST(MediaWriter, MockRejectsInvalid) {
     MockMediaWriter writer;
     WriterConfig config;
+    config.videoCodec = testVideoCodec();  // 本机无硬件 H.264 编码器
     config.width = 64;
     config.height = 64;
     // 空路径
@@ -90,6 +105,7 @@ NC_TEST(MediaWriter, FFmpegEncodeVideoOnly) {
     std::remove(path);
     FFmpegMediaWriter writer;
     WriterConfig config;
+    config.videoCodec = testVideoCodec();  // 本机无硬件 H.264 编码器
     config.width = 64;
     config.height = 64;
     config.frameRate = fps30();
@@ -125,6 +141,7 @@ NC_TEST(MediaWriter, FFmpegEncodeWithAudio) {
     std::remove(path);
     FFmpegMediaWriter writer;
     WriterConfig config;
+    config.videoCodec = testVideoCodec();  // 本机无硬件 H.264 编码器
     config.width = 64;
     config.height = 64;
     config.frameRate = fps30();
@@ -167,6 +184,7 @@ NC_TEST(MediaWriter, FFmpegAbortLeavesNoTrailer) {
     {
         FFmpegMediaWriter writer;
         WriterConfig config;
+        config.videoCodec = testVideoCodec();  // 本机无硬件 H.264 编码器
         config.width = 64;
         config.height = 64;
         config.includeAudio = false;
@@ -201,6 +219,7 @@ NC_TEST(MediaWriter, ResamplesPlanarPerChannelPointers) {
     const char* outPath = "/tmp/media_gen/writer_upsample.mp4";
     FFmpegMediaWriter writer;
     WriterConfig config;
+    config.videoCodec = testVideoCodec();  // 本机无硬件 H.264 编码器
     config.width = 64;
     config.height = 64;
     config.frameRate = fps30();

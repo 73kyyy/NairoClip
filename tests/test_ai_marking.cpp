@@ -191,6 +191,9 @@ bool writeMarkedFile(const char* path, bool withAudioMarks,
     writerConfig.height = 48;
     writerConfig.frameRate = fps30();
     writerConfig.includeAudio = true;
+    /* VP9：产品 H.264 只走系统硬件编码器（软件实现按合规移除），
+       CI / 沙箱无 GPU。VP9 有 royalty-free 软件实现，纯 CPU 可编。 */
+    writerConfig.videoCodec = "vp9";
     writerConfig.audioSampleRate = sr;
     writerConfig.audioChannels = ch;
     for (const auto& entry : entries) {

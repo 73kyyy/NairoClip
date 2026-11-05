@@ -30,13 +30,33 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# **2026-11-05 变更：视频编码从 H.264 改为 VP9**
+#
+# 原因：产品已移除全部软件 H.264 编解码器（AVC 专利费，详见
+# docs/COMPLIANCE.md §1.2.1），H.264 只走系统硬件编解码。
+# 而本地沙箱 / CI 没有 GPU，也就没有 h264_mediacodec ——
+# 若素材仍是 H.264，测试会在「导入」这一步就 fail-closed 失败，
+# 整条链路无法回归。
+#
+# 用 VP9（libvpx-vp9，BSD-3，royalty-free）生成素材：
+#   · 不需要任何 H.264 实现就能解码，测试可在纯 CPU 环境跑完；
+#   · 音频保持 AAC（专利已基本到期，FFmpeg 内置编码器，无需授权）。
+#
+# 代价：VP9 编码比 x264 慢不少（素材总共十几秒，可接受）；
+# 且 VP9 是**有损**编码，对像素级断言的用例（如色度抠像）
+# 用 -crf 20 保证质量，必要时可调低 crf 值。
+#
+# H.264 的解码/编码路径不再有本地测试覆盖，改由真机验证承担。
+# ---------------------------------------------------------------------------
+
 echo "生成测试素材到 $OUT_DIR ..."
 
 # 主素材：160x120 彩条 + 440Hz 正弦波，3 秒（与 test_media_ffmpeg.cpp 期望一致）
 ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "testsrc=size=160x120:rate=30:duration=3" \
     -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=3" \
-    -c:v libx264 -pix_fmt yuv420p -c:a aac -ac 1 -shortest \
+    -c:v libvpx-vp9 -pix_fmt yuv420p -b:v 0 -crf 20 -c:a aac -ac 1 -shortest \
     "$OUT_DIR/test_av.mp4"
 
 # 两镜头素材：彩条 2s + SMPTE 彩条 2s 拼接（场景边界在 2.0s，供场景检测验证）
@@ -44,10 +64,10 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "testsrc=size=160x120:rate=30:duration=2" \
-    -c:v libx264 -pix_fmt yuv420p "$TMP_DIR/shot_a.mp4"
+    -c:v libvpx-vp9 -pix_fmt yuv420p -b:v 0 -crf 20 "$TMP_DIR/shot_a.mp4"
 ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "smptebars=size=160x120:rate=30:duration=2" \
-    -c:v libx264 -pix_fmt yuv420p "$TMP_DIR/shot_b.mp4"
+    -c:v libvpx-vp9 -pix_fmt yuv420p -b:v 0 -crf 20 "$TMP_DIR/shot_b.mp4"
 printf "file '%s'\nfile '%s'\n" "$TMP_DIR/shot_a.mp4" "$TMP_DIR/shot_b.mp4" > "$TMP_DIR/concat.txt"
 ffmpeg -hide_banner -loglevel error -y \
     -f concat -safe 0 -i "$TMP_DIR/concat.txt" -c copy "$OUT_DIR/two_shots.mp4"
@@ -67,16 +87,16 @@ ffmpeg -hide_banner -loglevel error -y \
 ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "testsrc2=size=320x240:rate=30:duration=1,format=rgb24" \
     -vf "drawgrid=w=8:h=8:t=1:c=white@1.0" \
-    -c:v libx264 -pix_fmt yuv420p -crf 10 "$OUT_DIR/detail_src.mp4"
+    -c:v libvpx-vp9 -pix_fmt yuv420p -b:v 0 -crf 10 "$OUT_DIR/detail_src.mp4"
 
 # 色度抠像测试素材（M2.27 端到端：绿幕底 + 肤色色块；红底对照）
 ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "color=c=0x00C828:s=160x120:r=30:d=2,format=rgb24" \
     -vf "drawbox=x=50:y=20:w=60:h=80:color=0xDCA98C:t=fill" \
-    -c:v libx264 -pix_fmt yuv420p "$OUT_DIR/chroma_src.mp4"
+    -c:v libvpx-vp9 -pix_fmt yuv420p -b:v 0 -crf 20 "$OUT_DIR/chroma_src.mp4"
 ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "color=c=0xB22222:s=320x240:r=30:d=1" \
-    -c:v libx264 -pix_fmt yuv420p "$OUT_DIR/red_bg.mp4"
+    -c:v libvpx-vp9 -pix_fmt yuv420p -b:v 0 -crf 20 "$OUT_DIR/red_bg.mp4"
 
 # 音频 seek 精确性素材：视频轨（testsrc 4s）+ 音频轨频率在 2.0s 处切换
 # （440Hz → 3520Hz）。AAC 音频帧与视频关键帧不对齐，可暴露「seek 后读到
@@ -86,7 +106,7 @@ ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=2" \
     -f lavfi -i "sine=frequency=3520:sample_rate=44100:duration=2" \
     -filter_complex "[1:a][2:a]concat=n=2:v=0:a=1[a]" \
-    -map 0:v -map "[a]" -c:v libx264 -pix_fmt yuv420p -g 250 -sc_threshold 0 \
+    -map 0:v -map "[a]" -c:v libvpx-vp9 -pix_fmt yuv420p -b:v 0 -crf 20 -g 250 -sc_threshold 0 \
     -c:a aac -shortest "$OUT_DIR/tone_shift.mp4"
 
 # 降噪素材：0-2s = 音节突发式语音模拟（300Hz 正弦，每 200ms 中 150ms 发声 +

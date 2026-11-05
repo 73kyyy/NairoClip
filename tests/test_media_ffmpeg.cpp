@@ -31,7 +31,11 @@ NC_TEST(MediaFFmpeg, ProbeRealFile) {
     NC_CHECK(std::abs(probe.duration.toDouble() - 3.0) < 0.1);
     NC_CHECK_EQ(probe.sampleRate, 44100);
     NC_CHECK_EQ(probe.channels, 1);
-    NC_CHECK(probe.codec == std::string("h264"));
+    /* 素材已改为 VP9（详见 tests/fixtures/generate_media.sh 顶部说明）：
+      产品移除软件 H.264 后，本地无 GPU 环境无法解码 H.264，
+      素材改用 royalty-free 的 VP9，测试才能在纯 CPU 环境跑完。
+      这里断言 codec 是 vp9 —— 同时验证「容器探测拿到的编码名正确」。 */
+    NC_CHECK(probe.codec == std::string("vp9"));
     reader.close();
     NC_CHECK(!reader.isOpen());
 }

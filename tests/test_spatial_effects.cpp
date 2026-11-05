@@ -636,7 +636,7 @@ bool exportDetailFrame(int effectType, double value, const char* outPath,
     }
     char* err = nullptr;
     const std::int64_t frames =
-        nc_export_run(editor, outPath, 18, 0, 0, nullptr, nullptr, &err);
+        nc_export_run_ex(editor, outPath, 18, 0, 0, nullptr, "vp9", nullptr, &err);
     if (err != nullptr) nc_free_string(err);
     nc_editor_destroy(editor);
     if (frames <= 0) return false;
@@ -652,7 +652,19 @@ bool exportDetailFrame(int effectType, double value, const char* outPath,
 }
 
 double lumaAt(const std::vector<std::uint8_t>& px, int w, int x, int y) {
+    /* 越界保护：NC_CHECK 失败**不会中断测试**（宏只记录不 return），
+       所以「导出失败 → pixels 为空 → 后续 lumaAt 访问空数组」
+       会直接段错误把整个测试进程带走。
+       实测踩过：gdb 显示 SIGSEGV 在 E2E_Vignette 里，
+       根因却是更早的导出失败 + 一个没被检查的返回值。
+       测试辅助函数必须自己兜住，不能让断言失败升级成进程崩溃。 */
+    if (w <= 0 || x < 0 || y < 0) {
+        return 0.0;
+    }
     const std::size_t i = (static_cast<std::size_t>(y) * w + x) * 4;
+    if (i + 2 >= px.size()) {
+        return 0.0;
+    }
     return 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
 }
 

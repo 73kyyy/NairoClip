@@ -265,7 +265,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     std::vector<Scored> hardware;
     std::vector<Scored> permissive;
     std::vector<Scored> gpl;
-    std::vector<Scored> softwareH264;  // 仅开发构建，排最后
     for (const auto& candidate : available) {
         if (!candidate.codec.empty() && toLower(candidate.codec) != lower) {
             continue;
@@ -276,29 +275,18 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
             continue;
         }
         /* 软件 H.264：**只在开发构建里**作为最后手段保留。
+           ---------------------------------------------------------------- */
+        /* 软件 H.264：**直接丢弃**，任何构建、任何开关都不能启用。
            ----------------------------------------------------------------
-           为什么不能无条件丢弃：本地沙箱 / CI 没有 GPU，也就没有
-           h264_nvenc / h264_vaapi 这些硬件编码器可用。若软件 H.264
-           一律丢弃，导出相关测试在本地全部跑不了（实测：一改完就
-           出现 6 个新失败，全是「导出不了」）。
+           之前这里还有一个 `allowSoftwareH264ForDevelopment` 的开发例外，
+           理由是「本地沙箱没 GPU，不放行就导不出」。
+           那是拿产品形态迁就测试环境 —— 产品里有没有软件 H.264，
+           不该取决于「本机能不能跑测试」。
 
-           但仍要保证发布构建绝对不用 —— 所以走**独立的开关**
-           `allowSoftwareH264ForDevelopment`，默认 false，
-           且只有 `buildAllowsGplForDevelopment()`
-           （= NAIROCLIP_DEVELOPMENT_GPL_OK）为真时才可能被打开。
-           与 GPL 分组分开的原因：GPL 是"源码传染"，AVC 是"专利费"，
-           两类风险不同，不该共用一个开关互相牵连。
-
-           排序：硬件 → Permissive（AV1/VP9）→ GPL(开发) → 软件H264(开发最后)。 */
+           测试侧的正确解法是改用 royalty-free 编码（VP9/AV1）做导出与素材，
+           而不是在产品代码里留一个「仅开发可用」的后门 ——
+           后门一旦存在，就永远有人能把它打开。 */
         if (cls == EncoderLicenseClass::SoftwareH264) {
-            if (policy.allowSoftwareH264ForDevelopment && buildAllowsGplForDevelopment()) {
-                EncoderSelection sel;
-                sel.name = candidate.name;
-                sel.license = cls;
-                sel.usedDevelopmentException = true;
-                sel.note = "开发例外（软件 H.264）：" + candidate.name;
-                softwareH264.push_back(Scored{sel, preferenceRank(nameLower, false)});
-            }
             continue;
         }
         const bool isHw = candidate.hardware || cls == EncoderLicenseClass::Hardware;
@@ -322,7 +310,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     std::sort(hardware.begin(), hardware.end(), byRank);
     std::sort(permissive.begin(), permissive.end(), byRank);
     std::sort(gpl.begin(), gpl.end(), byRank);
-    std::sort(softwareH264.begin(), softwareH264.end(), byRank);
 
     std::vector<EncoderSelection> result;
     if (policy.preferHardware) {
@@ -339,13 +326,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
             s.selection.note = "开发例外候选：" + s.selection.name;
             result.push_back(std::move(s.selection));
         }
-    }
-    /* 软件 H.264 排在**最后**：只在「没有硬件、没有 AV1/VP9、
-       也没开 GPL」的情况下才轮到它。发布构建里这个循环永不执行
-       （softwareH264 本来就是空的，因为 buildAllowsGplForDevelopment() 为 false）。 */
-    for (auto& s : softwareH264) {
-        s.selection.usedDevelopmentException = true;
-        result.push_back(std::move(s.selection));
     }
     return result;
 }

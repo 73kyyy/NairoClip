@@ -339,11 +339,18 @@ Result FFmpegMediaReader::open(const std::string& path) {
             decoderCandidates.push_back("h264_v4l2m2m");   // Linux V4L2
             decoderCandidates.push_back("h264_videotoolbox");  // macOS 兜底
 #endif
-#if defined(NAIROCLIP_DEVELOPMENT_GPL_OK)
-            /* 开发构建：软件解码器排**最后**作为兜底（仅本地可测）。
-               发布构建不加入这个候选 —— 那是 AVC 专利费问题，不是开发便利问题。 */
-            decoderCandidates.push_back("h264");
-#endif
+            /* **不加入软件 h264 候选**，任何构建都不加。
+               ----------------------------------------------------------------
+               曾经在这里留了一个 `#if defined(NAIROCLIP_DEVELOPMENT_GPL_OK)`
+               的软件解码兜底，理由是「本地没 GPU，测试素材全是 H.264，
+               不兜底就一条都导不进来」。那是**用测试便利性绑架产品形态**：
+               产品里到底有没有软件 H.264，不该由「本机能不能跑测试」决定。
+
+               正确做法是反过来：测试素材改成 royalty-free 格式（VP9/AV1），
+               这样测试不需要 H.264 软解也能跑；H.264 的硬解路径靠真机验证。
+               （见 tests/fixtures/generate_media.sh）
+
+               所以现在 H.264 只有硬件解码一条路，无硬件则拒绝导入。 */
 
             /* 逐个尝试 open2：成功即采用，失败换下一个。
                注意 videoCodec 的分配/参数复制/线程设置都在循环内完成，

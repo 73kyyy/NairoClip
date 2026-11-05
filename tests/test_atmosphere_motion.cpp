@@ -447,7 +447,7 @@ bool exportWithEffect(int effectType, const char* outPath, std::vector<std::uint
     }
     char* err = nullptr;
     const std::int64_t frames =
-        nc_export_run(editor, outPath, 18, 0, 0, nullptr, nullptr, &err);
+        nc_export_run_ex(editor, outPath, 18, 0, 0, nullptr, "vp9", nullptr, &err);
     if (err != nullptr) nc_free_string(err);
     nc_editor_destroy(editor);
     if (frames <= 0) return false;
