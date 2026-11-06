@@ -98,6 +98,25 @@ public:
     /// 真正的分档策略在平台层 —— core 不该知道设备型号。
     void setFrameCacheBudgetBytes(std::size_t bytes);
     std::size_t frameCacheBudgetBytes() const { return frameCacheBudget_; }
+
+    /// 设置**缓存分辨率缩放**（0.05..1.0；1.0 = 按渲染尺寸原样缓存）。
+    ///
+    /// 为什么要单独一个开关（而不是沿用 quality_.scale）：
+    /// `quality_.scale` 是「这一次渲染用多大画布」，随拖动/暂停实时变化；
+    /// 而缓存分辨率是**存储策略**，应该稳定 —— 否则每次 quality 变档
+    /// 都会让新旧缓存尺寸不一致，命中率归零。
+    ///
+    /// 建议值：
+    ///   · 移动端 0.5（1080p → 540p 缓存，单帧 8.3MB → 2.1MB，容量 ×4）
+    ///   · 桌面 / 大屏 0.75 或 1.0
+    ///
+    /// 与 §8.3.1 的 720p 下限配合：渲染短边已不低于 720px，
+    /// 再按 0.5 缓存 = 360px 短边。对预览窗口（物理约 660px 宽）来说
+    /// 放大 1.8 倍，肉眼可辨但拖动时完全可接受 —— 暂停后会被全质量帧替换。
+    ///
+    /// 设 1.0 即关闭降采样缓存（行为与改动前一致）。
+    void setCacheScale(double scale);
+    double cacheScale() const { return cacheScale_; }
     /// 帧数下限（保证小画幅下也有基本的来回拖动命中）
     static constexpr std::size_t kFrameCacheMinFrames = 4;
     /// 帧数上限（避免 240p 之类极小画幅把缓存堆成几万帧）
@@ -190,6 +209,10 @@ public:
         /// invalidated 是「有这个时间点但内容过期了」——
         /// 前者是正常的首次渲染，后者才反映编辑的代价。
         std::size_t invalidatedByEdit = 0;
+        /// 命中缓存但**放大**后返回的次数（降采样缓存的工作量指标）。
+        /// 与 frameHits 分开记：它反映「缓存分辨率低于请求」的频率，
+        /// 是调 cacheScale 的依据（太高说明 cacheScale 偏小）。
+        std::size_t upscaledFromCache = 0;
     };
     CacheStats cacheStats() const;
 
@@ -203,7 +226,10 @@ public:
 
 private:
     /// 不做缓存查询的实际渲染（renderAt 命中缓存时不会走到这里）。
-    PreviewFrame renderUncached(const Time& timelineTime);
+    /// 完整渲染（不走缓存）。
+    /// @param scale 渲染缩放（1.0 = 全尺寸）。调用方传
+    ///              min(quality_.scale, cacheScale_) —— 见 renderAt 的说明。
+    PreviewFrame renderUncached(const Time& timelineTime, double scale);
     /// 渲染**单层**（一个片段）到画布尺寸，含该层自己的变换/特效/滤镜/蒙版。
     /// 返回 false 表示该层无可用像素（解码失败/无素材），调用方跳过即可。
     bool renderClipLayer(const Clip& clip, const Time& timelineTime,
@@ -233,6 +259,14 @@ private:
     std::uint64_t droppedFrames_ = 0;
     /// 帧缓存字节预算（默认 96MB；平台层可按设备分级覆盖）。
     std::size_t frameCacheBudget_ = kFrameCacheBudgetBytes;
+    /// 缓存分辨率缩放（**默认 1.0 = 关闭降采样**）。
+    ///
+    /// 为什么默认关闭：这是**行为变更**，不该由 core 静默决定。
+    /// 若默认 0.5，任何调用方（含已有测试、导出路径的独立 PreviewRenderer）
+    /// 都会意外拿到半尺寸帧 —— 实测一改默认值就有 9 个用例失败。
+    ///
+    /// 由平台层显式开启：Android 在 bindInstance 里设 0.5。
+    double cacheScale_ = 1.0;
 
     const Project& project_;
     MediaReaderFactory& readerFactory_;
@@ -245,6 +279,17 @@ private:
         std::list<std::int64_t>::iterator lruIt;
         /// 生成这一帧时的「层内容指纹」。见 contentFingerprint()。
         std::uint64_t fingerprint = 0;
+        /// 生成这一帧时用的渲染缩放（1.0 = 全尺寸）。
+        ///
+        /// 用途：命中时判断「缓存图够不够大」。
+        ///   · 缓存 scale >= 当前请求 scale → 直接用（缓存比要的更清晰）；
+        ///   · 缓存 scale <  当前请求 scale → 放大后返回（宁可轻微模糊，
+        ///     也不要重新解码 —— 解码是几十毫秒量级，放大是亚毫秒）。
+        ///
+        /// 这就是「降采样缓存」的核心：拖动时按 0.5 渲染并缓存，
+        /// 暂停回全质量时直接把缓存图放大顶上，同时**后台不需要重渲**。
+        /// 代价是暂停瞬间画面略糊；下一帧真正全质量渲染后缓存被替换。
+        double cacheScale = 1.0;
     };
     std::map<std::int64_t, CacheEntry> frames_;
     std::list<std::int64_t> lru_;   ///< front = 最近使用

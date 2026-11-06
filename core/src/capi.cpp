@@ -257,6 +257,27 @@ char* nc_project_save(const NcEditor* editor) {
 PreviewRenderer* ensurePreviewRenderer(NcEditor* editor);
 
 /// 设置帧缓存字节预算（P1 内存分级）。平台层按设备内存调用。
+/// 设置缓存分辨率缩放（降采样缓存）。1.0 = 关闭。建议移动端 0.5。
+int32_t nc_preview_set_cache_scale(NcEditor* editor, double scale) {
+    if (editor == nullptr || scale <= 0.0 || scale > 1.0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "scale 需在 (0, 1]");
+    }
+    PreviewRenderer* renderer = ensurePreviewRenderer(editor);
+    if (renderer == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
+    }
+    renderer->setCacheScale(scale);
+    return NC_OK;
+}
+
+/// 读取缓存分辨率缩放（句柄为空返回 -1）。
+double nc_preview_get_cache_scale(const NcEditor* editor) {
+    if (editor == nullptr || editor->previewRenderer == nullptr) {
+        return -1.0;
+    }
+    return editor->previewRenderer->cacheScale();
+}
+
 int32_t nc_preview_set_cache_budget(NcEditor* editor, int32_t bytes) {
     if (editor == nullptr || bytes <= 0) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
@@ -4632,6 +4653,32 @@ int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
     if (out_cached_frames != nullptr) *out_cached_frames = static_cast<int32_t>(st.cachedFrames);
     if (out_capacity != nullptr) {
         *out_capacity = static_cast<int32_t>(editor->previewRenderer->cacheCapacity());
+    }
+    return NC_OK;
+}
+
+/// 降采样缓存的专用统计（P2 之外的增量能力）。
+///
+/// 为什么不塞进 nc_preview_cache_stats：那是个已发布的 ABI，
+/// 加参数会破坏二进制兼容。这里单独一个函数，只输出新增的量。
+int32_t nc_preview_cache_stats_ex(NcEditor* editor, int64_t* out_invalidated_by_edit,
+                                  int64_t* out_upscaled_from_cache, double* out_cache_scale) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    PreviewRenderer* renderer = ensurePreviewRenderer(editor);
+    if (renderer == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
+    }
+    const PreviewRenderer::CacheStats st = renderer->cacheStats();
+    if (out_invalidated_by_edit != nullptr) {
+        *out_invalidated_by_edit = static_cast<int64_t>(st.invalidatedByEdit);
+    }
+    if (out_upscaled_from_cache != nullptr) {
+        *out_upscaled_from_cache = static_cast<int64_t>(st.upscaledFromCache);
+    }
+    if (out_cache_scale != nullptr) {
+        *out_cache_scale = renderer->cacheScale();
     }
     return NC_OK;
 }

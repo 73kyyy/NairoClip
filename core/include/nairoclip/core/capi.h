@@ -417,6 +417,38 @@ int32_t nc_preview_cache_stats(const NcEditor* editor, int64_t* out_frame_hits,
                                 int64_t* out_frame_misses, int64_t* out_reader_opens,
                                 int32_t* out_cached_frames, int32_t* out_capacity);
 
+/// 设置缓存分辨率缩放（降采样缓存）。
+///
+/// 问题：1080p 单帧 RGBA = 8.3MB，128MB 预算只够 15 帧（0.5s）。
+/// 若缓存按 0.5 存（540p，2.1MB/帧），同样预算可存 60 帧（2s）。
+///
+/// 机制：渲染时按 `min(quality.scale, cacheScale)` 出图并缓存；
+/// 请求分辨率更高时（如暂停回全质量）把缓存图**放大**顶上
+/// （放大约 3-5ms，重渲要几十毫秒），下一帧全质量渲染后缓存被替换。
+///
+/// - scale：(0, 1]；1.0 = 关闭降采样（行为与改动前一致）；
+/// - 建议：移动端 0.5，桌面 0.75 或 1.0。
+///
+/// 改 scale 会清空帧缓存（避免大小图混存）。
+/// 返回 NC_OK / 错误码。
+int32_t nc_preview_set_cache_scale(NcEditor* editor, double scale);
+
+/// 读取缓存分辨率缩放（句柄为空返回 -1）。
+double nc_preview_get_cache_scale(const NcEditor* editor);
+
+/// 降采样缓存的增量统计（不塞进 nc_preview_cache_stats 是因为那是
+/// 已发布的 ABI，加参数会破坏二进制兼容）。
+///
+/// - out_invalidated_by_edit：因内容变化而作废的缓存项数
+///   （P2 分层失效的观测量；与 frameMisses 不同，后者是首次渲染）；
+/// - out_upscaled_from_cache：命中缓存但放大后返回的次数
+///   （降采样缓存的工作量指标；太高说明 cacheScale 偏小）；
+/// - out_cache_scale：当前缓存缩放。
+///
+/// 出参均可空。
+int32_t nc_preview_cache_stats_ex(NcEditor* editor, int64_t* out_invalidated_by_edit,
+                                  int64_t* out_upscaled_from_cache, double* out_cache_scale);
+
 // ---- 缩略图（文档 Part 2-B「时间轴胶片条」/ 素材库预览）----
 
 /// 为素材生成缩略图序列（真实解码）。

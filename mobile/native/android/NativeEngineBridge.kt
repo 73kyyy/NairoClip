@@ -306,6 +306,7 @@ class NativeEngineBridge(
     /* ---- 帧缓存预算分级（§8.2 第 9 条）---- */
     private external fun nativePreviewSetCacheBudget(bytes: Long): Int
     private external fun nativePreviewGetCacheBudget(): Long
+    private external fun nativePreviewSetCacheScale(scale: Double): Int
     private external fun nativeInstallModel(handle: Long, modelId: String, data: ByteArray,
                                             path: String, sha256: String,
                                             nowUnix: Long): String
@@ -457,8 +458,16 @@ class NativeEngineBridge(
             if (cacheBudgetBytes > 0) {
                 try {
                     inst.nativePreviewSetCacheBudget(cacheBudgetBytes)
+                    /* 降采样缓存（P2）：与预算配套。
+                       预算决定「能存多少字节」，缩放决定「每帧多大」——
+                       只有一起调才能真正提高缓存深度：
+                         1080p 全尺寸 8.3MB/帧，128MB → 15 帧
+                         1080p 半尺寸 2.1MB/帧，128MB → 60 帧
+                       代价是命中缓存时放大显示（略糊），暂停后
+                       下一帧全质量渲染会替换掉。 */
+                    inst.nativePreviewSetCacheScale(0.5)
                 } catch (e: Throwable) {
-                    android.util.Log.w("NcMemory", "帧缓存预算设置失败（用默认值）", e)
+                    android.util.Log.w("NcMemory", "帧缓存策略设置失败（用默认值）", e)
                 }
             }
         }

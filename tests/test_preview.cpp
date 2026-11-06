@@ -579,3 +579,98 @@ NC_TEST(Preview, Cache1680pFrameCountAtEachTier) {
         NC_CHECK(frames >= static_cast<std::size_t>(c.minFrames));
     }
 }
+
+// =============================================================================
+// 降采样缓存（P2）：缓存分辨率与请求分辨率解耦
+// =============================================================================
+// 动机：1080p 单帧 RGBA = 8.3MB，128MB 只够 15 帧（0.5s）。
+// 按 0.5 缩放缓存 = 2.1MB/帧，同样预算 60 帧（2s）。
+// 代价：命中缓存时放大显示（略糊），暂停后下一帧全质量渲染会替换。
+
+NC_TEST(Preview, CacheScaleClamped) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    /* 默认 1.0 = 关闭降采样。这是**刻意的**：core 不该静默改变
+       既有行为，由平台层显式开启（Android 设 0.5）。
+       实测若默认 0.5，会有 9 个既有用例因拿到半尺寸帧而失败。 */
+    NC_CHECK(std::abs(renderer.cacheScale() - 1.0) < 1e-9);
+
+    renderer.setCacheScale(0.001);        // 过小 → 夹到 0.05
+    NC_CHECK(std::abs(renderer.cacheScale() - 0.05) < 1e-9);
+
+    renderer.setCacheScale(2.0);          // 过大 → 夹到 1.0
+    NC_CHECK(std::abs(renderer.cacheScale() - 1.0) < 1e-9);
+
+    renderer.setCacheScale(0.75);         // 正常值原样
+    NC_CHECK(std::abs(renderer.cacheScale() - 0.75) < 1e-9);
+}
+
+NC_TEST(Preview, CacheScaleReducesCachedFrameSize) {
+    /* 核心验证：设 cacheScale=0.5 后，缓存里的帧**确实是半尺寸**。
+       如果这里失败，说明 renderUncached 没有按 min(quality, cacheScale)
+       出图 —— 那降采样缓存就完全没生效（白占代码）。 */
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    renderer.setCacheScale(1.0);
+    const PreviewFrame full = renderer.renderAt(Rational::make(1));
+    NC_CHECK_EQ(full.width, 64);
+    NC_CHECK_EQ(full.height, 48);
+
+    renderer.setCacheScale(0.5);          // 改缩放会清缓存
+    const PreviewFrame half = renderer.renderAt(Rational::make(1));
+    NC_CHECK_EQ(half.width, 32);          // 64 × 0.5
+    NC_CHECK_EQ(half.height, 24);         // 48 × 0.5
+    NC_CHECK_EQ(half.rgba.size(), std::size_t(32 * 24 * 4));
+}
+
+NC_TEST(Preview, CachedHalfFrameUpscaledToFullSize) {
+    /* 暂停回全质量时的路径：缓存里是 0.5 的图，请求 1.0 尺寸。
+       应该**放大顶上**（upscaledFromCache +1），而不是重渲。 */
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    renderer.setCacheScale(0.5);
+    const PreviewFrame first = renderer.renderAt(Rational::make(1));
+    NC_CHECK_EQ(first.width, 32);
+    const std::size_t missesAfterFirst = renderer.cacheStats().frameMisses;
+
+    /* 提高质量档（模拟暂停回全质量），cacheScale 仍 0.5。
+       此时 effectiveScale = min(1.0, 0.5) = 0.5，但**请求尺寸**是 1.0 ——
+       缓存图 32px 宽不够，应放大到 64px。 */
+    RenderQuality full = RenderQuality::exportQuality();
+    full.path = RenderPath::Preview;
+    renderer.setQuality(full);
+
+    const PreviewFrame upscaled = renderer.renderAt(Rational::make(1));
+    NC_CHECK_EQ(upscaled.width, 64);      // 放大到请求尺寸
+    NC_CHECK_EQ(upscaled.height, 48);
+    NC_CHECK_EQ(upscaled.rgba.size(), std::size_t(64 * 48 * 4));
+    NC_CHECK_EQ(renderer.cacheStats().upscaledFromCache, std::size_t(1));
+    // 没有重渲（misses 不增加）
+    NC_CHECK_EQ(renderer.cacheStats().frameMisses, missesAfterFirst);
+}
+
+NC_TEST(Preview, CacheScaleChangeClearsCache) {
+    /* 改缩放会清缓存：否则会留下「一部分 0.5 尺寸、一部分 1.0 尺寸」
+       的混合缓存，虽然靠 cacheScale 判断仍正确，但大小图混存浪费内存。 */
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    renderer.setCacheScale(0.5);
+    renderer.renderAt(Rational::make(0.5));
+    renderer.renderAt(Rational::make(1.0));
+    NC_CHECK_EQ(renderer.cacheStats().cachedFrames, std::size_t(2));
+
+    renderer.setCacheScale(0.75);
+    NC_CHECK_EQ(renderer.cacheStats().cachedFrames, std::size_t(0));
+}

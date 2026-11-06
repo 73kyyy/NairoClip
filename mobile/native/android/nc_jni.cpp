@@ -2148,6 +2148,19 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewSetCacheBudget(
     return static_cast<jint>(nc_preview_set_cache_budget(ed, static_cast<jint32_t>(bytes)));
 }
 
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativePreviewSetCacheScale(
+    JNIEnv*, jobject, jdouble scale) {
+    /* 降采样缓存缩放（P2）。
+       由 bindInstance 在设置预算后一并设置 —— 两者是配套策略：
+       预算决定「能存多少字节」，缩放决定「每帧多大」，
+       只有一起调才能真正提高缓存深度。 */
+    auto* ed = g_currentEditor;
+    if (ed == nullptr) return -1;
+    if (scale <= 0.0 || scale > 1.0) return -1;
+    return static_cast<jint>(nc_preview_set_cache_scale(ed, static_cast<double>(scale)));
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativePreviewGetCacheBudget(JNIEnv*, jobject) {
     auto* ed = g_currentEditor;
