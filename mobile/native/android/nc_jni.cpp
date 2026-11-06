@@ -1553,6 +1553,59 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = Ok("{\"count\":" + std::to_string(rc) + "}");
         return true;
     }
+    if (op == "nc_set_keyframe_easing") {
+        // int32_t nc_set_keyframe_easing(editor, track_index, clip_id, property,
+        //                                time_us, easing, c1x, c1y, c2x, c2y)
+        const int32_t rc = nc_set_keyframe_easing(
+            ed, ti, cid, static_cast<int32_t>(JInt(a, "property", 0)),
+            static_cast<int64_t>(JInt(a, "time_us", 0)),
+            static_cast<int32_t>(JInt(a, "easing", 0)), JNum(a, "c1x", 0.0),
+            JNum(a, "c1y", 0.0), JNum(a, "c2x", 1.0), JNum(a, "c2y", 1.0));
+        if (rc != NC_OK) {
+            *out = Err("设置曲线失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{}");
+        return true;
+    }
+    if (op == "nc_keyframe_get_ex") {
+        // 带贝塞尔控制点的完整读取
+        int64_t tUs = 0;
+        double val = 0.0;
+        int32_t easing = 0;
+        double c1x = 0.0, c1y = 0.0, c2x = 1.0, c2y = 1.0;
+        const int32_t rc = nc_keyframe_get_ex(
+            ed, ti, cid, static_cast<int32_t>(JInt(a, "property", 0)),
+            static_cast<int32_t>(JInt(a, "index", 0)), &tUs, &val, &easing, &c1x, &c1y, &c2x,
+            &c2y);
+        if (rc != NC_OK) {
+            *out = Err("读取曲线失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        std::string j = "{\"time_us\":" + std::to_string(tUs);
+        j += ",\"value\":" + Num(val);
+        j += ",\"easing\":" + std::to_string(easing);
+        j += ",\"c1x\":" + Num(c1x) + ",\"c1y\":" + Num(c1y);
+        j += ",\"c2x\":" + Num(c2x) + ",\"c2y\":" + Num(c2y) + "}";
+        *out = Ok(j);
+        return true;
+    }
+    if (op == "nc_extract_audio") {
+        // int32_t nc_extract_audio(editor, asset_id, out_path, out_error)
+        char* err = nullptr;
+        const int32_t rc = nc_extract_audio(
+            ed, static_cast<uint64_t>(JInt(a, "asset_id", 0)),
+            JStrField(a, "out_path").c_str(), &err);
+        if (rc != NC_OK) {
+            const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(rc));
+            if (err) nc_free_string(err);
+            *out = Err("提取音频失败：" + m);
+            return true;
+        }
+        if (err) nc_free_string(err);
+        *out = Ok("{}");
+        return true;
+    }
     if (op == "nc_keyframe_get") {
         // int32_t nc_keyframe_get(editor, track_index, clip_id, property, index,
         //                         out_time_us, out_value, out_easing)

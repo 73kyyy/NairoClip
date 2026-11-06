@@ -4976,22 +4976,75 @@ function openSheet() {
   E.sheetList.innerHTML = '';
   // 各面板会改写标题，回到「添加素材」时必须复位，否则残留上个面板的标题
   const t = E.sheet && E.sheet.querySelector('.sheet-head span');
-  if (t) t.textContent = '添加素材';
-  sheetRow('视频', 'mp4 / mov / mkv · 取时长并生成胶片条', () => pickFile('video'));
-  sheetRow('图片', 'jpg / png / webp · 默认 5 秒静帧', () => pickFile('image'));
-  sheetRow('音频', 'mp3 / wav / m4a / flac · 生成波形', () => pickFile('audio'));
+  if (t) t.textContent = '导入';
+  /* 四项：视频/图片合成「导入素材」一项（相册里两者混在一起），
+     音频单列一项 —— 相册里翻不到音乐，这是分开的直接原因。
+     「提取音频」是独立流程：先选视频，再从里面把声音剥出来。 */
+  sheetRow('导入素材', '从相册选择视频或图片', () => pickFile('media'), 'i-film', '#1f9e5a');
+  sheetRow('提取音频', '从视频中提取音频轨道', () => extractAudioFlow(), 'i-audio', '#8b5cf6');
+  sheetRow('从文件导入', '导入视频、音频或项目包', () => pickFile('all'), 'i-folder', '#2D8CFF');
+  sheetRow('导入音频', 'mp3 / wav / m4a / flac · 生成波形', () => pickFile('audio'), 'i-volume', '#f59e0b');
   E.sheet.hidden = false;
+}
+
+/* 从视频提取音频：先导入视频拿到素材 ID，再调 nc_extract_audio 流复制出音频文件，
+   最后把产物当普通音频素材导入。
+   注意：Web 预览没有本地绝对路径（只有文件名），真正能跑通要在平台层
+   （JNI 把 out_path 换成应用沙盒里的真实路径）。失败时如实报错，不假装成功。 */
+function extractAudioFlow() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
+  input.addEventListener('change', async () => {
+    const f = input.files[0];
+    closeSheet();
+    if (!f) return;
+    toast(`正在读取「${f.name}」…`, 3000);
+    const durUs = await probeDuration(f, false);
+    if (!durUs) {
+      toast(`「${f.name}」无法读取时长`, 3000);
+      return;
+    }
+    const videoId = await importToEngine(f.name, f.name, 0, durUs);
+    if (!videoId) {
+      toast('导入视频失败', 3000);
+      return;
+    }
+    // 产物与源同目录同名，扩展名换成 .m4a
+    const outPath = f.name.replace(/\.[^.]+$/, '') + '.m4a';
+    const r = engineCall('nc_extract_audio', { asset_id: videoId, out_path: outPath });
+    if (!r || !r.ok) {
+      toast('提取音频失败：' + ((r && r.message) || '未知错误'), 4000);
+      return;
+    }
+    const audioId = await importToEngine(outPath, outPath, 1, durUs);
+    if (audioId) {
+      toast('已提取音频');
+      if (typeof load === 'function') await load();
+    } else {
+      toast('音频已提取，但登记素材失败', 3000);
+    }
+  });
+  input.click();
 }
 /* label / sub 常来自用户数据（素材文件名、标记名），必须用 textContent
    而不是 innerHTML 拼接，否则文件名里带 < 就会被当成标签解析。
    图标位与结构在这里统一生成，调用方只提供纯文本。 */
-function sheetRow(label, sub, fn) {
+function sheetRow(label, sub, fn, icon, tint) {
   const b = document.createElement('button');
   b.className = 'sheet-item';
 
   const ico = document.createElement('span');
   ico.className = 'sheet-ico';
-  ico.textContent = '＋';
+  if (icon) {
+    /* icons.js 把图标注册成 <symbol id="i-xxx"> sprite，所以这里用 <use> 引用。
+       innerHTML 是安全的：拼进去的只有我们自己写死的图标名，不含用户数据。 */
+    ico.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">` +
+                    `<use href="#${icon}"/></svg>`;
+  } else {
+    ico.textContent = '＋';
+  }
+  if (tint) ico.style.background = tint;
 
   const box = document.createElement('span');
   box.style.flex = '1';
@@ -5002,8 +5055,13 @@ function sheetRow(label, sub, fn) {
   small.textContent = sub == null ? '' : String(sub);
   box.appendChild(small);
 
+  const chev = document.createElement('span');
+  chev.className = 'sheet-chev';
+  chev.textContent = '›';
+
   b.appendChild(ico);
   b.appendChild(box);
+  b.appendChild(chev);
   b.addEventListener('click', fn);
   E.sheetList.appendChild(b);
   return b;
@@ -5125,6 +5183,10 @@ function pickFile(kind) {
     video: 'video/*',
     image: 'image/*',
     audio: 'audio/*',
+    // 相册里视频和图片是混在一起的，所以「导入素材」两者都要
+    media: 'video/*,image/*',
+    // 「从文件导入」不限制类型（还可能是项目包）
+    all: 'video/*,image/*,audio/*',
   }[kind] || 'video/*,image/*,audio/*';
 
   const input = document.createElement('input');

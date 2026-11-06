@@ -51,6 +51,14 @@
 #include "nairoclip/core/template_fill.h"
 
 #ifdef NAIROCLIP_HAS_FFMPEG
+/* 提取音频用裸 avformat 做 remux（流复制），而 media_ffmpeg.h 只对外暴露
+   reader/writer 的封装、不导出 avformat 类型，所以这里单独包含。 */
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/avutil.h>
+}
+
 #include "nairoclip/core/export_plan.h"
 #include "nairoclip/core/export_runner.h"
 #include "nairoclip/core/media_ffmpeg.h"
@@ -5030,6 +5038,101 @@ int32_t nc_waveform_bucket_get(const NcEditor* editor, int32_t index, double* ou
 
 // ---- 场景检测 ----
 
+int32_t nc_extract_audio(NcEditor* editor, uint64_t asset_id, const char* out_path,
+                         char** out_error) {
+    if (editor == nullptr || asset_id == 0 || out_path == nullptr || out_path[0] == '\0') {
+        setDetail(out_error, "参数为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) {
+        setDetail(out_error, "素材不存在");
+        return failNc(NC_ERROR_NOT_FOUND, "素材不存在");
+    }
+#ifndef NAIROCLIP_HAS_FFMPEG
+    setDetail(out_error, "本构建未启用 FFmpeg，无法提取音频");
+    return failNc(NC_ERROR_UNSUPPORTED, "未启用 FFmpeg");
+#else
+    /* 用「流复制」而不是解码再编码：
+       提取音频只是把视频里的声音单独拿出来用，重编码既慢又有损。
+       remux 保留原始音质，几秒的素材毫秒级完成。
+
+       容器由 out_path 的**扩展名**决定（avformat_alloc_output_context2 自己推断）；
+       容器装不下源编码时（例如把 Vorbis 塞进 .m4a）在建流阶段就会被拒，
+       我们返回 UNSUPPORTED 并删掉半成品，不留坏文件。 */
+    AVFormatContext* in = nullptr;
+    if (avformat_open_input(&in, asset->path.c_str(), nullptr, nullptr) < 0) {
+        setDetail(out_error, "打不开源文件：" + asset->path);
+        return failNc(NC_ERROR_INTERNAL, "打不开源文件");
+    }
+    if (avformat_find_stream_info(in, nullptr) < 0) {
+        avformat_close_input(&in);
+        setDetail(out_error, "读不到流信息");
+        return failNc(NC_ERROR_INTERNAL, "读不到流信息");
+    }
+    const int audioIdx = av_find_best_stream(in, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    if (audioIdx < 0) {
+        avformat_close_input(&in);
+        setDetail(out_error, "该素材没有音频轨");
+        return failNc(NC_ERROR_NOT_FOUND, "没有音频轨");
+    }
+    AVStream* inStream = in->streams[audioIdx];
+
+    AVFormatContext* out = nullptr;
+    if (avformat_alloc_output_context2(&out, nullptr, nullptr, out_path) < 0 || out == nullptr) {
+        avformat_close_input(&in);
+        setDetail(out_error, "无法识别输出格式（看文件扩展名）");
+        return failNc(NC_ERROR_UNSUPPORTED, "无法识别输出格式");
+    }
+    AVStream* outStream = avformat_new_stream(out, nullptr);
+    if (outStream == nullptr ||
+        avcodec_parameters_copy(outStream->codecpar, inStream->codecpar) < 0) {
+        avformat_free_context(out);
+        avformat_close_input(&in);
+        setDetail(out_error, "建输出流失败");
+        return failNc(NC_ERROR_INTERNAL, "建输出流失败");
+    }
+    outStream->codecpar->codec_tag = 0;
+    outStream->time_base = inStream->time_base;
+
+    int ret = 0;
+    if (!(out->oformat->flags & AVFMT_NOFILE)) {
+        ret = avio_open(&out->pb, out_path, AVIO_FLAG_WRITE);
+    }
+    if (ret >= 0) ret = avformat_write_header(out, nullptr);
+    if (ret < 0) {
+        avformat_free_context(out);
+        avformat_close_input(&in);
+        std::remove(out_path);
+        setDetail(out_error, "容器不支持该音频编码，请换 .m4a/.mp3");
+        return failNc(NC_ERROR_UNSUPPORTED, "容器不支持该音频编码");
+    }
+
+    AVPacket* pkt = av_packet_alloc();
+    while (pkt != nullptr && av_read_frame(in, pkt) >= 0) {
+        if (pkt->stream_index == audioIdx) {
+            av_packet_rescale_ts(pkt, inStream->time_base, outStream->time_base);
+            pkt->stream_index = outStream->index;
+            pkt->pos = -1;
+            if (av_interleaved_write_frame(out, pkt) < 0) {
+                break;
+            }
+        }
+        av_packet_unref(pkt);
+    }
+    if (pkt != nullptr) {
+        av_packet_free(&pkt);
+    }
+    av_write_trailer(out);
+    if (!(out->oformat->flags & AVFMT_NOFILE) && out->pb != nullptr) {
+        avio_closep(&out->pb);
+    }
+    avformat_free_context(out);
+    avformat_close_input(&in);
+    return NC_OK;
+#endif
+}
+
 int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_samples,
                         int32_t* out_boundary_count, double** out_boundaries) {
     if (editor == nullptr) {
@@ -5563,11 +5666,113 @@ int easingIndexOf(const Keyframe& keyframe) {
         case EasingType::EaseOut: return 2;
         case EasingType::EaseInOut: return 3;
         case EasingType::Stepped: return 4;
+        /* Bezier 原来落到 default 返回 0（线性）—— 用户设了贝塞尔曲线，
+           面板读回来显示「线性」，再保存一次就被真正改成线性。
+           这是数据损坏，不是显示问题。 */
+        case EasingType::Bezier: return 5;
         default: return 0;
     }
 }
 
+/// 由 UI 的枚举值构造缓动。贝塞尔的 x 控制点钳到 [0,1] 保证单调，
+/// y 允许超出 [0,1]（过冲回弹是刻意支持的用法）。
+Easing easingFromIndex(int index, double c1x, double c1y, double c2x, double c2y) {
+    switch (index) {
+        case 1: return Easing::easeIn();
+        case 2: return Easing::easeOut();
+        case 3: return Easing::easeInOut();
+        case 4: return Easing::stepped();
+        case 5: {
+            const auto clamp01 = [](double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); };
+            return Easing::bezier(clamp01(c1x), c1y, clamp01(c2x), c2y);
+        }
+        default: return Easing::linear();
+    }
+}
+
 }  // namespace
+
+int32_t nc_set_keyframe_easing(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t property, int64_t time_us, int32_t easing,
+                               double c1x, double c1y, double c2x, double c2y) {
+    /* 为什么需要这个函数：`nc_insert_keyframe` 只写值、没有缓动参数，
+       结果是「关键帧能加，但曲线永远只能是线性」—— 用户要的自定义曲线
+       根本没有入口。底层 KeyframeTrack 一直支持 Bézier，只是没暴露。
+
+       实现走「同值重插」：KeyframeTrack::insert 对同一时刻是替换语义，
+       所以取出原值、换个 easing 再插回去，天然复用 InsertKeyframeCommand，
+       撤销栈行为与普通插帧一致，不需要新增命令类。 */
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || time_us < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (property < 0 || property >= kClipPropertyCount) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "通道越界");
+    }
+    if (easing < 0 || easing > 5) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "缓动类型越界");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道不存在");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    }
+    const ClipProperty prop = clipPropertyFromInt(property);
+    const KeyframeTrack* curve = clip->animation.findCurve(prop);
+    if (curve == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "该通道还没有关键帧");
+    }
+    // 按微秒比对找同一时刻，避免浮点误差
+    const std::int64_t want = toMicroseconds(fromMicroseconds(time_us));
+    const Keyframe* hit = nullptr;
+    for (const auto& k : curve->keyframes()) {
+        if (toMicroseconds(k.time) == want) { hit = &k; break; }
+    }
+    if (hit == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "该时刻没有关键帧");
+    }
+    Keyframe repl = *hit;
+    repl.easing = easingFromIndex(easing, c1x, c1y, c2x, c2y);
+    return failResult(editor->editor->insertKeyframe(main->id, track.id, ClipId{clip_id}, prop,
+                                                     repl));
+}
+
+int32_t nc_keyframe_get_ex(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t property, int32_t index, int64_t* out_time_us,
+                           double* out_value, int32_t* out_easing, double* out_c1x,
+                           double* out_c1y, double* out_c2x, double* out_c2y) {
+    /* 曲线编辑器必须知道控制点，否则打了贝塞尔也画不出那条曲线。
+       nc_keyframe_get 只有 easing 整数，贝塞尔控制点全丢。 */
+    if (editor == nullptr || track_index < 0 || clip_id == 0 || property < 0 ||
+        property >= kClipPropertyCount || index < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道不存在");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    }
+    const KeyframeTrack* curve = clip->animation.findCurve(clipPropertyFromInt(property));
+    if (curve == nullptr || static_cast<std::size_t>(index) >= curve->size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "关键帧不存在");
+    }
+    const Keyframe& k = curve->keyframes()[static_cast<std::size_t>(index)];
+    if (out_time_us != nullptr) *out_time_us = toMicroseconds(k.time);
+    if (out_value != nullptr) *out_value = k.value;
+    if (out_easing != nullptr) *out_easing = easingIndexOf(k);
+    if (out_c1x != nullptr) *out_c1x = k.easing.c1x;
+    if (out_c1y != nullptr) *out_c1y = k.easing.c1y;
+    if (out_c2x != nullptr) *out_c2x = k.easing.c2x;
+    if (out_c2y != nullptr) *out_c2y = k.easing.c2y;
+    return NC_OK;
+}
 
 int32_t nc_keyframe_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
                           int32_t property) {

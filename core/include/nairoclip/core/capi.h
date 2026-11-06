@@ -157,6 +157,17 @@ int32_t nc_asset_reorder(NcEditor* editor, int32_t from_index, int32_t to_index)
 uint64_t nc_import_asset(NcEditor* editor, const char* name, const char* path, int32_t type,
                          int64_t duration_us);
 
+/// 从已有视频素材中提取音频轨，写成独立音频文件（**流复制，不重编码**）。
+///
+/// 为什么用流复制：提取音频的目的只是「把视频里的声音拿出来当 BGM/配音用」，
+/// 重编码既慢又有损。直接 remux 保留原始音质，几秒素材毫秒级完成。
+///
+/// - out_path：输出文件路径，容器由**扩展名**决定（.m4a / .mp4 / .aac 配 AAC 源，
+///   .mp3 配 MP3 源）。容器装不下源编码时返回 NC_ERROR_UNSUPPORTED，不会产出坏文件。
+/// - 素材没有音频轨 → NC_ERROR_NOT_FOUND。
+int32_t nc_extract_audio(NcEditor* editor, uint64_t asset_id, const char* out_path,
+                         char** out_error);
+
 /// 添加轨道，返回轨道 ID（0 = 失败）。
 uint64_t nc_add_track(NcEditor* editor, const char* name, int32_t track_type);
 
@@ -673,6 +684,13 @@ int32_t nc_keyframe_get(const NcEditor* editor, int32_t track_index, uint64_t cl
                         int32_t property, int32_t index, int64_t* out_time_us,
                         double* out_value, int32_t* out_easing);
 
+/// 读取关键帧的完整缓动参数（含贝塞尔控制点）。
+/// 曲线编辑器必须拿到控制点，否则打了贝塞尔也画不出那条曲线。
+int32_t nc_keyframe_get_ex(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                           int32_t property, int32_t index, int64_t* out_time_us,
+                           double* out_value, int32_t* out_easing, double* out_c1x,
+                           double* out_c1y, double* out_c2x, double* out_c2y);
+
 // ---- 背景填充（文档 Part 4-C 第 11 节「背景」）----
 
 /// 背景填充模式（文档 11.1 三 Tab：颜色/模糊/画布样式；三 Tab 互斥）。
@@ -1093,6 +1111,20 @@ int32_t nc_insert_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_
 /// 删除关键帧。
 int32_t nc_remove_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                            int32_t property, int64_t time_us);
+
+/// 设置关键帧的缓动曲线（含自定义三次贝塞尔）。
+///
+/// 为什么单独一个函数：`nc_insert_keyframe` 只写值、**没有缓动参数**，
+/// 结果是「关键帧能加，但曲线永远只能是线性」—— UI 里想调曲线没有入口。
+/// 底层 `KeyframeTrack` 一直支持 Bézier，只是没暴露到 C ABI。
+///
+/// - easing：0 线性 / 1 缓入 / 2 缓出 / 3 缓入缓出 / 4 阶梯 / 5 贝塞尔
+/// - c1x..c2y：仅 easing=5 生效。控制点 x 会被钳到 [0,1] 保证单调求解；
+///   y 允许超出 [0,1]，用于过冲回弹（刻意支持）。
+/// 关键帧不存在时返回 NC_ERROR_NOT_FOUND（不做静默新建）。
+int32_t nc_set_keyframe_easing(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                               int32_t property, int64_t time_us, int32_t easing,
+                               double c1x, double c1y, double c2x, double c2y);
 
 // ---- 音频属性 ----
 

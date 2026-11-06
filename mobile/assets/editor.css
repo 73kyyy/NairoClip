@@ -1466,3 +1466,12 @@ body { -webkit-text-size-adjust: 100%; }
   flex-basis: 100%; margin-top: 6px;
   font-size: 11px; line-height: 1.5; color: var(--text-low);
 }
+
+/* ---- 导入面板（样板图形态：方形图标 + 标题/副标题 + 右箭头）----
+   .sheet-ico 原先是 52×30 的横条位，装不下 22px 图标。
+   这里放大成 40×40 圆角方块；行高一并加大，副标题换成两行说明。 */
+.sheet-item { padding: 10px 12px; border-radius: 12px; gap: 12px; }
+.sheet-ico { width: 40px; height: 40px; border-radius: 11px; color: #fff; }
+.sheet-ico svg { width: 22px; height: 22px; }
+.sheet-item small { font-size: 10.5px; line-height: 1.35; display: block; margin-top: 2px; }
+.sheet-chev { flex: none; color: #6C7378; font-size: 20px; line-height: 1; padding-right: 2px; }
