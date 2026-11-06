@@ -2740,6 +2740,197 @@ int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id
     return failResult(editor->editor->removeEffect(main->id, trackId, ClipId{clip_id}, EffectId{effect_id}));
 }
 
+/* 特效语义化规格（UI_BACKLOG P-10）。
+   ----------------------------------------------------------------------------
+   问题：35+ 个特效全用同一个 0..1 滑块，用户不知道 0.5 意味着什么 ——
+   「高斯模糊 0.5」和「暗角 0.5」在界面上长得一样，实际一个是 50 像素、
+   一个是半强度。
+
+   本函数把 name / unit / hint / 取值范围一次给全，UI 据此：
+     · 显示真实单位（px / Hz / s / % / °）；
+     · 在滑杆下方展示一句人话说明。
+
+   为什么一次性给全而不是分 4 个函数：这些都是同一份静态描述的字段，
+   分成 4 次跨 JNI 调用纯属浪费（每个特效在面板里都要查一次）。 */
+int32_t nc_effect_spec(int32_t type, char** out_name, char** out_unit, char** out_hint,
+                       double* out_min, double* out_max, double* out_def) {
+    if (type < 0 || type > static_cast<int32_t>(EffectType::LensFlare)) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "特效类型越界");
+    }
+    const EffectSpec spec = effectSpec(static_cast<EffectType>(type));
+    if (out_name != nullptr) *out_name = dupString(spec.name != nullptr ? spec.name : "");
+    if (out_unit != nullptr) *out_unit = dupString(spec.unit != nullptr ? spec.unit : "");
+    if (out_hint != nullptr) *out_hint = dupString(spec.hint != nullptr ? spec.hint : "");
+    if (out_min != nullptr) *out_min = spec.minValue;
+    if (out_max != nullptr) *out_max = spec.maxValue;
+    if (out_def != nullptr) *out_def = spec.defaultValue;
+    return NC_OK;
+}
+
+/* ============================================================================
+   超燃预设（UI_BACKLOG P-08 / B3-3）
+   ============================================================================
+   一键组合：把一组特效 + 强度总控合成一次操作。
+
+   ## 三个关键设计
+
+   ① **强度缩放必须区分参数类型**
+      对比度/饱和度的中性值是 1.0，直接乘 intensity 会把 1.4 变成 0.28
+      （画面变灰）；正确做法是以 1.0 为中心缩放：v' = 1 + (v-1) * k。
+      而闪光/RGB分离这类中性值是 0 的，直接 v' = v * k。
+
+   ② **展开可见**（文档要求「透明，不黑箱」）
+      `nc_surge_preset_describe()` 返回「具体会加什么」的文本，
+      UI 在应用前展示。用户点「应用」前就知道会发生什么。
+
+   ③ **一次撤销**
+      用 SetClipEffectsCommand 整栈替换，而不是循环 addEffect ——
+      后者会在撤销栈里留 5 条记录，按一次撤销只退掉最后一个特效。
+*/
+
+namespace {
+
+struct SurgeItem {
+    EffectType type;
+    double value;
+    /// true = 中性值是 1.0（乘性参数，如对比度）；false = 中性值 0
+    bool multiplicative;
+};
+
+struct SurgePreset {
+    const char* name;
+    const SurgeItem* items;
+    int count;
+};
+
+const SurgeItem kAnimeItems[] = {
+    {EffectType::Flash, 0.65, false},
+    {EffectType::RgbSplit, 0.50, false},
+    {EffectType::ZoomPunch, 0.80, false},
+    {EffectType::Contrast, 1.40, true},
+    {EffectType::Saturation, 1.30, true},
+    {EffectType::Vignette, 0.35, false},
+};
+
+const SurgeItem kSportsItems[] = {
+    {EffectType::Sharpen, 2.20, false},
+    {EffectType::Contrast, 1.30, true},
+    {EffectType::Saturation, 1.20, true},
+    {EffectType::Flash, 0.30, false},
+    {EffectType::MotionBlur, 0.45, false},
+};
+
+const SurgeItem kGameItems[] = {
+    {EffectType::Glitch, 0.40, false},
+    {EffectType::ZoomPunch, 0.60, false},
+    {EffectType::Saturation, 1.35, true},
+    {EffectType::Scanlines, 0.30, false},
+    {EffectType::Bloom, 0.60, false},
+};
+
+const SurgePreset kSurgePresets[] = {
+    {"动漫超燃", kAnimeItems, static_cast<int>(sizeof(kAnimeItems) / sizeof(kAnimeItems[0]))},
+    {"体育集锦", kSportsItems, static_cast<int>(sizeof(kSportsItems) / sizeof(kSportsItems[0]))},
+    {"游戏高光", kGameItems, static_cast<int>(sizeof(kGameItems) / sizeof(kGameItems[0]))},
+};
+
+constexpr int kSurgeCount = static_cast<int>(sizeof(kSurgePresets) / sizeof(kSurgePresets[0]));
+
+double scaleSurgeValue(const SurgeItem& it, double intensity) {
+    // 夹到 [0,1]，避免 UI 传越界值把效果推到离谱
+    const double k = intensity < 0.0 ? 0.0 : (intensity > 1.0 ? 1.0 : intensity);
+    if (it.multiplicative) {
+        return 1.0 + (it.value - 1.0) * k;   // 以 1.0 为中心缩放
+    }
+    return it.value * k;
+}
+
+/// 拼一句「会加什么」的描述（供 UI 在应用前展示）。
+std::string describeSurgePreset(int index) {
+    const SurgePreset& p = kSurgePresets[index];
+    std::string out = "包含：";
+    for (int i = 0; i < p.count; ++i) {
+        if (i > 0) out += " · ";
+        out += effectName(p.items[i].type);
+    }
+    return out;
+}
+
+}  // namespace
+
+int32_t nc_surge_preset_count(void) { return kSurgeCount; }
+
+const char* nc_surge_preset_name(int32_t index) {
+    if (index < 0 || index >= kSurgeCount) return "";
+    return kSurgePresets[index].name;
+}
+
+int32_t nc_surge_preset_describe(int32_t index, char** out_summary, char** out_error) {
+    if (index < 0 || index >= kSurgeCount) {
+        setDetail(out_error, "预设下标越界");
+        return failNc(NC_ERROR_OUT_OF_RANGE, "预设不存在");
+    }
+    if (out_summary != nullptr) *out_summary = dupString(describeSurgePreset(index));
+    return NC_OK;
+}
+
+int32_t nc_surge_preset_apply(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              int32_t preset_index, double intensity, char** out_summary,
+                              char** out_error) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        setDetail(out_error, "参数为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (preset_index < 0 || preset_index >= kSurgeCount) {
+        setDetail(out_error, "预设下标越界");
+        return failNc(NC_ERROR_OUT_OF_RANGE, "预设不存在");
+    }
+    if (!(intensity > 0.0 && intensity <= 1.0)) {
+        setDetail(out_error, "强度需在 (0, 1]");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "强度越界");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        setDetail(out_error, "轨道下标越界");
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道不存在");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = nullptr;
+    for (const auto& c : track.clips) {
+        if (c.id.value == clip_id) { clip = &c; break; }
+    }
+    if (clip == nullptr) {
+        setDetail(out_error, "片段不存在");
+        return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    }
+
+    // 在现有栈基础上追加（不覆盖用户已加的特效）
+    EffectStack next = clip->effects;
+    const SurgePreset& preset = kSurgePresets[preset_index];
+    for (int i = 0; i < preset.count; ++i) {
+        Effect e;
+        /* ID 必须唯一分配。
+           EffectStack::add 对**同 ID**做替换而不是追加（这是「改已有特效」的
+           设计），如果这里不给 e.id 分配值，默认 0 会让整组预设互相覆盖，
+           最终只剩最后一条 —— 用户点「超燃」只多出一个特效。 */
+        e.id = EffectId{editor->project.ids.next()};
+        e.type = preset.items[i].type;
+        e.value = scaleSurgeValue(preset.items[i], intensity);
+        e.enabled = true;
+        // 参数越界时跳过该条，不影响其余（不整体失败）
+        (void)next.add(e);
+    }
+
+    const Result r = editor->editor->setClipEffects(
+        main->id, track.id, ClipId{clip_id}, std::move(next));
+    if (!r.isOk()) {
+        setDetail(out_error, r.message);
+        return failResult(r);
+    }
+    if (out_summary != nullptr) *out_summary = dupString(describeSurgePreset(preset_index));
+    return NC_OK;
+}
+
 int32_t nc_effect_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
         return 0;

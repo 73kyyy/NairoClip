@@ -543,6 +543,12 @@ Result TimelineEditor::removeKeyframe(SequenceId sequenceId, TrackId trackId, Cl
         std::make_unique<RemoveKeyframeCommand>(sequenceId, trackId, clipId, property, at));
 }
 
+Result TimelineEditor::setClipEffects(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                                     EffectStack effects) {
+    return commit(std::make_unique<SetClipEffectsCommand>(sequenceId, trackId, clipId,
+                                                          std::move(effects)));
+}
+
 Result TimelineEditor::addEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                                   Effect effect) {
     return commit(std::make_unique<AddEffectCommand>(sequenceId, trackId, clipId,

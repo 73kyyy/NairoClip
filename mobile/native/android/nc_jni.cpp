@@ -1100,6 +1100,83 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         if (summary) nc_free_string(summary);
         return true;
     }
+    if (op == "nc_surge_preset_count") {
+        *out = Ok("{\"value\":" + std::to_string(nc_surge_preset_count()) + "}");
+        return true;
+    }
+    if (op == "nc_surge_preset_name") {
+        const int32_t idx = static_cast<int32_t>(JInt(a, "index", 0));
+        *out = Ok("{\"value\":\"" + JEsc(nc_surge_preset_name(idx)) + "\"}");
+        return true;
+    }
+    if (op == "nc_surge_preset_describe") {
+        const int32_t idx = static_cast<int32_t>(JInt(a, "index", 0));
+        char* summary = nullptr;
+        char* err = nullptr;
+        const int32_t rc = nc_surge_preset_describe(idx, &summary, &err);
+        if (rc != NC_OK) {
+            const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(rc));
+            if (err) nc_free_string(err);
+            if (summary) nc_free_string(summary);
+            *out = Err("读取预设说明失败：" + m);
+            return true;
+        }
+        *out = Ok("{\"summary\":\"" + JEsc(summary ? summary : "") + "\"}");
+        if (err) nc_free_string(err);
+        if (summary) nc_free_string(summary);
+        return true;
+    }
+    if (op == "nc_surge_preset_apply") {
+        const int32_t trackIdx = static_cast<int32_t>(JInt(a, "track_index", -1));
+        const uint64_t clipId = static_cast<uint64_t>(JInt(a, "clip_id", 0));
+        const int32_t idx = static_cast<int32_t>(JInt(a, "preset_index", 0));
+        const double intensity = JNum(a, "intensity", 0.5);
+        char* summary = nullptr;
+        char* err = nullptr;
+        const int32_t rc = nc_surge_preset_apply(ed, trackIdx, clipId, idx, intensity,
+                                                 &summary, &err);
+        if (rc != NC_OK) {
+            const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(rc));
+            if (err) nc_free_string(err);
+            if (summary) nc_free_string(summary);
+            *out = Err("应用预设失败：" + m);
+            return true;
+        }
+        *out = Ok("{\"summary\":\"" + JEsc(summary ? summary : "") + "\"}");
+        if (err) nc_free_string(err);
+        if (summary) nc_free_string(summary);
+        return true;
+    }
+    if (op == "nc_effect_spec") {
+        // int32_t nc_effect_spec(type, out_name, out_unit, out_hint, out_min, out_max, out_def)
+        // 无 editor 参数；纯静态描述查询（UI_BACKLOG P-10 语义化控件）。
+        const int32_t type = static_cast<int32_t>(JInt(a, "type", 0));
+        char* name = nullptr;
+        char* unit = nullptr;
+        char* hint = nullptr;
+        double mn = 0.0;
+        double mx = 1.0;
+        double df = 0.0;
+        const int32_t rc = nc_effect_spec(type, &name, &unit, &hint, &mn, &mx, &df);
+        if (rc != NC_OK) {
+            if (name) nc_free_string(name);
+            if (unit) nc_free_string(unit);
+            if (hint) nc_free_string(hint);
+            *out = Err("读取特效规格失败（类型 " + std::to_string(type) + "）");
+            return true;
+        }
+        std::string j = "{\"name\":\"" + JEsc(name ? name : "") +
+                        "\",\"unit\":\"" + JEsc(unit ? unit : "") +
+                        "\",\"hint\":\"" + JEsc(hint ? hint : "") +
+                        "\",\"min\":" + std::to_string(mn) +
+                        ",\"max\":" + std::to_string(mx) +
+                        ",\"def\":" + std::to_string(df) + "}";
+        *out = Ok(j);
+        if (name) nc_free_string(name);
+        if (unit) nc_free_string(unit);
+        if (hint) nc_free_string(hint);
+        return true;
+    }
     if (op == "nc_template_apply_slots") {
         /* int32_t nc_template_apply_slots(editor, template_id, slot_indices,
                                            material_ids, count, out_summary, out_error)

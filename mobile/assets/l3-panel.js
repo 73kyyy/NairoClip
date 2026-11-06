@@ -469,6 +469,7 @@
     if (c.kind === 'number') return numberRow(key, c);
     if (c.kind === 'button') return buttonRow(key, c);
     if (c.kind === 'blend') return blendRow(key, c);
+    if (c.kind === 'surgegrid') return surgeGridRow(key, c);
     if (c.kind === 'text') return textRow(key, c);
     if (c.kind === 'action') return actionRow(key, c);
     return null;
@@ -789,6 +790,69 @@
     return row;
   }
 
+  /* 超燃预设按钮组（P-08）。
+     选项从内核取（nc_surge_preset_count / _name），不硬编码 ——
+     内核增删预设时界面自动跟随。
+     选中后展示「具体会加什么」（nc_surge_preset_describe），
+     这是文档要求的「透明不黑箱」：用户点应用前就知道会发生什么。 */
+  function surgeGridRow(key, c) {
+    const row = document.createElement('div');
+    row.className = 'prow prow-surge';
+    row.innerHTML = `<span class="plabel wide">${c.name}</span>
+      <div class="surge-grid"></div>
+      <div class="surge-desc" id="surgeDesc"></div>`;
+    const grid = row.querySelector('.surge-grid');
+    const desc = row.querySelector('.surge-desc');
+
+    const call = (fn, args) => {
+      const f = window.NC_API && window.NC_API[fn];
+      if (typeof f !== 'function') return null;
+      try { return f(args || {}); } catch (e) { return null; }
+    };
+
+    // 读预设清单
+    const cntR = call('nc_surge_preset_count');
+    const n = (cntR && cntR.ok && typeof cntR.result === 'number') ? cntR.result
+            : (cntR && cntR.ok && cntR.result && typeof cntR.result.value === 'number')
+              ? cntR.result.value : 0;
+    const names = [];
+    for (let i = 0; i < n; ++i) {
+      const r = call('nc_surge_preset_name', { index: i });
+      const v = (r && r.ok) ? (typeof r.result === 'string' ? r.result
+                              : (r.result && r.result.value) || '') : '';
+      names.push(v || ('预设 ' + (i + 1)));
+    }
+
+    if (!n) {
+      grid.innerHTML = '<div class="empty-hint" style="font-size:11px">预设列表读取失败</div>';
+      return row;
+    }
+
+    const cur = (ST.values[key] === undefined) ? 0 : ST.values[key];
+    const showDesc = (idx) => {
+      const r = call('nc_surge_preset_describe', { index: idx });
+      const s2 = (r && r.ok) ? ((typeof r.result === 'string') ? r.result
+                               : (r.result && r.result.summary) || '') : '';
+      desc.textContent = s2 || '';
+    };
+
+    names.forEach((nm, i) => {
+      const b = document.createElement('button');
+      b.className = 'surge-btn' + (i === cur ? ' on' : '');
+      b.textContent = nm;
+      b.addEventListener('click', () => {
+        ST.values[key] = i;
+        grid.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+        showDesc(i);
+      });
+      grid.appendChild(b);
+    });
+    ST.values[key] = cur;
+    showDesc(cur);
+    return row;
+  }
+
   /* 文本输入框（§4.6）。
      与 slider/color 的差别：输入是**离散、低频**的（一句话只在敲完时变），
      所以直接写 ST.values，不需要像滑块那样为了防抖而单独节流 ——
@@ -841,7 +905,49 @@
   /* 面板内的具名同步动作。刻意不放进 editor.js：
      它们依赖面板的 ST.values（用户还没提交的参数），
      放在这里能直接读到，不用额外的全局状态。 */
+  /* 内核改动后刷新时间轴。
+     正确链路是 applyState(fetchState()) 之后再 renderAll() ——
+     只 renderAll() 是拿内存旧状态重画，改动根本不会体现。
+     （两个函数都在 editor.js 里声明为顶层函数，因此是全局可见的。） */
+  function refreshTimeline() {
+    try {
+      if (typeof fetchState === 'function' && typeof applyState === 'function') {
+        applyState(fetchState());
+      }
+      if (typeof renderAll === 'function') renderAll();
+    } catch (e) {
+      /* 刷新失败不影响已提交的修改，下一次交互会自然重画 */
+    }
+  }
+
   const ACTIONS = {
+    /* 应用超燃预设（P-08）。
+       一次调用即完成「整组特效 + 强度缩放」，且**一次撤销可回退整组**
+       （内核侧用 SetClipEffectsCommand 整栈替换，不是循环 addEffect）。
+
+       为什么强度由内核算而不是前端乘：对比度/饱和度的中性值是 1.0，
+       缩放要以 1.0 为中心；前端不知道哪个参数是乘性的、哪个是加性的，
+       自己乘必然出错（1.4 × 0.2 = 0.28 会让画面变灰）。 */
+    applySurge: async () => {
+      const sel = currentSelection();
+      if (!sel) { toast('请先选中一个片段'); return; }
+      const idx = ST.values.surgepreset === undefined ? 0 : ST.values.surgepreset;
+      const intensity = ST.values.surgeamt === undefined ? 0.6 : ST.values.surgeamt;
+      const r = engineCall('nc_surge_preset_apply', {
+        track_index: sel.track.index,
+        clip_id: sel.clip.id,
+        preset_index: idx,
+        intensity: intensity
+      });
+      if (!r || !r.ok) {
+        toast('应用失败：' + ((r && r.message) || '未知错误'), 3000);
+        return;
+      }
+      const summary = (r.result && r.result.summary) || '';
+      toast(summary ? '已应用：' + summary : '已应用预设', 2600);
+      close();
+      refreshTimeline();
+    },
     /* 用当前面板参数创建一条文本片段（§4.6）。
        三个关键决定：
          · 时间范围取「当前播放头 → +3 秒」—— 用户点「新建文本」时
@@ -860,7 +966,7 @@
       const color = ST.values.textcolor || '#FFFFFF';
       const alignment = ST.values.valign == null ? 1 : ST.values.valign;
 
-      const id = await engineCall('nc_add_text_clip', {
+      const r = await engineCall('nc_add_text_clip', {
         text,
         start_us: startUs,
         duration_us: durationUs,
@@ -870,15 +976,16 @@
         anchor_x: 0.5,
         anchor_y: 0.5
       });
-      if (!id) {
-        toast('创建文本失败');
+      /* engineCall 返回的是 {ok, result, message} 而不是 id ——
+         原来写 `if (!id)` 判断，对象恒为真，失败也会提示「已创建」，
+         用户会以为加了文字但时间轴上没有。 */
+      if (!r || !r.ok) {
+        toast('创建文本失败：' + ((r && r.message) || '未知错误'), 3000);
         return;
       }
       toast('已创建文本');
-      closePanel();
-      if (typeof window.NC_RELOAD === 'function') {
-        await window.NC_RELOAD();
-      }
+      close();
+      refreshTimeline();
     }
   };
 
@@ -1353,6 +1460,51 @@
     }
   }
 
+  /* ---------------- 特效规格缓存（P-10）----------------
+     为什么缓存：面板里每个效果行展开都要查一次规格，同一特效可能被
+     加多次（叠两个雪花）。不缓存就是每次展开都跨一次 JNI。
+     规格是**静态描述**（内核里是 constexpr 表），永不变化，缓存安全。 */
+  const EFFECT_SPEC_CACHE = {};
+  const EFFECT_SPEC_FALLBACK = { min: 0, max: 1, def: 0, unit: '', hint: '', name: '' };
+
+  function effectSpecOf(type) {
+    if (EFFECT_SPEC_CACHE[type]) return EFFECT_SPEC_CACHE[type];
+    let spec = Object.assign({}, EFFECT_SPEC_FALLBACK);
+    try {
+      const r = (window.NC_API && window.NC_API.nc_effect_spec)
+        ? window.NC_API.nc_effect_spec({ type: type })
+        : null;
+      if (r && r.ok && r.result) {
+        const x = r.result;
+        spec = {
+          min: typeof x.min === 'number' ? x.min : 0,
+          max: typeof x.max === 'number' ? x.max : 1,
+          def: typeof x.def === 'number' ? x.def : 0,
+          unit: x.unit || '',
+          hint: x.hint || '',
+          name: x.name || ''
+        };
+      }
+    } catch (e) { /* 老引擎没有这个接口：用兜底 0..1，行为与改动前一致 */ }
+    EFFECT_SPEC_CACHE[type] = spec;
+    return spec;
+  }
+
+  /** 数值显示：带真实单位。
+      百分比**只在没有单位时**才用 —— 原来无条件显示 %，
+      导致「高斯模糊 1%」这种误导（实际是 1 像素，且上限该是 100 像素）。 */
+  function specText(spec, v) {
+    const n = Number(v);
+    if (spec.unit === 'px') return `${Math.round(n)}px`;
+    if (spec.unit === 'Hz') return `${(+n).toFixed(1)}Hz`;
+    if (spec.unit === 's') return `${(+n).toFixed(1)}s`;
+    if (spec.unit === '°') return `${Math.round(n)}°`;
+    if (spec.unit === '%') return `${Math.round(n * 100)}%`;
+    // 无单位：范围是 0..1 时按百分比展示（更直观），否则直接显示数值
+    if (spec.max <= 1.0001 && spec.min >= -0.0001) return `${Math.round(n * 100)}%`;
+    return (+n).toFixed(1);
+  }
+
   /* 一行效果 */
   function fxRow(e, idx) {
     const st = fxState();
@@ -1448,16 +1600,30 @@
       const detail = document.createElement('div');
       detail.className = 'fx-detail';
 
-      const cfg = (window.L3_SPEC.controls || {}).fxamt || { min: 0, max: 100, step: 1 };
+      /* 语义化参数（UI_BACKLOG P-10）。
+         ------------------------------------------------------------------
+         **这里原来有个真实缺陷**：滑块硬编码 0..1（显示时 ×100 当百分比），
+         然后写回 `value = pct/100`。而内核的每个特效有**自己的取值范围**：
+
+           · 高斯模糊 0..100（像素）—— 旧代码最大只能给到 1px，等于没效果
+           · 锐化     0..5
+           · 其余多数 0..1
+
+         现在按 `nc_effect_spec(type)` 取真实 min/max/default/unit/hint，
+         滑块范围与单位都用内核的声明，不再猜。 */
+      const spec = effectSpecOf(e.type);
       const valEl = document.createElement('div');
       valEl.className = 'fx-val';
       const slider = document.createElement('input');
       slider.type = 'range';
       slider.className = 'fx-range';
-      slider.min = String(cfg.min);
-      slider.max = String(cfg.max);
-      slider.step = String(cfg.step);
-      slider.value = String(Math.round(e.value * 100));
+      // 范围来自内核；step 按量级选（像素用 1，比例用 0.01）
+      const span = Math.max(1e-6, spec.max - spec.min);
+      const step = span > 10 ? 1 : (span > 1 ? 0.1 : 0.01);
+      slider.min = String(spec.min);
+      slider.max = String(spec.max);
+      slider.step = String(step);
+      slider.value = String(e.value);
 
       let rafId = 0;          // 拖动合并：一帧最多写一次，避免桥被打爆
       let pending = null;
@@ -1478,10 +1644,10 @@
       };
 
       slider.addEventListener('input', () => {
-        const pct = Number(slider.value);
-        valEl.textContent = `${pct}%`;
-        e.value = pct / 100;               // 本地先更新，松手后由刷新同步
-        pending = pct / 100;
+        const v = Number(slider.value);
+        valEl.textContent = specText(spec, v);
+        e.value = v;                       // 本地先更新，松手后由刷新同步
+        pending = v;
         if (!rafId) rafId = requestAnimationFrame(flush);
       });
       // 滑块上的任何事件都不许冒到 row：row 的 click 会重绘列表，
@@ -1496,9 +1662,17 @@
         flush();
       });
 
-      valEl.textContent = `${Math.round(e.value * 100)}%`;
+      valEl.textContent = specText(spec, e.value);
       detail.appendChild(valEl);
       detail.appendChild(slider);
+      /* hint：一句人话说明这个参数在画面上是什么。
+         没有 hint 的特效不占位（不显示空行）。 */
+      if (spec.hint) {
+        const hintEl = document.createElement('div');
+        hintEl.className = 'fx-hint';
+        hintEl.textContent = spec.hint;
+        detail.appendChild(hintEl);
+      }
       // 不能 append 进 row：row 是横向 flex，会把滑块挤成一条。
       // 交给挂载方（fxPanel）插在 row 之后，形成「行 + 展开区」两段。
       row._fxDetail = detail;

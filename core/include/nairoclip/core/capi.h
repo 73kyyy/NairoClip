@@ -993,6 +993,37 @@ int32_t nc_remove_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id
                          uint64_t effect_id);
 
 /// 读取片段特效数量（含已隐藏的；无上限）。
+/// 特效的语义化规格（UI_BACKLOG P-10）。
+///
+/// 问题：35+ 个特效共用 0..1 滑块，用户不知道 0.5 意味着什么 ——
+/// 「高斯模糊 0.5」和「暗角 0.5」在界面上一样，实际一个 50 像素、一个半强度。
+///
+/// - type：EffectType 的整数值（0..38，即到 LensFlare 为止；越界返回 OUT_OF_RANGE）；
+/// - out_name / out_unit / out_hint：需 nc_free_string（可 NULL）；
+/// - out_min / out_max / out_def：取值范围与默认值（可 NULL）。
+int32_t nc_effect_spec(int32_t type, char** out_name, char** out_unit, char** out_hint,
+                       double* out_min, double* out_max, double* out_def);
+
+// ---- 超燃预设（UI_BACKLOG P-08 / B3-3）----
+//
+// 一键组合：把一组特效 + 强度总控合成一次操作（一次撤销即可回退整组）。
+//
+// **强度缩放区分参数类型**：对比度/饱和度的中性值是 1.0，以 1.0 为中心
+// 缩放（v' = 1 + (v-1)*k）；闪光/RGB分离等中性值是 0，直接 v' = v*k。
+// 混用会让画面变灰（1.4 * 0.2 = 0.28）。
+
+/// 预设数量（当前 3：动漫超燃 / 体育集锦 / 游戏高光）。
+int32_t nc_surge_preset_count(void);
+/// 预设名称（越界返回空串）。
+const char* nc_surge_preset_name(int32_t index);
+/// 预设「具体会加什么」的描述（**需 nc_free_string**）。
+/// 用途：UI 在应用前展示，做到「透明、不黑箱」（文档要求）。
+int32_t nc_surge_preset_describe(int32_t index, char** out_summary, char** out_error);
+/// 应用预设。intensity ∈ (0,1]；在现有特效栈上**追加**（不覆盖已有）。
+int32_t nc_surge_preset_apply(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                              int32_t preset_index, double intensity, char** out_summary,
+                              char** out_error);
+
 int32_t nc_effect_count(const NcEditor* editor, int32_t track_index, uint64_t clip_id);
 
 /// 读取第 index 个特效。

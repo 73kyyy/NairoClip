@@ -163,6 +163,9 @@ public:
                           ClipProperty property, const Time& at);
     // ---- 特效 ----
     /// 添加/更新片段特效。
+    /// 整体替换片段效果栈（一键预设用；一次撤销即可回退整组）。
+    Result setClipEffects(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          EffectStack effects);
     Result addEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, Effect effect);
     /// 删除片段特效。
     Result removeEffect(SequenceId sequenceId, TrackId trackId, ClipId clipId, EffectId effectId);

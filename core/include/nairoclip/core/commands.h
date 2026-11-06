@@ -795,6 +795,29 @@ private:
 };
 
 
+/// 整体替换片段的效果栈（用于「一键预设」这类组合操作）。
+///
+/// 为什么需要它（而不是循环调 AddEffectCommand）：
+/// 一键预设会一次加 3~5 个特效 + 速度曲线 + LUT。逐个提交会让
+/// 撤销栈里出现 5 条记录，用户按一次撤销只退掉最后一个特效 ——
+/// 「一键组合」必须能一键撤销。整栈替换天然满足这一点。
+class SetClipEffectsCommand : public Command {
+public:
+    SetClipEffectsCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                          EffectStack effects);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    std::string nameImpl() const override { return "应用预设特效"; }
+
+private:
+    SequenceId sequenceId_;
+    TrackId trackId_;
+    ClipId clipId_;
+    EffectStack after_;
+    std::optional<EffectStack> before_;
+};
+
 /// 添加/更新片段特效。
 class AddEffectCommand : public Command {
 public:

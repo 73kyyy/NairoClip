@@ -15,50 +15,50 @@ namespace core {
 
 EffectSpec effectSpec(EffectType type) {
     switch (type) {
-        case EffectType::None: return EffectSpec{0.0, 0.0, 0.0, "无"};
-        case EffectType::Brightness: return EffectSpec{-1.0, 1.0, 0.0, "亮度"};
-        case EffectType::Contrast: return EffectSpec{0.0, 3.0, 1.0, "对比度"};
-        case EffectType::Saturation: return EffectSpec{0.0, 3.0, 1.0, "饱和度"};
-        case EffectType::Temperature: return EffectSpec{-1.0, 1.0, 0.0, "色温"};
-        case EffectType::Tint: return EffectSpec{-1.0, 1.0, 0.0, "色调"};
-        case EffectType::Grayscale: return EffectSpec{0.0, 1.0, 0.0, "灰度"};
-        case EffectType::Sepia: return EffectSpec{0.0, 1.0, 0.0, "复古"};
-        case EffectType::Vignette: return EffectSpec{0.0, 1.0, 0.0, "暗角"};
-        case EffectType::GaussianBlur: return EffectSpec{0.0, 100.0, 0.0, "高斯模糊"};
-        case EffectType::Sharpen: return EffectSpec{0.0, 5.0, 0.0, "锐化"};
-        case EffectType::Grain: return EffectSpec{0.0, 1.0, 0.0, "噪点"};
-        case EffectType::Fade: return EffectSpec{0.0, 1.0, 0.0, "褪色"};
+        case EffectType::None: return EffectSpec{0.0, 0.0, 0.0, "无", "", ""};
+        case EffectType::Brightness: return EffectSpec{-1.0, 1.0, 0.0, "亮度", "", "整体提亮或压暗；+1 约两档曝光，-1 约压两档"};
+        case EffectType::Contrast: return EffectSpec{0.0, 3.0, 1.0, "对比度", "", "1 = 原始；>1 明暗反差更强，<1 更平"};
+        case EffectType::Saturation: return EffectSpec{0.0, 3.0, 1.0, "饱和度", "", "1 = 原始；0 = 黑白；>1 颜色更艳"};
+        case EffectType::Temperature: return EffectSpec{-1.0, 1.0, 0.0, "色温", "", "负数偏冷（蓝），正数偏暖（橙）"};
+        case EffectType::Tint: return EffectSpec{-1.0, 1.0, 0.0, "色调", "", "负数偏绿，正数偏品红"};
+        case EffectType::Grayscale: return EffectSpec{0.0, 1.0, 0.0, "灰度", "", "1 = 完全黑白"};
+        case EffectType::Sepia: return EffectSpec{0.0, 1.0, 0.0, "复古", "", "1 = 完全复古棕调"};
+        case EffectType::Vignette: return EffectSpec{0.0, 1.0, 0.0, "暗角", "", "四角压暗的程度；1 最重"};
+        case EffectType::GaussianBlur: return EffectSpec{0.0, 100.0, 0.0, "高斯模糊", "px", "模糊半径（像素）：数值越大越糊"};
+        case EffectType::Sharpen: return EffectSpec{0.0, 5.0, 0.0, "锐化", "", "锐化强度；过大出现白边"};
+        case EffectType::Grain: return EffectSpec{0.0, 1.0, 0.0, "噪点", "", "胶片颗粒感；1 最明显"};
+        case EffectType::Fade: return EffectSpec{0.0, 1.0, 0.0, "褪色", "", "提黑位、降对比，胶片褪色感"};
         // ---- 画面特效（文档第二段 5.1）----
-        case EffectType::Glitch: return EffectSpec{0.0, 1.0, 0.0, "故障"};
-        case EffectType::SplitScreen: return EffectSpec{0.0, 1.0, 0.0, "分屏"};
-        case EffectType::Mirror: return EffectSpec{0.0, 1.0, 0.0, "镜像"};
-        case EffectType::RadialBlur: return EffectSpec{0.0, 1.0, 0.0, "旋转模糊"};
-        case EffectType::Scanlines: return EffectSpec{0.0, 1.0, 0.0, "扫描线"};
-        case EffectType::RgbSplit: return EffectSpec{0.0, 1.0, 0.0, "RGB 分离"};
+        case EffectType::Glitch: return EffectSpec{0.0, 1.0, 0.0, "故障", "", "RGB 通道偏移 + 色块替换，故障艺术风"};
+        case EffectType::SplitScreen: return EffectSpec{0.0, 1.0, 0.0, "分屏", "", "2×2 宫格，每格一份完整画面"};
+        case EffectType::Mirror: return EffectSpec{0.0, 1.0, 0.0, "镜像", "", "左右翻转"};
+        case EffectType::RadialBlur: return EffectSpec{0.0, 1.0, 0.0, "旋转模糊", "", "绕画面中心做角度偏移采样"};
+        case EffectType::Scanlines: return EffectSpec{0.0, 1.0, 0.0, "扫描线", "", "周期性横向暗纹，CRT 显示器感"};
+        case EffectType::RgbSplit: return EffectSpec{0.0, 1.0, 0.0, "RGB 分离", "", ""};
         // ---- 氛围特效（文档第二段 5.3）----
-        case EffectType::Snow: return EffectSpec{0.0, 1.0, 0.0, "雪花"};
-        case EffectType::Rain: return EffectSpec{0.0, 1.0, 0.0, "下雨"};
-        case EffectType::LightLeak: return EffectSpec{0.0, 1.0, 0.0, "光斑"};
-        case EffectType::OldFilm: return EffectSpec{0.0, 1.0, 0.0, "老电影"};
-        case EffectType::Starburst: return EffectSpec{0.0, 1.0, 0.0, "星光"};
+        case EffectType::Snow: return EffectSpec{0.0, 1.0, 0.0, "雪花", "", "粒子引擎：下落速度与密度随强度增加"};
+        case EffectType::Rain: return EffectSpec{0.0, 1.0, 0.0, "下雨", "", "粒子引擎：雨丝密度随强度增加"};
+        case EffectType::LightLeak: return EffectSpec{0.0, 1.0, 0.0, "光斑", "", "胶片漏光：光斑扫过并闪烁"};
+        case EffectType::OldFilm: return EffectSpec{0.0, 1.0, 0.0, "老电影", "", "划痕 + 画面抖动 + 颗粒"};
+        case EffectType::Starburst: return EffectSpec{0.0, 1.0, 0.0, "星光", "", "高光位置的十字星芒"};
         // ---- 动感特效（文档第二段 5.4）----
-        case EffectType::ZoomPunch: return EffectSpec{0.0, 1.0, 0.0, "缩放冲击"};
-        case EffectType::WhipPan: return EffectSpec{0.0, 1.0, 0.0, "甩镜"};
-        case EffectType::BeatFlicker: return EffectSpec{0.0, 1.0, 0.0, "变速闪烁"};
-        case EffectType::BeatRhythm: return EffectSpec{0.0, 1.0, 0.0, "节奏律动"};
-        case EffectType::MotionBlur: return EffectSpec{0.0, 1.0, 0.0, "运动模糊"};
+        case EffectType::ZoomPunch: return EffectSpec{0.0, 1.0, 0.0, "缩放冲击", "", "按节拍做脉冲式缩放，冲击感"};
+        case EffectType::WhipPan: return EffectSpec{0.0, 1.0, 0.0, "甩镜", "", "方向性模糊，模拟快速转镜头"};
+        case EffectType::BeatFlicker: return EffectSpec{0.0, 1.0, 0.0, "变速闪烁", "", "随节拍闪一下亮度"};
+        case EffectType::BeatRhythm: return EffectSpec{0.0, 1.0, 0.0, "节奏律动", "", "整体随节拍做律动"};
+        case EffectType::MotionBlur: return EffectSpec{0.0, 1.0, 0.0, "运动模糊", "", "多帧叠加；在帧序列层处理，导出时生效"};
         // ---- 画面特效补充（文档 Part 4-B 5.2）----
-        case EffectType::Flash: return EffectSpec{0.0, 1.0, 0.0, "闪光"};
-        case EffectType::Mosaic: return EffectSpec{0.0, 1.0, 0.0, "马赛克"};
+        case EffectType::Flash: return EffectSpec{0.0, 1.0, 0.0, "闪光", "", "整帧瞬时提亮"};
+        case EffectType::Mosaic: return EffectSpec{0.0, 1.0, 0.0, "马赛克", "", "像素化块替换；数值越大块越大"};
         // ---- 人物特效（文档 Part 4-B 5.2「人物特效」）----
-        case EffectType::Jitter: return EffectSpec{0.0, 1.0, 0.0, "抖动"};
-        case EffectType::ZoomIn: return EffectSpec{0.0, 1.0, 0.0, "放大"};
-        case EffectType::EdgeDetect: return EffectSpec{0.0, 1.0, 0.0, "边缘检测"};
-        case EffectType::Slim: return EffectSpec{0.0, 1.0, 0.0, "瘦身"};
-        case EffectType::GlowOutline: return EffectSpec{0.0, 1.0, 0.0, "发光轮廓"};
-        case EffectType::Shake: return EffectSpec{0.0, 1.0, 0.0, "震动"};
-        case EffectType::Bloom: return EffectSpec{0.0, 1.0, 0.0, "泛光"};
-        case EffectType::LensFlare: return EffectSpec{0.0, 1.0, 0.0, "镜头光晕"};
+        case EffectType::Jitter: return EffectSpec{0.0, 1.0, 0.0, "抖动", "", "整帧随机小幅位移"};
+        case EffectType::ZoomIn: return EffectSpec{0.0, 1.0, 0.0, "放大", "", "中心区域局部放大采样"};
+        case EffectType::EdgeDetect: return EffectSpec{0.0, 1.0, 0.0, "边缘检测", "", "Sobel 边缘提取，线稿感"};
+        case EffectType::Slim: return EffectSpec{0.0, 1.0, 0.0, "瘦身", "", "人像区域横向压缩（需先抠像得到 Alpha）"};
+        case EffectType::GlowOutline: return EffectSpec{0.0, 1.0, 0.0, "发光轮廓", "", "抠像边缘高斯模糊后叠加发光（需 Alpha）"};
+        case EffectType::Shake: return EffectSpec{0.0, 1.0, 0.0, "震动", "", "震动；完整参数在震动面板里调"};
+        case EffectType::Bloom: return EffectSpec{0.0, 1.0, 0.0, "泛光", "", "高光外溢：灯、反光、白字会发光"};
+        case EffectType::LensFlare: return EffectSpec{0.0, 1.0, 0.0, "镜头光晕", "", "光源圆盘 + 沿光线方向的鬼影串"};
     }
     return EffectSpec{};
 }

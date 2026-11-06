@@ -2292,6 +2292,39 @@ Result SetClipBackgroundCommand::revert(Project& project) {
 
 // ---------------- 特效命令 ----------------
 
+// ---------------------------------------------------------------------------
+// 整体替换效果栈（一键预设）
+// ---------------------------------------------------------------------------
+
+SetClipEffectsCommand::SetClipEffectsCommand(SequenceId sequenceId, TrackId trackId,
+                                             ClipId clipId, EffectStack effects)
+    : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), after_(std::move(effects)) {}
+
+Result SetClipEffectsCommand::apply(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    // 快照整个栈（不只是新增的那几条）—— 撤销要回到「应用预设前」的完整状态
+    if (!before_.has_value()) {
+        before_ = clip->effects;
+    }
+    clip->effects = after_;
+    return Result::ok();
+}
+
+Result SetClipEffectsCommand::revert(Project& project) {
+    Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
+    if (clip == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "片段不存在");
+    }
+    if (!before_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少效果栈快照");
+    }
+    clip->effects = *before_;
+    return Result::ok();
+}
+
 AddEffectCommand::AddEffectCommand(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                                    Effect effect)
     : sequenceId_(sequenceId), trackId_(trackId), clipId_(clipId), effect_(std::move(effect)) {}

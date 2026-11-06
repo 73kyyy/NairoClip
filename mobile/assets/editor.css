@@ -1433,3 +1433,36 @@ body { -webkit-text-size-adjust: 100%; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 特效展开区的参数说明（P-10）。
+   一行灰字，说明这个数值在画面上是什么 ——
+   35 个特效共用滑块的年代，用户不知道 0.5 意味着什么。 */
+.fx-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-low);
+  padding: 2px 0 4px;
+}
+
+/* ---- 超燃预设面板（P-08）---- */
+.prow-surge { align-items: flex-start; }
+.plabel.wide { min-width: 44px; }
+.surge-grid {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.surge-btn {
+  flex: 1 1 auto; min-width: 72px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid transparent;
+  color: var(--text-hi); font-size: 12px; line-height: 1.2;
+  transition: border-color .15s, background .15s;
+}
+.surge-btn.on {
+  border-color: var(--accent);
+  background: rgba(45, 140, 255, .14);
+  color: var(--accent);
+}
+.surge-desc {
+  flex-basis: 100%; margin-top: 6px;
+  font-size: 11px; line-height: 1.5; color: var(--text-low);
+}

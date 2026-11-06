@@ -844,7 +844,11 @@ const L2 = {
     /* 「转换」= 移动/变换类：位移、旋转、缩放、沿路径等，
        与上面四类「视觉特效」不同 —— 它改的是几何位置，不重新着色。
        图标单独设计（两个错位的方框 + 箭头），与 i-fx 区分开。 */
-    { id: 'xform', name: '转换', icon: 'i-xform' }
+    { id: 'xform', name: '转换', icon: 'i-xform' },
+    /* 超燃预设（P-08）：一键组合多个特效。
+       放在「特效」分类末尾而不是「模板」—— 它作用于**当前选中片段**，
+       不生成新时间轴；用户心智里这是「给这段加点料」。 */
+    { id: 'surge', name: '超燃预设', icon: 'i-bolt' }
   ],
   trans: [
     { id: 'transpreset', name: '预设转场', icon: 'i-trans' },
@@ -1044,6 +1048,8 @@ function runFunction(cat, f) {
     case 'fxatmo':     return openL3('fxatmo');
     case 'fxmotion':   return openL3('fxmotion');
     case 'xform':      return openTransformPanel();
+    /* 超燃预设（P-08）：需要选中片段（作用于当前片段，不新建时间轴） */
+    case 'surge':      return openL3('surge');
     /* 转场 */
     case 'transpreset': return openL3('transpreset');
     case 'transkf':     return openL3('transkf');

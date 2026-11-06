@@ -115,6 +115,14 @@
        单行 input 会把换行吃掉，用户在别处粘贴的多行文本会变成一行。 */
     textbody:  { kind: 'text', name: '文本内容', placeholder: '输入文字…', rows: 3 },
 
+    /* —— 超燃预设（P-08）—— */
+    /* 预设按钮组：选项**运行时从内核取**（nc_surge_preset_count/name），
+       不在 spec 里硬编码名字 —— 否则内核改了预设名，界面还是旧的。 */
+    surgepreset: { kind: 'surgegrid', name: '预设' },
+    surgeamt: { kind: 'slider', name: '强度', icon: 'i-bolt',
+                min: 0.1, max: 1, step: 0.05, def: 0.6, unit: '%', scale: 100 },
+    surgeapply: { kind: 'action', name: '应用预设', icon: 'i-bolt', action: 'applySurge' },
+
     /* —— 光流补帧（RIFE）—— */
     /* 目标帧率：补帧到多少 fps。三档对应 InterpolationTarget 枚举。
        为什么不做滑杆：帧率是离散档位（60/120/240），
@@ -250,6 +258,14 @@
       groups: [['speed', 'keeppitch']],
       curve: { presets: CURVE_PRESETS, unit: 'x' },
       pageNames: ['常规', '曲线']
+    },
+    /* 超燃预设（P-08）：一键组合多个特效 + 强度总控。
+       下方会展示「具体会加什么」（来自 nc_surge_preset_describe），
+       做到透明不黑箱 —— 文档明确要求。 */
+    surge: {
+      title: '超燃预设', mode: 'single',
+      groups: [['surgepreset'], ['surgeamt'], ['surgeapply']],
+      note: '应用后在「特效」列表里可以看到具体加了哪些，可逐条修改或删除'
     },
     /* 光流补帧（RIFE）：把片段补到 60/120/240fps。
        之前完全没有前端入口 —— interpolation_ai.cpp 有完整实现、
