@@ -303,6 +303,9 @@ class NativeEngineBridge(
     /* ---- 崩溃捕获与内存释放（§8.1 / §8.2）---- */
     private external fun nativeInstallCrashHandler(dir: String): Boolean
     private external fun nativeReleaseMemory(level: Int): Long
+    /* ---- 帧缓存预算分级（§8.2 第 9 条）---- */
+    private external fun nativePreviewSetCacheBudget(bytes: Long): Int
+    private external fun nativePreviewGetCacheBudget(): Long
     private external fun nativeInstallModel(handle: Long, modelId: String, data: ByteArray,
                                             path: String, sha256: String,
                                             nowUnix: Long): String
@@ -388,6 +391,35 @@ class NativeEngineBridge(
             }
         }
 
+        /**
+         * 设置帧缓存预算（§8.2 第 9 条：按设备内存分级）。
+         *
+         * 由 MainActivity 在引擎创建后调用。返回 true 表示生效；
+         * 引擎未就绪返回 false（调用方可在引擎就绪后重试）。
+         *
+         * 为什么不在这里读 Context 自己算：计算逻辑属于平台层策略
+         * （MemoryGuard.frameCacheBudgetBytes），而这里只负责跨 JNI 传递。
+         * 分开的好处是预算算法可以单测，不必起引擎。
+         */
+        fun setPreviewCacheBudget(bytes: Long): Boolean {
+            val inst = instanceForSurface ?: return false
+            return try {
+                inst.nativePreviewSetCacheBudget(bytes) == 0
+            } catch (e: Throwable) {
+                false
+            }
+        }
+
+        /** 读取引擎当前的帧缓存预算（字节；引擎未就绪返回 -1）。 */
+        fun previewCacheBudget(): Long {
+            val inst = instanceForSurface ?: return -1L
+            return try {
+                inst.nativePreviewGetCacheBudget()
+            } catch (e: Throwable) {
+                -1L
+            }
+        }
+
         /** 释放内存（§8.2 第 11 条）。返回估算释放字节数。 */
         fun releaseMemory(level: Int): Long {
             val inst = instanceForSurface ?: return 0L
@@ -407,9 +439,28 @@ class NativeEngineBridge(
             }
         }
 
-        /** 由实例构造时登记（Activity 创建后调用一次）。 */
-        fun bindInstance(inst: NativeEngineBridge) {
+        /**
+         * 由实例构造时登记（Activity 创建后调用一次）。
+         *
+         * 同时在这里**把帧缓存预算推给引擎**（§8.2 第 9 条）。
+         *
+         * 为什么放在这里而不是 MainActivity：
+         *   · 这是「引擎已就绪」唯一可靠的时机点（nativeCreate 刚跑完）；
+         *   · 放在 Activity 里要额外管生命周期，容易漏调或重复调；
+         *   · 预算算法在 MemoryGuard（需要 Context），而 bindInstance
+         *     拿不到 Context —— 所以由 Activity 把算好的值传进来。
+         *
+         * 失败不影响任何功能：core 侧有 96MB 的保守默认值兜底。
+         */
+        fun bindInstance(inst: NativeEngineBridge, cacheBudgetBytes: Long = 0L) {
             instanceForSurface = inst
+            if (cacheBudgetBytes > 0) {
+                try {
+                    inst.nativePreviewSetCacheBudget(cacheBudgetBytes)
+                } catch (e: Throwable) {
+                    android.util.Log.w("NcMemory", "帧缓存预算设置失败（用默认值）", e)
+                }
+            }
         }
     }
 }

@@ -69,29 +69,33 @@ public:
     /// 1080p（约 8MB/帧）是 96MB 还能接受，
     /// 但 4K（约 33MB/帧）就是 400MB —— 移动端会被系统直接杀掉。
     /// 用户可以选择任意分辨率与帧率，所以容量必须随画幅自适应。
-    /// 帧缓存字节预算（默认值 = 中端设备）。
+    /// 帧缓存字节预算的**默认值**（平台层未调用 setFrameCacheBudgetBytes 时）。
     ///
-    /// **为什么不再固定 96MB**：96MB 对旗舰机太保守（8GB/12GB 机型完全
-    /// 可以给 128MB，多缓存十几帧能让长镜头拖动更顺），对低端机又太激进
-    /// （2–3GB 机型上 96MB 会挤压解码器与 WebView）。
+    /// 为什么是 96MB：1080p 单帧 RGBA = 8.3MB，96MB ≈ 11 帧（0.37s @30fps），
+    /// 覆盖「来回拖一下」的最低需求。低于此值（如 64MB = 7 帧）缓存
+    /// 命中率会明显下降；高于此值在低端机上可能挤压解码器缓冲。
     ///
-    /// 现在由平台层按设备内存分级调用 setFrameCacheBudgetBytes()；
-    /// 未调用时保持 96MB 的保守默认（与改动前逐字节一致）。
+    /// 实际值由平台层按设备计算后传入（Android: MemoryGuard），
+    /// 分档见 android/app/src/main/java/com/nairoclip/app/MemoryGuard.kt：
+    ///   物理内存 ≥12GB → 192MB；≥8GB → 160；≥6GB → 128；≥4GB → 96；否则 64
+    ///   再受 memoryClass × 40% 约束，下限 48MB
     static constexpr std::size_t kFrameCacheBudgetBytes = 96u * 1024u * 1024u;
 
     /// 设置帧缓存字节预算（平台层按设备内存分级调用）。
     ///
-    /// 建议值（Android ActivityManager.getMemoryClass 为参考）：
-    ///   · memoryClass >= 512（旗舰）→ 128 MB
-    ///   · memoryClass >= 256（中端）→ 96 MB（默认）
-    ///   · 其它（低端）              → 48 MB
+    /// 建议取值由平台层按设备计算（Android 见 MemoryGuard）：
+    ///   物理内存 ≥12GB → 192MB；≥8GB → 160；≥6GB → 128；≥4GB → 96；否则 64
+    ///   再受 memoryClass × 40% 约束，下限 48MB
     ///
-    /// 与 Kotlin 侧 MemoryGuard.frameCacheBudgetBytes() 的取值范围一致
-    /// （clamp(memoryClass × 30%, 48MB, 128MB)）—— 两处必须对齐，
-    /// 否则「Kotlin 算出的预算」与「core 实际用的」不同，参数形同虚设。
+    /// 为什么用「物理内存分档」而不是只看 memoryClass：
+    /// 帧缓存是 native heap（std::vector<uint8_t>），不受 Java 堆限制。
+    /// 24GB 手机的 memoryClass 仍是 512MB，只看它会让 24GB 与 8GB
+    /// 设备拿到同一个预算，毫无区分度。
+    /// 但也不能只看物理内存：native 与 Java 堆共享进程预算，
+    /// 所以还要 memoryClass × 40% 作为上界。
     ///
-    /// 下限 24MB / 上限 256MB：防止误传导致缓存过小（等于关掉缓存）
-    /// 或过大（挤爆低端机）。
+    /// 这里夹在 [24MB, 256MB] 只是**防御性保护**（防误传），
+    /// 真正的分档策略在平台层 —— core 不该知道设备型号。
     void setFrameCacheBudgetBytes(std::size_t bytes);
     std::size_t frameCacheBudgetBytes() const { return frameCacheBudget_; }
     /// 帧数下限（保证小画幅下也有基本的来回拖动命中）

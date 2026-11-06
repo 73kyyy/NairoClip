@@ -143,8 +143,21 @@ class MainActivity : AppCompatActivity() {
         engine = eng
         webView.addJavascriptInterface(eng, "NCEngine")
         /* 登记实例供 Surface 相关 companion 方法转发（P6）。
-           必须在 WebView 加载页面之前 —— JS 一加载就可能请求帧。 */
-        NativeEngineBridge.bindInstance(eng)
+           必须在 WebView 加载页面之前 —— JS 一加载就可能请求帧。
+
+           同时把帧缓存预算推给引擎（§8.2 第 9 条）。
+           预算是**按设备算的**（MemoryGuard.frameCacheBudgetBytes:
+           物理内存分档 + memoryClass 约束），在引擎刚创建时设置一次即可 ——
+           运行中不需要改（设备内存不会变）。 */
+        val cacheBudget = try {
+            MemoryGuard.frameCacheBudgetBytes(applicationContext)
+        } catch (e: Throwable) {
+            0L   // 算不出来就让 core 用默认 96MB
+        }
+        android.util.Log.i("NcMemory",
+            "帧缓存预算 ${cacheBudget / (1024 * 1024)} MB " +
+            "（memoryClass=${(getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).memoryClass}MB）")
+        NativeEngineBridge.bindInstance(eng, cacheBudget)
         webView.addJavascriptInterface(NativeAuthBridge(this, webView), "NCAndroid")
         /* 预览区坐标桥（P6）：JS 上报预览区位置，SurfaceView 据此定位。
            独立命名空间，不与认证桥混用。 */

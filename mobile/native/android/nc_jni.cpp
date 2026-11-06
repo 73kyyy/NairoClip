@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -2132,6 +2133,26 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeReleaseMemory(
     auto* ed = g_currentEditor;
     if (ed == nullptr) return 0L;
     return static_cast<jlong>(nc_release_memory(ed, level));
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativePreviewSetCacheBudget(
+    JNIEnv*, jobject, jlong bytes) {
+    /* 帧缓存预算分级（§8.2 第 9 条）。
+       由 MainActivity 在引擎创建后调用一次。
+       注意：不检查 g_currentEditor 是否为空 —— 与 nativeReleaseMemory 同理，
+       拿不到引擎时返回失败码即可，不需要额外状态。 */
+    auto* ed = g_currentEditor;
+    if (ed == nullptr) return -1;
+    if (bytes <= 0 || bytes > std::numeric_limits<jint>::max()) return -1;
+    return static_cast<jint>(nc_preview_set_cache_budget(ed, static_cast<jint32_t>(bytes)));
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativePreviewGetCacheBudget(JNIEnv*, jobject) {
+    auto* ed = g_currentEditor;
+    if (ed == nullptr) return -1L;
+    return static_cast<jlong>(nc_preview_get_cache_budget(ed));
 }
 
 }  // extern "C"

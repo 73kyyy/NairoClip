@@ -78,20 +78,63 @@ class MemoryGuard(
         /**
          * 按设备内存算帧缓存预算（§8.2 第 9 条）。
          *
-         * 关键：读 memoryClass（本 App 的堆限制），不是手机总内存。
-         * 24GB 的旗舰机，单 App 堆限制通常仍是 256-512MB。
+         * ## 为什么需要两个指标
          *
-         * 取堆的约 30%，因为帧缓存之外还有：解码器缓冲、Bitmap、
-         * WebView 自身的堆、代理渲染的临时缓冲。
+         * 帧缓存存的是 `std::vector<uint8_t>`（**native heap**），
+         * 不受 Java 堆（`memoryClass`）直接限制 —— 单看 memoryClass 会
+         * 让 24GB 手机和 8GB 手机拿到同一个 128MB，毫无区分度。
          *
-         * 上限 128MB —— OOM 是断崖式的（不是变慢，是进程被杀）。
+         * 但也不能只看物理内存：native 与 Java 堆共享同一个进程预算，
+         * 24GB 手机如果给 8GB 帧缓存，进程照样会被系统杀掉。
+         *
+         * 所以两个一起看：
+         *   · **物理内存（totalMem）** 决定档位 —— 大内存设备 native 可以多给；
+         *   · **memoryClass × 0.4** 作为上界 —— 防止 native 吃光进程预算。
+         *
+         * ## 分档依据
+         *
+         * 1080p 单帧 RGBA = 8.3MB（1920×1080×4）。各档能存：
+         *   192MB → 23 帧（0.77s @30fps）
+         *   128MB → 15 帧（0.50s）
+         *    64MB →  7 帧（0.23s）
+         *
+         * 0.5 秒是「来回拖一下」的合理缓存深度；低于这个值，
+         * 用户拖超过半秒就要全部重算，体感明显卡顿。所以 4GB 设备
+         * 保底 64MB（0.23s）—— 再少不如不做缓存。
+         *
+         * ## 与 core 的对齐
+         *
+         * 算出的值由 MainActivity 通过 `nc_preview_set_cache_budget`
+         * 传给引擎。core 侧还会夹在 [24MB, 256MB]（见 preview.cpp），
+         * 这里不重复那层保护 —— 单一职责：这里只负责「按设备算」。
          */
         fun frameCacheBudgetBytes(context: Context): Long {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                ?: return 64L * 1024 * 1024
+                ?: return 96L * 1024 * 1024   // 拿不到服务：用 curl 过的中位数，不用最保守的 64
+
+            // 1) 按物理内存分档
+            val totalMemBytes = android.app.ActivityManager.MemoryInfo().also {
+                am.getMemoryInfo(it)
+            }.totalMem
+            val totalGb = totalMemBytes / (1024.0 * 1024.0 * 1024.0)
+            val tierMb = when {
+                totalGb >= 12.0 -> 192L
+                totalGb >= 8.0 -> 160L
+                totalGb >= 6.0 -> 128L
+                totalGb >= 4.0 -> 96L
+                else -> 64L
+            }
+
+            // 2) 受 memoryClass 约束：native 不能吃光进程预算。
+            //    0.4 而不是 0.3 —— 原来 0.3 在 512MB 堆上只给 154MB，
+            //    把 12GB 设备压到了 154MB（本该 192MB）。
+            //    0.4 在 512MB 堆上给 204MB，不成为瓶颈；在 192MB 堆上
+            //    给 77MB，仍能挡住低端机被误配成旗舰值。
             val memClassMb = am.memoryClass.toLong()
-            val budgetMb = (memClassMb * 30L) / 100L
-            return budgetMb.coerceIn(48L, 128L) * 1024L * 1024L
+            val cappedMb = (memClassMb * 40L) / 100L
+
+            val budgetMb = minOf(tierMb, cappedMb).coerceAtLeast(48L)
+            return budgetMb * 1024 * 1024
         }
 
         fun deviceTier(context: Context): String {

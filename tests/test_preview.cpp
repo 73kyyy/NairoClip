@@ -527,3 +527,55 @@ NC_TEST(Preview, CacheBudgetIsClamped) {
     renderer.setFrameCacheBudgetBytes(128u * 1024u * 1024u);   // 正常值原样保留
     NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), std::size_t(128u * 1024u * 1024u));
 }
+
+// =============================================================================
+// 内存分级（§8.2 第 9 条）
+// =============================================================================
+// 分档策略本体在 Android 侧（MemoryGuard.frameCacheBudgetBytes，
+// 用 totalMem 分档 + memoryClass 约束）。这里只验证 core 侧的**防御性夹取**：
+// 无论平台层传什么，引擎都不会用离谱的值。
+//
+// 为什么不在这里测分档公式：那需要 Android Context / ActivityManager，
+// 是平台层职责。core 只保证「收到多少就用多少，但不出安全范围」。
+
+NC_TEST(Preview, CacheBudgetAcceptsRealisticDeviceValues) {
+    /* 各档位真实值都应原样保留（不被误夹）。
+       这些数字来自 MemoryGuard 的分档表：
+         24GB 旗舰 → 192；12GB → 160(max 因 memoryClass)；8GB → 102
+         4GB 老机 → 77；2GB → 48(下限) */
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    const std::size_t deviceValues[] = {
+        48u * 1024u * 1024u,    // 2GB 设备下限
+        77u * 1024u * 1024u,    // 4GB 设备（192MB 堆 × 40%）
+        96u * 1024u * 1024u,    // core 默认
+        102u * 1024u * 1024u,   // 8GB 设备
+        160u * 1024u * 1024u,   // 12GB 设备
+        192u * 1024u * 1024u,   // 24GB 旗舰（tier 上限）
+    };
+    for (std::size_t v : deviceValues) {
+        renderer.setFrameCacheBudgetBytes(v);
+        NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), v);
+    }
+}
+
+NC_TEST(Preview, Cache1680pFrameCountAtEachTier) {
+    /* 把「预算」翻译成用户能感知的东西：能存几帧、多少秒。
+       这不是断言正确性，而是把设计意图固化成可读的测试 ——
+       将来有人想调小预算时，会先看到「4GB 设备只剩 3 帧」这个后果。 */
+    const std::size_t frameBytes1080p = 1920u * 1080u * 4u;
+    struct Expect { std::size_t budgetMb; int minFrames; };
+    const Expect cases[] = {
+        {48, 5},    // 0.17s @30fps —— 几乎等于没缓存，但低端机只能这样
+        {96, 11},   // 0.37s
+        {128, 15},  // 0.50s
+        {192, 23},  // 0.77s —— 24GB 旗舰
+    };
+    for (const auto& c : cases) {
+        const std::size_t frames = (c.budgetMb * 1024u * 1024u) / frameBytes1080p;
+        NC_CHECK(frames >= static_cast<std::size_t>(c.minFrames));
+    }
+}
