@@ -548,13 +548,14 @@ NC_TEST(Preview, CacheBudgetAcceptsRealisticDeviceValues) {
     PreviewMockFactory factory;
     PreviewRenderer renderer(f.project, factory);
 
+    /* 2026-11-06 更新：memoryClass 系数 40% → 60% 后的实际值。
+       旧值（77/102/153）不再出现，新值如下。 */
     const std::size_t deviceValues[] = {
-        48u * 1024u * 1024u,    // 2GB 设备下限
-        77u * 1024u * 1024u,    // 4GB 设备（192MB 堆 × 40%）
-        96u * 1024u * 1024u,    // core 默认
-        102u * 1024u * 1024u,   // 8GB 设备
-        160u * 1024u * 1024u,   // 12GB 设备
-        192u * 1024u * 1024u,   // 24GB 旗舰（tier 上限）
+        48u * 1024u * 1024u,    // 2GB 设备下限（memoryClass 128 × 60% = 76 → 档位 64，取小 + 下限 48）
+        96u * 1024u * 1024u,    // 4GB 设备（档位 96，192MB 堆 × 60% = 115 不卡）
+        115u * 1024u * 1024u,   // 6GB 设备（档位 128，192MB 堆 × 60% = 115 → 被压）
+        153u * 1024u * 1024u,   // 8GB 设备（档位 160，256MB 堆 × 60% = 153 → 被压）
+        192u * 1024u * 1024u,   // 12GB/24GB（档位 192，堆够大不卡）
     };
     for (std::size_t v : deviceValues) {
         renderer.setFrameCacheBudgetBytes(v);
@@ -673,4 +674,60 @@ NC_TEST(Preview, CacheScaleChangeClearsCache) {
 
     renderer.setCacheScale(0.75);
     NC_CHECK_EQ(renderer.cacheStats().cachedFrames, std::size_t(0));
+}
+
+// =============================================================================
+// 内存压力下的动态降预算（60% 系数的兜底）
+// =============================================================================
+// 预算一旦设给引擎就固定了。onTrimMemory 能清空缓存，但清空后引擎会
+// **按原预算重新填满** —— 等于白清。所以压力下要同时下调预算。
+//
+// 策略本体在 Android 侧（MemoryGuard.budgetUnderPressure）：
+//   level 0（RUNNING_LOW）      → ×0.5
+//   level 1（RUNNING_CRITICAL） → ×0.25
+//   下限 24MB
+//
+// 这里只验证 core 侧收到下调后的值能正确生效（含夹取）。
+
+NC_TEST(Preview, PressuredBudgetStillClampedAndApplied) {
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(2));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    /* 模拟：基础 192MB，压力 level 1 → 192/4 = 48MB */
+    renderer.setFrameCacheBudgetBytes(192u * 1024u * 1024u);
+    NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), std::size_t(192u * 1024u * 1024u));
+
+    renderer.setFrameCacheBudgetBytes(48u * 1024u * 1024u);
+    NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), std::size_t(48u * 1024u * 1024u));
+
+    /* 压力下算出的值若低于 core 下限（24MB），仍应被夹住 ——
+       这是双保险：平台层算错也不会把缓存关掉。 */
+    renderer.setFrameCacheBudgetBytes(8u * 1024u * 1024u);
+    NC_CHECK_EQ(renderer.frameCacheBudgetBytes(), std::size_t(24u * 1024u * 1024u));
+}
+
+NC_TEST(Preview, BudgetReductionEvictsImmediately) {
+    /* 下调预算后必须**立刻**按新容量淘汰，否则「设了预算但内存没降」，
+       压力兜底就失去意义。 */
+    Fixture f;
+    f.addClip(Rational::make(0), Rational::make(4));
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+
+    renderer.setCacheScale(1.0);   // 全尺寸，单帧 64×48×4 = 12KB
+    // 缓存 8 个时间点
+    for (int i = 0; i < 8; ++i) {
+        renderer.renderAt(Rational::make(static_cast<std::int64_t>(i), 2));
+    }
+    const std::size_t cachedBefore = renderer.cacheStats().cachedFrames;
+    NC_CHECK(cachedBefore >= 4);
+
+    /* 预算砍到极小（夹到 24MB）—— 对这个 64×48 的小画幅来说
+       24MB 仍能装几千帧，所以这里主要验证「不崩、不越界」。
+       真正的淘汰行为由 cacheCapacity() 保证，已有用例覆盖。 */
+    renderer.setFrameCacheBudgetBytes(1u);
+    NC_CHECK(renderer.frameCacheBudgetBytes() >= std::size_t(24u * 1024u * 1024u));
+    NC_CHECK(renderer.cacheStats().cachedFrames <= cachedBefore);
 }

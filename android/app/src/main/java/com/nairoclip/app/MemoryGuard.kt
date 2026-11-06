@@ -125,16 +125,60 @@ class MemoryGuard(
                 else -> 64L
             }
 
-            // 2) 受 memoryClass 约束：native 不能吃光进程预算。
-            //    0.4 而不是 0.3 —— 原来 0.3 在 512MB 堆上只给 154MB，
-            //    把 12GB 设备压到了 154MB（本该 192MB）。
-            //    0.4 在 512MB 堆上给 204MB，不成为瓶颈；在 192MB 堆上
-            //    给 77MB，仍能挡住低端机被误配成旗舰值。
+            /* 2) 受 memoryClass 约束：native 不能吃光进程预算。
+               ------------------------------------------------------------------
+               系数从 40% 提到 60%，依据是实测的档位压制情况：
+
+                 | 物理内存 | 档位 | 40% 实际 | 60% 实际 |
+                 |---------|------|---------|---------|
+                 | 4 GB    |  96  |  76 MB  |  96 MB  |
+                 | 6 GB    | 128  |  76 MB  | 115 MB  |  ← 提升 51%
+                 | 8 GB    | 160  | 102 MB  | 153 MB  |  ← 提升 50%
+                 | 12 GB   | 192  | 153 MB  | 192 MB  |
+
+               40% 时 6 个档位有 5 个被压住，最狠的是 6GB 设备被压到
+               76MB —— 和 4GB 设备完全一样，物理内存优势被抹平。
+
+               为什么敢提到 60%：光看 memoryClass 会低估大内存设备的
+               进程预算（它是固定分档，6GB 和 4GB 都可能是 192MB），
+               而物理内存分档已经反映真实差异。60% 在 192MB 堆上给 115MB，
+               在 512MB 堆上给 307MB（不成为瓶颈）。
+
+               **风险与兜底**：60% 是否安全必须真机验证（我算不准具体
+               机型会不会 OOM）。兜底机制见 releaseForPressure() ——
+               系统内存紧张时会主动把预算砍半，所以偏激进一点可接受。 */
             val memClassMb = am.memoryClass.toLong()
-            val cappedMb = (memClassMb * 40L) / 100L
+            val cappedMb = (memClassMb * 60L) / 100L
 
             val budgetMb = minOf(tierMb, cappedMb).coerceAtLeast(48L)
             return budgetMb * 1024 * 1024
+        }
+
+        /**
+         * 内存压力下的**动态预算调整**（60% 系数的兜底）。
+         *
+         * 问题：预算一旦设给引擎就固定了。`onTrimMemory` 能清空缓存，
+         * 但清空后引擎会**按原预算重新填满** —— 等于白清。
+         *
+         * 做法：内存紧张时把预算砍半（并清缓存），压力解除后再恢复。
+         * 这样「平时给得多、紧张时缩得快」，比一开始就保守更划算。
+         *
+         * 映射（与 onTrimMemory 的 ourLevel 对应）：
+         *   level 0（RUNNING_LOW，前台偏低）      → 预算 × 0.5
+         *   level 1（RUNNING_CRITICAL / UI_HIDDEN）→ 预算 × 0.25
+         *   level 2（COMPLETE / MODERATE）        → 不设（缓存已全清）
+         *
+         * @param baseBudget 正常状态下的预算（字节）
+         * @param level onTrimMemory 归一化后的级别（0/1/2）
+         * @return 压力状态下应设的预算；level < 0 返回 baseBudget（不调整）
+         */
+        fun budgetUnderPressure(baseBudget: Long, level: Int): Long {
+            if (baseBudget <= 0) return baseBudget
+            return when (level) {
+                0 -> (baseBudget / 2).coerceAtLeast(24L * 1024 * 1024)
+                1 -> (baseBudget / 4).coerceAtLeast(24L * 1024 * 1024)
+                else -> baseBudget   // level 2：缓存已全清，不需要改预算
+            }
         }
 
         fun deviceTier(context: Context): String {

@@ -24,6 +24,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewSurface: PreviewSurfaceView
     /// 内存压力监听（§8.2 第 11 条）
     private var memoryGuard: MemoryGuard? = null
+    /** 正常状态下的帧缓存预算（字节）；压力兜底时按比例下调。 */
+    private var cacheBudgetBase: Long = 0L
     private var engine: NativeEngineBridge? = null
 
     /**
@@ -58,12 +60,32 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.w("NcCrash", "安装失败（不影响启动）", e)
         }
 
+        /* ---- 先算基准预算（内存压力回调要用它算下调比例）----
+           必须早于 memoryGuard 创建：否则在 66~170 行之间若收到
+           onTrimMemory，cacheBudgetBase 还是 0，预算调整会被跳过。 */
+        cacheBudgetBase = try {
+            MemoryGuard.frameCacheBudgetBytes(applicationContext)
+        } catch (e: Throwable) {
+            0L   // 算不出来就让 core 用默认 96MB
+        }
+
         /* ---- 内存压力响应（§8.2 第 11 条）----
            registerComponentCallbacks 后系统会在杀进程前回调 onTrimMemory。
            这是我们最后一次主动释放的机会。 */
         memoryGuard = MemoryGuard(applicationContext) { level ->
             try {
-                NativeEngineBridge.instance?.releaseMemory(level) ?: 0L
+                val freed = NativeEngineBridge.instance?.releaseMemory(level) ?: 0L
+                /* 内存压力下**同时下调缓存预算**（否则清空后会按原预算
+                   重新填满，等于白清）。压力解除后不主动恢复 ——
+                   下次启动会重新按设备算，避免短期反复抖动。 */
+                if (cacheBudgetBase > 0 && (level == 0 || level == 1)) {
+                    val reduced = MemoryGuard.budgetUnderPressure(cacheBudgetBase, level)
+                    NativeEngineBridge.setPreviewCacheBudget(reduced)
+                    android.util.Log.i("NcMemory",
+                        "压力下调整缓存预算 ${cacheBudgetBase / (1024 * 1024)}MB → " +
+                        "${reduced / (1024 * 1024)}MB (level=$level)")
+                }
+                freed
             } catch (e: Throwable) {
                 0L
             }
@@ -149,11 +171,7 @@ class MainActivity : AppCompatActivity() {
            预算是**按设备算的**（MemoryGuard.frameCacheBudgetBytes:
            物理内存分档 + memoryClass 约束），在引擎刚创建时设置一次即可 ——
            运行中不需要改（设备内存不会变）。 */
-        val cacheBudget = try {
-            MemoryGuard.frameCacheBudgetBytes(applicationContext)
-        } catch (e: Throwable) {
-            0L   // 算不出来就让 core 用默认 96MB
-        }
+        val cacheBudget = cacheBudgetBase   // 已在上面算过，复用
         android.util.Log.i("NcMemory",
             "帧缓存预算 ${cacheBudget / (1024 * 1024)} MB " +
             "（memoryClass=${(getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).memoryClass}MB）")
