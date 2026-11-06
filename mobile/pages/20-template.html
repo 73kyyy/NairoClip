@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip · AI 模板剪辑</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/flow.css">
+<link rel="stylesheet" href="../assets/template.css">
+</head>
+<body>
+<div class="screen">
+
+  <!-- 顶栏：返回 + 标题 + 已选数量 -->
+  <header class="flow-hd">
+    <button class="back" id="btn-back" aria-label="返回">
+      <svg class="i"><use href="#i-chevron"/></svg>
+    </button>
+    <span class="title">AI 模板剪辑</span>
+    <span class="sp"></span>
+    <span class="meta" id="hd-meta"></span>
+  </header>
+
+  <div class="flow-body">
+
+    <div class="flow-search">
+      <svg class="i"><use href="#i-search"/></svg>
+      <input id="q" type="search" placeholder="搜索模板名称 / 分类" autocomplete="off">
+    </div>
+
+    <!-- 分类：由内核返回的 category 动态生成，不写死 -->
+    <div class="flow-chips" id="chips"></div>
+
+    <!-- 模板网格 -->
+    <div class="tpl-grid" id="grid"></div>
+    <div class="flow-empty" id="empty" hidden></div>
+
+  </div>
+
+  <!-- 底部：无选中时提示，选中后进入填充 -->
+  <footer class="flow-foot">
+    <button class="btn-primary" id="btn-next" disabled>选择一个模板</button>
+  </footer>
+
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/engine.js"></script>
+<script src="../assets/nc-api.js"></script>
+<script src="../assets/template.js"></script>
+</body>
+</html>

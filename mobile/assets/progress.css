@@ -1,0 +1,129 @@
+/* NairoClip · 生成进度页（UI_BACKLOG P-06）
+   ============================================================================
+   设计原则（文档硬要求）：**进度必须来自真实任务进度**，
+   不允许用定时器假装。竞品那四个步骤很可能只是文案，我们不这么做。
+
+   所以本页有两种形态：
+     · 有真实进度（nc_ai_task_status 返回 running + progress）→ 显示进度环
+     · 无真实进度（同步操作已结束）→ 不显示假百分比，直接显示结果
+*/
+
+.flow-body.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+}
+
+/* ---------------- 进度环 ---------------- */
+.ring-wrap {
+  position: relative;
+  width: 140px;
+  height: 140px;
+}
+.ring {
+  width: 140px;
+  height: 140px;
+  transform: rotate(-90deg);   /* 从 12 点开始 */
+}
+.ring .track {
+  fill: none;
+  stroke: var(--line-2);
+  stroke-width: 8;
+}
+.ring .bar {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+  /* 周长 = 2πr = 2×π×52 ≈ 326.7；dasharray 由 JS 按进度设置 */
+  stroke-dasharray: 326.7;
+  stroke-dashoffset: 326.7;
+  transition: stroke-dashoffset .25s linear;
+}
+.ring-txt {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.ring-txt .pct {
+  font-size: 26px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+.ring-txt .lbl {
+  font-size: 12px;
+  color: var(--text-mid);
+}
+
+/* ---------------- 步骤列表 ---------------- */
+.steps {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-low);
+  line-height: 1.5;
+}
+.step .dot {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-3);
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+}
+.step .dot svg { width: 11px; height: 11px; stroke-width: 2.6; }
+/* 完成：实心对勾 */
+.step.done { color: var(--text-mid); }
+.step.done .dot {
+  border-color: var(--accent-pick);
+  background: var(--accent-pick);
+  color: #111;
+}
+/* 进行中：强调色描边 + 呼吸 */
+.step.active { color: var(--text-hi); font-weight: 700; }
+.step.active .dot {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+/* 未开始：空心 */
+.step.todo .dot { border-color: var(--line-2); }
+
+/* ---------------- 结果摘要 ---------------- */
+.summary {
+  width: 100%;
+  max-width: 340px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg-dock);
+  border: 1px solid var(--line-1);
+  font-size: 13px;
+  color: var(--text-mid);
+  line-height: 1.65;
+  text-align: left;
+  white-space: pre-wrap;   /* 摘要是内核拼的多行文本，保留换行 */
+  word-break: break-word;
+}

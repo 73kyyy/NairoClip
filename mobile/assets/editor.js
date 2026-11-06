@@ -551,10 +551,27 @@ const OP_TO_ABI = {
   },
   shake_set: {
     fn: 'nc_set_clip_shake',
+    /* **这里曾是真实缺陷**：映射只传了 amplitude/frequency，还传了
+       nc_set_clip_shake **没有的** enabled 参数，而正确的签名是
+
+         nc_set_clip_shake(editor, track_index, clip_id, trajectory,
+                           amplitude, frequency, phase, decay_seconds, seed)
+
+       —— trajectory / phase / decay_seconds / seed 四个参数全丢了。
+       后果：震动面板里「轨迹」「相位」「衰减」「种子」四个控件改了没用，
+       而且 trajectory 恒为 0（= 水平），所以「摆动/振荡」等轨迹都退化成水平抖动。
+
+       这也是「UI 有控件、后端有接口、中间映射漏字段」的典型案例：
+       两边都能跑测试，只有真机点了才发现没效果。 */
     map: (a) => ({
-      track_index: a.track, clip_id: a.clip,
-      amplitude: a.amplitude, frequency: a.frequency,
-      enabled: a.enabled !== undefined ? a.enabled : 1
+      track_index: a.track,
+      clip_id: a.clip,
+      trajectory: a.trajectory !== undefined ? a.trajectory : 0,
+      amplitude: a.amplitude,
+      frequency: a.frequency,
+      phase: a.phase !== undefined ? a.phase : 0,
+      decay_seconds: a.decay_seconds !== undefined ? a.decay_seconds : 0,
+      seed: a.seed !== undefined ? a.seed : 0
     })
   },
   frame_fit: {
@@ -4150,7 +4167,11 @@ async function openShakePanel(it) {
     amplitude: (cur.amplitude > 0 ? cur.amplitude : base.amplitude) || 0.02,
     frequency: cur.frequency > 0 ? cur.frequency : (base.frequency || 8),
     phase: cur.phase || 0,
-    decay: cur.decay_seconds || 0
+    decay: cur.decay_seconds || 0,
+    /* 随机种子：决定「同参数下抖动轨迹的具体形状」。
+       **必须显示并允许改** —— 否则用户调出一组喜欢的抖动后无法复现，
+       换台设备或重开工程就变了（种子不同）。文档 P-03 明确要求显示种子。 */
+    seed: (typeof cur.seed === 'number' ? cur.seed : 0)
   };
 
   const body = document.createElement('div');
@@ -4162,11 +4183,23 @@ async function openShakePanel(it) {
         <button class="xf-act" data-a="reset">⟲</button>
       </div>
     </div>
+    <!-- 三个预设：覆盖最常见的三种震动意图 -->
+    <div class="shake-presets" id="shakePresets">
+      <button class="sp-btn" data-p="0">轻微手持</button>
+      <button class="sp-btn" data-p="1">冲击震动</button>
+      <button class="sp-btn" data-p="2">持续摇晃</button>
+    </div>
     <div class="xf-rows">
       <div class="xr" data-k="frequency"></div>
       <div class="xr" data-k="amplitude"></div>
       <div class="xr" data-k="phase"></div>
       <div class="xr" data-k="decay"></div>
+    </div>
+    <!-- 种子：显示 + 换一个。用户记录这组参数就能完全复现 -->
+    <div class="shake-seed">
+      <span class="lbl">随机种子</span>
+      <span class="val" id="shakeSeed">0</span>
+      <button class="dice" id="shakeDice" aria-label="换一个种子">🎲 换一个</button>
     </div>
     <div class="xf-param-foot">
       <button class="btn primary" id="xfApply" style="width:100%">应用</button>
@@ -4229,7 +4262,9 @@ async function openShakePanel(it) {
       frequency: draft.frequency,
       phase: draft.phase * Math.PI / 180,
       decay_seconds: draft.decay,
-      seed: 0
+      // 用面板上显示的种子，不再写死 0 ——
+      // 写死会让「换一个」按钮完全无效（改了种子但提交的是 0）。
+      seed: v.seed
     }, `已应用「${it.name}」`);
     if (ok) hidePanel();
   });

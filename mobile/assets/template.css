@@ -1,0 +1,126 @@
+/* NairoClip · 模板选择页（P-04）
+   ============================================================================
+   只放这个页面独有的样式。骨架（顶栏/底栏/搜索/分类）在 flow.css，
+   那样才能和填充页、进度页保持完全一致。
+*/
+
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.tpl-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-dock);
+  border: 1.5px solid var(--line-1);
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  transition: border-color .12s;
+}
+.tpl-card:active { border-color: var(--line-2); }
+/* 选中态：用强调色描边，不用背景色变化 ——
+   背景色变化在暗色下容易被误认为「加载中」。 */
+.tpl-card.on { border-color: var(--accent); }
+
+/* 封面：16:9。没有真实封面图时用分类色块 + 图标兜底。
+   为什么不做假缩略图：那个位置应该是**真实模板的预览帧**，
+   暂时没有就用色块明示「暂无封面」，不要放一张与内容无关的图。 */
+.tpl-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--panel-3), var(--bg-timeline));
+  overflow: hidden;
+}
+.tpl-cover img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tpl-cover .ph {
+  color: var(--text-low);
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+.tpl-cover .ph svg { width: 22px; height: 22px; opacity: .6; }
+
+/* 封面右下角时长角标（真实时长，不是模糊描述） */
+.tpl-dur {
+  position: absolute;
+  right: 6px; bottom: 6px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(0,0,0,.66);
+  color: #fff;
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 选中勾标 */
+.tpl-check {
+  position: absolute;
+  left: 6px; top: 6px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  display: none;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+}
+.tpl-check svg { width: 13px; height: 13px; stroke-width: 2.6; }
+.tpl-card.on .tpl-check { display: grid; }
+
+.tpl-info {
+  padding: 8px 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tpl-name {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  /* 名称可能较长（如「关键帧摇晃特效剪辑」），允许两行 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tpl-meta {
+  font-size: 11px;
+  color: var(--text-mid);
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+/* 音乐提示（内核给的 musicHint）：用户据此判断该配什么曲子 */
+.tpl-music {
+  font-size: 11px;
+  color: var(--text-low);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 分类角标（左上，压在封面上会与勾标冲突，所以放信息区） */
+.tpl-cat {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--panel-3);
+  color: var(--text-mid);
+  font-size: 10px;
+  width: fit-content;
+}

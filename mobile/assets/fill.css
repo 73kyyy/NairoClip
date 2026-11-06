@@ -1,0 +1,212 @@
+/* NairoClip · 素材填充页（UI_BACKLOG P-05）
+   ============================================================================
+   布局参考竞品的「参考镜头 01..09 + 你的 + 点击导入」，补三处改进：
+     ① 缺料提示（还差几个）+ 预计时长（实时算）
+     ② 单个槽位可换（点已有素材直接重选，不必先删）
+     ③ 自动填充（用已导入素材智能分配）
+*/
+
+/* ---------------- 模板信息条 ---------------- */
+.tpl-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--bg-dock);
+  border: 1px solid var(--line-1);
+}
+.tpl-bar .nm { font-size: 14px; font-weight: 700; }
+.tpl-bar .sp { flex: 1; }
+.tpl-bar .dur {
+  font-size: 12px;
+  color: var(--text-mid);
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- 槽位 ---------------- */
+.slot-list { display: flex; flex-direction: column; gap: 10px; }
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--bg-dock);
+  border: 1px solid var(--line-1);
+}
+/* 已填充：左侧绿条提示完成度（不用整块变色，避免视觉噪音） */
+.slot.filled { border-left: 3px solid var(--accent-pick); }
+
+/* 左侧：参考镜头 */
+.slot .ref {
+  flex: 0 0 auto;
+  width: 74px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.slot .ref .idx {
+  font-size: 11px;
+  color: var(--text-low);
+  font-family: "JetBrains Mono", monospace;
+}
+.slot .ref .thumb {
+  width: 74px;
+  height: 42px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--panel-3), var(--bg-timeline));
+  display: grid;
+  place-items: center;
+  color: var(--text-low);
+}
+.slot .ref .thumb svg { width: 18px; height: 18px; opacity: .55; }
+.slot .ref .role {
+  font-size: 10px;
+  color: var(--text-low);
+}
+
+/* 中间：时长 + 转场信息（来自模板本身，不是编的） */
+.slot .mid {
+  flex: 0 0 auto;
+  min-width: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.slot .mid .d {
+  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mid);
+}
+.slot .mid .t { font-size: 10px; color: var(--text-low); }
+
+.slot .sp { flex: 1; }
+
+/* 右侧：你的素材（空态是虚线框 + 加号；有素材是缩略图 + 名称） */
+.slot .mine {
+  flex: 0 0 auto;
+  width: 86px;
+  height: 52px;
+  border-radius: 8px;
+  border: 1.5px dashed var(--line-3);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  color: var(--text-low);
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+}
+.slot .mine:active { background: var(--panel-2); }
+.slot .mine.has {
+  border-style: solid;
+  border-color: var(--line-2);
+  background: var(--panel-2);
+  color: var(--text-hi);
+}
+.slot .mine svg { width: 16px; height: 16px; }
+.slot .mine .nm {
+  font-size: 9px;
+  max-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 3px;
+}
+
+/* ---------------- 选素材弹层 ---------------- */
+.pick-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: flex-end;
+  z-index: 50;
+}
+/* **必须显式处理 hidden**：`hidden` 属性只设 `display:none`，
+   而上面又把 `display` 写成 flex —— 作者样式优先于 UA 样式，
+   于是 `hidden` 完全失效，弹层一直挂在屏幕上挡住底部按钮。
+   实测踩过：截图里「选择素材」面板在没有点击时就显示了。
+   这类问题只在渲染后才发现，静态检查看不出来。 */
+.pick-mask[hidden] { display: none; }
+.pick-sheet {
+  width: 100%;
+  max-height: 66vh;
+  background: var(--bg-dock);
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pick-hd {
+  flex: 0 0 auto;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--line-1);
+  font-size: 15px;
+  font-weight: 700;
+}
+.pick-hd .sp { flex: 1; }
+.pick-close {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--text-mid);
+  border-radius: 10px;
+}
+.pick-close:active { background: var(--panel-2); }
+.pick-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-hi);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.pick-row:active { background: var(--panel-2); }
+.pick-row .k {
+  flex: 0 0 auto;
+  width: 30px; height: 30px;
+  border-radius: 6px;
+  background: var(--panel-3);
+  display: grid; place-items: center;
+  color: var(--text-mid);
+}
+.pick-row .k svg { width: 16px; height: 16px; }
+.pick-row .nm { flex: 1; }
+.pick-row .meta {
+  font-size: 11px;
+  color: var(--text-low);
+  font-family: "JetBrains Mono", monospace;
+}
+.pick-row.clear { color: #E07070; }
+.pick-empty {
+  padding: 30px 16px;
+  text-align: center;
+  color: var(--text-low);
+  font-size: 13px;
+  line-height: 1.7;
+}

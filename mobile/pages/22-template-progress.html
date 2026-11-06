@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip · 正在生成</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/flow.css">
+<link rel="stylesheet" href="../assets/progress.css">
+</head>
+<body>
+<div class="screen">
+
+  <header class="flow-hd">
+    <span class="title" id="hd-title">正在生成</span>
+    <span class="sp"></span>
+  </header>
+
+  <div class="flow-body center">
+
+    <!-- 进度环：只有拿到真实进度时才显示数字 -->
+    <div class="ring-wrap">
+      <svg class="ring" viewBox="0 0 120 120">
+        <circle class="track" cx="60" cy="60" r="52"/>
+        <circle class="bar" id="bar" cx="60" cy="60" r="52"/>
+      </svg>
+      <div class="ring-txt">
+        <span class="pct" id="pct">—</span>
+        <span class="lbl" id="lbl">准备中</span>
+      </div>
+    </div>
+
+    <!-- 步骤列表：只显示**真实发生**的步骤 -->
+    <div class="steps" id="steps"></div>
+
+    <!-- 结果摘要（内核返回的真实文本） -->
+    <div class="summary" id="summary" hidden></div>
+
+    <div class="flow-hint" id="hint" hidden></div>
+
+  </div>
+
+  <footer class="flow-foot">
+    <button class="btn-ghost" id="btn-cancel">取消</button>
+    <button class="btn-primary" id="btn-done" hidden>完成</button>
+  </footer>
+
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/engine.js"></script>
+<script src="../assets/nc-api.js"></script>
+<script src="../assets/progress.js"></script>
+</body>
+</html>

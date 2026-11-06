@@ -1315,3 +1315,121 @@ body { -webkit-text-size-adjust: 100%; }
   letter-spacing: .2px; pointer-events: none;
   backdrop-filter: blur(2px);
 }
+
+/* =============================================================================
+   震动面板：预设按钮 + 随机种子（UI_BACKLOG P-03）
+   =============================================================================
+   为什么预设要三个而不是一个「推荐」：三种震动意图差别很大
+   （手持微抖 / 冲击后平息 / 持续摇晃），用户凭名字就能选，
+   比让他去理解「振幅 0.06 + 衰减 0.8」快得多。
+*/
+.shake-presets {
+  display: flex;
+  gap: 8px;
+  padding: 4px 12px 10px;
+}
+.shake-presets .sp-btn {
+  flex: 1;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text-mid);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.shake-presets .sp-btn:active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 种子行：标签 + 数值 + 换一个 */
+.shake-seed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 12px;
+  font-size: 12px;
+  color: var(--text-mid);
+}
+.shake-seed .lbl { flex: 0 0 auto; }
+.shake-seed .val {
+  flex: 1;
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-hi);
+  font-size: 13px;
+  letter-spacing: .4px;
+}
+.shake-seed .dice {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-3);
+  color: var(--text-hi);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.shake-seed .dice:active { background: var(--panel-2); }
+
+/* =============================================================================
+   混合模式：示意图 + 搜索（UI_BACKLOG P-02）
+   =============================================================================
+   示意图用真实 CSS mix-blend-mode 现场算，不用预制图片 ——
+   预制图会与内核算法漂移，而 CSS 的标准混合公式与内核一致。
+   底色用稳定的中等灰，覆盖色用强调色，这样 16 种模式的差异一眼可辨。
+*/
+.blend-q {
+  width: 100%;
+  height: 32px;
+  margin: 6px 0 8px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-dock);
+  color: var(--text-hi);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.blend-q::placeholder { color: var(--text-low); }
+
+.blend-item .bm-demo {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 26px;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 3px;
+  background: var(--panel-3);
+}
+.blend-item .bm-demo .bm-bg {
+  position: absolute;
+  inset: 0;
+  /* 灰阶渐变：让 multiply/screen/difference 等模式的差异显出来 */
+  background: linear-gradient(90deg, #6A6E70 0%, #B8BCC0 100%);
+}
+.blend-item .bm-demo .bm-fg {
+  position: absolute;
+  left: 18%;
+  top: 15%;
+  width: 64%;
+  height: 70%;
+  border-radius: 4px;
+  background: var(--accent);
+  opacity: .85;
+}
+.blend-item .bm-name {
+  display: block;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -7480,6 +7480,29 @@ JsonValue templateSummaryJson(const EditTemplate& t) {
     item.set("totalDurationUs", JsonValue::integer(toMicroseconds(t.totalDuration)));
     if (!t.musicHint.empty()) item.set("musicHint", JsonValue::string(t.musicHint));
     if (!t.coverPath.empty()) item.set("coverPath", JsonValue::string(t.coverPath));
+
+    /* 逐槽位详情（2026-11-06 新增，供 P-05 素材填充页）。
+       ----------------------------------------------------------------------
+       **为什么加在这里而不是新增一个 ABI**：
+       填充页要画「参考镜头 01 / 02 / …」并标注每个槽位的时长与转场，
+       这些数据只在 EditTemplate 里。新增一个 nc_template_slot_detail()
+       会让前端「先拉列表、再逐槽位拉详情」—— N 次跨 JNI 调用，
+       移动端很贵；而槽位数最多 9 个，内联进摘要 JSON 只多几百字节。
+
+       字段：index / durationUs / role（主轴|前景2|前景3）/ transition（转场名）。
+       角色与转场名用**中文展示名**（与 UI 直接对齐，前端不用再映射一遍）。 */
+    JsonValue slots = JsonValue::array();
+    for (std::size_t i = 0; i < t.slots.size(); ++i) {
+        const TemplateSlot& sl = t.slots[i];
+        JsonValue one = JsonValue::object();
+        one.set("index", JsonValue::integer(static_cast<std::int64_t>(i)));
+        one.set("durationUs", JsonValue::integer(toMicroseconds(sl.duration)));
+        one.set("role", JsonValue::string(layerRoleName(sl.role)));
+        one.set("transition",
+                JsonValue::string(transitionName(sl.inTransition)));
+        slots.push(std::move(one));
+    }
+    item.set("slots", std::move(slots));
     return item;
 }
 

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NairoClip · 填充素材</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/flow.css">
+<link rel="stylesheet" href="../assets/fill.css">
+</head>
+<body>
+<div class="screen">
+
+  <header class="flow-hd">
+    <button class="back" id="btn-back" aria-label="返回">
+      <svg class="i"><use href="#i-chevron"/></svg>
+    </button>
+    <span class="title">填充素材</span>
+    <span class="sp"></span>
+    <!-- 已导入 x/y：让用户随时知道还差多少 -->
+    <span class="meta" id="hd-meta">0/0</span>
+  </header>
+
+  <div class="flow-body">
+
+    <!-- 模板信息条：名称 + 预计成片时长 -->
+    <div class="tpl-bar">
+      <span class="nm" id="tpl-name"></span>
+      <span class="sp"></span>
+      <span class="dur" id="tpl-dur"></span>
+    </div>
+
+    <!-- 槽位列表：每个槽位一行「参考镜头 N + 你的素材」 -->
+    <div class="slot-list" id="slots"></div>
+
+    <!-- 缺料提示（文档点名的改进：告诉差几个，而不是只禁用按钮） -->
+    <div class="flow-hint warn" id="hint" hidden></div>
+
+  </div>
+
+  <footer class="flow-foot">
+    <button class="btn-ghost" id="btn-auto">自动填充</button>
+    <button class="btn-primary" id="btn-gen" disabled>开始生成</button>
+  </footer>
+
+</div>
+
+<!-- 选素材的底部弹层（复用网页内实现，不用系统 picker） -->
+<div class="pick-mask" id="pick-mask" hidden>
+  <div class="pick-sheet">
+    <div class="pick-hd">
+      <span id="pick-title">选择素材</span>
+      <button class="pick-close" id="pick-close" aria-label="关闭">
+        <svg class="i"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <div class="pick-body" id="pick-body"></div>
+  </div>
+</div>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/engine.js"></script>
+<script src="../assets/nc-api.js"></script>
+<script src="../assets/fill.js"></script>
+</body>
+</html>

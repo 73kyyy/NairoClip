@@ -1,0 +1,185 @@
+/* NairoClip · 创作流程页共享样式（模板选择 / 素材填充 / 生成进度）
+   ============================================================================
+   为什么单独一个 flow.css 而不塞进 pages.css：
+   这三个页面是**同一个流程的三个步骤**（选模板 → 填素材 → 生成），
+   共用同一套骨架（顶栏 + 内容区 + 底部主按钮）。放一起改一处三处生效。
+   首页/设置/协议那些页面与它们无关，混在一起会让 pages.css 变成杂物间。
+
+   配色完全走 tokens.css 的变量，不新增颜色 —— 新页面必须与
+   编辑器页看起来是同一个 App。
+*/
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--bg-app);
+  color: var(--text-hi);
+  font-family: "Instrument Sans", -apple-system, "Noto Sans CJK SC", sans-serif;
+  overscroll-behavior: none;
+}
+
+.screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------------- 顶栏 ---------------- */
+.flow-hd {
+  flex: 0 0 auto;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 4px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--line-1);
+}
+.flow-hd .back {
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--text-hi);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.flow-hd .back:active { background: var(--panel-2); }
+.flow-hd .title {
+  font-size: 17px; font-weight: 700; letter-spacing: .2px;
+}
+.flow-hd .sp { flex: 1; }
+.flow-hd .meta {
+  font-size: 13px; color: var(--text-mid);
+  font-family: "JetBrains Mono", monospace;
+  padding-right: 10px;
+}
+
+/* ---------------- 内容区 ---------------- */
+.flow-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 14px 16px;
+}
+
+/* ---------------- 底部动作条 ---------------- */
+.flow-foot {
+  flex: 0 0 auto;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  background: var(--bg-dock);
+  border-top: 1px solid var(--line-1);
+  display: flex;
+  gap: 10px;
+}
+
+/* 主按钮：文档指定的强调色（全局唯一 #2D8CFF） */
+.btn-primary {
+  flex: 1;
+  height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-primary:active { filter: brightness(.9); }
+.btn-primary:disabled {
+  /* 禁用态不改成灰色 —— 本项目一贯要求「告诉用户为什么不能点」
+     而不是让按钮看起来死了。灰底 + 可读文字，配合旁边的提示行。 */
+  background: var(--panel-3);
+  color: var(--text-low);
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  flex: 0 0 auto;
+  min-width: 96px;
+  height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-hi);
+  font-size: 15px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-ghost:active { background: var(--panel-2); }
+
+/* ---------------- 搜索框 ---------------- */
+.flow-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--bg-dock);
+  border: 1px solid var(--line-1);
+  color: var(--text-mid);
+}
+.flow-search .i { width: 18px; height: 18px; }
+.flow-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-hi);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+.flow-search input::placeholder { color: var(--text-low); }
+
+/* ---------------- 分类标签 ---------------- */
+.flow-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  scrollbar-width: none;
+}
+.flow-chips::-webkit-scrollbar { display: none; }
+.flow-chips .chip {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text-mid);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.flow-chips .chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---------------- 空态 / 提示 ---------------- */
+.flow-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-low);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.flow-hint {
+  font-size: 12px;
+  color: var(--text-low);
+  line-height: 1.6;
+  padding: 8px 2px;
+}
+.flow-hint.warn { color: #E0A33E; }   /* 只用于「还差 N 个」这类需注意的提示 */
+
+/* 图标通用尺寸 */
+svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor;
+        stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }

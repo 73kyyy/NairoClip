@@ -1100,6 +1100,63 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         if (summary) nc_free_string(summary);
         return true;
     }
+    if (op == "nc_template_apply_slots") {
+        /* int32_t nc_template_apply_slots(editor, template_id, slot_indices,
+                                           material_ids, count, out_summary, out_error)
+           ------------------------------------------------------------------
+           **这个分发之前不存在** —— C ABI 早就实现了，前端封装也有，
+           但 JNI 没接，调用会落到「未知 op」。素材填充页正是靠它提交
+           「用户看到的槽位→素材映射」。
+
+           为什么不用 nc_template_apply（内核自动分配）：
+           那边的打分结果可能与 UI 上显示的不一致，造成
+           「所见 ≠ 所生成」。显式映射能保证一致。 */
+        const std::string templateId = JStrField(a, "template_id");
+        if (templateId.empty()) {
+            *out = Err("template_id 为空");
+            return true;
+        }
+        std::vector<uint64_t> slotRaw;
+        std::vector<uint64_t> ids;
+        if (!JVecU64(a, "slot_indices", &slotRaw) || slotRaw.empty()) {
+            *out = Err("slot_indices 为空");
+            return true;
+        }
+        if (!JVecU64(a, "material_ids", &ids) || ids.empty()) {
+            *out = Err("material_ids 为空");
+            return true;
+        }
+        if (slotRaw.size() != ids.size()) {
+            // 长度不等会让「槽位 i ↔ 素材 i」的对应关系错位，必须拒绝
+            *out = Err("slot_indices 与 material_ids 长度不一致");
+            return true;
+        }
+        int32_t count = static_cast<int32_t>(JInt(a, "count", static_cast<int64_t>(ids.size())));
+        if (count <= 0 || count > static_cast<int32_t>(ids.size())) {
+            count = static_cast<int32_t>(ids.size());
+        }
+        std::vector<int32_t> slots;
+        slots.reserve(slotRaw.size());
+        for (uint64_t v : slotRaw) {
+            slots.push_back(static_cast<int32_t>(v));
+        }
+        char* summary = nullptr;
+        char* err = nullptr;
+        const int32_t rc = nc_template_apply_slots(ed, templateId.c_str(), slots.data(),
+                                                   ids.data(), count, &summary, &err);
+        if (rc != NC_OK) {
+            const std::string msg = err ? std::string(err)
+                                        : ("错误码 " + std::to_string(rc));
+            if (err) nc_free_string(err);
+            if (summary) nc_free_string(summary);
+            *out = Err("套用模板失败：" + msg);
+            return true;
+        }
+        *out = Ok("{\"summary\":\"" + JEsc(summary ? summary : "") + "\"}");
+        if (err) nc_free_string(err);
+        if (summary) nc_free_string(summary);
+        return true;
+    }
     if (op == "nc_lut_validate_file") {
         // int32_t nc_lut_validate_file(path, out_size, out_title, out_message)
         // 无 editor 参数；只读文件，不改工程状态。

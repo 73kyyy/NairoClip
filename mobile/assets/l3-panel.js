@@ -569,30 +569,74 @@
   /* 混合模式选择器：16 种，宫格式两列滚动。
      名称来自内核（window.NC_BLEND_MODES，由 editor.js 启动时拉取），
      未拉到时降级为编号，不伪造名称。 */
+  /* 混合模式选择器（UI_BACKLOG P-02）。
+     ------------------------------------------------------------------------
+     相对原版补了两点（都是文档明确要求的）：
+       ① **示意图**：用真实 CSS `mix-blend-mode` 画「底色 + 覆盖色」的
+          合成效果。这不是装饰图 —— 浏览器算的就是真实的混合结果，
+          和内核里同名模式的行为一致（同一套 Porter-Duff / 分离混合定义）。
+       ② **搜索**：模式名里带「叠」「滤」「正片」等字都能直接过滤。
+          16 个模式平铺要滑两屏，按名字找比逐行看快。
+
+     为什么不给每个模式写一张 PNG：那是 16 张需要跟内核同步维护的图，
+     内核改了一个模式的算法，图不会跟着变 —— 迟早不一致。
+     CSS 现场算的结果永远是对的。 */
   function blendRow(key, c) {
     const row = document.createElement('div');
     row.className = 'prow blend-row';
     const cur = ST.values[key] ?? 0;
     const list = Array.isArray(window.NC_BLEND_MODES) ? window.NC_BLEND_MODES : [];
     row.innerHTML = `<span class="plabel wide">${c.name}</span>
+      <input class="blend-q" type="search" placeholder="搜索模式（如 叠 / 滤）" autocomplete="off">
       <div class="blend-grid"></div>`;
     const grid = row.querySelector('.blend-grid');
+    const q = row.querySelector('.blend-q');
     if (!list.length) {
       grid.innerHTML = '<div class="empty-hint" style="font-size:11px">混合模式列表读取失败：nc_blend_mode_count 返回 0</div>';
       return row;
     }
-    list.forEach((m) => {
-      const b = document.createElement('button');
-      b.className = 'blend-item' + (m.mode === cur ? ' on' : '');
-      b.textContent = m.label;
-      b.addEventListener('click', () => {
-        ST.values[key] = m.mode;
-        grid.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
-        b.classList.add('on');
-        markDirty();
+
+    /* 模式名 → CSS mix-blend-mode 值。
+       内核的模式名与 CSS 标准的对应关系是固定的（都是同一批混合公式），
+       所以可以直接映射；未列出的用 normal（视觉上仍是可区分的占位，
+       但不会假装是某个特殊混合）。 */
+    const CSS_BLEND = {
+      '正常': 'normal', '正片叠底': 'multiply', '滤色': 'screen',
+      '叠加': 'overlay', '变暗': 'darken', '变亮': 'lighten',
+      '颜色减淡': 'color-dodge', '颜色加深': 'color-burn',
+      '强光': 'hard-light', '柔光': 'soft-light',
+      '差值': 'difference', '排除': 'exclusion',
+      '色相': 'hue', '饱和度': 'saturation', '颜色': 'color', '明度': 'luminosity'
+    };
+
+    const paint = (filter) => {
+      grid.innerHTML = '';
+      const f = String(filter || '').trim();
+      let shown = 0;
+      list.forEach((m) => {
+        if (f && String(m.label).indexOf(f) < 0) return;
+        shown += 1;
+        const b = document.createElement('button');
+        b.className = 'blend-item' + (m.mode === cur ? ' on' : '');
+        const css = CSS_BLEND[m.label] || 'normal';
+        b.innerHTML =
+          `<span class="bm-demo"><i class="bm-bg"></i><i class="bm-fg" style="mix-blend-mode:${css}"></i></span>` +
+          `<span class="bm-name">${m.label}</span>`;
+        b.addEventListener('click', () => {
+          ST.values[key] = m.mode;
+          grid.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
+          b.classList.add('on');
+          markDirty();
+        });
+        grid.append(b);
       });
-      grid.append(b);
-    });
+      if (!shown) {
+        grid.innerHTML = '<div class="empty-hint" style="font-size:11px">没有匹配的模式</div>';
+      }
+    };
+
+    paint('');
+    q.addEventListener('input', () => paint(q.value));
     return row;
   }
 
