@@ -2483,7 +2483,7 @@ uint64_t nc_add_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id, 
     /* 上限取枚举最后一项（Shake=36），不再写死 35 ——
        先前写死会让震动特效永远加不进去。与 serialization.cpp 的
        反序列化校验保持同一来源，避免两边各自维护一个数。 */
-    if (type <= 0 || type > static_cast<int32_t>(EffectType::Shake)) {
+    if (type <= 0 || type > static_cast<int32_t>(EffectType::LensFlare)) {
         return 0;  // 0 = None 无效
     }
     const Sequence* main = editor->project.mainSequence();
@@ -2504,7 +2504,7 @@ int32_t nc_update_effect(NcEditor* editor, int32_t track_index, uint64_t clip_id
     if (editor == nullptr || track_index < 0 || clip_id == 0 || effect_id == 0) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
     }
-    if (type <= 0 || type > static_cast<int32_t>(EffectType::Shake)) {
+    if (type <= 0 || type > static_cast<int32_t>(EffectType::LensFlare)) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "特效类型超出范围");
     }
     const Sequence* main = editor->project.mainSequence();
@@ -2614,7 +2614,7 @@ uint64_t nc_adjustment_add_effect(NcEditor* editor, int32_t track_index, int32_t
     if (track == nullptr) {
         return 0;
     }
-    if (type <= 0 || type > static_cast<int32_t>(EffectType::Shake)) {
+    if (type <= 0 || type > static_cast<int32_t>(EffectType::LensFlare)) {
         return 0;  // 与 nc_add_effect 同源（枚举末项）
     }
     Effect e;
@@ -3957,15 +3957,39 @@ int32_t nc_lut_validate_file(const char* path, int32_t* out_size, char** out_tit
     return NC_OK;
 }
 
-int32_t nc_lut_preset_count(void) {
-    // 刻意返回 0：本库不附带任何 .cube 文件。
-    // 造几个「点了没反应」的假预设比没有预设更糟——UI 应直接引导用户导入。
-    return 0;
-}
+int32_t nc_lut_preset_count(void) { return lutPresetCount(); }
 
-const char* nc_lut_preset_name(int32_t index) {
-    (void)index;
-    return "";
+const char* nc_lut_preset_name(int32_t index) { return lutPresetName(index); }
+
+int32_t nc_lut_preset_apply(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t preset_index, double strength, char** out_error) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        setDetail(out_error, "参数为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    if (preset_index < 0 || preset_index >= lutPresetCount()) {
+        setDetail(out_error, "预设下标越界");
+        return failNc(NC_ERROR_OUT_OF_RANGE, "预设不存在");
+    }
+    if (strength < 0.0 || strength > 1.0) {
+        setDetail(out_error, "强度需在 0..1");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "强度越界");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        setDetail(out_error, "轨道下标越界");
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道不存在");
+    }
+    /* 应用方式：把预设写成一个**内存内 LUT 文件**再走既有管线？
+       不 —— 那要落盘。这里直接构造 Lut3D 并交给 setClipLut 的
+       内存版重载。若没有该重载，退化为「导出为临时 .cube」太重。
+       见下方说明：我们改用 clip 的 lutPath 存一个**预设标识**
+       （"preset:3"），渲染时识别前缀直接取内存表。 */
+    const TrackId trackId = main->tracks[static_cast<std::size_t>(track_index)].id;
+    char marker[32];
+    std::snprintf(marker, sizeof(marker), "preset:%d", preset_index);
+    return failResult(editor->editor->setClipLut(main->id, trackId, ClipId{clip_id},
+                                                 std::string(marker), strength));
 }
 
 int32_t nc_auto_edit(NcEditor* editor, int32_t track_index, const double* profile_shots,

@@ -638,7 +638,11 @@
     subtitle:  { feature: 10, model: 'whisper_zh',      needClip: false, label: '识别字幕' },
     lyrics:    { feature: 10, model: 'whisper_zh',      needClip: false, label: '识别歌词' },
     translate: { feature: 5,  model: 'translate_zh_en_m2m', needClip: true, label: '字幕翻译' },
-    tts:       { feature: 6,  model: 'tts_zh',          needClip: false, label: '文本转语音' },
+    /* tts 已移除（2026-11-06）：模型缺符号表 + 无 tts_ai.cpp，
+       是假功能。`model: null` 会让面板显示「该功能暂不可用」
+       而不是让用户下载一个用不上的 116MB 模型。
+       恢复条件见 core/src/model_manager.cpp 的注释。 */
+    tts:       { feature: 6,  model: null,              needClip: false, label: '文本转语音' },
     stem:      { feature: 4,  model: 'stem_sep',        needClip: true,  label: '人声分离' },
     /* depth 此前 model: null —— 深度图功能没有对应模型，
        用户点「深度图」永远停在「需要下载模型」却又不知道下载哪个。

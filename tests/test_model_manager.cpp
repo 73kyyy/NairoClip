@@ -39,12 +39,15 @@ std::uint8_t testKey[kAes256KeySize] = {
 NC_TEST(ModelManager, CatalogHasExpectedEntries) {
     const auto& catalog = builtinModelCatalog();
     // 文档第 5 部分列举：抠像（高精度）、Whisper、光流补帧；第 7 部分补充超分/TTS/人声分离/翻译。
-    NC_CHECK(catalog.size() >= 8);
+    /* 7 个（tts_zh 移除后）。见 model_manager.cpp 里 tts_zh 的移除说明。 */
+    NC_CHECK(catalog.size() >= 7);
     NC_CHECK(findBuiltinModel("matting_basic") != nullptr);
     NC_CHECK(findBuiltinModel("whisper_zh") != nullptr);
     NC_CHECK(findBuiltinModel("flow_interp") != nullptr);
     NC_CHECK(findBuiltinModel("super_res_2x4x") != nullptr);
-    NC_CHECK(findBuiltinModel("tts_zh") != nullptr);
+    /* tts_zh 已移除：模型缺符号表 + 无 tts_ai.cpp，是假功能。
+       它是「有模型但用户点了没反应」的典型，比不提供更糟。 */
+    NC_CHECK(findBuiltinModel("tts_zh") == nullptr);
     NC_CHECK(findBuiltinModel("stem_sep") != nullptr);
     /* 翻译只剩 m2m100（OPUS-MT 因复读退化已移除，2026-11-05） */
     NC_CHECK(findBuiltinModel("translate_zh_en_m2m") != nullptr);
@@ -132,8 +135,7 @@ NC_TEST(ModelManager, FrameInterpolationRequiresPro) {
 NC_TEST(ModelManager, FreeCapabilitiesAllowedLocally) {
     // 免费能力本地放行（配额由服务端计数裁决）。
     /* translate 是 Pro（1.9GB 需用户主动同意），故不在此列 */
-    const char* freeIds[] = {"matting_basic", "whisper_zh", "super_res_2x4x",
-                             "tts_zh", "stem_sep"};
+    const char* freeIds[] = {"matting_basic", "whisper_zh", "super_res_2x4x", "stem_sep"};
     for (const char* id : freeIds) {
         const ModelInfo* info = findBuiltinModel(id);
         NC_CHECK(info != nullptr);

@@ -1,3 +1,4 @@
+#include "nairoclip/core/light_effects.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/thread_pool.h"
 
@@ -56,6 +57,8 @@ EffectSpec effectSpec(EffectType type) {
         case EffectType::Slim: return EffectSpec{0.0, 1.0, 0.0, "瘦身"};
         case EffectType::GlowOutline: return EffectSpec{0.0, 1.0, 0.0, "发光轮廓"};
         case EffectType::Shake: return EffectSpec{0.0, 1.0, 0.0, "震动"};
+        case EffectType::Bloom: return EffectSpec{0.0, 1.0, 0.0, "泛光"};
+        case EffectType::LensFlare: return EffectSpec{0.0, 1.0, 0.0, "镜头光晕"};
     }
     return EffectSpec{};
 }
@@ -269,6 +272,8 @@ ColorTransform evaluateColorTransform(const EffectStack& stack) {
             case EffectType::GaussianBlur:
             case EffectType::Sharpen:
             case EffectType::Grain:
+            case EffectType::Bloom:       // 光效由 applyEffectStackToFrame 处理
+            case EffectType::LensFlare:
             case EffectType::None:
                 break;  // 空间效果由 applyEffectStackToFrame 统一处理
         }
@@ -331,6 +336,35 @@ bool applyEffectStackToFrame(std::uint8_t* pixels, int width, int height,
             if (!applyScreenEffectToRgba(pixels, width, height, typeValue, e.value,
                                          frameIndex, quality)) {
                 return false;
+            }
+        } else if (typeValue == 37 || typeValue == 38) {
+            /* 光效（B1-3 收尾）：泛光 / 镜头光晕。
+               ------------------------------------------------------------------
+               实现（applyBloomToRgba / applyLensFlareToRgba）早就写好并有测试，
+               一直缺的只是「枚举 + 这条分发」—— 于是那两个函数在产品里
+               从来没有被调用过（有代码、没接线）。
+
+               参数映射：Effect 只有单个 double value，所以 value 只控强度，
+               其余参数用固定默认值（阈值 0.7 / 半径 12px / 中性色调；
+               光源偏右上 / 中性偏暖）。这样它与其它 30 多个特效的交互一致
+               （单滑杆）。要细调三个参数时走 applyBloomToRgba 的直接调用。
+
+               value <= 0 视为关闭（与其它特效一致）。 */
+            if (e.value <= 0.0) {
+                continue;
+            }
+            if (typeValue == 37) {
+                BloomParams params;             // 默认：阈值 0.7 / 半径 12 / 中性
+                params.intensity = e.value;
+                if (!applyBloomToRgba(pixels, width, height, params)) {
+                    return false;
+                }
+            } else {
+                LensFlareParams params;         // 默认：光源 (0.7,0.3) / 偏暖
+                params.intensity = e.value;
+                if (!applyLensFlareToRgba(pixels, width, height, params)) {
+                    return false;
+                }
             }
         } else if (typeValue >= 31 && typeValue <= 35) {
             // 人物特效：抖动/放大/边缘检测/瘦身/发光轮廓（文档 Part 4-B 5.2）

@@ -39,6 +39,11 @@ JOBS=(
   # 换成 3072 频点的 UVR-MDX-NET 权重（锁定清单要求的 Voc_FT 类）。
   "uvr-mdx-net/UVR-MDX-NET-Voc_FT/resolve/main/model.onnx|stem_sep/model.onnx"
 
+  # 超分辨率：Swin2SR（Apache-2.0，x2 缩放）。
+  #   为什么用 Swin2SR 而不是 Real-ESRGAN：后者只提供 .pth（无 ONNX）。
+  #   ⚠️ 首次拉取后必须校验：输入名应为 pixel_values，输出 2 倍宽高。
+  "Xenova/swin2SR-classical-sr-x2-64/resolve/main/onnx/model_quantized.onnx|super_res_2x4x/model.onnx"
+
   # 人像抠像：MODNet（Apache-2.0）
   #
   # 选它而不是 MediaPipe Selfie Segmentation 的原因：
@@ -80,9 +85,25 @@ JOBS=(
 #   Qualcomm 导出版实测对真实人像输出恒 0（sigmoid 后 0.5000），不可用；
 #   官方为 .tflite，需要 TensorFlow 转换（当前环境无法安装）。
 #   在拿到可用 ONNX 前不下载，避免假可用。
-# 光流补帧 RIFE：HF 上无可用 ONNX 导出（多个仓库 401）。
-# 超分辨率 Real-ESRGAN：ai-forever/Real-ESRGAN 仅提供 .pth，无 ONNX。
-# TTS VITS 官方权重：HF 上 Xenova/vits-* 均不可达（401）。
+# ---- 以下三项 2026-11-06 已补上可用源 ----
+#
+# **背景**：这三项原来只有「暂不下载」的注释，但产品目录里**列着它们**，
+# 磁盘上也有文件（手动放的）。后果：新设备上用户点「下载」拿不到东西 ——
+# 功能不可用，且没有任何提示说明为什么。
+#
+# 三种处置里选「补下载源」而不是「从目录移除」：
+#   · 超分/补帧 的代码实现完整且有测试，只缺模型源，删掉太可惜；
+#   · TTS 无实现（见下），但它的问题是「缺代码」不是「缺模型」，
+#     删模型不解决问题，应该先补代码（tts_ai.cpp）。
+#
+# 超分辨率：Swin2SR（Apache-2.0）。
+#   磁盘上 super_res_2x4x/model.onnx 的 producer 是 `onnx.quantize 0.1.0`、
+#   输入名 `pixel_values`，与 Xenova 的 Swin2SR 导出特征一致。
+#   ⚠️ 未做逐字节比对（下载验证超时），首次拉取后应校验 SHA-256。
+# 光流补帧：RIFE 的可用 ONNX 导出仍在排查（HF 多个仓库 401）。
+#   暂不下载 —— 问题在「找不到源」不在「不该有」。
+# TTS：模型源与实现都缺（详见 §「TTS 的处置」）。
+
 # MADLAD-400（3B）：按项目要求改为全本地运行后，
 #   3B 规模不适合端上实时推理（ONNX 转换亦需 torch + 大显存），
 #   故改用 OPUS-MT-ZH-EN 分体导出（见上方 JOBS）。

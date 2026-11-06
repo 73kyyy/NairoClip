@@ -292,10 +292,17 @@ NC_TEST(CapiLut, ValidateRejects1DLut) {
     nc_free_string(message);
 }
 
-NC_TEST(CapiLut, NoBuiltinPresetsIsHonest) {
-    // 本库不附带任何 .cube 文件，preset_count 必须诚实地返回 0。
-    // 造几个「点了没反应」的假预设比没有预设更糟。
-    NC_CHECK_EQ(nc_lut_preset_count(), 0);
-    NC_CHECK_EQ(std::string(nc_lut_preset_name(0)), std::string());
+NC_TEST(CapiLut, BuiltinPresetsAreRealAndHonest) {
+    /* **2026-11-06 变更**：原来这里是 `NoBuiltinPresetsIsHonest`，
+       断言 preset_count == 0，理由是「不附带 .cube 文件，造假预设更糟」。
+
+       那个理由只对了一半 —— 预设**不需要** .cube 文件。Lut3D 就是
+       size³×3 的数组，按公式能生成真实的颜色变换。所以现在是 20 个。
+
+       本条用例改为「数量正确 + 名字可用 + 越界返回空」，
+       真正的「每个预设都真的改变颜色」由 test_lut_presets.cpp 覆盖。 */
+    NC_CHECK_EQ(nc_lut_preset_count(), 20);
+    NC_CHECK(std::string(nc_lut_preset_name(0)).size() > 0);
     NC_CHECK_EQ(std::string(nc_lut_preset_name(-1)), std::string());
+    NC_CHECK_EQ(std::string(nc_lut_preset_name(20)), std::string());
 }

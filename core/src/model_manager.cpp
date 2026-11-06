@@ -144,8 +144,27 @@ std::vector<ModelInfo> makeCatalog() {
         "1.0.0", ModelCapability::FrameInterpolation, true);
     add("super_res_2x4x", "超分辨率模型（2x/4x）", "画质提升与放大（免费 2x 每月 3 次）", 150 * kMB,
         "1.2.0", ModelCapability::SuperResolution, false);
-    add("tts_zh", "智能配音（中文音色）", "文字转语音；生成音频带 AI 合成标识", 95 * kMB, "1.0.0",
-        ModelCapability::Tts, false);
+    /* **tts_zh 已从目录移除（2026-11-06）**。
+       ------------------------------------------------------------------
+       它是**假功能**：模型 116MB 一直在磁盘上，前端也有「文本转语音」入口
+       （AI_ACTION 里映射了 model: 'tts_zh'），但：
+
+         · `core/src/tts_ai.cpp` **不存在** —— 没有任何推理代码；
+         · 模型输入是 `phonemes`（音素 ID），而**符号表不在模型里**
+           （52 个音素 × 192 维的 embedding 表存在，但不知道
+           ID 0..51 各对应哪个拼音/音素）；
+         · 没有符号表就无法把「你好」转成音素 ID 序列，硬猜会输出乱码。
+
+       用户点「文本转语音」的体验：下载 116MB → 点了没反应（或报错）。
+       这比不提供更糟 —— 用户会以为是设备问题。
+
+       **要恢复的条件**（缺一不可）：
+         1) 找到符号表（通常在 TTS 项目的 `symbols.py` / `lexicon.txt`）；
+         2) 实现 `tts_ai.cpp`（文字 → 拼音 → 音素 ID → 推理 → 波形）；
+         3) 确认模型协议可商用。
+
+       在此之前不列这个条目。model_catalog 里对应 ID 的引用会
+       由 `findBuiltinModel()` 返回 nullptr，调用方已有空值保护。 */
     add("stem_sep", "人声分离模型", "人声/伴奏分离（标准 / 高精度）", 180 * kMB, "1.0.0",
         ModelCapability::StemSeparation, false);
     /* 字幕翻译：只剩 m2m100-418M（MIT）。

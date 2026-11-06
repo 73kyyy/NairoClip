@@ -95,6 +95,7 @@ add_executable(nairoclip_tests
     test_blend_modes.cpp
     test_shake_effect.cpp
     test_lut.cpp
+    test_lut_presets.cpp
     test_track_groups.cpp
     test_render_baseline.cpp
     test_freeze_frame.cpp

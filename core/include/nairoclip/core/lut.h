@@ -90,5 +90,23 @@ bool applyLutToRgba(std::uint8_t* pixels, int width, int height, const Lut3D& lu
 /// 说明文案（供 UI/日志）。
 const char* lutPurpose();
 
+// =============================================================================
+// 内置 LUT 预设（20 个，程序化生成）
+// =============================================================================
+// 预设不需要 .cube 文件 —— Lut3D 就是 size³×3 的数组加域范围，
+// 完全可以按公式生成真实的颜色变换。
+//
+// 用法：`loadCubeLutFile("preset:3", ...)` 会自动识别这个前缀并生成内存表，
+// 所以预览与导出两条路径都无需改动（它们都走 loadCubeLutFile）。
+
+/// 内置预设数量（当前 20）。
+int lutPresetCount();
+
+/// 预设名称（下标越界返回空串）。
+const char* lutPresetName(int index);
+
+/// 按预设下标生成查找表（越界返回 false）。
+bool lutPresetBuild(int index, Lut3D& out);
+
 }  // namespace core
 }  // namespace nairoclip

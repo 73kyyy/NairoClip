@@ -410,8 +410,21 @@ LinearDodge、SoftLight、LinearLight、PinLight、Difference、Exclusion、Hue/
 **整张图会被压黑**。已改为「输入归一化 0..1 → 线性映射到整个 DOMAIN 区间」，
 并保留一个专门的回归用例。
 
-**未完成**（需产品决策/素材）：20 个内置 LUT 预设、C ABI
-（`nc_set_clip_lut` 等）、导出/预览管线接入点。
+**已完成（2026-11-06）**：20 个内置 LUT 预设 + 管线接入。
+
+- **程序化生成**，不附带 .cube 文件：`Lut3D` 就是 `size³×3` 的数组，
+  按公式能生成真实的颜色变换（饱和度 → 灰度 → 对比度 → 通道增益/偏移）；
+- 33³ 查找表（862KB/个），懒生成 —— 用户用到哪个才建哪个，
+  全量预生成会吃掉 17MB 帧缓存；
+- 通过 `loadCubeLutFile("preset:N")` 的**伪路径**接入，
+  所以预览与导出走同一入口，天然保证「预览 = 导出」；
+- 新增 `nc_lut_preset_apply()`；
+- 风格：柯达暖/富士冷/褪色胶片/青橙/漂白/清新/浓郁/日系/秋色/雪山/
+  奶油/粉调/暖肤/冷调/黑白/复古/赛博/暗黑/日落/极简。
+
+**原判断的修正**：原注释写「造几个假预设比没有更糟，所以返回 0」。
+这个判断只对了一半 —— 不能有「点了没反应」的预设是对的，
+但预设**不需要** .cube 文件，程序化生成的都是真实变换。
 
 **原始问题**：
 
@@ -462,7 +475,13 @@ LinearDodge、SoftLight、LinearLight、PinLight、Difference、Exclusion、Hue/
 
 变异验证：改成「跳过提取、恒定权重模糊整帧」→ 上述 2 个用例均报警。
 
-**未完成**：接入 `EffectType`（`Bloom`/`LensFlare` 枚举与参数化）、UI 控制面板。
+**已完成（2026-11-06）**：接入 `EffectType::Bloom = 37` / `LensFlare = 38`。
+
+- 参数映射：`Effect` 只有单个 `double value`，所以 value 只控强度，
+  其余参数用固定默认（Bloom 阈值 0.8 / 半径 12px；LensFlare 光源偏右上 / 中性偏暖）；
+- 分发接在 `applyEffectStackToFrame` 的 `typeValue == 37 || 38` 分支；
+- `nc_add_effect` / 反序列化的枚举上限从 `Shake(36)` 改为 `LensFlare(38)`；
+- **UI 控制面板仍未做**（属 UI_BACKLOG）。
 
 **现状**：有 `GlowOutline`（依赖抠像 Alpha，目前不可用）、`LightLeak`、`Starburst`。
 
@@ -1169,7 +1188,10 @@ int32_t nc_track_placement_reason(int32_t track_type, int32_t media_type,
   连续撤销/交错撤销/no-op 不入栈/**序列化往返顺序一致**/
   id 保留/片段引用不受影响/`Sequence::invariantsHold()`。
 
-**待完成**：UI 层长按拖动排序的手势与落点提示（C ABI 已完成，见上）。
+**已完成（核实于 2026-11-06）**：UI 层的长按拖动排序手势**已经实现** ——
+`editor.js` 的 `attachAssetReorder()`（`DRAG_LONG_PRESS_MS = 300`、
+`ghost` 拖影、`.drag-over` 落点提示、`suppressClick` 防误触发）。
+文档此处过时。
 
 **原始问题**：
 

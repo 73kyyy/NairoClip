@@ -225,6 +225,26 @@ bool parseCubeLut(const std::string& text, Lut3D& out, std::string& error) {
 }
 
 bool loadCubeLutFile(const std::string& path, Lut3D& out, std::string& error) {
+    /* 前缀 "preset:N" → 内置预设（不读盘）。
+       ----------------------------------------------------------------------
+       为什么用这个"伪路径"而不是加一个新函数：
+         · 预览与导出两条路径都调 loadCubeLutFile，走同一入口能保证
+           「预览 = 导出」—— 这是本项目反复强调的一致性要求；
+         · 加新函数就要在 preview.cpp / export_executor.cpp 各加一个
+           分支，将来新增第三个渲染路径时必然漏掉一个。
+       代价是 clip.lutPath 里可能存 "preset:3" 这种非文件值，
+       序列化无需改动（它本来就是字符串）。 */
+    static const std::string kPresetPrefix = "preset:";
+    if (path.size() > kPresetPrefix.size() &&
+        path.compare(0, kPresetPrefix.size(), kPresetPrefix) == 0) {
+        const int index = std::atoi(path.c_str() + kPresetPrefix.size());
+        if (!lutPresetBuild(index, out)) {
+            error = "内置预设下标无效：" + path;
+            return false;
+        }
+        error.clear();
+        return true;
+    }
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         error = "无法打开 LUT 文件: " + path;
@@ -502,6 +522,133 @@ bool applyLutToRgba(std::uint8_t* pixels, int width, int height, const Lut3D& lu
 
 const char* lutPurpose() {
     return "3D LUT 调色（.cube 格式）：加载外部调色表，支持 17³/33³ 与强度混合";
+}
+
+// =============================================================================
+// 内置 LUT 预设（20 个）—— 程序化生成，不附带 .cube 文件
+// =============================================================================
+// 原实现 `nc_lut_preset_count()` 刻意返回 0，理由写的是「本库不附带 .cube
+// 文件，造假预设比没有更糟」。这个判断只对了一半：
+//   · 对的部分：不能有「点了没反应」的预设；
+//   · 错的部分：预设**不需要** .cube 文件 —— Lut3D 就是 size³×3 的数组
+//     加域范围，完全可以按公式生成。
+//
+// 所以这里程序化生成 20 个调色风格，每个都是**真实的颜色变换**（非恒等表）。
+//
+// 为什么用 33³：33³×3 double = 862KB/个。用 64³ 会是 8 倍（136MB），
+// 而 LUT 的精度收益在 33³ 之后已经很小 —— 内存要留给帧缓存。
+// 风格分类参考影视调色惯例，**不是**对具体商业预设的复刻
+// （那些预设多由胶片扫描或手工调色产生，公式近似不了）。
+
+namespace {
+
+struct LutPresetSpec {
+    const char* name;
+    double gainR, gainG, gainB;   ///< 通道增益（乘性）
+    double liftR, liftG, liftB;   ///< 通道偏移（加性，在增益之后）
+    double saturation;            ///< 饱和度倍率（1 = 不变）
+    double contrast;              ///< 对比度（以 0.5 为中心）
+    bool grayscale;               ///< 是否转灰度
+};
+
+const LutPresetSpec kLutPresets[] = {
+    // ---- 胶片感 ----
+    {"柯达暖",   1.06, 1.00, 0.90,  0.02, 0.00, -0.01, 1.05, 1.08, false},
+    {"富士冷",   0.96, 1.00, 1.08, -0.01, 0.00, 0.02, 1.02, 1.05, false},
+    {"褪色胶片", 1.02, 0.99, 0.94,  0.05, 0.04, 0.03, 0.80, 0.88, false},
+    {"青橙",     1.10, 1.00, 0.92,  0.00, -0.01, 0.04, 1.15, 1.10, false},
+    {"漂白",     1.00, 1.00, 1.00,  0.04, 0.04, 0.04, 0.65, 1.25, false},
+    // ---- 风景 ----
+    {"清新",     0.98, 1.04, 1.02,  0.01, 0.02, 0.01, 1.10, 1.05, false},
+    {"浓郁",     1.04, 1.06, 0.98,  0.00, 0.00, 0.00, 1.30, 1.15, false},
+    {"日系",     1.02, 1.02, 1.06,  0.06, 0.06, 0.07, 0.75, 0.90, false},
+    {"秋色",     1.12, 1.00, 0.86,  0.01, 0.00, -0.01, 1.12, 1.06, false},
+    {"雪山",     0.96, 1.00, 1.10,  0.01, 0.02, 0.03, 0.92, 1.12, false},
+    // ---- 人像 ----
+    {"奶油",     1.04, 1.00, 0.96,  0.03, 0.03, 0.02, 0.90, 0.92, false},
+    {"粉调",     1.08, 0.98, 1.02,  0.02, 0.00, 0.02, 1.00, 0.98, false},
+    {"暖肤",     1.06, 1.02, 0.94,  0.02, 0.01, 0.00, 1.00, 1.02, false},
+    {"冷调",     0.98, 1.00, 1.06,  0.00, 0.01, 0.02, 0.95, 1.05, false},
+    // ---- 风格化 ----
+    {"黑白",     1.00, 1.00, 1.00,  0.00, 0.00, 0.00, 1.00, 1.15, true},
+    {"复古",     1.08, 0.96, 0.84,  0.04, 0.02, 0.00, 0.85, 1.00, false},
+    {"赛博",     0.92, 0.98, 1.18,  0.00, 0.00, 0.04, 1.25, 1.10, false},
+    {"暗黑",     0.88, 0.90, 0.94, -0.02, -0.02, -0.01, 0.90, 1.20, false},
+    {"日落",     1.14, 1.02, 0.88,  0.02, 0.00, -0.01, 1.10, 1.05, false},
+    {"极简",     1.00, 1.00, 1.00,  0.02, 0.02, 0.02, 0.70, 0.95, false},
+};
+
+constexpr int kPresetSize = 33;
+
+inline double clamp01(double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
+
+Lut3D buildPreset(const LutPresetSpec& spec) {
+    Lut3D lut;
+    lut.size = kPresetSize;
+    lut.title = spec.name;
+    const int n = kPresetSize;
+    lut.data.resize(static_cast<std::size_t>(n) * n * n * 3);
+    const double inv = 1.0 / static_cast<double>(n - 1);
+    for (int b = 0; b < n; ++b) {
+        for (int g = 0; g < n; ++g) {
+            for (int r = 0; r < n; ++r) {
+                double rv = static_cast<double>(r) * inv;
+                double gv = static_cast<double>(g) * inv;
+                double bv = static_cast<double>(b) * inv;
+
+                // 1) 饱和度（向亮度靠拢/远离）
+                if (spec.saturation != 1.0) {
+                    const double luma = 0.2126 * rv + 0.7152 * gv + 0.0722 * bv;
+                    rv = luma + (rv - luma) * spec.saturation;
+                    gv = luma + (gv - luma) * spec.saturation;
+                    bv = luma + (bv - luma) * spec.saturation;
+                }
+                // 2) 灰度
+                if (spec.grayscale) {
+                    const double luma = 0.2126 * rv + 0.7152 * gv + 0.0722 * bv;
+                    rv = gv = bv = luma;
+                }
+                // 3) 对比度（以 0.5 为中心）
+                if (spec.contrast != 1.0) {
+                    rv = 0.5 + (rv - 0.5) * spec.contrast;
+                    gv = 0.5 + (gv - 0.5) * spec.contrast;
+                    bv = 0.5 + (bv - 0.5) * spec.contrast;
+                }
+                // 4) 通道增益 + 偏移（色调）
+                rv = clamp01(rv * spec.gainR + spec.liftR);
+                gv = clamp01(gv * spec.gainG + spec.liftG);
+                bv = clamp01(bv * spec.gainB + spec.liftB);
+
+                // 排列：r 最快、b 最慢（Lut3D 的约定）
+                const std::size_t idx =
+                    ((static_cast<std::size_t>(b) * n + static_cast<std::size_t>(g)) * n +
+                     static_cast<std::size_t>(r)) * 3u;
+                lut.data[idx + 0] = rv;
+                lut.data[idx + 1] = gv;
+                lut.data[idx + 2] = bv;
+            }
+        }
+    }
+    return lut;
+}
+
+}  // namespace
+
+int lutPresetCount() { return static_cast<int>(sizeof(kLutPresets) / sizeof(kLutPresets[0])); }
+
+const char* lutPresetName(int index) {
+    if (index < 0 || index >= lutPresetCount()) {
+        return "";
+    }
+    return kLutPresets[index].name;
+}
+
+bool lutPresetBuild(int index, Lut3D& out) {
+    if (index < 0 || index >= lutPresetCount()) {
+        return false;
+    }
+    out = buildPreset(kLutPresets[index]);
+    return out.valid();
 }
 
 }  // namespace core

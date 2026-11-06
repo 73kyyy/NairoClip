@@ -326,7 +326,7 @@ bool readEffects(const JsonValue& v, EffectStack& out, std::string& err) {
         // 扩展边界：EffectType 最大枚举值（新增特效时同步更新此处即可；
         // 修复——此前硬编码 12，新增特效后旧值能读、新值会被拒）。
         // 上界跟随最新枚举，新增特效时不必再回来改这里
-        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::Shake)) {
+        if (typeValue < 0 || typeValue > static_cast<std::int64_t>(EffectType::LensFlare)) {
             err = "未知特效类型";
             return false;
         }

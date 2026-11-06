@@ -1637,6 +1637,20 @@ int32_t nc_lut_preset_count(void);
 /// 与 nc_lut_preset_count 一致，当前恒为空。
 const char* nc_lut_preset_name(int32_t index);
 
+/// 应用内置 LUT 预设到片段。
+///
+/// - preset_index：0 ~ nc_lut_preset_count()-1（越界返回 OUT_OF_RANGE）；
+/// - strength：0..1（0 = 关闭，只是持有一个不生效的 LUT）。
+///
+/// 实现方式：把 "preset:N" 写入 clip.lutPath，渲染时由
+/// `loadCubeLutFile` 识别前缀并生成内存表 —— 这样预览与导出走同一入口，
+/// 天然保证「预览 = 导出」。
+///
+/// 预设是**程序化生成的真实颜色变换**（33³ 查找表），不是 .cube 文件，
+/// 因此不需要下载、不占应用体积（懒生成，用户用到哪个才建哪个）。
+int32_t nc_lut_preset_apply(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int32_t preset_index, double strength, char** out_error);
+
 // ---- AI 模型管理（文档第 5 部分「二、AI模型管理」+ 第 8 部分「模型分发架构」）----
 
 /// 列举内置模型（供 UI「AI 模型管理」页列表）。

@@ -930,7 +930,10 @@ NC_TEST(Capi, ClipMaskSetGetAndClear) {
 NC_TEST(Capi, ModelCatalogAndInfo) {
     int32_t count = 0;
     NC_CHECK_EQ(nc_model_catalog(nullptr, 0, &count), NC_OK);
-    NC_CHECK(count >= 8);
+    /* 7 个：matting_basic / whisper_zh / flow_interp / super_res_2x4x /
+       stem_sep / translate_zh_en_m2m / depth_midas。
+       tts_zh 已于 2026-11-06 移除（缺符号表 + 无 tts_ai.cpp，是假功能）。 */
+    NC_CHECK(count >= 7);
 
     char** ids = nullptr;
     NC_CHECK_EQ(nc_model_catalog(&ids, count, &count), NC_OK);
