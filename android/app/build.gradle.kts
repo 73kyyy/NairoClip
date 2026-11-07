@@ -13,6 +13,24 @@ fun secret(key: String, env: String): String =
     (localProps.getProperty(key) ?: System.getenv(env) ?: "").trim()
 
 android {
+    /* Kotlin 源码集：除了模块自带的 java/，还要包含仓库根目录下的
+       mobile/native/android/（平台层真正的实现放在那里）。
+
+       为什么之前编不过：MainActivity 引用 PreviewSurfaceView /
+       NativeEngineBridge.installCrashHandler 等，但这些类只在
+       mobile/native/android/ 下；模块里的 NativeEngineBridge.kt 是一份
+       293 行的**旧副本**（比正式版少 9 个方法），所以一路 Unresolved reference。
+
+       注意：加入这个目录后，模块内同名的旧副本必须删掉，否则会出现
+       「Redeclaration: NativeEngineBridge」重复类错误。
+       已删除：NativeEngineBridge.kt / NativeAuthBridge.kt / wxapi/WXEntryActivity.kt
+       （三者都在 mobile/native/android/ 有正式版）。 */
+    sourceSets {
+        getByName("main") {
+            java.srcDir("../../mobile/native/android")
+        }
+    }
+
     namespace = "com.nairoclip.app"
     compileSdk = 34
 
