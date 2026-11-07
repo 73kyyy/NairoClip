@@ -219,10 +219,14 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         }
         ctx->width = config.width;
         ctx->height = config.height;
-        ctx->time_base = AVRational{config.frameRate.value.den,
-                                    config.frameRate.value.num};
-        ctx->framerate = AVRational{config.frameRate.value.num,
-                                    config.frameRate.value.den};
+        /* AVRational 的 num/den 是 int，而 FrameRate 里是 int64_t。
+           clang 把「列表初始化里的窄化」默认当错误（-Wc++11-narrowing），
+           gcc 只当警告 —— 所以本地一直能编，NDK 一编就挂。
+           这里显式转换：帧率分母/分子不可能超出 int 范围（最大 1000 量级）。 */
+        ctx->time_base = AVRational{static_cast<int>(config.frameRate.value.den),
+                                    static_cast<int>(config.frameRate.value.num)};
+        ctx->framerate = AVRational{static_cast<int>(config.frameRate.value.num),
+                                    static_cast<int>(config.frameRate.value.den)};
         ctx->pix_fmt = AV_PIX_FMT_YUV420P;
         ctx->gop_size = static_cast<int>(config.frameRate.toDouble() * 2.0);
         ctx->max_b_frames = 2;

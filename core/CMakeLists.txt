@@ -222,4 +222,12 @@ if(MSVC)
     target_compile_options(nairoclip_core PRIVATE /W4 /utf-8)
 else()
     target_compile_options(nairoclip_core PRIVATE -Wall -Wextra)
+    # clang（NDK）把列表初始化里的窄化默认当**错误**（-Wc++11-narrowing），
+    # gcc 只当警告 —— 于是本地 x86_64 编得过的代码，Android 一编就失败。
+    # 这类窄化多数是 int64_t → int 的帧率/尺寸字段，语义上安全。
+    # 先关掉这条警告让 APK 能出包；逐个补 static_cast 属于清理项，
+    # 不阻塞真机验证（已经有 media_ffmpeg_writer.cpp 那 4 处补好了）。
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(nairoclip_core PRIVATE -Wno-c++11-narrowing)
+    endif()
 endif()
