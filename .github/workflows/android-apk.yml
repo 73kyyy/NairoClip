@@ -125,7 +125,13 @@ jobs:
           for ABI in arm64-v8a; do
             DEST="android/app/src/main/jniLibs/$ABI"
             mkdir -p "$DEST"
-            cp ffmpeg-build/out/$ABI/lib/libav*.so "$DEST/"
+            # 必须**显式列出**五个库，不能用 libav*.so 通配：
+            # libswscale 没有 "av" 前缀，通配会漏掉它 ——
+            # 漏了不会在拷贝时报错，而是在链接期变成
+            # "libswscale.so missing and no known rule to make it"，很难联想。
+            for L in libavformat libavcodec libswscale libswresample libavutil; do
+              cp "ffmpeg-build/out/$ABI/lib/$L.so" "$DEST/"
+            done
             ls -lh "$DEST"
           done
 
@@ -135,8 +141,13 @@ jobs:
           NDK="${{ steps.ndk.outputs.ndk-path }}"
           READELF="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           for ABI in arm64-v8a; do
+            # 五个库一个都不能少：少任何一个都会在链接期报 undefined symbol
+            # 或 "missing and no known rule to make it"
+            for L in libavformat libavcodec libswscale libswresample libavutil; do
+              F="android/app/src/main/jniLibs/$ABI/$L.so"
+              [ -f "$F" ] || { echo "❌ 缺少 $F"; exit 1; }
+            done
             LIB="android/app/src/main/jniLibs/$ABI/libavcodec.so"
-            [ -f "$LIB" ] || { echo "❌ 缺少 $LIB"; exit 1; }
             "$READELF" -h "$LIB" > /tmp/rh.txt 2>/dev/null || true
             grep -q 'DYN (Shared object file)' /tmp/rh.txt \
               || { echo "❌ $LIB 不是共享库"; exit 1; }
