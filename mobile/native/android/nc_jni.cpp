@@ -456,6 +456,30 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("重命名轨道失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "nc_add_track") {
+        /* nc-api.js 用**函数名**当 op（NC_API.nc_add_track → op "nc_add_track"），
+           而这里历史上只认短名 "add_track"，两边对不上 ——
+           结果 NC_API.nc_add_track 永远落到「未知 op」。
+           两个名字都接，兼容老调用。 */
+        const uint64_t id = nc_add_track(ed, JStrField(a, "name").c_str(),
+                                        static_cast<int32_t>(JInt(a, "type", 0)));
+        *out = id ? Ok("{\"track_id\":" + std::to_string(id) + "}") : Err("添加轨道失败");
+        return true;
+    }
+    if (op == "nc_insert_keyframe") {
+        /* 之前**没有任何分支**：nc_insert_keyframe 在 C ABI 里存在、nc-api.js 也封装了，
+           但 JNI 没接 → 前端打关键帧落到「未知 op」，而调用方通常忽略返回值，
+           于是「动画不生效」被当成渲染问题查很久。 */
+        const int32_t rc = nc_insert_keyframe(
+            ed, ti, cid, static_cast<int32_t>(JInt(a, "property", 0)),
+            static_cast<int64_t>(JInt(a, "time_us", 0)), JNum(a, "value", 0.0));
+        if (rc != NC_OK) {
+            *out = Err("插入关键帧失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{}");
+        return true;
+    }
     if (op == "add_track") {
         const uint64_t id = nc_add_track(ed, JStrField(a, "name").c_str(),
                                          static_cast<int32_t>(JInt(a, "type", 0)));

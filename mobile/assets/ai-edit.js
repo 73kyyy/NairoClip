@@ -303,7 +303,7 @@
     const ov = S.videos.find((x) => x.id === S.overlayId);
     if (!ov) return 0;
 
-    const t = api('nc_add_track', { name: '叠层', track_type: 0 });
+    const t = api('nc_add_track', { name: '叠层', type: 0 });
     if (!t || !t.ok) return 0;
     const c = api('nc_track_count');
     const n = (c && typeof c.result === 'number') ? c.result : 0;
@@ -354,7 +354,7 @@
     if (!music || !music.durUs) return null;
     const c0 = api('nc_track_count');
     const n0 = (c0 && typeof c0.result === 'number') ? c0.result : 0;
-    const t = api('nc_add_track', { name: 'AI 配乐', track_type: 1 });
+    const t = api('nc_add_track', { name: 'AI 配乐', type: 1 });
     if (!t || !t.ok) return null;
     const c1 = api('nc_track_count');
     const n1 = (c1 && typeof c1.result === 'number') ? c1.result : n0 + 1;
