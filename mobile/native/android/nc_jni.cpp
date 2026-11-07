@@ -1275,12 +1275,18 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         if (JVecDouble(a, "transition_kinds", &kindsRaw)) {
             for (double k : kindsRaw) kinds.push_back(static_cast<int32_t>(k));
         }
+        std::vector<int32_t> fx;
+        std::vector<double> fxRaw;
+        if (JVecDouble(a, "effect_kinds", &fxRaw)) {
+            for (double v : fxRaw) fx.push_back(static_cast<int32_t>(v));
+        }
         char* err = nullptr;
         const int32_t n = nc_ref_apply(
             ed, ti, ids.data(), starts.data(), durs.data(), static_cast<int32_t>(ids.size()),
             kinds.empty() ? nullptr : kinds.data(), JNum(a, "contrast", 1.0),
             JNum(a, "saturation", 1.0), JNum(a, "shake_amplitude", 0.0),
-            JNum(a, "shake_frequency", 0.0), JNum(a, "speed_amount", 0.0), &err);
+            JNum(a, "shake_frequency", 0.0), JNum(a, "speed_amount", 0.0),
+            fx.empty() ? nullptr : fx.data(), JNum(a, "effect_amount", 0.0), &err);
         if (n < 0) {
             const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(n));
             if (err) nc_free_string(err);

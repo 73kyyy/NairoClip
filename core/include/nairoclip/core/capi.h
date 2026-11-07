@@ -192,6 +192,13 @@ int32_t nc_ref_analyze(NcEditor* editor, uint64_t asset_id, char** out_json, cha
 /// - shake_amplitude/shake_frequency：抖动（来自分析结果；<=0 表示不加）
 /// 返回插入的片段数（>=0）；失败返回 **-1**（原因见 out_error）。
 /// 不要用 failNc 的错误码当返回值 —— 那是正值，调用方按 n<0 判断会误判成功。
+/// - effect_kinds：长度 shot_count 的「AI 特效」数组（可为 NULL）。取值：
+///   0 无 / 1 缩放冲击 / 2 RGB 分离 / 3 暗角 / 4 锐化 / 5 闪光。
+///   **由 AI 自主决定**，不来自参考视频分析 —— 参考片只给结构与节奏。
+/// - effect_amount：特效强度系数（0..1）。
+/// - start_seconds[i] 现在真正作为**源素材入点**使用：AI 把长镜头切成多段时，
+///   每段取素材的不同位置，不会出现重复画面。
+///
 /// - speed_amount：丝滑变速强度（0 = 不变速；建议 0.05..0.3）。
 ///   曲线是**均值为 1 的对称正弦**（0→+a→0→-a→0），并按 ∫(1/speed)ds 归一化，
 ///   所以**时间轴总时长不变** —— 这一点很关键：变速一旦改变时长，
@@ -200,7 +207,7 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
                      const double* start_seconds, const double* durations, int32_t shot_count,
                      const int32_t* transition_kinds, double contrast, double saturation,
                      double shake_amplitude, double shake_frequency, double speed_amount,
-                     char** out_error);
+                     const int32_t* effect_kinds, double effect_amount, char** out_error);
 
 /// 添加轨道，返回轨道 ID（0 = 失败）。
 uint64_t nc_add_track(NcEditor* editor, const char* name, int32_t track_type);

@@ -5179,7 +5179,7 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
                      const double* start_seconds, const double* durations, int32_t shot_count,
                      const int32_t* transition_kinds, double contrast, double saturation,
                      double shake_amplitude, double shake_frequency, double speed_amount,
-                     char** out_error) {
+                     const int32_t* effect_kinds, double effect_amount, char** out_error) {
     /* 计数类 API 的约定（与 nc_auto_edit 一致）：成功返回片段数，失败返回 -1。
        不能直接 return failNc(...) —— 它返回的是**正值**错误码（1..7），
        调用方按 n < 0 判断时会把失败当成「成功 1 个」。 */
@@ -5224,9 +5224,19 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
         }
         const int64_t durUs = static_cast<int64_t>(want * 1e6);
         if (durUs <= 0) continue;
-        // 时间轴位置必须累计排；start_seconds 是素材内起点，不是时间轴位置
-        const uint64_t clipId = nc_insert_clip(editor, track_index, asset_ids[i],
-                                               timelineUs < 0 ? 0 : timelineUs, durUs);
+        /* 时间轴位置累计排（否则片段互相重叠）；
+           start_seconds 是**源素材入点** —— AI 把长镜头切成多段时，
+           每段从素材的不同位置取画面，不会重复同一帧。
+           这两件事以前被我混成了一个参数，是 bug。 */
+        Clip clip;
+        clip.asset = AssetId{asset_ids[i]};
+        clip.start = fromMicroseconds(timelineUs);
+        clip.duration = fromMicroseconds(durUs);
+        const int64_t srcIn = static_cast<int64_t>(start_seconds[i] * 1e6);
+        clip.sourceIn = fromMicroseconds(srcIn < 0 ? 0 : srcIn);
+        ClipId newId;
+        const Result ins = editor->editor->insertClip(main->id, track.id, std::move(clip), &newId);
+        const uint64_t clipId = ins.isOk() ? newId.value : 0;
         if (clipId != 0) timelineUs += durUs;
         if (clipId != 0) clipIds.push_back(clipId);
     }
@@ -5262,6 +5272,39 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
         }
         /* 抖动：只有「分析置信度足够 + 幅度频率在合法区间」才加。
            注意这里用的是**测出来的**振幅与频率，不是随手给的 0.03。 */
+        /* AI 自主特效：位置与类型由调度层决定（不是参考片反推）。
+           effect_amount 只缩放幅度，不改变「加不加」——加不加是节奏判断。 */
+        if (effect_kinds != nullptr && i < static_cast<std::size_t>(shot_count)) {
+            const double amt = std::min(1.0, std::max(0.0, effect_amount));
+            switch (effect_kinds[i]) {
+                case 1:
+                    (void)nc_add_effect(editor, track_index, clipIds[i],
+                                        static_cast<int32_t>(EffectType::ZoomPunch),
+                                        0.35 + 0.45 * amt);
+                    break;
+                case 2:
+                    (void)nc_add_effect(editor, track_index, clipIds[i],
+                                        static_cast<int32_t>(EffectType::RgbSplit),
+                                        0.20 + 0.35 * amt);
+                    break;
+                case 3:
+                    (void)nc_add_effect(editor, track_index, clipIds[i],
+                                        static_cast<int32_t>(EffectType::Vignette),
+                                        0.20 + 0.30 * amt);
+                    break;
+                case 4:
+                    (void)nc_add_effect(editor, track_index, clipIds[i],
+                                        static_cast<int32_t>(EffectType::Sharpen),
+                                        1.2 + 1.6 * amt);
+                    break;
+                case 5:
+                    (void)nc_add_effect(editor, track_index, clipIds[i],
+                                        static_cast<int32_t>(EffectType::Flash),
+                                        0.20 + 0.40 * amt);
+                    break;
+                default: break;
+            }
+        }
         if (shake_amplitude > 0.001 && shake_frequency > 0.05) {
             const double amp = std::min(0.2, shake_amplitude);
             const double freq = std::min(20.0, shake_frequency);

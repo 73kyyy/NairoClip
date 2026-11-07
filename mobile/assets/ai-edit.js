@@ -258,16 +258,13 @@
       grid.appendChild(d);
     });
 
-    /* 统计有多少处转场会因为置信度不足而降级成溶解 —— 必须提前告诉用户，
-       不能等生成完发现「怎么全是叠化」再解释。 */
-    const tr = (S.profile && S.profile.transitions) || [];
-    let lowConf = 0;
-    for (let i = 0; i + 1 < S.slots.length; ++i) {
-      const t = tr[i];
-      if (t && (t.confidence || 0) < CONF_ACCEPT) lowConf += 1;
-    }
-
     renderOverlaySelect();
+
+    /* 预估 AI 会切成几段（生成前就要让用户看到，不能等生成完才知道） */
+    const k = S.intensity;
+    const maxShot = Math.max(0.55, 1.45 - 0.95 * k);
+    let pieces = 0;
+    S.slots.forEach((x) => { pieces += Math.max(1, Math.ceil(x.durSec / maxShot - 0.02)); });
 
     const missing = S.slots.filter((s) => !s.assetId).length;
     if (missing) {
@@ -275,9 +272,10 @@
     } else {
       const total = S.slots.reduce((n, x) => n + x.durSec, 0).toFixed(1);
       $('slotNote').innerHTML =
-        '共 <b>' + S.slots.length + '</b> 个镜头，预计成片 <b>' + total + 's</b>。' +
-        '生成后会直接打开时间轴，可以逐条改特效与关键帧。' +
-        (lowConf ? '<br><b>' + lowConf + '</b> 处转场置信度不足，已按溶解处理（不照猜测的类型生成）。' : '');
+        '共 <b>' + S.slots.length + '</b> 个参考镜头，预计成片 <b>' + total + 's</b>。' +
+        '<br>AI 会把镜头切成约 <b>' + pieces + '</b> 段（越燃切越碎），' +
+        '转场与特效由它自己按节奏安排，不是照抄参考片。' +
+        '<br>生成后直接打开时间轴，可逐条改。';
     }
   }
 
@@ -433,6 +431,70 @@
     return out;
   }
 
+  /* ---------------- 超燃编排（AI 自主决定转场/特效） ----------------
+     参考视频只提供**结构与节奏**（几个镜头、每段多长）。
+     转场类型和特效位置由这里自己决定 —— 不去反推参考片用了什么转场，
+     因为那本来就测不准，而且用户要的是「超燃」，不是「像原片」。
+
+     规则全部可解释：
+       1. 镜头长度超过目标值就切开（越燃切越碎），切点之间自然产生接缝
+       2. 接缝按「超燃轮转」选转场：缩放冲击 → 甩镜 → 闪白 → 故障 → 滑动，
+          同一种不连续用两次；强度低时退回溶解/滑动
+       3. 特效给运动量大的段：缩放冲击/RGB 分离；弱的段给锐化/暗角
+  */
+  function buildHypePlan(baseDurs) {
+    const k = S.intensity;
+    const maxShot = Math.max(0.55, 1.45 - 0.95 * k);
+    const shots = (S.profile && S.profile.shots) || [];
+
+    const durs = [];
+    const starts = [];
+    const effects = [];
+    const srcSlots = [];
+
+    for (let i = 0; i < baseDurs.length; ++i) {
+      let remain = baseDurs[i];
+      let srcOff = 0;
+      do {
+        const piece = Math.min(remain, maxShot);
+        durs.push(Math.max(0.35, piece));
+        starts.push(srcOff);
+        srcSlots.push(i);
+        remain -= piece;
+        srcOff += piece;
+      } while (remain > 0.12);
+    }
+
+    // 接缝转场：强转场轮转，避免连续重复
+    const HYPE = [5, 4, 7, 8, 3];   // 缩放/甩镜/闪白/故障/滑动
+    const kinds = [];
+    let last = -1;
+    for (let i = 0; i + 1 < durs.length; ++i) {
+      let kind;
+      if (k >= 0.5) {
+        let idx = i % HYPE.length;
+        if (HYPE[idx] === last) idx = (idx + 1) % HYPE.length;
+        kind = HYPE[idx];
+      } else {
+        kind = (i % 2 === 0) ? 2 : 3;   // 溶解 / 滑动
+      }
+      kinds.push(kind);
+      last = kind;
+    }
+
+    // 特效：按该段的运动量给
+    for (let i = 0; i < durs.length; ++i) {
+      const m = (shots[srcSlots[i]] && shots[srcSlots[i]].motion) || 0;
+      let fx = 0;
+      if (k >= 0.5 && m > 0.50) fx = (i % 2 === 0) ? 1 : 2;
+      else if (k >= 0.4 && m > 0.25) fx = 4;
+      else if (i % 3 === 0) fx = 3;
+      effects.push(fx);
+    }
+
+    return { durs, starts, kinds, effects, srcSlots };
+  }
+
   /* ---------------- 生成 ---------------- */
   /* 把分析结果换算成落盘参数。
      强度只缩放「偏离中性的幅度」：
@@ -457,27 +519,12 @@
     }
 
     // 转场：取分析出的接缝类型，不足则补溶解
-    const kinds = [];
-    const tr = p.transitions || [];
-    let lowConf = 0;
-    for (let i = 0; i + 1 < S.slots.length; ++i) {
-      const t = tr[i];
-      if (!t) { kinds.push(2); continue; }          // 没识别到 → 溶解兜底
-      if ((t.confidence || 0) < CONF_ACCEPT) {
-        // 置信度不够：不按猜的类型写，退化成中性溶解
-        lowConf += 1;
-        kinds.push(2);
-      } else {
-        kinds.push(t.kind);
-      }
-    }
-
     /* 丝滑变速：强度映射到 0.03..0.24 的振幅。
        为什么要乘系数而不是直接用 intensity：0.6 的振幅意味着速度在 0.4x~1.6x
        之间来回，观感会像“抽搐”，不是「丝滑」。 */
     const speedAmount = (S.style === 'curve') ? Math.max(0.03, Math.min(0.24, k * 0.30)) : 0.0;
 
-    return { contrast, saturation, shakeAmp, shakeFreq, kinds, lowConf, speedAmount };
+    return { contrast, saturation, shakeAmp, shakeFreq, speedAmount };
   }
 
   function startCreate() {
@@ -534,11 +581,24 @@
           mark(3);
           setPct(80, '正在落到时间轴');
 
-          const ids = S.slots.map((s) => s.assetId);
-          const starts = S.slots.map(() => 0);
           const baseDurs = S.slots.map((s) => s.durSec);
           const music = prepareMusic();
-          const durs = snapDurations(baseDurs, music);
+
+          // AI 自主编排：切碎长镜头 + 决定转场类型 + 决定特效位置
+          const plan = buildHypePlan(baseDurs);
+          const durs = snapDurations(plan.durs, music);
+
+          // 素材按段轮转（同一素材切出的多段沿用原素材）
+          /* 每一段都用它**自己那个槽位**的素材 —— 不能按比例重新映射，
+             否则「第 3 段用的是第 1 个素材」这种错位会让用户看不懂。
+             同一个长镜头切出来的几段共用素材，只是入点不同。 */
+          const ids = [];
+          const starts = [];
+          for (let i = 0; i < durs.length; ++i) {
+            const slot = S.slots[plan.srcSlots[i]] || S.slots[0];
+            ids.push(slot ? slot.assetId : 0);
+            starts.push(plan.starts[i] || 0);
+          }
 
           const r = api('nc_ref_apply', {
             track_index: 0,
@@ -550,7 +610,9 @@
             saturation: params.saturation,
             shake_amplitude: params.shakeAmp,
             shake_frequency: params.shakeFreq,
-            speed_amount: params.speedAmount
+            speed_amount: params.speedAmount,
+            effect_kinds: plan.effects,
+            effect_amount: S.intensity
           });
 
           if (!r || !r.ok) {
