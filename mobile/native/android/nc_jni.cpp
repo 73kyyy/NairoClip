@@ -2493,7 +2493,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewSetCacheBudget(
     auto* ed = g_currentEditor;
     if (ed == nullptr) return -1;
     if (bytes <= 0 || bytes > std::numeric_limits<jint>::max()) return -1;
-    return static_cast<jint>(nc_preview_set_cache_budget(ed, static_cast<jint32_t>(bytes)));
+    return static_cast<jint>(nc_preview_set_cache_budget(ed, static_cast<jint>(bytes)));
 }
 
 JNIEXPORT jint JNICALL
