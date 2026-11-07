@@ -332,16 +332,32 @@ class NativeEngineBridge(
          * 这里刻意不加，避免签名对不上）。
          */
         fun registerTextRasterizer() {
+            /* 关键：nativeRegisterTextRasterizer 是**实例** external 成员
+               （JNI 签名带 jobject self）。挪进 companion 会让符号变成
+               Java_..._NativeEngineBridge_00024Companion_...，
+               与 nc_jni.cpp 的实现对不上 —— 编译能过，运行期
+               UnsatisfiedLinkError。所以只能经实例转发。
+
+               但 MainActivity 在引擎实例创建**之前**就调本方法，
+               此时 instanceForSurface 还是 null。直接 return 会让
+               文本栅格化器永远注册不上（文本片段静默不渲染）。
+               因此这里记一个待注册标记，由 bindInstance() 补注册。 */
+            val inst = instanceForSurface
+            if (inst == null) {
+                pendingRasterizerRegister = true
+                return
+            }
             try {
-                nativeRegisterTextRasterizer(AndroidTextRasterizer)
+                inst.nativeRegisterTextRasterizer(AndroidTextRasterizer)
             } catch (e: Throwable) {
                 // 老 so 可能没有这个符号 —— 不让它影响启动
             }
         }
 
         fun unregisterTextRasterizer() {
+            pendingRasterizerRegister = false
             try {
-                nativeRegisterTextRasterizer(null)
+                instanceForSurface?.nativeRegisterTextRasterizer(null)
             } catch (e: Throwable) {
             }
         }
@@ -352,6 +368,9 @@ class NativeEngineBridge(
            因为 JNI 签名带 jobject self）。 */
 
         private var instanceForSurface: NativeEngineBridge? = null
+
+        /** 引擎实例尚未创建时收到的「注册文本栅格化器」请求。 */
+        private var pendingRasterizerRegister = false
 
         /** 当前绑定实例（MainActivity 在内存回调里要用）。 */
         val instance: NativeEngineBridge?
@@ -455,6 +474,11 @@ class NativeEngineBridge(
          */
         fun bindInstance(inst: NativeEngineBridge, cacheBudgetBytes: Long = 0L) {
             instanceForSurface = inst
+            /* 引擎就绪 —— 补注册启动阶段排队的文本栅格化器。 */
+            if (pendingRasterizerRegister) {
+                pendingRasterizerRegister = false
+                registerTextRasterizer()
+            }
             if (cacheBudgetBytes > 0) {
                 try {
                     inst.nativePreviewSetCacheBudget(cacheBudgetBytes)

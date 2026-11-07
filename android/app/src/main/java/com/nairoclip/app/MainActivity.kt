@@ -74,7 +74,10 @@ class MainActivity : AppCompatActivity() {
            这是我们最后一次主动释放的机会。 */
         memoryGuard = MemoryGuard(applicationContext) { level ->
             try {
-                val freed = NativeEngineBridge.instance?.releaseMemory(level) ?: 0L
+                /* releaseMemory 是 **companion object** 成员（内部自己取
+                   instanceForSurface），不是实例成员 —— 写成
+                   `instance?.releaseMemory(...)` 会 Unresolved reference。 */
+                val freed = NativeEngineBridge.releaseMemory(level)
                 /* 内存压力下**同时下调缓存预算**（否则清空后会按原预算
                    重新填满，等于白清）。压力解除后不主动恢复 ——
                    下次启动会重新按设备算，避免短期反复抖动。 */
