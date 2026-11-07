@@ -114,6 +114,7 @@
        为什么用 textarea 而不是 input：文本片段支持 \n 换行，
        单行 input 会把换行吃掉，用户在别处粘贴的多行文本会变成一行。 */
     textbody:  { kind: 'text', name: '文本内容', placeholder: '输入文字…', rows: 3 },
+    textpreset: { kind: 'seg', name: '字幕样式', opts: ['默认', '冲击大字', '底部弹幕', '荧光描边', '红黑燃系'], def: 0 },
 
     /* —— 超燃预设（P-08）—— */
     /* 预设按钮组：选项**运行时从内核取**（nc_surge_preset_count/name），
@@ -332,7 +333,7 @@
       title: '新建文本', mode: 'single',
       /* 顺序有意：先输入内容，再调样式，最后「创建文本」——
          用户在点创建之前就能看到所有参数，符合「先填表后提交」的直觉。 */
-      groups: [['textbody'], ['fontsize', 'textcolor', 'stroke', 'valign'], ['addtext']]
+      groups: [['textbody'], ['textpreset'], ['fontsize', 'textcolor', 'stroke', 'valign'], ['addtext']]
     },
     subtitle: {
       title: '识别字幕', mode: 'single',

@@ -962,8 +962,18 @@
       }
       const startUs = Math.round((S.currentTime || 0) * 1000000);
       const durationUs = 3000000;   // 3 秒：短到不会盖满整条时间轴
-      const fontSize = ST.values.fontsize || 48;
-      const color = ST.values.textcolor || '#FFFFFF';
+      /* 燃向字幕预设（B3-4）：字号/颜色/描边/锚点一起给。
+         预设 0 = 用下面手动控件的值。 */
+      const TEXT_PRESETS = [null,
+        { size: 96, color: '#FFFFFF', stroke: 8, anchorY: 0.50 },
+        { size: 56, color: '#FFFFFF', stroke: 5, anchorY: 0.82 },
+        { size: 72, color: '#F5FF3D', stroke: 6, anchorY: 0.70 },
+        { size: 84, color: '#FF3B30', stroke: 7, anchorY: 0.50 }];
+      const preset = TEXT_PRESETS[ST.values.textpreset || 0] || null;
+      const fontSize = preset ? preset.size : (ST.values.fontsize || 48);
+      const color = preset ? preset.color : (ST.values.textcolor || '#FFFFFF');
+      const stroke = preset ? preset.stroke : (ST.values.stroke || 0);
+      const anchorY = preset ? preset.anchorY : 0.5;
       const alignment = ST.values.valign == null ? 1 : ST.values.valign;
 
       const r = await engineCall('nc_add_text_clip', {
@@ -974,7 +984,7 @@
         color,
         alignment,
         anchor_x: 0.5,
-        anchor_y: 0.5
+        anchor_y: anchorY
       });
       /* engineCall 返回的是 {ok, result, message} 而不是 id ——
          原来写 `if (!id)` 判断，对象恒为真，失败也会提示「已创建」，
@@ -982,6 +992,21 @@
       if (!r || !r.ok) {
         toast('创建文本失败：' + ((r && r.message) || '未知错误'), 3000);
         return;
+      }
+      /* 描边必须单独调 nc_set_text_style —— nc_add_text_clip 的入参里
+         没有 outline 字段，所以面板上的「描边」滑块以前一直是摆设。 */
+      const created = (r.result && (r.result.value || r.result.clip_id)) || 0;
+      if (created) {
+        engineCall('nc_set_text_style', {
+          clip_id: created,
+          font_size: fontSize,
+          color: color,
+          outline_color: '#000000',
+          outline_width: stroke,
+          alignment: alignment,
+          anchor_x: 0.5,
+          anchor_y: anchorY
+        });
       }
       toast('已创建文本');
       close();

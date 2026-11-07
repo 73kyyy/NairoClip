@@ -466,6 +466,45 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = id ? Ok("{\"track_id\":" + std::to_string(id) + "}") : Err("添加轨道失败");
         return true;
     }
+    if (op == "nc_add_text_clip") {
+        /* 之前**完全没有分支**：l3-panel 的「新建文本」调用它，
+           落到「未知 op」，界面点了没反应 —— 典型的「内核有、JNI 没接」。 */
+        const uint64_t id = nc_add_text_clip(
+            ed, JStrField(a, "text").c_str(),
+            static_cast<int64_t>(JInt(a, "start_us", 0)),
+            static_cast<int64_t>(JInt(a, "duration_us", 3000000)),
+            JNum(a, "font_size", 48.0), JStrField(a, "color").empty()
+                                            ? "#FFFFFF"
+                                            : JStrField(a, "color").c_str(),
+            static_cast<int32_t>(JInt(a, "alignment", 1)),
+            JNum(a, "anchor_x", 0.5), JNum(a, "anchor_y", 0.5));
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("创建文本失败");
+        return true;
+    }
+    if (op == "nc_set_clip_text") {
+        const int32_t rc = nc_set_clip_text(ed, cid, JStrField(a, "text").c_str());
+        if (rc != NC_OK) {
+            *out = Err("修改文本失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{}");
+        return true;
+    }
+    if (op == "nc_set_text_style") {
+        // 燃向字幕靠它设描边（outline_width 是「大字压屏」可读性的关键）
+        const std::string outline = JStrField(a, "outline_color");
+        const int32_t rc = nc_set_text_style(
+            ed, cid, JNum(a, "font_size", 48.0), JStrField(a, "color").c_str(),
+            outline.empty() ? "#000000" : outline.c_str(), JNum(a, "outline_width", 0.0),
+            static_cast<int32_t>(JInt(a, "alignment", 1)), JNum(a, "anchor_x", 0.5),
+            JNum(a, "anchor_y", 0.5));
+        if (rc != NC_OK) {
+            *out = Err("设置文字样式失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{}");
+        return true;
+    }
     if (op == "nc_set_clip_blend_mode") {
         /* 短名 op 是 "blend"，而 nc-api.js 发的是全名 —— 全名从来没被接过，
            所以 NC_API.nc_set_clip_blend_mode 一直是「未知 op」。

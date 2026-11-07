@@ -1320,6 +1320,9 @@ window.NCBARBACK = function () {
 /// 用「尾随重绘」标志代替直接重入：重入时不并行执行，只标记需要再来一次。
 let renderTracksBusy = false;
 let renderTracksPending = false;
+/// 用 rAF 合并连续重绘：滚动/拖拽时 pointermove 每秒上百次，
+/// 立即递归重跑会连着重画很多轮。合并到下一帧只画一次。
+let renderTracksScheduled = false;
 
 /// 让整段时长恰好铺满可视宽度（播放头在中心，故左右各留半屏）。
 /// 素材比屏幕长时，默认缩放会让片段伸出视口右边 —— 这不是 bug，
@@ -1343,9 +1346,24 @@ function renderTracks() {
   }
   if (renderTracksPending) {
     renderTracksPending = false;
-    renderTracks();
+    if (!renderTracksScheduled) {
+      renderTracksScheduled = true;
+      requestAnimationFrame(() => {
+        renderTracksScheduled = false;
+        renderTracks();
+      });
+    }
   }
 }
+
+/* 视口裁剪的统计（调试/验收用）：
+   window.NC_VIRT_STATS() 返回 {built, skipped}，重置后可以数某次操作建了多少节点。
+   没有任何 UI 依赖它 —— 纯粹是为了能验证「1000 片段时只建几十个」。 */
+window.NC_VIRT_STATS = function (reset) {
+  const v = S.virtStats || { built: 0, skipped: 0 };
+  if (reset) S.virtStats = { built: 0, skipped: 0 };
+  return { built: v.built, skipped: v.skipped };
+};
 
 /// 宫格缩略图映射表（滤镜 / 特效 / 转场 / 蒙版）。
 ///
@@ -1636,7 +1654,30 @@ function renderTracksBody() {
     const body = document.createElement('div');
     body.className = 'tbody';
     if (!tr.collapsed) {
-      tr.clips.forEach((c) => body.appendChild(buildClip(tr, c)));
+      /* ---- 视口裁剪（P-12 时间轴性能）----
+         原来是把**每一条**片段都建成 DOM，然后靠 visibility:hidden 藏起来。
+         片段上千条时，节点数和缩略图请求都是全量 —— 拖一下时间轴就要重建
+         上千个节点，必然掉帧。改成只建「看得见 + 一屏余量」的。
+
+         余量取一屏宽：快速甩动时不会看到空白，又不会把远处的建出来。
+         选中的片段永远建（哪怕暂时在视口外），否则选中框会突然消失。 */
+      const margin = viewW();
+      let skipped = 0;
+      let built = 0;
+      tr.clips.forEach((c) => {
+        const x = t2x(c.start);
+        const w = Math.max(6, c.dur * S.pxPerSec);
+        const isSel = S.selected && S.selected.trackId === tr.id && S.selected.clipId === c.id;
+        if (!isSel && (x + w < -margin || x > viewW() + margin)) {
+          skipped += 1;
+          return;
+        }
+        body.appendChild(buildClip(tr, c));
+        built += 1;
+      });
+      S.virtStats = S.virtStats || { built: 0, skipped: 0 };
+      S.virtStats.built += built;
+      S.virtStats.skipped += skipped;
     }
     row.appendChild(body);
     if (!tr.collapsed) renderJunctions(row, tr);   // 折叠时不画转场标记：18px 里放不下
