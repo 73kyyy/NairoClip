@@ -1325,7 +1325,9 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
             kinds.empty() ? nullptr : kinds.data(), JNum(a, "contrast", 1.0),
             JNum(a, "saturation", 1.0), JNum(a, "shake_amplitude", 0.0),
             JNum(a, "shake_frequency", 0.0), JNum(a, "speed_amount", 0.0),
-            fx.empty() ? nullptr : fx.data(), JNum(a, "effect_amount", 0.0), &err);
+            fx.empty() ? nullptr : fx.data(), JNum(a, "effect_amount", 0.0),
+            static_cast<int32_t>(JInt(a, "lut_preset", -1)), JNum(a, "lut_strength", 0.0),
+            &err);
         if (n < 0) {
             const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(n));
             if (err) nc_free_string(err);

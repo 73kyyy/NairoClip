@@ -275,7 +275,8 @@
         '共 <b>' + S.slots.length + '</b> 个参考镜头，预计成片 <b>' + total + 's</b>。' +
         '<br>AI 会把镜头切成约 <b>' + pieces + '</b> 段（越燃切越碎），' +
         '转场与特效由它自己按节奏安排，不是照抄参考片。' +
-        '<br>生成后直接打开时间轴，可逐条改。';
+        '<br>生成后直接打开时间轴，可逐条改。' +
+        (S.profile && pickLut(S.profile) ? '<br>色调会套用 LUT：<b>' + pickLut(S.profile).name + '</b>' : '');
     }
   }
 
@@ -495,6 +496,45 @@
     return { durs, starts, kinds, effects, srcSlots };
   }
 
+  /* ---------------- 色调自动匹配（B4-3 / LUT 联动） ----------------
+     按参考片的色彩统计挑一个内置 LUT。
+     为什么按名字查而不是写死下标：预设顺序在 core 里定义，
+     写死 0/1/14 这种数字，一旦有预设增删就会静默套错片子。
+     名字是稳定的业务标识。 */
+  function pickLut(p) {
+    const cnt = api('nc_lut_preset_count');
+    let n = 0;
+    if (cnt && cnt.ok) {
+      n = typeof cnt.result === 'number' ? cnt.result
+        : (cnt.result && (cnt.result.value || cnt.result.count)) || 0;
+    }
+    if (!n) return null;
+
+    const names = [];
+    for (let i = 0; i < n; ++i) {
+      const r = api('nc_lut_preset_name', { index: i });
+      let v = '';
+      if (r && r.ok) {
+        v = typeof r.result === 'string' ? r.result
+          : (r.result && (r.result.value || r.result.name)) || '';
+      }
+      names.push(v);
+    }
+
+    const sat = p.avg_saturation || 0;
+    const warm = (p.avg_r || 0) - (p.avg_b || 0);
+    const contrast = p.avg_contrast || 0;
+    let want = '极简';
+    if (sat < 0.12) want = '黑白';
+    else if (warm > 0.06) want = contrast > 0.28 ? '日落' : '柯达暖';
+    else if (warm < -0.05) want = '富士冷';
+    else if (contrast > 0.30) want = '浓郁';
+
+    const idx = names.indexOf(want);
+    if (idx < 0) return null;
+    return { index: idx, name: want, strength: Math.min(0.85, 0.35 + 0.45 * S.intensity) };
+  }
+
   /* ---------------- 生成 ---------------- */
   /* 把分析结果换算成落盘参数。
      强度只缩放「偏离中性的幅度」：
@@ -600,6 +640,8 @@
             starts.push(plan.starts[i] || 0);
           }
 
+          const lut = pickLut(S.profile || {});
+
           const r = api('nc_ref_apply', {
             track_index: 0,
             asset_ids: ids,
@@ -612,7 +654,9 @@
             shake_frequency: params.shakeFreq,
             speed_amount: params.speedAmount,
             effect_kinds: plan.effects,
-            effect_amount: S.intensity
+            effect_amount: S.intensity,
+            lut_preset: lut ? lut.index : -1,
+            lut_strength: lut ? lut.strength : 0
           });
 
           if (!r || !r.ok) {

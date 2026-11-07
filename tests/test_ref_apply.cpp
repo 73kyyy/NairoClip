@@ -32,7 +32,7 @@ NC_TEST(RefApply, AppliesAsSingleUndoStep) {
     const int32_t before = nc_undo_count(f.ed);
 
     char* err = nullptr;
-    const int32_t n = nc_ref_apply(f.ed, 0, ids, starts, durs, 3, kinds, 1.05, 1.10, 0.02, 3.0, 0.0, nullptr, 0.0,
+    const int32_t n = nc_ref_apply(f.ed, 0, ids, starts, durs, 3, kinds, 1.05, 1.10, 0.02, 3.0, 0.0, nullptr, 0.0, -1, 0.0,
                                    &err);
     NC_CHECK(n == 3);
     if (n < 0) {
@@ -57,7 +57,7 @@ NC_TEST(RefApply, RejectsNonEmptyTrack) {
     const double starts[1] = {0.0};
     const double durs[1] = {1.0};
     char* err = nullptr;
-    const int32_t n = nc_ref_apply(f.ed, 0, ids, starts, durs, 1, nullptr, 1.0, 1.0, 0.0, 0.0, 0.0, nullptr, 0.0,
+    const int32_t n = nc_ref_apply(f.ed, 0, ids, starts, durs, 1, nullptr, 1.0, 1.0, 0.0, 0.0, 0.0, nullptr, 0.0, -1, 0.0,
                                    &err);
     NC_CHECK(n < 0);
     if (err) nc_free_string(err);
@@ -81,7 +81,7 @@ NC_TEST(RefApply, SpeedRampKeepsTotalDuration) {
     char* err = nullptr;
     // 先开变速生成
     const int32_t n = nc_ref_apply(f.ed, 0, ids, starts, durs, 2, kinds, 1.0, 1.0, 0.0, 0.0,
-                                   0.20, nullptr, 0.0, &err);
+                                   0.20, nullptr, 0.0, -1, 0.0, &err);
     NC_CHECK(n == 2);
     if (n < 0) {
         if (err) nc_free_string(err);

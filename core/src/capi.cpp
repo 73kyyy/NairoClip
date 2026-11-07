@@ -5179,7 +5179,8 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
                      const double* start_seconds, const double* durations, int32_t shot_count,
                      const int32_t* transition_kinds, double contrast, double saturation,
                      double shake_amplitude, double shake_frequency, double speed_amount,
-                     const int32_t* effect_kinds, double effect_amount, char** out_error) {
+                     const int32_t* effect_kinds, double effect_amount, int32_t lut_preset,
+                     double lut_strength, char** out_error) {
     /* 计数类 API 的约定（与 nc_auto_edit 一致）：成功返回片段数，失败返回 -1。
        不能直接 return failNc(...) —— 它返回的是**正值**错误码（1..7），
        调用方按 n < 0 判断时会把失败当成「成功 1 个」。 */
@@ -5303,6 +5304,18 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
                                         0.20 + 0.40 * amt);
                     break;
                 default: break;
+            }
+        }
+        /* B4-3 色调自动匹配：给每个片段套一个内置 LUT 预设。
+           预设由调度层按参考片的色调统计挑选（暖/冷/低饱和/高对比），
+           这里只负责落盘 —— 和 effect_kinds 一样的分工。 */
+        if (lut_preset >= 0) {
+            const int32_t lutCount = nc_lut_preset_count();
+            if (lut_preset < lutCount) {
+                const double s2 = lut_strength < 0.0 ? 0.0
+                                 : (lut_strength > 1.0 ? 1.0 : lut_strength);
+                (void)nc_lut_preset_apply(editor, track_index, clipIds[i], lut_preset, s2,
+                                          nullptr);
             }
         }
         if (shake_amplitude > 0.001 && shake_frequency > 0.05) {
