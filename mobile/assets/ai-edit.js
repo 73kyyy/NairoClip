@@ -28,6 +28,11 @@
     try { return f(args || {}); } catch (e) { return { ok: false, message: (e && e.message) || String(e) }; }
   }
 
+  /* 转场置信度门槛。低于它的一律**不按猜出来的类型生成**，
+     退化成中性的溶解，并在编排页如实告诉用户有几处降级。
+     只在界面上标「疑似」、实际仍按猜测类型落盘，是两套说法 —— 那不行。 */
+  const CONF_ACCEPT = 0.5;
+
   const S = {
     step: 1,
     assets: [],          // 全部素材 {id,name,kind,durUs}
@@ -147,7 +152,10 @@
     const box = $('analysisBox');
     if (!p) { box.textContent = ''; return; }
     const trans = (p.transitions || []).map((t) => {
-      const conf = t.confidence >= 0.5 ? '' : ' <span class="tag warn">疑似</span>';
+      const pct = Math.round((t.confidence || 0) * 100);
+      const conf = (t.confidence >= CONF_ACCEPT)
+        ? ' <span style="color:var(--text-low)">' + pct + '%</span>'
+        : ' <span class="tag warn">疑似 ' + pct + '%</span>';
       return '<div class="tline"><span><span class="tag">' + t.name + '</span>' + conf +
              '</span><span>' + t.at.toFixed(2) + 's</span></div>';
     }).join('');
@@ -247,6 +255,15 @@
       grid.appendChild(d);
     });
 
+    /* 统计有多少处转场会因为置信度不足而降级成溶解 —— 必须提前告诉用户，
+       不能等生成完发现「怎么全是叠化」再解释。 */
+    const tr = (S.profile && S.profile.transitions) || [];
+    let lowConf = 0;
+    for (let i = 0; i + 1 < S.slots.length; ++i) {
+      const t = tr[i];
+      if (t && (t.confidence || 0) < CONF_ACCEPT) lowConf += 1;
+    }
+
     const missing = S.slots.filter((s) => !s.assetId).length;
     if (missing) {
       $('slotNote').innerHTML = '还差 <b>' + missing + '</b> 个槽位没选素材';
@@ -254,7 +271,8 @@
       const total = S.slots.reduce((n, x) => n + x.durSec, 0).toFixed(1);
       $('slotNote').innerHTML =
         '共 <b>' + S.slots.length + '</b> 个镜头，预计成片 <b>' + total + 's</b>。' +
-        '生成后会直接打开时间轴，可以逐条改特效与关键帧。';
+        '生成后会直接打开时间轴，可以逐条改特效与关键帧。' +
+        (lowConf ? '<br><b>' + lowConf + '</b> 处转场置信度不足，已按溶解处理（不照猜测的类型生成）。' : '');
     }
   }
 
@@ -284,12 +302,20 @@
     // 转场：取分析出的接缝类型，不足则补溶解
     const kinds = [];
     const tr = p.transitions || [];
+    let lowConf = 0;
     for (let i = 0; i + 1 < S.slots.length; ++i) {
       const t = tr[i];
-      kinds.push(t ? t.kind : 2);
+      if (!t) { kinds.push(2); continue; }          // 没识别到 → 溶解兜底
+      if ((t.confidence || 0) < CONF_ACCEPT) {
+        // 置信度不够：不按猜的类型写，退化成中性溶解
+        lowConf += 1;
+        kinds.push(2);
+      } else {
+        kinds.push(t.kind);
+      }
     }
 
-    return { contrast, saturation, shakeAmp, shakeFreq, kinds };
+    return { contrast, saturation, shakeAmp, shakeFreq, kinds, lowConf };
   }
 
   function startCreate() {
