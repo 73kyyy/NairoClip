@@ -45,6 +45,7 @@
     musicId: 0,
     order: 'smart',
     overlayId: 0,
+    overlayMode: 'mid',
     slots: []            // [{index, durSec, assetId}]
   };
 
@@ -303,42 +304,68 @@
     const ov = S.videos.find((x) => x.id === S.overlayId);
     if (!ov) return 0;
 
-    const t = api('nc_add_track', { name: '叠层', type: 0 });
-    if (!t || !t.ok) return 0;
-    const c = api('nc_track_count');
-    const n = (c && typeof c.result === 'number') ? c.result : 0;
-    const trackIdx = n - 1;
-
     const shots = (S.profile && S.profile.shots) || [];
     const order = S.slots.map((s, i) => ({ i: i, motion: (shots[i] && shots[i].motion) || 0 }));
     order.sort((a, b) => b.motion - a.motion);
-    const take = Math.min(3, Math.max(1, Math.round(S.slots.length / 3)));
+
+    const total = S.slots.length;
+    const want = S.overlayMode === 'all'
+      ? total
+      : (S.overlayMode === 'mid' ? Math.ceil(total * 2 / 3) : Math.ceil(total / 3));
+
+    /* 多轨打包：按运动量从高到低依次放，每条轨记录已占用的区间，
+       放到第一条「不与已有区间重叠」的轨上；都满了就新开一条。
+       这样同一时刻可以有多个叠层（比如前景光效 + 边框），不会互相顶掉。
+       上限 4 条 —— 再多就是叠被子，画面会糊。 */
+    const MAX_TRACKS = 4;
+    const tracks = [];
+    function newTrack() {
+      const t = api('nc_add_track', { name: '叠层 ' + (tracks.length + 1), type: 0 });
+      if (!t || !t.ok) return null;
+      const c = api('nc_track_count');
+      const n = (c && typeof c.result === 'number') ? c.result : 0;
+      const rec = { idx: n - 1, spans: [] };
+      tracks.push(rec);
+      return rec;
+    }
 
     let placed = 0;
-    for (let k = 0; k < order.length && placed < take; ++k) {
+    for (let k = 0; k < order.length && placed < want; ++k) {
       const i = order[k].i;
-      // 起点 = 前面所有片段时长之和
       let startUs = 0;
       for (let j = 0; j < i; ++j) startUs += Math.round(durs[j] * 1e6);
       const slotUs = Math.round(durs[i] * 1e6);
       const availUs = ov.durUs || slotUs;
       const durUs = Math.min(slotUs, availUs, 3000000);
       if (durUs < 300000) continue;
+      const endUs = startUs + durUs;
+
+      let target = null;
+      for (let t = 0; t < tracks.length; ++t) {
+        const free = tracks[t].spans.every((sp) => startUs >= sp[1] || endUs <= sp[0]);
+        if (free) { target = tracks[t]; break; }
+      }
+      if (target === null) {
+        if (tracks.length >= MAX_TRACKS) break;
+        target = newTrack();
+        if (target === null) break;
+      }
 
       const r = api('nc_insert_clip', {
-        track_index: trackIdx, asset_id: ov.id, start_us: startUs, duration_us: durUs
+        track_index: target.idx, asset_id: ov.id, start_us: startUs, duration_us: durUs
       });
       if (!r || !r.ok) continue;
       // JNI 的 nc_insert_clip 返回 { value: <id> }，不能直接把对象当 id
       const clipId = (r.result && (r.result.value || r.result.clip_id || r.result.id)) || 0;
       if (!clipId) continue;
+      target.spans.push([startUs, endUs]);
 
-      // 入场曲线：缩放与透明度各打两个关键帧（property 1=缩放，0=透明度）
+      // 入场曲线：缩放与透明度各两个关键帧（property 1=缩放，0=透明度）
       const fade = Math.min(400000, Math.round(durUs / 3));
-      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 1, time_us: 0, value: 0.88 });
-      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 1, time_us: fade, value: 1.10 });
-      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 0, time_us: 0, value: 0.0 });
-      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 0, time_us: fade, value: 1.0 });
+      api('nc_insert_keyframe', { track_index: target.idx, clip_id: clipId, property: 1, time_us: 0, value: 0.88 });
+      api('nc_insert_keyframe', { track_index: target.idx, clip_id: clipId, property: 1, time_us: fade, value: 1.10 });
+      api('nc_insert_keyframe', { track_index: target.idx, clip_id: clipId, property: 0, time_us: 0, value: 0.0 });
+      api('nc_insert_keyframe', { track_index: target.idx, clip_id: clipId, property: 0, time_us: fade, value: 1.0 });
       placed += 1;
     }
     return placed;
@@ -581,6 +608,14 @@
     sl.addEventListener('input', () => {
       S.intensity = parseInt(sl.value, 10) / 100;
       $('intensityVal').textContent = sl.value + '%';
+    });
+
+    document.querySelectorAll('#overlayDensity .tab').forEach((t) => {
+      t.addEventListener('click', () => {
+        document.querySelectorAll('#overlayDensity .tab').forEach((x) => x.classList.remove('on'));
+        t.classList.add('on');
+        S.overlayMode = t.getAttribute('data-density');
+      });
     });
 
     const ovSel = $('overlaySel');

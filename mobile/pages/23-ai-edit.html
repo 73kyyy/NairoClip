@@ -115,9 +115,19 @@
     <select id="overlaySel" class="slot-select">
       <option value="0">不加叠层</option>
     </select>
+
+    <div class="field-label">铺多少</div>
+    <div class="order-tabs" id="overlayDensity">
+      <button class="tab" data-density="few">少（约 1/3）</button>
+      <button class="tab on" data-density="mid">中（约 2/3）</button>
+      <button class="tab" data-density="all">全部镜头</button>
+    </div>
+
     <p class="field-hint">
-      选了之后，AI 会挑<b>运动量最大的几段</b>把它叠上去（单独一条画中画轨 +
-      缩放/透明度关键帧）。位置是按运动量算的，不是「看懂了画面内容」。
+      叠层放上去就是<b>普通视频片段</b>，生成后在时间轴上选中它，
+      工具栏里的特效、混合模式、变换、关键帧全都能用。
+      AI 只负责决定「铺在哪些镜头」（按运动量排），并给一个入场动画。
+      位置不够会自动加轨，轨道数上限 4 条。
     </p>
 
     <div class="step-note" id="slotNote"></div>
