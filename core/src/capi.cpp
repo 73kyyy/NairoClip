@@ -67,6 +67,7 @@ extern "C" {
 #endif
 
 #include <cstring>
+#include <cstdio>   // std::remove（nc_extract_audio 清理半成品时用）
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>

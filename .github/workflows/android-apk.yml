@@ -158,7 +158,16 @@ jobs:
               -DNAIROCLIP_BUILD_TESTS=OFF \
               -DNAIROCLIP_ORT_ROOT=OFF \
               -DNAIROCLIP_FFMPEG_ROOT="$(pwd)/ffmpeg-build/out/$ABI"
-            cmake --build "build-core-$ABI" --parallel 4 --target nairoclip_core
+            # 失败时把真实错误打出来：ci-status 只保留日志尾部，
+            # 而 -j4 下错误行可能被埋在几百行 warning 中间。
+            if ! cmake --build "build-core-$ABI" --parallel 4 --target nairoclip_core \
+                   > "build-core-$ABI.log" 2>&1; then
+              echo "❌ core 构建失败（$ABI），最后 100 行："
+              tail -n 100 "build-core-$ABI.log"
+              echo "--- 所有 error: 行 ---"
+              grep -n "error:" "build-core-$ABI.log" | head -30 || true
+              exit 1
+            fi
             DEST="android/app/src/main/cpp/prebuilt/$ABI"
             mkdir -p "$DEST"
             find "build-core-$ABI" -name 'libnairoclip_core.a' -exec cp {} "$DEST/" \;
