@@ -37,7 +37,11 @@ endif()
 #   静态链接（.a）无法替换，等于要求整个 App 按 LGPL 开源 ——
 #   与闭源策略冲突。所以这里只接受 .so，找不到就报错，
 #   **不静默退回 Mock**（那会让 APK 装上去能开但导不了视频）。
-set(NC_FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../jniLibs/${ANDROID_ABI}")
+# 注意路径层级：本文件在 android/app/src/main/cpp/，
+# 上一层是 main/，所以 jniLibs 是 ../jniLibs。
+# 之前写成 ../../jniLibs（= android/app/src/jniLibs，不存在），
+# 导致 EXISTS 恒为假 → 静默跳过链接 → 链接期一堆 undefined symbol。
+set(NC_FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}")
 set(NC_FFMPEG_LIBS
     "${NC_FFMPEG_LIB_DIR}/libavformat.so"
     "${NC_FFMPEG_LIB_DIR}/libavcodec.so"
@@ -48,10 +52,14 @@ if(EXISTS "${NC_FFMPEG_LIB_DIR}/libavcodec.so")
     target_link_libraries(nc_jni ${NC_FFMPEG_LIBS})
     message(STATUS "nc_jni: FFmpeg 动态库已链接 ${NC_FFMPEG_LIB_DIR}")
 else()
-    message(WARNING
-        "nc_jni: 未找到 FFmpeg 动态库（${NC_FFMPEG_LIB_DIR}）。\n"
-        "APK 会退化为 Mock 解码器 —— 真实视频无法导入。\n"
-        "请运行 ffmpeg-build/build-android.sh 并把产物拷到 jniLibs/<abi>/。")
+    # 必须是 FATAL_ERROR：上面的注释写着「找不到就报错，不静默退回 Mock」，
+    # 但原代码只打了 WARNING，结果是链接期一堆 undefined symbol ——
+    # 报错信息离真正原因很远，很难查。这里直接失败并说清楚。
+    message(FATAL_ERROR
+        "nc_jni: 未找到 FFmpeg 动态库：${NC_FFMPEG_LIB_DIR}/libavcodec.so\n"
+        "APK 会退化为 Mock 解码器（能开但导不了真实视频）。\n"
+        "请运行 ffmpeg-build/build-android.sh，并把 out/<abi>/lib/*.so\n"
+        "拷到 android/app/src/main/jniLibs/<abi>/。")
 endif()
 
 # 依赖的系统库
