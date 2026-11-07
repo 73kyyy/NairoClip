@@ -1,0 +1,107 @@
+/* NairoClip · 无障碍与适配（P-13）
+   ============================================================================
+   全站统一引入，放在 tokens.css 之后、各页面自己的样式之前。
+
+   解决四类问题：
+
+   ① **系统字体缩放 / 横屏**
+      页面用 px 写死字号，系统调大字号时 WebView 会二次缩放导致排版错位。
+      `text-size-adjust: 100%` 关掉这层二次缩放，改为让浏览器自己排版。
+      横屏时高度骤减，底部栏和面板会被顶出屏幕 —— 用 max-height 查询压缩。
+
+   ② **减少动效（前庭功能敏感用户）**
+      系统的「减弱动态效果」开关必须尊重：关掉所有 transition/animation，
+      否则大范围位移的动画会引起眩晕。这不是审美偏好，是医学需求。
+
+   ③ **键盘 / 外接键盘焦点**
+      原来只有一处 :focus-visible。触摸设备看不出问题，但接了键盘或
+      读屏软件时就完全找不到焦点在哪。统一加可见的焦点环。
+
+   ④ **触控目标尺寸**
+      Material / HIG 都要求最小 44×44。图标按钮在 30px 圆钮里时，
+      手指按不准 —— 用 min-width/min-height 撑开（视觉不变，热区变大）。
+   ========================================================================== */
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ---- 1. 减少动效 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- 2. 键盘焦点 ---- */
+:focus-visible {
+  outline: 2px solid var(--accent, #2D8CFF);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* 鼠标/触摸点击不显示焦点环，避免「点一下到处都是框」 */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---- 3. 触控热区 ---- */
+button,
+[role='button'],
+[data-act],
+.tab,
+.opt-card,
+.sheet-item {
+  min-height: 44px;
+  touch-action: manipulation;   /* 去掉 300ms 双击缩放延迟 */
+}
+
+/* 图标按钮：视觉尺寸不变，热区撑到 44 */
+button.icon-only,
+button[aria-label]:empty {
+  min-width: 44px;
+}
+
+/* ---- 4. 横屏压缩 ---- */
+@media (orientation: landscape) and (max-height: 480px) {
+  .flow-hd { height: 44px; }
+  .flow-foot { padding-top: 6px; padding-bottom: 6px; }
+  /* 横屏时面板改成左右两栏，避免上下挤压把内容顶掉 */
+  .flow-body { padding-left: max(8px, env(safe-area-inset-left)); }
+}
+
+/* ---- 5. 刘海/圆角安全区（全站兜底）---- */
+.flow-hd {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+}
+.flow-foot {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ---- 6. 读屏专用文本 ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- 7. 高对比度偏好 ---- */
+@media (prefers-contrast: more) {
+  :root {
+    --text-low: #C8CDCB;      /* 低对比文字抬到可读 */
+    --line-1: #4A4E52;
+  }
+}
