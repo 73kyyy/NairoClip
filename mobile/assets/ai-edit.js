@@ -44,6 +44,7 @@
     intensity: 0.6,
     musicId: 0,
     order: 'smart',
+    overlayId: 0,
     slots: []            // [{index, durSec, assetId}]
   };
 
@@ -264,6 +265,8 @@
       if (t && (t.confidence || 0) < CONF_ACCEPT) lowConf += 1;
     }
 
+    renderOverlaySelect();
+
     const missing = S.slots.filter((s) => !s.assetId).length;
     if (missing) {
       $('slotNote').innerHTML = '还差 <b>' + missing + '</b> 个槽位没选素材';
@@ -274,6 +277,125 @@
         '生成后会直接打开时间轴，可以逐条改特效与关键帧。' +
         (lowConf ? '<br><b>' + lowConf + '</b> 处转场置信度不足，已按溶解处理（不照猜测的类型生成）。' : '');
     }
+  }
+
+  /* ---------------- 叠层素材 ---------------- */
+  function renderOverlaySelect() {
+    const sel = $('overlaySel');
+    if (!sel) return;
+    const keep = S.overlayId;
+    sel.innerHTML = '<option value="0">不加叠层</option>';
+    S.videos.forEach((a) => {
+      const o = document.createElement('option');
+      o.value = String(a.id);
+      o.textContent = a.name;
+      if (a.id === keep) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  /* 把叠层放到一条独立的画中画轨上。
+     位置怎么定：按每个镜头的 motion（分析出来的运动强度）排序，取前面约 1/3，
+     最多 3 处。这是**可解释的规则** —— 动得厉害的段落加装饰，不是「AI 觉得好看」。
+     参数也是固定的入场曲线：缩放 0.88→1.10、透明度 0→1，各 0.4s。 */
+  function applyOverlays(durs) {
+    if (!S.overlayId) return 0;
+    const ov = S.videos.find((x) => x.id === S.overlayId);
+    if (!ov) return 0;
+
+    const t = api('nc_add_track', { name: '叠层', track_type: 0 });
+    if (!t || !t.ok) return 0;
+    const c = api('nc_track_count');
+    const n = (c && typeof c.result === 'number') ? c.result : 0;
+    const trackIdx = n - 1;
+
+    const shots = (S.profile && S.profile.shots) || [];
+    const order = S.slots.map((s, i) => ({ i: i, motion: (shots[i] && shots[i].motion) || 0 }));
+    order.sort((a, b) => b.motion - a.motion);
+    const take = Math.min(3, Math.max(1, Math.round(S.slots.length / 3)));
+
+    let placed = 0;
+    for (let k = 0; k < order.length && placed < take; ++k) {
+      const i = order[k].i;
+      // 起点 = 前面所有片段时长之和
+      let startUs = 0;
+      for (let j = 0; j < i; ++j) startUs += Math.round(durs[j] * 1e6);
+      const slotUs = Math.round(durs[i] * 1e6);
+      const availUs = ov.durUs || slotUs;
+      const durUs = Math.min(slotUs, availUs, 3000000);
+      if (durUs < 300000) continue;
+
+      const r = api('nc_insert_clip', {
+        track_index: trackIdx, asset_id: ov.id, start_us: startUs, duration_us: durUs
+      });
+      if (!r || !r.ok) continue;
+      // JNI 的 nc_insert_clip 返回 { value: <id> }，不能直接把对象当 id
+      const clipId = (r.result && (r.result.value || r.result.clip_id || r.result.id)) || 0;
+      if (!clipId) continue;
+
+      // 入场曲线：缩放与透明度各打两个关键帧（property 1=缩放，0=透明度）
+      const fade = Math.min(400000, Math.round(durUs / 3));
+      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 1, time_us: 0, value: 0.88 });
+      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 1, time_us: fade, value: 1.10 });
+      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 0, time_us: 0, value: 0.0 });
+      api('nc_insert_keyframe', { track_index: trackIdx, clip_id: clipId, property: 0, time_us: fade, value: 1.0 });
+      placed += 1;
+    }
+    return placed;
+  }
+
+  /* ---------------- 配乐卡点 ---------------- */
+  /* 先把配乐放进一条新音轨再检测：nc_beat_detect 分析的是**轨道上已存在的音频**，
+     没有轨就没有节拍可测。这一步产生一条独立撤销记录（音轨+音频），
+     视频轨生成仍是单独一次撤销。 */
+  function prepareMusic() {
+    if (!S.musicId) return null;
+    const music = S.audios.find((x) => x.id === S.musicId);
+    if (!music || !music.durUs) return null;
+    const c0 = api('nc_track_count');
+    const n0 = (c0 && typeof c0.result === 'number') ? c0.result : 0;
+    const t = api('nc_add_track', { name: 'AI 配乐', track_type: 1 });
+    if (!t || !t.ok) return null;
+    const c1 = api('nc_track_count');
+    const n1 = (c1 && typeof c1.result === 'number') ? c1.result : n0 + 1;
+    const idx = n1 - 1;
+    const ins = api('nc_insert_clip', {
+      track_index: idx, asset_id: music.id, start_us: 0, duration_us: music.durUs
+    });
+    if (!ins || !ins.ok) return null;
+    const b = api('nc_beat_detect', { track_index: idx });
+    if (!b || !b.ok || !b.result) return null;
+    const beats = Array.isArray(b.result.beats) ? b.result.beats : [];
+    if (beats.length < 4) return { bpm: 0, beats: [], snapped: false };
+    return { bpm: b.result.bpm || 0, beats, snapped: true };
+  }
+
+  /* 每段时长吸到半拍网格：整拍太粗（1.2s 会被拉到 1.0/2.0），
+     半拍既踩在鼓点上又保留参考片的节奏比例。 */
+  function snapDurations(durs, music) {
+    if (!music || !music.snapped) return durs;
+    let grid = music.bpm > 0 ? (60 / music.bpm) / 2 : 0;
+    if (!(grid > 0.08) && music.beats.length > 2) {
+      const gaps = [];
+      for (let i = 1; i < music.beats.length; ++i) gaps.push(music.beats[i] - music.beats[i - 1]);
+      gaps.sort((x, y) => x - y);
+      grid = gaps[Math.floor(gaps.length / 2)] / 2;
+    }
+    if (!(grid > 0.08)) return durs;
+    const out = [];
+    for (let i = 0; i < durs.length; ++i) {
+      out.push(Math.max(0.35, Math.round(durs[i] / grid) * grid));
+    }
+    const m = S.audios.find((x) => x.id === S.musicId) || {};
+    const musicSec = (m.durUs || 0) / 1e6;
+    if (musicSec > 0) {
+      let total = out.reduce((n, x) => n + x, 0);
+      for (let i = out.length - 1; i >= 0 && total > musicSec; --i) {
+        const cut = Math.min(total - musicSec, out[i] - 0.35);
+        if (cut > 0) { out[i] -= cut; total -= cut; }
+      }
+    }
+    return out;
   }
 
   /* ---------------- 生成 ---------------- */
@@ -362,7 +484,7 @@
     setTimeout(() => {
       buildSlots();
       mark(1);
-      setPct(35, '正在按参考节奏排布');
+      setPct(35, S.musicId ? '正在按节拍对齐切点' : '正在按参考节奏排布');
 
       setTimeout(() => {
         mark(2);
@@ -374,7 +496,9 @@
 
           const ids = S.slots.map((s) => s.assetId);
           const starts = S.slots.map(() => 0);
-          const durs = S.slots.map((s) => s.durSec);
+          const baseDurs = S.slots.map((s) => s.durSec);
+          const music = prepareMusic();
+          const durs = snapDurations(baseDurs, music);
 
           const r = api('nc_ref_apply', {
             track_index: 0,
@@ -396,7 +520,10 @@
             $('btnNext').onclick = () => { showStep(4); $('btnNext').onclick = onNext; };
             return;
           }
-          setPct(100, '已生成 ' + ((r.result && r.result.count) || 0) + ' 个镜头');
+          const ovCount = applyOverlays(durs);
+          const baseCount = (r.result && r.result.count) || 0;
+          setPct(100, '已生成 ' + baseCount + ' 个镜头' +
+                        (ovCount ? '，叠层 ' + ovCount + ' 处' : ''));
           setTimeout(() => {
             location.href = '10-editor.html';
           }, 600);
@@ -449,6 +576,13 @@
       S.intensity = parseInt(sl.value, 10) / 100;
       $('intensityVal').textContent = sl.value + '%';
     });
+
+    const ovSel = $('overlaySel');
+    if (ovSel) {
+      ovSel.addEventListener('change', () => {
+        S.overlayId = parseInt(ovSel.value, 10) || 0;
+      });
+    }
 
     document.querySelectorAll('.tab').forEach((t) => {
       t.addEventListener('click', () => {

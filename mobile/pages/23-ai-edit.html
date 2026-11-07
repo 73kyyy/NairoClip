@@ -88,6 +88,12 @@
     </div>
 
     <div class="step-note">
+      <b>选了之后会发生什么</b>：音乐会单独放到一条音轨，然后检测 BPM 与拍点，
+      把每个镜头时长吸附到<b>半拍网格</b>上 —— 切点踩在鼓点上，同时保留参考片的节奏比例。
+      测不出稳定节拍（例如纯人声）时不硬凑，按原时长生成并提示。
+    </div>
+
+    <div class="step-note">
       <b>为什么不能「AI 推荐歌曲」</b>：App 里没有内置曲库。要按风格推荐必须先引入
       可商用授权的音乐包，这是版权决策，不是算法问题。当前只能从你已有的音频里选。
     </div>
@@ -104,6 +110,15 @@
     </div>
 
     <div class="slot-grid" id="slotGrid"></div>
+
+    <div class="field-label">叠层素材（可选）</div>
+    <select id="overlaySel" class="slot-select">
+      <option value="0">不加叠层</option>
+    </select>
+    <p class="field-hint">
+      选了之后，AI 会挑<b>运动量最大的几段</b>把它叠上去（单独一条画中画轨 +
+      缩放/透明度关键帧）。位置是按运动量算的，不是「看懂了画面内容」。
+    </p>
 
     <div class="step-note" id="slotNote"></div>
   </section>
