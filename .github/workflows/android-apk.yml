@@ -110,6 +110,7 @@ jobs:
           nasm -v
 
       - name: Cache FFmpeg sources
+        id: ffcache
         uses: actions/cache@v4
         with:
           path: ffmpeg-build/src
@@ -134,6 +135,17 @@ jobs:
             done
             ls -lh "$DEST"
           done
+
+      - name: Save FFmpeg sources cache
+        # actions/cache 只在 **job 成功** 时才在 post 步骤保存。
+        # 之前每次构建都在后面某一步失败 → 缓存从未落地 → 每次重新下载
+        # （run #119 就是撞上 ffmpeg.org 网络抖动挂掉的）。
+        # 这里在源码就绪后立刻保存一次，后面即使失败也不影响下次复用。
+        if: always() && steps.ffcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ffmpeg-build/src
+          key: ffmpeg-src-${{ hashFiles('ffmpeg-build/VERSION') }}
 
       - name: Verify FFmpeg is dynamically linked (LGPL requirement)
         run: |

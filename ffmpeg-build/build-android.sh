@@ -37,8 +37,28 @@ mkdir -p "$ROOT/src" "$OUT"
 # ---- 取源码（幂等）----
 if [ ! -d "$SRC" ]; then
     echo "==> 下载 FFmpeg $FFMPEG_VERSION"
-    curl -fL --retry 3 -o "$ROOT/src/ffmpeg.tar.xz" \
-        "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+    # 多镜像 + 强重试。
+    # 起因：run #119 报 `curl: (35) Recv failure: Connection reset by peer`，
+    # 是 ffmpeg.org 单点网络抖动。而且 actions/cache 只在 job 成功后才会保存，
+    # 之前每次构建都失败 → 缓存从未落地 → 每次都要重新下载，撞上抖动的概率很高。
+    TAR="$ROOT/src/ffmpeg.tar.xz"
+    OK=0
+    for URL in \
+        "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" \
+        "https://www.ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" \
+        "https://fossies.org/linux/misc/ffmpeg-$FFMPEG_VERSION.tar.xz"; do
+        echo "==> 尝试 $URL"
+        if curl -fL --retry 5 --retry-delay 5 --retry-all-errors \
+                --connect-timeout 30 --max-time 600 -o "$TAR" "$URL"; then
+            OK=1
+            break
+        fi
+        echo "    失败，换下一个镜像"
+    done
+    if [ "$OK" != "1" ]; then
+        echo "❌ 所有镜像都下载失败：ffmpeg-$FFMPEG_VERSION.tar.xz"
+        exit 1
+    fi
     tar -xJf "$ROOT/src/ffmpeg.tar.xz" -C "$ROOT/src"
 fi
 
