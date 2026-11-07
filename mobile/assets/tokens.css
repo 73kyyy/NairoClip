@@ -32,6 +32,17 @@
      用途仅限「批量选择」这一处，与会员身份无关 ——
      会员标记后续单独设计，不复用这个变量，避免语义混在一起。 */
   --accent-pick: #B4F461;
+  /* ---- 兼容别名 ----
+     05-legal / 08-crashlog 等早期页面用的是 --fg-1..3 / --line / --bg-2，
+     而 tokens 里叫 --text-hi/mid/low / --line-1 / --bg-app。
+     变量名对不上时 var() 会整体失效 → 文字颜色拿不到，深色底上几乎看不见。
+     加别名比逐处改页面稳妥（后续老页面迁移也不会再踩）。 */
+  --fg-1: var(--text-hi);
+  --fg-2: var(--text-mid);
+  --fg-3: var(--text-low);
+  --line: var(--line-1);
+  --bg-2: var(--bg-app);
+
   --text-hi: #F2F2F2;
   --text-mid: #9B9B9E;
   --text-low: #6A6E70;

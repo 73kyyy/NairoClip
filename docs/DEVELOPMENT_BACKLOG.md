@@ -1270,7 +1270,7 @@ UI：拖轨道下边缘调整；双击标题栏折叠。
 > 判定依据：该品类 16 个要素中 13 项项目已具备（节拍检测、34 转场、
 > 35 特效、速度曲线、Flash/RgbSplit/ZoomPunch 全有）。
 
-### B3-1 ⬜ 卡点自动切分引擎
+### B3-1 ✅ 卡点自动切分引擎（`nc_beat_sync_apply`）
 
 **现状**：`beat_detect.cpp` 已能出 BPM 与节拍时间点；
 `applyBeatSync` 存在于 `auto_edit.h`，但需核实是否按重音强度分级。
@@ -1321,7 +1321,7 @@ UI：拖轨道下边缘调整；双击标题栏折叠。
 
 ---
 
-### B3-3 ⬜ 冲击组合预设
+### B3-3 ✅ 冲击组合预设（`nc_surge_preset_*`，3 个预设）
 
 把以下组合打包为"超燃"预设：
 
@@ -1352,7 +1352,7 @@ UI：拖轨道下边缘调整；双击标题栏折叠。
 > **口径澄清**：做的是"同类型风格"，不是"审美判断"。
 > 见 §八「明确不做」的说明。
 
-### B4-1 ⬜ 读参考视频 → FrameFeature
+### B4-1 ✅ 读参考视频 → FrameFeature（`ref_style_analyzer`）
 
 **现状**：`FrameFeature` 结构已有（时间戳 / avgRGB / histogramDiff），
 `detectShots()` 已有，但**没有"从视频文件读"的入口**。
@@ -1369,7 +1369,7 @@ FFmpegReader 解码 → 每 N 帧算 avgRGB + 直方图差异
 
 ---
 
-### B4-2 ⬜ 一键仿剪
+### B4-2 ✅ 一键仿剪（`nc_ref_analyze` + `nc_ref_apply`，AI 自主编排）
 
 `nc_reference_auto_edit(style_json, material_ids) → summary`
 
