@@ -153,7 +153,10 @@ build_abi() {
 # 因为 NDK 的 clang wrapper 按 triple 名找目标文件，名字不对就找不到。
 # --arch 用 FFmpeg 的命名：arm / aarch64 / x86_64（不是 arm64）。
 build_abi arm64-v8a   aarch64-linux-android  aarch64
-build_abi armeabi-v7a armv7a-linux-androideabi arm
-build_abi x86_64      x86_64-linux-android   x86_64
+# 只出 arm64-v8a（2026-11-07）：x86_64 只用于模拟器且需要 nasm，是最脆的一路；
+# armeabi-v7a 在现代机上已极少。要恢复就把下面两行取消注释，并同步改
+# android/app/build.gradle.kts 的 abiFilters 与 workflow 的三处 for ABI 循环。
+# build_abi armeabi-v7a armv7a-linux-androideabi arm
+# build_abi x86_64      x86_64-linux-android   x86_64
 
 echo "==> 完成。产物在 $OUT/<abi>/lib"

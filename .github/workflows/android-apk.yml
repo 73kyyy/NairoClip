@@ -94,6 +94,9 @@ jobs:
       - name: Install nasm (FFmpeg x86 asm)
         run: |
           set -euo pipefail
+          # 注意：当前只出 arm64-v8a，x86_64 已移除，nasm 其实用不上了。
+          # 保留这一步是为了将来重新加回 x86_64（模拟器验证）时不用再查原因。
+          #
           # FFmpeg 的 x86/x86_64 汇编（libavcodec 的 SIMD 优化）必须用 nasm 编译。
           # ubuntu-latest 镜像**不带** nasm，configure 直接报
           #   "nasm/yasm not found or too old. Use --disable-x86asm for a crippled build."
@@ -119,7 +122,7 @@ jobs:
           export ANDROID_API=24
           chmod +x ffmpeg-build/build-android.sh
           ./ffmpeg-build/build-android.sh
-          for ABI in arm64-v8a armeabi-v7a x86_64; do
+          for ABI in arm64-v8a; do
             DEST="android/app/src/main/jniLibs/$ABI"
             mkdir -p "$DEST"
             cp ffmpeg-build/out/$ABI/lib/libav*.so "$DEST/"
@@ -131,7 +134,7 @@ jobs:
           set -euo pipefail
           NDK="${{ steps.ndk.outputs.ndk-path }}"
           READELF="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-          for ABI in arm64-v8a armeabi-v7a x86_64; do
+          for ABI in arm64-v8a; do
             LIB="android/app/src/main/jniLibs/$ABI/libavcodec.so"
             [ -f "$LIB" ] || { echo "❌ 缺少 $LIB"; exit 1; }
             "$READELF" -h "$LIB" | grep -q 'DYN (Shared object file)' \
@@ -144,7 +147,7 @@ jobs:
           set -euo pipefail
           NDK="${{ steps.ndk.outputs.ndk-path }}"
           TOOLCHAIN="$NDK/build/cmake/android.toolchain.cmake"
-          for ABI in arm64-v8a armeabi-v7a x86_64; do
+          for ABI in arm64-v8a; do
             case "$ABI" in
               arm64-v8a)   API=24 ;;
               armeabi-v7a) API=21 ;;

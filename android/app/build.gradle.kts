@@ -28,7 +28,14 @@ android {
         buildConfigField("String", "AUTH_BACKEND", "\"${secret("auth.backend", "AUTH_BACKEND")}\"")
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            /* 只出 arm64-v8a。
+               为什么砍掉 armeabi-v7a 与 x86_64：
+                 · x86_64 只用于模拟器，且它的 FFmpeg 构建需要 nasm，是最脆的一路
+                 · armeabi-v7a（32 位）在现代手机上已极少，且 FFmpeg 要为它单独
+                   编译一套（armv7a triple），构建时间多三分之一
+               重新加回时：这里改列表 + ffmpeg-build/build-android.sh 的
+               build_abi 调用 + workflow 的三处 for ABI 循环，三处要一起改。 */
+            abiFilters += listOf("arm64-v8a")
 
             /* 保留调试符号（§8.1 崩溃捕获的有效性前提）。
                AGP 在 release 构建里**默认 strip** native 库。
