@@ -466,6 +466,37 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = id ? Ok("{\"track_id\":" + std::to_string(id) + "}") : Err("添加轨道失败");
         return true;
     }
+    if (op == "nc_set_clip_blend_mode") {
+        /* 短名 op 是 "blend"，而 nc-api.js 发的是全名 —— 全名从来没被接过，
+           所以 NC_API.nc_set_clip_blend_mode 一直是「未知 op」。
+           ti/cid 的解析同时认 track_index/clip_id 与 track/clip，两种调用都行。 */
+        const int32_t mode = static_cast<int32_t>(JInt(a, "mode", 0));
+        const int32_t rc = nc_set_clip_blend_mode(ed, ti, cid, mode);
+        if (rc != NC_OK) {
+            *out = Err("设置混合模式失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{}");
+        return true;
+    }
+    if (op == "nc_add_effect") {
+        // 同理：短名 op 是 "effect_add"，全名没接。
+        const int32_t type = static_cast<int32_t>(JInt(a, "type", 0));
+        const double value = JNum(a, "value", 0.5);
+        const uint64_t id = nc_add_effect(ed, ti, cid, type, value);
+        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("添加特效失败");
+        return true;
+    }
+    if (op == "nc_set_clip_opacity") {
+        const double opacity = JNum(a, "opacity", 1.0);
+        const int32_t rc = nc_set_clip_opacity(ed, ti, cid, opacity);
+        if (rc != NC_OK) {
+            *out = Err("设置不透明度失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{}");
+        return true;
+    }
     if (op == "nc_insert_keyframe") {
         /* 之前**没有任何分支**：nc_insert_keyframe 在 C ABI 里存在、nc-api.js 也封装了，
            但 JNI 没接 → 前端打关键帧落到「未知 op」，而调用方通常忽略返回值，

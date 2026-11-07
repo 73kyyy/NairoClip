@@ -46,6 +46,7 @@
     order: 'smart',
     overlayId: 0,
     overlayMode: 'mid',
+    overlayBlend: 0,
     slots: []            // [{index, durSec, assetId}]
   };
 
@@ -360,6 +361,13 @@
       if (!clipId) continue;
       target.spans.push([startUs, endUs]);
 
+      // 混合模式：用户选的那个，套到每一处叠层上（叠层是普通片段，随时能改）
+      if (S.overlayBlend) {
+        api('nc_set_clip_blend_mode', {
+          track_index: target.idx, clip_id: clipId, mode: S.overlayBlend
+        });
+      }
+
       // 入场曲线：缩放与透明度各两个关键帧（property 1=缩放，0=透明度）
       const fade = Math.min(400000, Math.round(durUs / 3));
       api('nc_insert_keyframe', { track_index: target.idx, clip_id: clipId, property: 1, time_us: 0, value: 0.88 });
@@ -617,6 +625,13 @@
         S.overlayMode = t.getAttribute('data-density');
       });
     });
+
+    const ovBlend = $('overlayBlend');
+    if (ovBlend) {
+      ovBlend.addEventListener('change', () => {
+        S.overlayBlend = parseInt(ovBlend.value, 10) || 0;
+      });
+    }
 
     const ovSel = $('overlaySel');
     if (ovSel) {
