@@ -157,7 +157,18 @@ jobs:
               -DCMAKE_BUILD_TYPE=Release \
               -DNAIROCLIP_BUILD_TESTS=OFF \
               -DNAIROCLIP_ORT_ROOT=OFF \
-              -DNAIROCLIP_FFMPEG_ROOT="$(pwd)/ffmpeg-build/out/$ABI"
+              -DNAIROCLIP_FFMPEG_ROOT="$(pwd)/ffmpeg-build/out/$ABI" \
+              2>&1 | tee "configure-$ABI.log"
+            # 探测结果必须显式校验：如果 CMake 没找到 FFmpeg，
+            # 它会静默退化成 Mock 读取器（编译照样成功），
+            # 直到最后的断言步骤才失败 —— 那是 30 分钟之后了。
+            if grep -q "FFmpeg not found" "configure-$ABI.log"; then
+              echo "❌ CMake 没探测到 FFmpeg（$ABI）："
+              grep -E "NairoClip: FFmpeg|FATAL" "configure-$ABI.log" | head -5
+              echo "--- 头文件是否存在 ---"
+              ls -l "ffmpeg-build/out/$ABI/include/libavcodec/avcodec.h" 2>/dev/null || echo "  缺 avcodec.h"
+              exit 1
+            fi
             # 失败时把真实错误打出来：ci-status 只保留日志尾部，
             # 而 -j4 下错误行可能被埋在几百行 warning 中间。
             if ! cmake --build "build-core-$ABI" --parallel 4 --target nairoclip_core \
@@ -173,6 +184,32 @@ jobs:
             find "build-core-$ABI" -name 'libnairoclip_core.a' -exec cp {} "$DEST/" \;
             ls -lh "$DEST/"
           done
+
+      - name: Diagnose FFmpeg wiring
+        run: |
+          set -uo pipefail
+          ABI=arm64-v8a
+          echo "=== 1) FFmpeg 安装目录 ==="
+          ls -d ffmpeg-build/out/$ABI 2>/dev/null || echo "  ❌ 目录不存在"
+          echo "=== 2) 头文件 ==="
+          ls -l ffmpeg-build/out/$ABI/include/libavcodec/avcodec.h 2>/dev/null \
+            || echo "  ❌ 缺 avcodec.h（CMake 会走 FATAL_ERROR 或退化成 Mock）"
+          echo "=== 3) .so 是否就位 ==="
+          ls -l ffmpeg-build/out/$ABI/lib/*.so 2>/dev/null | head -6 || echo "  ❌ 无 .so"
+          echo "=== 4) 编译期是否定义了 NAIROCLIP_HAS_FFMPEG ==="
+          FLAGS=$(find build-core-$ABI -name 'flags.make' -path '*nairoclip_core*' | head -1)
+          echo "flags.make = $FLAGS"
+          if [ -n "$FLAGS" ]; then
+            grep -o 'NAIROCLIP_HAS_FFMPEG[^ ]*' "$FLAGS" || echo "  ❌ 编译参数里没有 NAIROCLIP_HAS_FFMPEG"
+          fi
+          echo "=== 5) CMake 探测结论 ==="
+          grep -rhoE 'NairoClip: FFmpeg[^"]*' build-core-$ABI/CMakeFiles/CMakeConfigureLog.yaml 2>/dev/null | head -3 \
+            || echo "  （配置日志里没找到结论行）"
+          echo "=== 6) 归档里的 ffmpeg 相关符号（前 10 条）==="
+          NDK="${{ steps.ndk.outputs.ndk-path }}"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          LIB="android/app/src/main/cpp/prebuilt/$ABI/libnairoclip_core.a"
+          "$NM" "$LIB" 2>/dev/null | grep -i 'avcodec\|avformat' | head -10 || echo "  ❌ 归档里完全没有 av* 符号"
 
       - name: Assert FFmpeg actually compiled in
         run: |
