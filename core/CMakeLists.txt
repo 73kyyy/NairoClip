@@ -79,6 +79,7 @@ add_library(nairoclip_core STATIC
     src/motion_effects.cpp
     src/shake_effect.cpp
     src/lut.cpp
+    src/ref_style_analyzer.cpp
     src/light_effects.cpp
     src/edit_template.cpp
     src/template_fill.cpp

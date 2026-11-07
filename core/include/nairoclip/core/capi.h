@@ -168,6 +168,35 @@ uint64_t nc_import_asset(NcEditor* editor, const char* name, const char* path, i
 int32_t nc_extract_audio(NcEditor* editor, uint64_t asset_id, const char* out_path,
                          char** out_error);
 
+// ---- AI 剪辑（参考视频驱动）----
+//
+// **能力边界要说清楚**：这一层只做「结构级复刻 + 参数反推」。
+// 它测得出镜头时长、转场物理类型、画面抖动的振幅与频率、色调统计；
+// 测不出「对方用了哪个特效、参数是多少」—— 没有那种逆推模型，
+// 也不该对外这么宣称。
+
+/// 分析参考视频，返回画像 JSON（需 nc_free_string）。
+/// 字段见 RefStyleProfile::toJson：shots / transitions / shake_* / avg_*。
+int32_t nc_ref_analyze(NcEditor* editor, uint64_t asset_id, char** out_json, char** out_error);
+
+/// 把方案落到空轨道（**整段一个撤销事务**）。
+///
+/// 参数全部显式传入而不是塞 JSON：前端已经拿到分析结果、也允许用户逐槽位改，
+/// 再让 C++ 解析一遍 JSON 只会多一层出错点。前端算方案、C++ 只负责落盘。
+///
+/// - asset_ids/start_seconds/durations：每个槽位用哪个素材、素材内起点、时长
+/// - transition_kinds：长度为 shot_count-1 的接缝类型（可为 NULL），取值同
+///   RefTransitionKind（1 硬切 / 2 溶解 / 3 滑动 / 4 甩镜 / 5 缩放 /
+///   6 旋转 / 7 闪光 / 8 故障 / 9 擦除）
+/// - contrast/saturation：调色（1.0 = 不变，不产生多余特效）
+/// - shake_amplitude/shake_frequency：抖动（来自分析结果；<=0 表示不加）
+/// 返回插入的片段数（>=0）；失败返回 **-1**（原因见 out_error）。
+/// 不要用 failNc 的错误码当返回值 —— 那是正值，调用方按 n<0 判断会误判成功。
+int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asset_ids,
+                     const double* start_seconds, const double* durations, int32_t shot_count,
+                     const int32_t* transition_kinds, double contrast, double saturation,
+                     double shake_amplitude, double shake_frequency, char** out_error);
+
 /// 添加轨道，返回轨道 ID（0 = 失败）。
 uint64_t nc_add_track(NcEditor* editor, const char* name, int32_t track_type);
 

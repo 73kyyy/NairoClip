@@ -791,7 +791,10 @@ const L1 = [
 const L2 = {
   tmpl: [
     { id: 'tmpllist', name: '模板库', icon: 'i-auto' },
-    { id: 'tmplauto', name: '一键套用', icon: 'i-bolt', kind: 'exec' }
+    { id: 'tmplauto', name: '一键套用', icon: 'i-bolt', kind: 'exec' },
+    /* AI 剪辑：分析参考视频后按结构生成。放在模板组里 —— 用户心智上
+       它和「套模板」是同一类：都是拿一个现成的结构套自己的素材。 */
+    { id: 'aiedit', name: 'AI 剪辑', icon: 'i-auto' }
   ],
   clip: [
     { id: 'split', name: '分割', icon: 'i-split', kind: 'exec' },
@@ -1014,6 +1017,7 @@ function runFunction(cat, f) {
     case 'ratiocustom': return askCustomRatio();
     /* ---- 二级功能 → 三级面板（全量映射；每个 L2 都有归属） ----
        模板 */
+    case 'aiedit':    location.href = '23-ai-edit.html'; return;
     case 'tmpllist':   return showTemplateSheet();
     case 'tmplauto':   return showTemplateSheet();   // 同一个面板，套用即在列表里选
     /* 剪辑 */

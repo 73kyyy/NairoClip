@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AI 剪辑 · NairoClip</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/flow.css">
+<link rel="stylesheet" href="../assets/ai-edit.css">
+</head>
+<body>
+
+<header class="flow-hd">
+  <button class="flow-back" id="btnBack" aria-label="返回">‹</button>
+  <span class="flow-title">AI 剪辑</span>
+  <button class="flow-ghost" id="btnCancel">取消</button>
+</header>
+
+<main class="flow-body" id="body">
+
+  <!-- ============ 1. 理解 ============ -->
+  <section class="step" id="step1">
+    <h1 class="step-h1">选择参考视频</h1>
+    <p class="step-sub">AI 会分析它的镜头节奏、转场类型和画面抖动</p>
+
+    <div class="ref-list" id="refList"></div>
+
+    <div class="hint" id="refEmpty" hidden>
+      还没有可用的视频素材。先回剪辑页用「＋ → 导入素材」导入几段，再回来。
+    </div>
+
+    <div class="step-note">
+      <b>能分析出什么</b>：镜头数量与时长、转场物理类型（硬切/溶解/滑动/甩镜/缩放/旋转/闪光/故障/擦除）、
+      画面抖动的振幅与频率、整体色调。
+      <br><b>分析不出</b>：原片用了哪个具体特效、参数是多少 —— 没有这种逆推模型，我们也不会假装有。
+    </div>
+  </section>
+
+  <!-- ============ 2. 方向 ============ -->
+  <section class="step" id="step2" hidden>
+    <h1 class="step-h1">选择创作方向</h1>
+    <p class="step-sub">决定作品风格与画面表现</p>
+
+    <div class="field-label">作品风格</div>
+    <label class="opt-card on" data-style="smooth">
+      <span class="opt-ico">✦</span>
+      <span class="opt-body">
+        <b>丝滑运镜</b>
+        <small>按参考片的转场类型与长度衔接</small>
+      </span>
+      <span class="opt-dot"></span>
+    </label>
+    <label class="opt-card" data-style="effect">
+      <span class="opt-ico">✳</span>
+      <span class="opt-body">
+        <b>画面特效</b>
+        <small>在参考基础上略提对比与饱和</small>
+      </span>
+      <span class="opt-dot"></span>
+    </label>
+    <label class="opt-card disabled" data-style="curve" aria-disabled="true">
+      <span class="opt-ico">◔</span>
+      <span class="opt-body">
+        <b>丝滑变速 <em>暂不可用</em></b>
+        <small>需逐镜速度曲线，与卡点会互相打架，还没做</small>
+      </span>
+      <span class="opt-dot"></span>
+    </label>
+
+    <div class="field-label">超燃强度</div>
+    <div class="slider-row">
+      <input type="range" id="intensity" min="20" max="100" value="60" step="5">
+      <span class="slider-val" id="intensityVal">60%</span>
+    </div>
+    <p class="field-hint">强度只缩放「幅度类」参数（对比、饱和、抖动），不改镜头数量与时长。</p>
+
+    <div class="analysis-box" id="analysisBox"></div>
+  </section>
+
+  <!-- ============ 3. 配乐 ============ -->
+  <section class="step" id="step3" hidden>
+    <h1 class="step-h1">选择配乐</h1>
+    <p class="step-sub">从你已经导入的音频里挑一首</p>
+
+    <div class="music-list" id="musicList"></div>
+    <div class="hint" id="musicEmpty" hidden>
+      还没有音频素材。可以回剪辑页「＋ → 导入音频」或「提取音频」。
+    </div>
+
+    <div class="step-note">
+      <b>为什么不能「AI 推荐歌曲」</b>：App 里没有内置曲库。要按风格推荐必须先引入
+      可商用授权的音乐包，这是版权决策，不是算法问题。当前只能从你已有的音频里选。
+    </div>
+  </section>
+
+  <!-- ============ 4. 编排 ============ -->
+  <section class="step" id="step4" hidden>
+    <h1 class="step-h1">确认画面编排</h1>
+    <p class="step-sub">参考镜头已按分析结果排列，你可以逐个换成自己的素材</p>
+
+    <div class="order-tabs">
+      <button class="tab on" data-order="smart">智能排序</button>
+      <button class="tab" data-order="original">原有顺序</button>
+    </div>
+
+    <div class="slot-grid" id="slotGrid"></div>
+
+    <div class="step-note" id="slotNote"></div>
+  </section>
+
+  <!-- ============ 进度 ============ -->
+  <section class="step" id="stepProgress" hidden>
+    <div class="prog-wrap">
+      <div class="prog-ring">
+        <svg viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="52" class="ring-bg"></circle>
+          <circle cx="60" cy="60" r="52" class="ring-fg" id="ringFg"></circle>
+        </svg>
+        <span class="prog-num" id="progNum">0%</span>
+      </div>
+      <h2 class="prog-title">正在生成</h2>
+      <p class="prog-sub" id="progSub">准备中</p>
+      <ul class="prog-steps" id="progSteps"></ul>
+    </div>
+  </section>
+
+</main>
+
+<footer class="flow-foot" id="foot">
+  <button class="btn-ghost" id="btnPrev" hidden>上一步</button>
+  <button class="btn-primary" id="btnNext" disabled>下一步</button>
+</footer>
+
+<script src="../assets/icons.js"></script>
+<script src="../assets/nc-api.js"></script>
+<script src="../assets/ai-edit.js"></script>
+</body>
+</html>

@@ -98,6 +98,8 @@ add_executable(nairoclip_tests
     test_lut_presets.cpp
     test_surge_preset.cpp
     test_keyframe_easing.cpp
+    test_ref_style_analyzer.cpp
+    test_ref_apply.cpp
     test_track_groups.cpp
     test_render_baseline.cpp
     test_freeze_frame.cpp

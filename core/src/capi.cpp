@@ -10,6 +10,7 @@
 #include "nairoclip/core/ai_check.h"
 #include "nairoclip/core/ai_marking.h"
 #include "nairoclip/core/auto_edit.h"
+#include "nairoclip/core/ref_style_analyzer.h"
 #include "nairoclip/core/export_queue.h"
 #include "nairoclip/core/heartbeat.h"
 #include "nairoclip/core/invisible_watermark.h"
@@ -5131,6 +5132,146 @@ int32_t nc_extract_audio(NcEditor* editor, uint64_t asset_id, const char* out_pa
     avformat_close_input(&in);
     return NC_OK;
 #endif
+}
+
+int32_t nc_ref_analyze(NcEditor* editor, uint64_t asset_id, char** out_json,
+                       char** out_error) {
+    if (editor == nullptr || asset_id == 0) {
+        setDetail(out_error, "参数为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数非法");
+    }
+    const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
+    if (asset == nullptr) {
+        setDetail(out_error, "素材不存在");
+        return failNc(NC_ERROR_NOT_FOUND, "素材不存在");
+    }
+    RefStyleProfile profile;
+    std::string err;
+    if (!analyzeReferenceVideo(asset->path, profile, err)) {
+        setDetail(out_error, err);
+        return failNc(NC_ERROR_INTERNAL, err);
+    }
+    if (out_json != nullptr) *out_json = dupString(profile.toJson());
+    return NC_OK;
+}
+
+namespace {
+/// 参考转场类型 → 我们转场库的类型。
+/// 说明：这是**物理类型到最近似功能**的映射，不是「复刻对方那个转场」。
+/// 硬切映射为 Cut（占位，不产生过渡动画）。
+int32_t mapTransitionKind(int32_t kind) {
+    switch (kind) {
+        case 1: return static_cast<int32_t>(TransitionType::Cut);            // 硬切
+        case 2: return static_cast<int32_t>(TransitionType::CrossDissolve);  // 溶解
+        case 3: return static_cast<int32_t>(TransitionType::SlideUp);        // 滑动
+        case 4: return static_cast<int32_t>(TransitionType::WhipPan);        // 甩镜
+        case 5: return static_cast<int32_t>(TransitionType::ZoomPunch);      // 缩放
+        case 6: return static_cast<int32_t>(TransitionType::Rotate);         // 旋转
+        case 7: return static_cast<int32_t>(TransitionType::FlashWhite);     // 闪光
+        case 8: return static_cast<int32_t>(TransitionType::GlitchWarp);     // 故障
+        case 9: return static_cast<int32_t>(TransitionType::WipeLeft);       // 擦除
+        default: return -1;
+    }
+}
+}  // namespace
+
+int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asset_ids,
+                     const double* start_seconds, const double* durations, int32_t shot_count,
+                     const int32_t* transition_kinds, double contrast, double saturation,
+                     double shake_amplitude, double shake_frequency, char** out_error) {
+    /* 计数类 API 的约定（与 nc_auto_edit 一致）：成功返回片段数，失败返回 -1。
+       不能直接 return failNc(...) —— 它返回的是**正值**错误码（1..7），
+       调用方按 n < 0 判断时会把失败当成「成功 1 个」。 */
+    const auto failCount = [&](char** err, const char* msg) -> int32_t {
+        setDetail(err, msg);
+        return -1;
+    };
+    if (editor == nullptr || track_index < 0 || asset_ids == nullptr || start_seconds == nullptr ||
+        durations == nullptr || shot_count <= 0) {
+        return failCount(out_error, "参数为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failCount(out_error, "轨道不存在");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    if (!track.clips.empty()) {
+        // 与 auto_edit 一致：只在空轨道上生成，避免破坏用户已有剪辑
+        return failCount(out_error, "目标轨道不是空的，请先新建一条轨道");
+    }
+
+    /* 整段包在一个事务里 —— 用户按一次撤销就能把整个 AI 成片退掉。
+       这是「AI 剪辑不黑箱」的底线：它产出的东西必须是可整体回滚的。 */
+    editor->editor->beginTransaction("AI 剪辑");
+
+    std::vector<uint64_t> clipIds;
+    clipIds.reserve(static_cast<std::size_t>(shot_count));
+    int64_t timelineUs = 0;
+    for (int32_t i = 0; i < shot_count; ++i) {
+        const int64_t startUs = static_cast<int64_t>(start_seconds[i] * 1e6);
+        (void)startUs;   // 只作参数校验用途；时间轴位置由 timelineUs 决定
+        /* 时长必须按**素材实际余量**钳制。
+           参考镜头 3 秒、用户素材只有 2 秒时，如果直接按 3 秒插就会
+           插入失败 —— 而且以前是整段失败，用户看到「生成失败」却不知道
+           只是因为某一条短了半秒。现在按素材余量截短并继续。
+           图片（isImage）没有固有时长，可以任意拉长，不钳制。 */
+        double want = durations[i];
+        const MediaAsset* asset = editor->project.findAsset(AssetId{asset_ids[i]});
+        if (asset != nullptr && !asset->isImage()) {
+            const double avail = asset->duration.toDouble() - start_seconds[i];
+            if (avail > 0.05 && want > avail) want = avail;
+        }
+        const int64_t durUs = static_cast<int64_t>(want * 1e6);
+        if (durUs <= 0) continue;
+        // 时间轴位置必须累计排；start_seconds 是素材内起点，不是时间轴位置
+        const uint64_t clipId = nc_insert_clip(editor, track_index, asset_ids[i],
+                                               timelineUs < 0 ? 0 : timelineUs, durUs);
+        if (clipId != 0) timelineUs += durUs;
+        if (clipId != 0) clipIds.push_back(clipId);
+    }
+    if (clipIds.empty()) {
+        editor->editor->endTransaction();
+        return failCount(out_error, "没有可用的素材片段");
+    }
+
+    // 转场：接到相邻片段之间（数量 = 片段数 - 1）
+    if (transition_kinds != nullptr) {
+        for (std::size_t i = 0; i + 1 < clipIds.size(); ++i) {
+            const int32_t type = mapTransitionKind(transition_kinds[i]);
+            if (type < 0 || type == static_cast<int32_t>(TransitionType::Cut)) continue;
+            // 0.3s，但不超过任一相邻片段的一半
+            const double limit = std::min(durations[i], durations[i + 1]) * 0.5;
+            const int64_t durUs = static_cast<int64_t>(std::min(0.3, limit) * 1e6);
+            if (durUs < 100000) continue;   // 太短没意义
+            (void)nc_add_transition(editor, track_index, type, durUs, clipIds[i], clipIds[i + 1]);
+        }
+    }
+
+    // 调色：把参考片的对比/饱和倾向落到每个片段上（1.0 表示不变，不加特效）
+    const double c = contrast < 0.2 ? 0.2 : (contrast > 3.0 ? 3.0 : contrast);
+    const double sat = saturation < 0.0 ? 0.0 : (saturation > 3.0 ? 3.0 : saturation);
+    for (std::size_t i = 0; i < clipIds.size(); ++i) {
+        if (std::fabs(c - 1.0) > 0.02) {
+            (void)nc_add_effect(editor, track_index, clipIds[i],
+                                static_cast<int32_t>(EffectType::Contrast), c);
+        }
+        if (std::fabs(sat - 1.0) > 0.02) {
+            (void)nc_add_effect(editor, track_index, clipIds[i],
+                                static_cast<int32_t>(EffectType::Saturation), sat);
+        }
+        /* 抖动：只有「分析置信度足够 + 幅度频率在合法区间」才加。
+           注意这里用的是**测出来的**振幅与频率，不是随手给的 0.03。 */
+        if (shake_amplitude > 0.001 && shake_frequency > 0.05) {
+            const double amp = std::min(0.2, shake_amplitude);
+            const double freq = std::min(20.0, shake_frequency);
+            (void)nc_set_clip_shake(editor, track_index, clipIds[i], 0 /* 水平正弦 */, amp,
+                                    freq, 0.0, 0.0, 0);
+        }
+    }
+
+    editor->editor->endTransaction();
+    if (out_error != nullptr) *out_error = nullptr;
+    return static_cast<int32_t>(clipIds.size());
 }
 
 int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_samples,

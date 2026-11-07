@@ -1177,6 +1177,65 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         if (hint) nc_free_string(hint);
         return true;
     }
+    if (op == "nc_ref_analyze") {
+        // int32_t nc_ref_analyze(editor, asset_id, out_json, out_error)
+        // profile 本身就是合法 JSON，直接内嵌成对象，前端不用二次解析。
+        char* json = nullptr;
+        char* err = nullptr;
+        const int32_t rc = nc_ref_analyze(
+            ed, static_cast<uint64_t>(JInt(a, "asset_id", 0)), &json, &err);
+        if (rc != NC_OK) {
+            const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(rc));
+            if (err) nc_free_string(err);
+            if (json) nc_free_string(json);
+            *out = Err("分析失败：" + m);
+            return true;
+        }
+        *out = Ok("{\"profile\":" + std::string(json ? json : "{}") + "}");
+        if (err) nc_free_string(err);
+        if (json) nc_free_string(json);
+        return true;
+    }
+    if (op == "nc_ref_apply") {
+        // int32_t nc_ref_apply(editor, track_index, asset_ids, start_seconds, durations,
+        //                      shot_count, transition_kinds, contrast, saturation,
+        //                      shake_amplitude, shake_frequency, out_error)
+        std::vector<uint64_t> ids;
+        std::vector<double> starts;
+        std::vector<double> durs;
+        std::vector<double> kindsRaw;
+        if (!JVecU64(a, "asset_ids", &ids) || ids.empty()) {
+            *out = Err("asset_ids 为空");
+            return true;
+        }
+        if (!JVecDouble(a, "start_seconds", &starts) || starts.size() != ids.size()) {
+            *out = Err("start_seconds 数量与素材不一致");
+            return true;
+        }
+        if (!JVecDouble(a, "durations", &durs) || durs.size() != ids.size()) {
+            *out = Err("durations 数量与素材不一致");
+            return true;
+        }
+        std::vector<int32_t> kinds;
+        if (JVecDouble(a, "transition_kinds", &kindsRaw)) {
+            for (double k : kindsRaw) kinds.push_back(static_cast<int32_t>(k));
+        }
+        char* err = nullptr;
+        const int32_t n = nc_ref_apply(
+            ed, ti, ids.data(), starts.data(), durs.data(), static_cast<int32_t>(ids.size()),
+            kinds.empty() ? nullptr : kinds.data(), JNum(a, "contrast", 1.0),
+            JNum(a, "saturation", 1.0), JNum(a, "shake_amplitude", 0.0),
+            JNum(a, "shake_frequency", 0.0), &err);
+        if (n < 0) {
+            const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(n));
+            if (err) nc_free_string(err);
+            *out = Err("生成失败：" + m);
+            return true;
+        }
+        if (err) nc_free_string(err);
+        *out = Ok("{\"count\":" + std::to_string(n) + "}");
+        return true;
+    }
     if (op == "nc_template_apply_slots") {
         /* int32_t nc_template_apply_slots(editor, template_id, slot_indices,
                                            material_ids, count, out_summary, out_error)
