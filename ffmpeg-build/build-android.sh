@@ -128,8 +128,20 @@ build_abi() {
         --extra-cflags="-fPIC -O2 -DANDROID" \
         --extra-ldflags="-Wl,--no-undefined"
 
-    make -j"$(nproc)"
-    make install
+    # 编译失败时把真正的错误打出来。
+    # 原来直接 make，CI 日志只留尾部若干行，而 FFmpeg 编译到 libavcodec
+    # 时才出错 —— 尾部全是无关的 warning，真错误被截掉，等于没法排查。
+    local JOBS="${JOBS:-$(nproc)}"
+    if ! make -j"$JOBS" > "$ROOT/build-$ABI.log" 2>&1; then
+        echo "❌ $ABI 编译失败（make -j$JOBS），最后 120 行："
+        tail -n 120 "$ROOT/build-$ABI.log"
+        exit 1
+    fi
+    if ! make install > "$ROOT/install-$ABI.log" 2>&1; then
+        echo "❌ $ABI 安装失败，最后 80 行："
+        tail -n 80 "$ROOT/install-$ABI.log"
+        exit 1
+    fi
 
     # 剥离调试符号（体积）；LGPL 不要求保留符号，源码可获取即可
     find "$PREFIX/lib" -name '*.so' -exec "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded {} \;
