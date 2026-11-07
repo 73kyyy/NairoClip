@@ -137,7 +137,8 @@ jobs:
           for ABI in arm64-v8a; do
             LIB="android/app/src/main/jniLibs/$ABI/libavcodec.so"
             [ -f "$LIB" ] || { echo "❌ 缺少 $LIB"; exit 1; }
-            "$READELF" -h "$LIB" | grep -q 'DYN (Shared object file)' \
+            "$READELF" -h "$LIB" > /tmp/rh.txt 2>/dev/null || true
+            grep -q 'DYN (Shared object file)' /tmp/rh.txt \
               || { echo "❌ $LIB 不是共享库"; exit 1; }
             echo "✅ $ABI libavcodec.so 是共享库"
           done
@@ -194,18 +195,29 @@ jobs:
           NDK="${{ steps.ndk.outputs.ndk-path }}"
           NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
           LIB="android/app/src/main/cpp/prebuilt/arm64-v8a/libnairoclip_core.a"
-          echo "== FFmpeg 接线诊断（打在这里，前置步骤输出会被 ci-status 截掉）=="
+
+          echo "== FFmpeg 接线诊断 =="
           ls -l "$LIB" 2>/dev/null || echo "X 归档不存在"
-          ls -l ffmpeg-build/out/arm64-v8a/include/libavcodec/avcodec.h 2>/dev/null || echo "X 缺 avcodec.h"
-          F=$(find build-core-arm64-v8a -name flags.make -path '*nairoclip_core*' | head -1)
-          if [ -n "$F" ]; then grep -o 'NAIROCLIP_HAS_FFMPEG[^ ]*' "$F" || echo "X 宏未定义"; else echo "X 无 flags.make"; fi
-          grep -hE "NairoClip: FFmpeg" configure-arm64-v8a.log 2>/dev/null || echo "（无 configure 结论行）"
-          if [ -f "$LIB" ]; then "$NM" "$LIB" 2>/dev/null | grep -i 'avcodec_\|avformat_' | head -8 || echo "X 归档里无 av* 符号"; fi
-          echo "=="
-          if [ -f "$LIB" ] && "$NM" "$LIB" 2>/dev/null | grep -qi 'avcodec_\|avformat_'; then
-            echo "OK 含 FFmpeg 符号"
+          grep -hE "NairoClip: FFmpeg" configure-arm64-v8a.log 2>/dev/null || echo "X 无 configure 结论行"
+
+          # 关键：不要写 `nm | grep -q`。
+          # grep -q 命中后立刻退出 → nm 收到 SIGPIPE → 配合 `set -o pipefail`
+          # 整条管道返回非零 → if 判为假。表现就是「符号明明在，断言却说没有」。
+          # 这正是前三次失败（#111/#112/#114）的真实原因。
+          # 改成先落地成文件再统计，完全不经过管道。
+          if [ -f "$LIB" ]; then
+            "$NM" "$LIB" > /tmp/nm.txt 2>/dev/null || true
+            COUNT=$(grep -ci 'avcodec_\|avformat_' /tmp/nm.txt || true)
+            echo "av* 符号数：${COUNT:-0}"
+            grep -i 'avcodec_\|avformat_' /tmp/nm.txt | head -8 || true
           else
-            echo "FAIL 未找到 FFmpeg 符号"
+            COUNT=0
+          fi
+
+          if [ "${COUNT:-0}" -gt 0 ]; then
+            echo "OK libnairoclip_core.a 含 FFmpeg 符号"
+          else
+            echo "FAIL 未找到 FFmpeg 符号 —— NAIROCLIP_HAS_FFMPEG 未生效"
             exit 1
           fi
 
