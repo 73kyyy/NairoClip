@@ -1249,7 +1249,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
             ed, ti, ids.data(), starts.data(), durs.data(), static_cast<int32_t>(ids.size()),
             kinds.empty() ? nullptr : kinds.data(), JNum(a, "contrast", 1.0),
             JNum(a, "saturation", 1.0), JNum(a, "shake_amplitude", 0.0),
-            JNum(a, "shake_frequency", 0.0), &err);
+            JNum(a, "shake_frequency", 0.0), JNum(a, "speed_amount", 0.0), &err);
         if (n < 0) {
             const std::string m = err ? std::string(err) : ("错误码 " + std::to_string(n));
             if (err) nc_free_string(err);

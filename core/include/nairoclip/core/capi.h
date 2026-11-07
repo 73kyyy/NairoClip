@@ -192,10 +192,15 @@ int32_t nc_ref_analyze(NcEditor* editor, uint64_t asset_id, char** out_json, cha
 /// - shake_amplitude/shake_frequency：抖动（来自分析结果；<=0 表示不加）
 /// 返回插入的片段数（>=0）；失败返回 **-1**（原因见 out_error）。
 /// 不要用 failNc 的错误码当返回值 —— 那是正值，调用方按 n<0 判断会误判成功。
+/// - speed_amount：丝滑变速强度（0 = 不变速；建议 0.05..0.3）。
+///   曲线是**均值为 1 的对称正弦**（0→+a→0→-a→0），并按 ∫(1/speed)ds 归一化，
+///   所以**时间轴总时长不变** —— 这一点很关键：变速一旦改变时长，
+///   就会和刚吸附好的节拍切点错位。
 int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asset_ids,
                      const double* start_seconds, const double* durations, int32_t shot_count,
                      const int32_t* transition_kinds, double contrast, double saturation,
-                     double shake_amplitude, double shake_frequency, char** out_error);
+                     double shake_amplitude, double shake_frequency, double speed_amount,
+                     char** out_error);
 
 /// 添加轨道，返回轨道 ID（0 = 失败）。
 uint64_t nc_add_track(NcEditor* editor, const char* name, int32_t track_type);

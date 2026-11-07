@@ -437,7 +437,12 @@
       }
     }
 
-    return { contrast, saturation, shakeAmp, shakeFreq, kinds, lowConf };
+    /* 丝滑变速：强度映射到 0.03..0.24 的振幅。
+       为什么要乘系数而不是直接用 intensity：0.6 的振幅意味着速度在 0.4x~1.6x
+       之间来回，观感会像“抽搐”，不是「丝滑」。 */
+    const speedAmount = (S.style === 'curve') ? Math.max(0.03, Math.min(0.24, k * 0.30)) : 0.0;
+
+    return { contrast, saturation, shakeAmp, shakeFreq, kinds, lowConf, speedAmount };
   }
 
   function startCreate() {
@@ -509,7 +514,8 @@
             contrast: params.contrast,
             saturation: params.saturation,
             shake_amplitude: params.shakeAmp,
-            shake_frequency: params.shakeFreq
+            shake_frequency: params.shakeFreq,
+            speed_amount: params.speedAmount
           });
 
           if (!r || !r.ok) {

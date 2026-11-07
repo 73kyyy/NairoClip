@@ -5178,7 +5178,8 @@ int32_t mapTransitionKind(int32_t kind) {
 int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asset_ids,
                      const double* start_seconds, const double* durations, int32_t shot_count,
                      const int32_t* transition_kinds, double contrast, double saturation,
-                     double shake_amplitude, double shake_frequency, char** out_error) {
+                     double shake_amplitude, double shake_frequency, double speed_amount,
+                     char** out_error) {
     /* 计数类 API 的约定（与 nc_auto_edit 一致）：成功返回片段数，失败返回 -1。
        不能直接 return failNc(...) —— 它返回的是**正值**错误码（1..7），
        调用方按 n < 0 判断时会把失败当成「成功 1 个」。 */
@@ -5266,6 +5267,40 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
             const double freq = std::min(20.0, shake_frequency);
             (void)nc_set_clip_shake(editor, track_index, clipIds[i], 0 /* 水平正弦 */, amp,
                                     freq, 0.0, 0.0, 0);
+        }
+    }
+
+    /* 丝滑变速：对称正弦曲线（0 → +a → 0 → -a → 0）。
+       关键点是**时长必须不变**：SpeedCurve 的时间轴时长是 ∫(1/speed)ds，
+       不是 ∫speed ds。所以不能只让速度均值为 1 —— 要按积分归一化：
+       求出 I = ∫(1/s)ds，再把所有速度乘以 I，此时 ∫(1/(s·I))ds = 1，
+       时长精确保持原值，卡点切点不会错位。 */
+    if (speed_amount > 0.001) {
+        const double a = std::min(0.30, std::max(0.02, speed_amount));
+        for (std::size_t i = 0; i < clipIds.size(); ++i) {
+            const double srcSec = durations[i];
+            if (srcSec <= 0.0) continue;
+            double sp[5] = {1.0, 1.0 + a, 1.0, 1.0 - a, 1.0};
+            double inv[5];
+            for (int k = 0; k < 5; ++k) inv[k] = 1.0 / sp[k];
+            // 等分 4 段的梯形积分
+            const double integral = 0.125 * (inv[0] + 2 * inv[1] + 2 * inv[2] + 2 * inv[3] + inv[4]);
+            if (integral <= 0.0) continue;
+            for (int k = 0; k < 5; ++k) sp[k] *= integral;
+
+            SpeedCurve curve;
+            for (int k = 0; k < 5; ++k) {
+                SpeedPoint pt;
+                pt.sourceTime = fromMicroseconds(
+                    static_cast<std::int64_t>(srcSec * 1e6 * (k / 4.0)));
+                pt.speed = Rational::make(static_cast<std::int64_t>(sp[k] * 1000.0 + 0.5), 1000);
+                pt.easing = Easing::easeInOut();
+                (void)curve.addPoint(pt);
+            }
+            if (curve.invariantsHold()) {
+                (void)editor->editor->setClipSpeedCurve(main->id, track.id, ClipId{clipIds[i]},
+                                                        curve);
+            }
         }
     }
 
