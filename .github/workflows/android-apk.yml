@@ -91,6 +91,21 @@ jobs:
       #
       # 现在按 ABI 编出 libav*.so，拷进 jniLibs，由 Gradle 打进 APK。
       # 缓存：FFmpeg 源码下载 + 编译约 15-25 分钟，按 VERSION 文件做 key。
+      - name: Install nasm (FFmpeg x86 asm)
+        run: |
+          set -euo pipefail
+          # FFmpeg 的 x86/x86_64 汇编（libavcodec 的 SIMD 优化）必须用 nasm 编译。
+          # ubuntu-latest 镜像**不带** nasm，configure 直接报
+          #   "nasm/yasm not found or too old. Use --disable-x86asm for a crippled build."
+          # 然后 exit 1 —— arm64/armv7 用 clang 内联汇编，不需要 nasm，
+          # 所以只有 x86_64 那一路会挂（这就是之前失败的真实原因）。
+          #
+          # 装 nasm 而不是加 --disable-x86asm：后者会关掉全部 x86 SIMD，
+          # 模拟器上跑起来会慢好几倍，而我们正是要拿 x86_64 做模拟器验证。
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends nasm
+          nasm -v
+
       - name: Cache FFmpeg sources
         uses: actions/cache@v4
         with:
