@@ -27,7 +27,7 @@ object AndroidTextRasterizer {
 
     /**
      * 栅格化一段文本。
-     * @return 打包的 [w:int32][h:int32][RGBA8...]，失败返回 null
+     * @return 打包格式：w:int32 + h:int32 + RGBA8 字节流；失败返回 null
      */
     @JvmStatic
     fun rasterize(
