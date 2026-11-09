@@ -254,22 +254,45 @@ jobs:
           } > android/local.properties
 
       # 生成签名 keystore（发布用；密码可由 secrets 覆盖）
+      #
+      # 安全整改（2026-11）：以前未配置 secrets 时回落到公开口令 "nairoclip"，
+      # 仓库内任何人都能用同一口令重签覆盖安装包，发布签名形同虚设。
+      # 现在改为：有 secrets 用 secrets；没有则为每次构建生成一次性随机口令，
+      # 通过 $GITHUB_ENV 传给后续 Gradle 步骤。口令不落盘、不进日志。
       - name: Generate signing keystore
         working-directory: android/app
+        env:
+          KS_ALIAS_FROM_SECRET: ${{ secrets.KEYSTORE_ALIAS }}
+          KS_PASS_FROM_SECRET: ${{ secrets.KEYSTORE_PASSWORD }}
+          KP_PASS_FROM_SECRET: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          KS_ALIAS="${KS_ALIAS_FROM_SECRET:-nairoclip}"
+          if [ -n "${KS_PASS_FROM_SECRET:-}" ]; then
+            KS_PASS="$KS_PASS_FROM_SECRET"
+          else
+            # 32 字符随机口令；keytool 要求 >= 6 位。
+            KS_PASS="$(openssl rand -hex 16)"
+            echo "::notice::未配置 KEYSTORE_PASSWORD，本次构建使用一次性随机签名口令"
+          fi
+          KP_PASS="${KP_PASS_FROM_SECRET:-$KS_PASS}"
           keytool -genkeypair -v \
             -keystore nairoclip-release.jks \
-            -alias "${KEYSTORE_ALIAS:-nairoclip}" \
+            -alias "$KS_ALIAS" \
             -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass "${KEYSTORE_PASSWORD:-nairoclip}" \
-            -keypass "${KEY_PASSWORD:-nairoclip}" \
-            -dname "CN=NairoClip, OU=Dev, O=NairoClip, L=NA, S=NA, C=CN"
+            -storepass "$KS_PASS" \
+            -keypass "$KP_PASS" \
+            -dname "CN=NairoClip, OU=Dev, O=NairoClip, L=NA, S=NA, C=CN" \
+            > /dev/null 2>&1
           ls -lh nairoclip-release.jks
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          # 口令必须在日志里打码：GITHUB_ENV 的内容会原样出现在步骤的
+          # env: 区块中，不加 ::add-mask:: 等于把签名口令打进构建日志。
+          echo "::add-mask::$KS_PASS"
+          {
+            echo "KEYSTORE_ALIAS=$KS_ALIAS"
+            echo "KEYSTORE_PASSWORD=$KS_PASS"
+            echo "KEY_PASSWORD=$KP_PASS"
+          } >> "$GITHUB_ENV"
 
       # 仓库未提交 gradle wrapper：用 gradle/actions 提供的 gradle 生成后构建
       - name: Generate Gradle wrapper
@@ -502,6 +525,45 @@ jobs:
 
       - name: Show APK
         run: find android -name '*.apk' -exec ls -lh {} \;
+
+      # 产物冒烟（T0.7）：不只看文件存在，必须证明它是**可安装的合法 APK**。
+      # 校验包名、版本、minSdk、ABI、原生库与签名有效性。
+      # 这一步替代"只上传 artifact 就算完成"的假验收 —— 之前 APK 步骤
+      # 曾因静默跳过链接而产出过能上传但装不上的包。
+      - name: APK smoke check (badging + signature + ABI)
+        run: |
+          set -euo pipefail
+          APK=$(find android -name '*.apk' -path '*release*' | head -1)
+          [ -n "$APK" ] || { echo "❌ 未找到 release APK"; exit 1; }
+          echo "检查: $APK"
+
+          BT=$(ls -d "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"/build-tools/* 2>/dev/null | sort -V | tail -1)
+          [ -n "$BT" ] || { echo "❌ 未找到 build-tools"; exit 1; }
+          echo "build-tools: $BT"
+
+          echo "--- badging ---"
+          BADGING=$("$BT/aapt2" dump badging "$APK")
+          echo "$BADGING" | head -8
+
+          echo "$BADGING" | grep -q "package: name='com.nairoclip.app'" \
+            || { echo "❌ 包名不符"; exit 1; }
+          # aapt2 输出的键名是 minSdkVersion，不是 sdkVersion
+          # （初版写错，导致冒烟步骤误报 —— 这正是冒烟该抓的东西）。
+          echo "$BADGING" | grep -q "minSdkVersion:'24'" \
+            || { echo "❌ minSdk 不是 24"; exit 1; }
+          echo "$BADGING" | grep -q "native-code: 'arm64-v8a'" \
+            || { echo "❌ native-code 不含 arm64-v8a"; exit 1; }
+
+          echo "--- 原生库 ---"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libnc_jni.so" \
+            || { echo "❌ 缺少 libnc_jni.so"; exit 1; }
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libavcodec.so" \
+            || { echo "❌ 缺少 FFmpeg 动态库 libavcodec.so"; exit 1; }
+
+          echo "--- 签名 ---"
+          "$BT/apksigner" verify --verbose "$APK" | head -10
+
+          echo "✅ APK 冒烟校验通过"
 
       # 产物自检：确认 APK 内不含测试/开发资产
       - name: Verify APK has no test assets
