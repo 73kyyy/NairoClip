@@ -1882,6 +1882,23 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
     return ToJStr(env, Err("未开放的操作：" + name));
 }
 
+// 契约层统一命令入口（P1/P2）。
+// 刻意**不**走 nativeCall 的 op 字符串分发：那正是 03 §6 明令禁止的
+// 「仅凭函数名字符串判断业务权限」模式。这里是独立 typed 入口，
+// 参数是一个结构化信封，校验与分发由 C++ 契约层负责。
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeApplyCommand(
+    JNIEnv* env, jobject, jlong h, jstring requestJson) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return nullptr;
+    const std::string req = JStr(env, requestJson);
+    char* raw = nc_apply_command(ed, req.c_str());
+    if (raw == nullptr) return nullptr;
+    const std::string out(raw);
+    nc_free_string(raw);
+    return ToJStr(env, out);
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeState(JNIEnv* env, jobject, jlong h) {
     auto* ed = reinterpret_cast<NcEditor*>(h);

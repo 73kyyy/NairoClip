@@ -161,6 +161,25 @@ const Engine = {
     }
   },
 
+  /**
+   * 契约层统一命令入口（P1/P2）。
+   * 传入 CommandRequest 的 JSON 字符串，返回 CommandResult 的 JSON 对象。
+   * 平台未提供 applyCommand 时返回 null（调用方应回退或明确报错，
+   * 不要假装成功）。
+   */
+  applyCommand(request) {
+    const b = this.bridge;
+    if (!b || typeof b.applyCommand !== 'function') return null;
+    try {
+      return parseBridge(b.applyCommand(JSON.stringify(request)));
+    } catch (err) {
+      return {
+        status: 'rejected',
+        error: { code: 'NC-SERVICE-REMOTE_FAILURE', message: String(err && err.message || err) }
+      };
+    }
+  },
+
   waveform(assetId) {
     if (!this.bridge || typeof this.bridge.waveform !== 'function') {
       return { buckets: [] };

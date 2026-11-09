@@ -86,6 +86,25 @@ class NativeEngineBridge(
     }
 
     /**
+     * 契约层统一命令入口（P1/P2）。
+     * 入参是 CommandRequest 的 JSON（schemaVersion/commandId/projectId/
+     * expectedRevision/commandType/payload/origin/transactionId），
+     * 返回 CommandResult 的 JSON。
+     *
+     * 与 call() 的区别：这里**不按函数名分发**，走结构化信封 +
+     * 引擎侧校验 + revision 并发控制 + 事件发布。
+     * 新增功能一律走这里；call() 只保留给尚未迁移的老路径（P2 逐步清空）。
+     */
+    @JavascriptInterface
+    @Synchronized
+    fun applyCommand(requestJson: String): String = try {
+        nativeApplyCommand(ensure(), requestJson.ifBlank { "{}" })
+            ?: err("引擎返回空结果")
+    } catch (e: Throwable) {
+        err("命令执行失败：${e.message}")
+    }
+
+    /**
      * 一次性取出时间轴快照（工程/轨道/片段/素材/字幕/标记），
      * 由 native 侧直接调 nc_project_*、nc_track_*、nc_clip_info、nc_asset_*
      * 组装，避免 JS 侧发几十次调用。
@@ -282,6 +301,7 @@ class NativeEngineBridge(
     private external fun nativeCreate(): Long
     private external fun nativeDestroy(handle: Long)
     private external fun nativeCall(handle: Long, fn: String, argsJson: String): String
+    private external fun nativeApplyCommand(handle: Long, requestJson: String): String?
     private external fun nativeState(handle: Long): String
     private external fun nativeFrame(handle: Long, timeUs: Long, width: Int): ByteArray
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
