@@ -75,6 +75,19 @@ NcEditor* nc_editor_create(void);
 /// 销毁编辑器；传入 NULL 安全。
 void nc_editor_destroy(NcEditor* editor);
 
+// ---- 契约层统一入口（P1）----
+
+/// 执行一条命令。request_json 为 CommandRequest 的 JSON（07 §4 八字段）。
+/// 返回 CommandResult 的 JSON（**需 nc_free_string**）。
+/// 解析/校验失败同样返回 JSON（status=rejected + error.code），
+/// 只有内存分配失败才返回 NULL —— 调用方永远能拿到结构化原因。
+/// 线程：与其它 nc_* 一致，单个句柄不得跨线程并发调用。
+char* nc_apply_command(NcEditor* editor, const char* request_json);
+
+/// 当前工程 revision（命令的 expectedRevision 应取此值）。
+/// revision 单调递增，任何改变工程内容的操作都会让它变化。
+uint64_t nc_contract_revision(const NcEditor* editor);
+
 // ---- 工程序列化 ----
 
 /// 保存工程为 .nclip 文本；返回字符串需 nc_free_string 释放。
