@@ -6361,6 +6361,138 @@ int32_t nc_ai_task_reset(NcEditor* editor) {
     return NC_OK;
 }
 
+// ---------------------------------------------------------------------------
+// 通用任务契约（T2.2）
+// ---------------------------------------------------------------------------
+namespace {
+
+std::string taskInfoJson(const contract::TaskInfo& t) {
+    JsonValue o = JsonValue::object();
+    o.set("taskId", JsonValue::string(t.taskId));
+    o.set("type", JsonValue::string(t.type));
+    o.set("state", JsonValue::string(contract::taskStateName(t.state)));
+    o.set("progress", JsonValue::number(t.progress));
+    o.set("stageNote", JsonValue::string(t.stageNote));
+    o.set("error", JsonValue::string(t.error));
+    o.set("resultType", JsonValue::string(t.resultType));
+    o.set("resultPayload", JsonValue::string(t.resultPayload));
+    o.set("cancelRequested", JsonValue::boolean(t.cancelRequested));
+    o.set("timedOut", JsonValue::boolean(t.timedOut));
+    o.set("retryable", JsonValue::boolean(t.retryable));
+    o.set("createdAtMs", JsonValue::integer(t.createdAtMs));
+    o.set("startedAtMs", JsonValue::integer(t.startedAtMs));
+    o.set("lastHeartbeatMs", JsonValue::integer(t.lastHeartbeatMs));
+    o.set("heartbeatTimeoutMs", JsonValue::integer(t.config.heartbeatTimeoutMs));
+    o.set("totalTimeoutMs", JsonValue::integer(t.config.totalTimeoutMs));
+    return toJsonString(o);
+}
+
+int32_t taskError(int32_t code, const char* what, char** outError) {
+    if (outError != nullptr) *outError = dupString(what);
+    return failNc(code, what);
+}
+
+}  // namespace
+
+int32_t nc_task_begin(NcEditor* editor, const char* type, uint64_t target_id,
+                      int32_t heartbeat_timeout_ms, int64_t total_timeout_ms,
+                      int64_t now_ms, char** out_task_id, char** out_error) {
+    if (editor == nullptr) return taskError(NC_ERROR_INVALID_ARGUMENT, "editor 为空", out_error);
+    if (type == nullptr) return taskError(NC_ERROR_INVALID_ARGUMENT, "type 为空", out_error);
+    contract::TaskConfig config;
+    if (heartbeat_timeout_ms > 0) config.heartbeatTimeoutMs = heartbeat_timeout_ms;
+    config.totalTimeoutMs = total_timeout_ms;
+    contract::TaskRegistry& reg = editor->aiTask.registry();
+    const std::string id = reg.createEx(type, config, now_ms);
+    if (id.empty()) {
+        return taskError(NC_ERROR_INVALID_ARGUMENT, "任务类型非法（小写字母/数字/_. 且 <=32）",
+                         out_error);
+    }
+    reg.start(id, now_ms);
+    if (out_task_id != nullptr) *out_task_id = dupString(id);
+    return NC_OK;
+}
+
+int32_t nc_task_heartbeat(NcEditor* editor, const char* task_id, double progress,
+                          const char* stage_note, int64_t now_ms) {
+    if (editor == nullptr || task_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    const std::string note = stage_note != nullptr ? stage_note : std::string();
+    if (!editor->aiTask.registry().heartbeat(task_id, progress, note, now_ms)) {
+        return failNc(NC_ERROR_NOT_FOUND, "任务不存在或已结束");
+    }
+    return NC_OK;
+}
+
+int32_t nc_task_complete(NcEditor* editor, const char* task_id, const char* result_type,
+                         const char* result_json, int64_t now_ms) {
+    if (editor == nullptr || task_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    const std::string rtype = result_type != nullptr ? result_type : std::string();
+    const std::string payload = result_json != nullptr ? result_json : std::string();
+    if (!editor->aiTask.registry().completeWithResult(task_id, rtype, payload, now_ms)) {
+        return failNc(NC_ERROR_UNSUPPORTED, "任务不存在、已结束或结果超限");
+    }
+    return NC_OK;
+}
+
+int32_t nc_task_fail(NcEditor* editor, const char* task_id, const char* error,
+                     int32_t retryable) {
+    if (editor == nullptr || task_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    const std::string text = error != nullptr ? error : std::string();
+    if (!editor->aiTask.registry().fail(task_id, text, retryable != 0)) {
+        return failNc(NC_ERROR_NOT_FOUND, "任务不存在或已结束");
+    }
+    return NC_OK;
+}
+
+int32_t nc_task_cancel(NcEditor* editor, const char* task_id) {
+    if (editor == nullptr || task_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    if (!editor->aiTask.registry().cancel(task_id)) {
+        return failNc(NC_ERROR_NOT_FOUND, "任务不存在或已结束");
+    }
+    return NC_OK;
+}
+
+char* nc_task_query(const NcEditor* editor, const char* task_id) {
+    if (editor == nullptr || task_id == nullptr) return nullptr;
+    const contract::TaskInfo* info = editor->aiTask.registry().find(task_id);
+    if (info == nullptr) return nullptr;
+    return dupString(taskInfoJson(*info));
+}
+
+int32_t nc_task_tick(NcEditor* editor, int64_t now_ms) {
+    if (editor == nullptr) return NC_ERROR_INVALID_ARGUMENT;
+    const std::size_t n = editor->aiTask.tick(now_ms);
+    return static_cast<int32_t>(n);
+}
+
+int32_t nc_ai_task_begin_ex(NcEditor* editor, int32_t feature, uint64_t target_id,
+                            int32_t heartbeat_timeout_ms, int64_t total_timeout_ms,
+                            int64_t now_ms, char** out_task_id, char** out_error) {
+    if (editor == nullptr) return taskError(NC_ERROR_INVALID_ARGUMENT, "editor 为空", out_error);
+    AiFeatureType featureType;
+    if (!aiFeatureFromInt(feature, featureType) || featureType == AiFeatureType::None) {
+        return taskError(NC_ERROR_INVALID_ARGUMENT, "未指定 AI 功能类型", out_error);
+    }
+    contract::TaskConfig config;
+    if (heartbeat_timeout_ms > 0) config.heartbeatTimeoutMs = heartbeat_timeout_ms;
+    config.totalTimeoutMs = total_timeout_ms;
+    std::string failure;
+    if (!editor->aiTask.beginEx(featureType, target_id, config, now_ms, &failure)) {
+        return taskError(NC_ERROR_UNSUPPORTED, failure.empty() ? "任务开始失败" : failure.c_str(),
+                         out_error);
+    }
+    if (out_task_id != nullptr) *out_task_id = dupString(editor->aiTask.taskId());
+    return NC_OK;
+}
+
 char* nc_ai_task_failure_text(const NcEditor* editor) {
     if (editor == nullptr) {
         return nullptr;
