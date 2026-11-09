@@ -212,10 +212,13 @@ NC_TEST(TaskCapi, TickFailsStalledTask) {
     NcEditor* ed = nc_editor_create();
     NC_CHECK(ed != nullptr);
     char* outId = nullptr;
+    // now_ms = 0：模拟旧接口（拿不到时钟）。第一次 tick 只建立基准，
+    // 从这一刻开始计时，之后的 tick 才可能判超时。
     nc_task_begin(ed, "export", 0, 1000, 0, 0, &outId, nullptr);
     const std::string id = takeString(outId);
-    NC_CHECK_EQ(nc_task_tick(ed, 500), 0);
-    NC_CHECK_EQ(nc_task_tick(ed, 1500), 1);
+    NC_CHECK_EQ(nc_task_tick(ed, 500), 0);    // 建立基准，不判超时
+    NC_CHECK_EQ(nc_task_tick(ed, 1400), 0);   // 900ms < 1000ms
+    NC_CHECK_EQ(nc_task_tick(ed, 1600), 1);   // 1100ms > 1000ms
     char* q = nc_task_query(ed, id.c_str());
     JsonValue j;
     JsonParseError pe;
