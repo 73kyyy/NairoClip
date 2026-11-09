@@ -6460,6 +6460,34 @@ int32_t nc_task_cancel(NcEditor* editor, const char* task_id) {
     return NC_OK;
 }
 
+int32_t nc_task_cancel_ack(NcEditor* editor, const char* task_id) {
+    if (editor == nullptr || task_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    if (!editor->aiTask.registry().acknowledgeCancel(task_id)) {
+        return failNc(NC_ERROR_UNSUPPORTED, "任务不在取消请求状态");
+    }
+    return NC_OK;
+}
+
+int32_t nc_task_clear_result(NcEditor* editor, const char* task_id) {
+    if (editor == nullptr || task_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    if (!editor->aiTask.registry().clearResult(task_id)) {
+        return failNc(NC_ERROR_NOT_FOUND, "任务不存在");
+    }
+    return NC_OK;
+}
+
+int32_t nc_ai_task_cancel_ack(NcEditor* editor) {
+    if (editor == nullptr) return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    if (!editor->aiTask.confirmCancel()) {
+        return failNc(NC_ERROR_UNSUPPORTED, "当前没有待确认的取消请求");
+    }
+    return NC_OK;
+}
+
 char* nc_task_query(const NcEditor* editor, const char* task_id) {
     if (editor == nullptr || task_id == nullptr) return nullptr;
     const contract::TaskInfo* info = editor->aiTask.registry().find(task_id);

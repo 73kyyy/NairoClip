@@ -129,8 +129,11 @@ NC_TEST(AiTask, SingleActiveTaskConstraint) {
     std::string failure;
     NC_CHECK(!runner.begin(AiFeatureType::DepthMap, 0, &failure));
     NC_CHECK(!failure.empty());
-    // 结束后可开始新任务
+    // 结束后可开始新任务（T2.2：取消是两阶段，需执行器确认）
     NC_CHECK(runner.cancel());
+    NC_CHECK(runner.task().cancelRequested);          // 只是"请求已登记"
+    NC_CHECK(!runner.begin(AiFeatureType::DepthMap, 0));  // 未确认前不得重开
+    NC_CHECK(runner.confirmCancel());                 // 执行器确认停止
     NC_CHECK(runner.begin(AiFeatureType::DepthMap, 0));
     NC_CHECK_EQ(static_cast<int>(runner.task().feature), 8);
 }
@@ -291,7 +294,12 @@ NC_TEST(AiTask, CapiCancelAndEngineInfo) {
     NC_CHECK_EQ(nc_ai_task_status(editor, nullptr, &state, nullptr, nullptr, nullptr, nullptr,
                                   nullptr),
                 NC_OK);
-    NC_CHECK_EQ(state, 4);  // Cancelled
+    NC_CHECK_EQ(state, 1);  // 仍是 Running：取消请求已登记，但未确认停止
+    NC_CHECK_EQ(nc_ai_task_cancel_ack(editor), NC_OK);
+    NC_CHECK_EQ(nc_ai_task_status(editor, nullptr, &state, nullptr, nullptr, nullptr, nullptr,
+                                  nullptr),
+                NC_OK);
+    NC_CHECK_EQ(state, 4);  // 执行器确认后才 Cancelled
     // 引擎信息（本构建含 ORT → 可用；不含则不可用——两种均为真实状态）
     std::int32_t available = -1;
     char* version = nullptr;

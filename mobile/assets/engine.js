@@ -214,6 +214,20 @@ const Engine = {
     try { return b.taskCancel(taskId); } catch (e) { return -1; }
   },
 
+  /** 执行器确认已停止（配合 taskCancel）。 */
+  taskCancelAck(taskId) {
+    const b = this.bridge;
+    if (!b || typeof b.taskCancelAck !== 'function') return -1;
+    try { return b.taskCancelAck(taskId); } catch (e) { return -1; }
+  },
+
+  /** 释放结果载荷（保留任务记录）。 */
+  taskClearResult(taskId) {
+    const b = this.bridge;
+    if (!b || typeof b.taskClearResult !== 'function') return -1;
+    try { return b.taskClearResult(taskId); } catch (e) { return -1; }
+  },
+
   taskQuery(taskId) {
     const b = this.bridge;
     if (!b || typeof b.taskQuery !== 'function') return null;

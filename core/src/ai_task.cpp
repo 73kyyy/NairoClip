@@ -124,7 +124,8 @@ bool AiTaskRunner::beginEx(AiFeatureType feature, std::uint64_t targetId,
     // 以 Registry 中的运行态为准，而不是本类的私有字段。
     if (!taskId_.empty()) {
         const contract::TaskInfo* cur = registry_.find(taskId_);
-        if (cur != nullptr && cur->state == contract::TaskState::Running) {
+        if (cur != nullptr && (cur->state == contract::TaskState::Running ||
+                               cur->state == contract::TaskState::CancelRequested)) {
             if (outputFailure != nullptr) {
                 *outputFailure = std::string(aiFeatureDisplayName(feature_)) + "处理中，请稍候";
             }
@@ -172,6 +173,11 @@ bool AiTaskRunner::cancel() {
     return registry_.cancel(taskId_);
 }
 
+bool AiTaskRunner::confirmCancel() {
+    if (taskId_.empty()) return false;
+    return registry_.acknowledgeCancel(taskId_);
+}
+
 void AiTaskRunner::reset() {
     if (!taskId_.empty()) registry_.remove(taskId_);
     taskId_.clear();
@@ -191,6 +197,7 @@ AiTask AiTaskRunner::task() const {
     view.resultPayload = info->resultPayload;
     view.retryable = info->retryable;
     view.failureReason = info->error;
+    view.cancelRequested = info->cancelRequested;
     switch (info->state) {
         case contract::TaskState::Queued:
             view.state = AiTaskState::Idle;
@@ -206,6 +213,10 @@ AiTask AiTaskRunner::task() const {
             break;
         case contract::TaskState::Cancelled:
             view.state = AiTaskState::Cancelled;
+            break;
+        case contract::TaskState::CancelRequested:
+            // 关键：取消请求 ≠ 已取消。底层可能仍在跑，对外仍是 Running。
+            view.state = AiTaskState::Running;
             break;
     }
     return view;
