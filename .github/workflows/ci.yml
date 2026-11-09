@@ -83,6 +83,13 @@ jobs:
         # 放在 Configure 之前：纯文件读取，失败得早，不浪费编译时间。
         run: python3 tools/check_mobile_frontend.py .
 
+      - name: C ABI 调用点检查自检
+        # 先跑检查器自己的单元测试，再跑真实检查。
+        # 为什么：2026-11 一次 CI 失败的真因是检查器把注释里的 `nc_xxx()`
+        # 引用误判成「0 个参数的调用点」，而真实代码完全正确。
+        # 这个自检同时守住两件事：注释必须被忽略、真错必须仍被抓。
+        run: python3 tools/test_check_capi_calls.py
+
       - name: C ABI 调用点检查
         # 真实事故（已发生 3 次）：给 nc_* 加参数后只改了声明和部分调用点，
         # 漏掉的那处要等 CI 编译十几分钟才暴露，且 Android Cross-Compile

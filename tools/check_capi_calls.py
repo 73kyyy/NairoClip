@@ -140,13 +140,80 @@ def count_call_args(text, m):
     return len(split_top_level(inner))
 
 
+def mask_comments(text):
+    """把注释替换为等长空白，保留换行与字符串字面量。
+
+    为什么需要（真实事故，2026-11 已发生）：
+      scan_calls 用 re.finditer 扫**原始文本**，而文档注释里经常出现
+      `nc_xxx()` 这样的引用（如 capi.cpp 的超燃预设说明块）。不剥注释
+      就会把它当成「0 个参数的调用点」误报，CI 在这一步失败，
+      但真实代码完全正确 —— 排查成本极高，因为报错指向注释行。
+
+    只遮注释、不遮字符串：
+      · 字符串里可能含逗号/括号，遮掉会破坏实参切分；
+      · 字符串里的 `nc_xxx(` 极罕见，且 find_matching_paren 本身会跳过字符串。
+    换行原样保留，保证报错行号仍指向真实行。
+    """
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        # 行注释：遮到行尾，保留换行符本身
+        if c == '/' and i + 1 < n and text[i + 1] == '/':
+            while i < n and text[i] != '\n':
+                out.append(' ')
+                i += 1
+            continue
+        # 块注释：逐字符遮成空白，换行保留
+        if c == '/' and i + 1 < n and text[i + 1] == '*':
+            while i < n and not (text[i] == '*' and i + 1 < n and text[i + 1] == '/'):
+                out.append('\n' if text[i] == '\n' else ' ')
+                i += 1
+            # 吃掉结尾的 */（两个字符 → 两个空白）
+            if i < n:
+                out.append(' ')
+                i += 1
+            if i < n:
+                out.append(' ')
+                i += 1
+            continue
+        # 字符串/字符字面量：原样保留（含转义序列）
+        if c in '"\'':
+            q = c
+            out.append(c)
+            i += 1
+            while i < n:
+                if text[i] == '\\' and i + 1 < n:
+                    out.append(text[i])
+                    out.append(text[i + 1])
+                    i += 2
+                    continue
+                out.append(text[i])
+                if text[i] == q:
+                    i += 1
+                    break
+                if text[i] == '\n':
+                    # 未闭合字面量（异常代码）：不要吞掉后续内容
+                    i += 1
+                    break
+                i += 1
+            continue
+        out.append(c)
+        i += 1
+    return ''.join(out)
+
+
 def scan_calls(path, known):
     with open(path, encoding='utf-8', errors='replace') as f:
         text = f.read()
+    # 关键：在「注释已替换为等长空白」的副本上匹配调用点。
+    # 副本长度与原文一致，因此行号可直接用原文换算。
+    masked = mask_comments(text)
     errs = []
     for name, expected in known.items():
-        for m in re.finditer(r'\b' + re.escape(name) + r'\s*\(', text):
-            actual = count_call_args(text, m)
+        for m in re.finditer(r'\b' + re.escape(name) + r'\s*\(', masked):
+            actual = count_call_args(masked, m)
             if actual is None:
                 continue
             if actual != expected:
