@@ -180,6 +180,52 @@ const Engine = {
     }
   },
 
+  /* ---- 通用任务契约（T2.2）----
+     平台不支持时一律返回 null，调用方必须显式处理，不能假装成功。 */
+  taskBegin(type, targetId = 0, heartbeatTimeoutMs = 60000, totalTimeoutMs = 0) {
+    const b = this.bridge;
+    if (!b || typeof b.taskBegin !== 'function') return null;
+    try { return parseBridge(b.taskBegin(type, targetId, heartbeatTimeoutMs, totalTimeoutMs)); }
+    catch (e) { return { ok: false, message: String((e && e.message) || e) }; }
+  },
+
+  /** 真实进度上报（禁止定时器伪造）。 */
+  taskHeartbeat(taskId, progress, stageNote = '') {
+    const b = this.bridge;
+    if (!b || typeof b.taskHeartbeat !== 'function') return -1;
+    try { return b.taskHeartbeat(taskId, progress, stageNote); } catch (e) { return -1; }
+  },
+
+  taskComplete(taskId, resultType, resultJson) {
+    const b = this.bridge;
+    if (!b || typeof b.taskComplete !== 'function') return -1;
+    try { return b.taskComplete(taskId, resultType, resultJson); } catch (e) { return -1; }
+  },
+
+  taskFail(taskId, error, retryable = true) {
+    const b = this.bridge;
+    if (!b || typeof b.taskFail !== 'function') return -1;
+    try { return b.taskFail(taskId, error, retryable); } catch (e) { return -1; }
+  },
+
+  taskCancel(taskId) {
+    const b = this.bridge;
+    if (!b || typeof b.taskCancel !== 'function') return -1;
+    try { return b.taskCancel(taskId); } catch (e) { return -1; }
+  },
+
+  taskQuery(taskId) {
+    const b = this.bridge;
+    if (!b || typeof b.taskQuery !== 'function') return null;
+    try { return parseBridge(b.taskQuery(taskId)); } catch (e) { return null; }
+  },
+
+  taskTick() {
+    const b = this.bridge;
+    if (!b || typeof b.taskTick !== 'function') return 0;
+    try { return b.taskTick(); } catch (e) { return 0; }
+  },
+
   waveform(assetId) {
     if (!this.bridge || typeof this.bridge.waveform !== 'function') {
       return { buckets: [] };

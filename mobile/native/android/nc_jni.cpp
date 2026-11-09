@@ -1642,6 +1642,15 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("标记失败失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "nc_ai_task_failure_text") {
+        // 断链修复（T2.2）：nc-api.js 早已暴露此函数，但 JNI 从未实现，
+        // 前端调用只会得到「未开放的操作」，失败时拿不到统一文案。
+        char* text = nc_ai_task_failure_text(ed);
+        const std::string s = text != nullptr ? std::string(text) : std::string();
+        if (text != nullptr) nc_free_string(text);
+        *out = Ok("\"" + JEsc(s) + "\"");
+        return true;
+    }
     if (op == "nc_ai_task_cancel") {
         const int32_t rc = nc_ai_task_cancel(ed);
         *out = rc == NC_OK ? Ok("") : Err("取消失败，错误码 " + std::to_string(rc));
@@ -1897,6 +1906,97 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeApplyCommand(
     const std::string out(raw);
     nc_free_string(raw);
     return ToJStr(env, out);
+}
+
+// ---- 通用任务契约（T2.2）----
+// 刻意做成独立 typed 方法，而不是再往 nativeCall 的 op 字符串链条里加分支：
+// 任务生命周期有明确参数与返回语义，结构化入口才能做参数校验。
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskBegin(
+    JNIEnv* env, jobject, jlong h, jstring type, jlong targetId, jint heartbeatTimeoutMs,
+    jlong totalTimeoutMs, jlong nowMs) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return ToJStr(env, "{\"ok\":false,\"message\":\"引擎未初始化\"}");
+    const std::string kind = JStr(env, type);
+    char* outId = nullptr;
+    char* outErr = nullptr;
+    const int32_t rc = nc_task_begin(ed, kind.c_str(), static_cast<uint64_t>(targetId),
+                                     heartbeatTimeoutMs, totalTimeoutMs, nowMs, &outId, &outErr);
+    const std::string id = outId != nullptr ? std::string(outId) : std::string();
+    if (outId != nullptr) nc_free_string(outId);
+    const std::string err = outErr != nullptr ? std::string(outErr) : std::string();
+    if (outErr != nullptr) nc_free_string(outErr);
+    std::string j;
+    if (rc == NC_OK) {
+        j = "{\"ok\":true,\"taskId\":\"" + JEsc(id) + "\"}";
+    } else {
+        j = "{\"ok\":false,\"message\":\"" +
+            JEsc(err.empty() ? std::string("任务开始失败") : err) + "\"}";
+    }
+    return ToJStr(env, j);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskHeartbeat(
+    JNIEnv* env, jobject, jlong h, jstring taskId, jdouble progress, jstring stageNote,
+    jlong nowMs) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    const std::string id = JStr(env, taskId);
+    const std::string note = JStr(env, stageNote);
+    return nc_task_heartbeat(ed, id.c_str(), progress, note.c_str(), nowMs);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskComplete(
+    JNIEnv* env, jobject, jlong h, jstring taskId, jstring resultType, jstring resultJson,
+    jlong nowMs) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    const std::string id = JStr(env, taskId);
+    const std::string rtype = JStr(env, resultType);
+    const std::string payload = JStr(env, resultJson);
+    return nc_task_complete(ed, id.c_str(), rtype.c_str(), payload.c_str(), nowMs);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskFail(
+    JNIEnv* env, jobject, jlong h, jstring taskId, jstring error, jint retryable) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    const std::string id = JStr(env, taskId);
+    const std::string text = JStr(env, error);
+    return nc_task_fail(ed, id.c_str(), text.c_str(), retryable);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskCancel(JNIEnv* env, jobject, jlong h,
+                                                           jstring taskId) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    const std::string id = JStr(env, taskId);
+    return nc_task_cancel(ed, id.c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskQuery(JNIEnv* env, jobject, jlong h,
+                                                          jstring taskId) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return ToJStr(env, "{\"ok\":false,\"message\":\"引擎未初始化\"}");
+    const std::string id = JStr(env, taskId);
+    char* q = nc_task_query(ed, id.c_str());
+    if (q == nullptr) return ToJStr(env, "{\"ok\":false,\"message\":\"任务不存在\"}");
+    const std::string out = q;
+    nc_free_string(q);
+    return ToJStr(env, out);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskTick(JNIEnv* env, jobject, jlong h,
+                                                         jlong nowMs) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    return nc_task_tick(ed, nowMs);
 }
 
 JNIEXPORT jstring JNICALL
