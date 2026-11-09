@@ -109,82 +109,120 @@ const char* aiTaskStateName(AiTaskState state) {
 
 bool AiTaskRunner::begin(AiFeatureType feature, std::uint64_t targetId,
                          std::string* outputFailure) {
+    contract::TaskConfig config;  // 默认心跳 60s、总超时不限
+    return beginEx(feature, targetId, config, 0, outputFailure);
+}
+
+bool AiTaskRunner::beginEx(AiFeatureType feature, std::uint64_t targetId,
+                           const contract::TaskConfig& config, std::int64_t nowMs,
+                           std::string* outputFailure) {
     if (feature == AiFeatureType::None) {
         if (outputFailure != nullptr) *outputFailure = "未指定 AI 功能类型";
         return false;
     }
-    if (task_.state == AiTaskState::Running) {
-        if (outputFailure != nullptr) {
-            *outputFailure = std::string(aiFeatureDisplayName(task_.feature)) + "处理中，请稍候";
+    // 单活动任务约束（文档 Part 4 自查规则第 4 项）：
+    // 以 Registry 中的运行态为准，而不是本类的私有字段。
+    if (!taskId_.empty()) {
+        const contract::TaskInfo* cur = registry_.find(taskId_);
+        if (cur != nullptr && cur->state == contract::TaskState::Running) {
+            if (outputFailure != nullptr) {
+                *outputFailure = std::string(aiFeatureDisplayName(feature_)) + "处理中，请稍候";
+            }
+            return false;
         }
+    }
+    const std::string kind = std::string("ai.") + aiFeatureName(feature);
+    const std::string id = registry_.createEx(kind, config, nowMs);
+    if (id.empty()) {
+        if (outputFailure != nullptr) *outputFailure = "任务类型非法";
         return false;
     }
-    task_ = AiTask{};
-    task_.feature = feature;
-    task_.state = AiTaskState::Running;
-    task_.progress = 0.0;
-    task_.targetId = targetId;
-    task_.stageNote = "准备中";
+    registry_.start(id, nowMs);
+    taskId_ = id;
+    feature_ = feature;
+    targetId_ = targetId;
     return true;
 }
 
-bool AiTaskRunner::setProgress(double progress, const std::string& stageNote) {
-    if (task_.state != AiTaskState::Running) {
-        return false;
-    }
-    progress = std::clamp(progress, 0.0, 1.0);
-    // 单调不减（防止调用方乱序回调导致进度条回跳）
-    if (progress > task_.progress) {
-        task_.progress = progress;
-    }
-    if (!stageNote.empty()) {
-        task_.stageNote = stageNote;
-    }
-    return true;
+bool AiTaskRunner::setProgress(double progress, const std::string& stageNote,
+                               std::int64_t nowMs) {
+    if (taskId_.empty()) return false;
+    return registry_.heartbeat(taskId_, progress, stageNote, nowMs);
 }
 
 bool AiTaskRunner::succeed(const std::string& resultPayload) {
-    if (task_.state != AiTaskState::Running) {
-        return false;
-    }
-    task_.state = AiTaskState::Succeeded;
-    task_.progress = 1.0;
-    task_.resultPayload = resultPayload;
-    task_.failureReason.clear();
-    return true;
+    if (taskId_.empty()) return false;
+    const std::string kind = std::string("ai.") + aiFeatureName(feature_) + ".result";
+    return registry_.completeWithResult(taskId_, kind, resultPayload, 0);
 }
 
 bool AiTaskRunner::fail(const std::string& reason, bool retryable) {
-    if (task_.state != AiTaskState::Running) {
-        return false;
-    }
-    task_.state = AiTaskState::Failed;
+    if (taskId_.empty()) return false;
     // 文档第 30.3 节：禁止无提示卡死——原因必须非空
-    task_.failureReason = reason.empty()
-                              ? std::string("处理过程中出现未知错误（").append(
-                                    aiFeatureDisplayName(task_.feature)).append("）")
-                              : reason;
-    task_.retryable = retryable;
-    return true;
+    const std::string text = reason.empty()
+                                 ? std::string("处理过程中出现未知错误（")
+                                       .append(aiFeatureDisplayName(feature_))
+                                       .append("）")
+                                 : reason;
+    return registry_.fail(taskId_, text, retryable);
 }
 
 bool AiTaskRunner::cancel() {
-    if (task_.state != AiTaskState::Running) {
-        return false;
-    }
-    task_.state = AiTaskState::Cancelled;
-    return true;
+    if (taskId_.empty()) return false;
+    return registry_.cancel(taskId_);
 }
 
 void AiTaskRunner::reset() {
-    task_ = AiTask{};
+    if (!taskId_.empty()) registry_.remove(taskId_);
+    taskId_.clear();
+    feature_ = AiFeatureType::None;
+    targetId_ = 0;
+}
+
+AiTask AiTaskRunner::task() const {
+    AiTask view;
+    if (taskId_.empty()) return view;
+    const contract::TaskInfo* info = registry_.find(taskId_);
+    if (info == nullptr) return view;
+    view.feature = feature_;
+    view.targetId = targetId_;
+    view.progress = info->progress;
+    view.stageNote = info->stageNote;
+    view.resultPayload = info->resultPayload;
+    view.retryable = info->retryable;
+    view.failureReason = info->error;
+    switch (info->state) {
+        case contract::TaskState::Queued:
+            view.state = AiTaskState::Idle;
+            break;
+        case contract::TaskState::Running:
+            view.state = AiTaskState::Running;
+            break;
+        case contract::TaskState::Completed:
+            view.state = AiTaskState::Succeeded;
+            break;
+        case contract::TaskState::Failed:
+            view.state = AiTaskState::Failed;
+            break;
+        case contract::TaskState::Cancelled:
+            view.state = AiTaskState::Cancelled;
+            break;
+    }
+    return view;
+}
+
+bool AiTaskRunner::active() const {
+    if (taskId_.empty()) return false;
+    const contract::TaskInfo* info = registry_.find(taskId_);
+    return info != nullptr && info->state == contract::TaskState::Running;
 }
 
 std::string AiTaskRunner::failureText() const {
-    const std::string name = aiFeatureDisplayName(task_.feature);
-    if (task_.state == AiTaskState::Failed) {
-        if (!task_.failureReason.empty()) {
-            return name + "处理失败：" + task_.failureReason;
+    const AiTask t = task();
+    const std::string name = aiFeatureDisplayName(t.feature);
+    if (t.state == AiTaskState::Failed) {
+        if (!t.failureReason.empty()) {
+            return name + "处理失败：" + t.failureReason;
         }
         return name + "处理未能完成，请重试";
     }

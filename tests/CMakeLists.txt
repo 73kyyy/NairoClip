@@ -16,6 +16,7 @@ add_executable(nairoclip_tests
     test_contract_task.cpp
     test_contract_dispatch.cpp
     test_capi_contract.cpp
+    test_task_registry.cpp
     test_json.cpp
     test_serialization.cpp
     test_recovery.cpp

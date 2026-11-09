@@ -841,6 +841,54 @@ int32_t nc_ai_task_reset(NcEditor* editor);
 /// 失败文案（统一结构；供 UI 直接展示；需 nc_free_string；无失败返回空串）。
 char* nc_ai_task_failure_text(const NcEditor* editor);
 
+// ---- 通用任务契约（T2.2）----
+// 与 nc_ai_task_* 的关系：**同一本账**。nc_ai_task_* 是 AI 单活动任务的
+// 兼容适配层，内部转调本节的 TaskRegistry；本节是通用入口（导入/代理/
+// 导出/AI 共用），支持多任务并存。
+//
+// 超时语义（重要）：
+//   · heartbeat_timeout_ms：多久没收到**真实进度**就判卡死，不是定时器心跳；
+//   · total_timeout_ms：任务总耗时上限（0 = 不限）；
+//   两者独立判定，先触发者生效。时间基准由调用方传入（now_ms），
+//   核心层不读系统时钟，也不起后台线程——看门狗由 nc_task_tick 驱动。
+
+/// 创建并启动任务。返回 task_id（需 nc_free_string），失败时 out_error 给出原因。
+/// - type：任务类型，如 "ai.matting"/"import"/"proxy"/"export"；
+/// - heartbeat_timeout_ms <= 0 时使用默认 60000。
+int32_t nc_task_begin(NcEditor* editor, const char* type, uint64_t target_id,
+                      int32_t heartbeat_timeout_ms, int64_t total_timeout_ms,
+                      int64_t now_ms, char** out_task_id, char** out_error);
+
+/// 上报真实进度（心跳）。progress 单调不减；stage_note 可空。
+int32_t nc_task_heartbeat(NcEditor* editor, const char* task_id, double progress,
+                          const char* stage_note, int64_t now_ms);
+
+/// 完成并写入结果。结果超过 1MB 时任务判失败（NC-SERVICE-RESULT_TOO_LARGE）。
+int32_t nc_task_complete(NcEditor* editor, const char* task_id, const char* result_type,
+                         const char* result_json, int64_t now_ms);
+
+/// 标记失败。error 为空时回退为通用文案；retryable：0/1。
+int32_t nc_task_fail(NcEditor* editor, const char* task_id, const char* error,
+                     int32_t retryable);
+
+/// 请求取消：置 cancel_requested 并把状态改为 cancelled。
+/// **执行器必须轮询 cancel_requested 才会真正停下**；无执行器时本调用
+/// 只改变账本状态，不代表有工作被终止（禁止对外宣称「已停止」）。
+int32_t nc_task_cancel(NcEditor* editor, const char* task_id);
+
+/// 查询任务快照（JSON，需 nc_free_string）。不存在返回 NULL。
+char* nc_task_query(const NcEditor* editor, const char* task_id);
+
+/// 看门狗：推进时钟，返回本次被判超时的任务数。
+int32_t nc_task_tick(NcEditor* editor, int64_t now_ms);
+
+/// AI 任务带超时配置的开始（T2.2）。
+/// 平台层按功能传入：快速任务 15s、常规 60s、长耗时分阶段配置。
+/// 返回 task_id（需 nc_free_string）。
+int32_t nc_ai_task_begin_ex(NcEditor* editor, int32_t feature, uint64_t target_id,
+                            int32_t heartbeat_timeout_ms, int64_t total_timeout_ms,
+                            int64_t now_ms, char** out_task_id, char** out_error);
+
 /// 查询 AI 引擎与任务框架信息（供「关于」页/诊断）。
 /// - out_available：出参（可空）推理引擎是否可用（有 ONNX Runtime；1/0）；
 /// - out_version：出参（可空）引擎版本（需 nc_free_string）；

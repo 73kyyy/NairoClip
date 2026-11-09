@@ -24,6 +24,8 @@
 //   · 平台层：判断任务是否需要登录/联网（nc_ai_feature_access）、执行真实推理、
 //     按进度调用 nc_ai_task_progress。
 
+#include "nairoclip/core/contract/task.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -110,13 +112,23 @@ public:
     /// - targetId：关联对象 ID（可空）；
     /// - outputFailure：失败说明（可空）。
     /// 返回 false：已有任务在运行 / feature 非法。
+    ///
+    /// T2.2：内部转调 contract::TaskRegistry，本类不再自持任务状态。
     bool begin(AiFeatureType feature, std::uint64_t targetId = 0,
                std::string* outputFailure = nullptr);
+
+    /// 带超时配置的开始（T2.2）。平台层按功能传入：
+    /// 快速任务 15s、常规 60s、长耗时按阶段配置；totalTimeoutMs 独立管理。
+    bool beginEx(AiFeatureType feature, std::uint64_t targetId,
+                 const contract::TaskConfig& config, std::int64_t nowMs,
+                 std::string* outputFailure = nullptr);
 
     /// 更新进度（单调不减；钳制 0..1）。
     /// - stageNote：阶段说明（可空 = 保留原值）。
     /// 返回 false：当前无运行中任务。
-    bool setProgress(double progress, const std::string& stageNote = std::string());
+    /// nowMs：真实时间戳（毫秒）。0 = 调用方不提供时钟，仅更新数值不做超时判定。
+    bool setProgress(double progress, const std::string& stageNote = std::string(),
+                     std::int64_t nowMs = 0);
 
     /// 标记成功（载荷为 JSON 字符串；可空）。
     /// 返回 false：当前无运行中任务。
@@ -133,10 +145,20 @@ public:
     /// 复位到空闲（清空全部字段；UI 关闭提示后调用）。
     void reset();
 
-    /// 当前任务（只读）。
-    const AiTask& task() const { return task_; }
+    /// 当前任务视图（由 TaskRegistry 现算，保证单一事实源）。
+    AiTask task() const;
     /// 是否有活动任务（Running）。
-    bool active() const { return task_.state == AiTaskState::Running; }
+    bool active() const;
+
+    /// 当前任务 ID（无任务时为空串）。
+    const std::string& taskId() const { return taskId_; }
+
+    /// 底层任务登记表（供通用 nc_task_* 接口复用，保证**单一账本**）。
+    contract::TaskRegistry& registry() { return registry_; }
+    const contract::TaskRegistry& registry() const { return registry_; }
+
+    /// 看门狗：由平台层按固定节拍调用（毫秒时间戳）。
+    std::size_t tick(std::int64_t nowMs) { return registry_.tick(nowMs); }
 
     /// 失败文案（统一结构；供 UI 直接展示）：
     /// 「[功能名]处理未能完成，请重试」或「[功能名]处理失败：<原因>」
@@ -144,7 +166,10 @@ public:
     std::string failureText() const;
 
 private:
-    AiTask task_;
+    contract::TaskRegistry registry_;
+    std::string taskId_;
+    AiFeatureType feature_ = AiFeatureType::None;
+    std::uint64_t targetId_ = 0;
 };
 
 }  // namespace core
