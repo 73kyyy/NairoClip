@@ -10,6 +10,10 @@ add_executable(nairoclip_tests
     test_transition.cpp
     test_crosstrack.cpp
     test_speed_curve.cpp
+    test_contract_error.cpp
+    test_contract_command.cpp
+    test_contract_event.cpp
+    test_contract_task.cpp
     test_json.cpp
     test_serialization.cpp
     test_recovery.cpp
