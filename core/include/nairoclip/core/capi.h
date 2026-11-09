@@ -871,10 +871,18 @@ int32_t nc_task_complete(NcEditor* editor, const char* task_id, const char* resu
 int32_t nc_task_fail(NcEditor* editor, const char* task_id, const char* error,
                      int32_t retryable);
 
-/// 请求取消：置 cancel_requested 并把状态改为 cancelled。
-/// **执行器必须轮询 cancel_requested 才会真正停下**；无执行器时本调用
-/// 只改变账本状态，不代表有工作被终止（禁止对外宣称「已停止」）。
+/// 登记取消请求（**不**宣告已取消）。
+/// 状态迁移到 cancel_requested；执行器轮询 cancel_requested 后自行停止，
+/// 再调用 nc_task_cancel_ack 确认。无执行器时任务会在心跳超时后判 Failed
+/// （NC-SERVICE-CANCEL_TIMEOUT），而不是假装取消成功。
 int32_t nc_task_cancel(NcEditor* editor, const char* task_id);
+
+/// 执行器确认已停止 → 状态才迁移到 cancelled。
+/// 只有 cancel_requested 状态可确认；否则返回非 NC_OK。
+int32_t nc_task_cancel_ack(NcEditor* editor, const char* task_id);
+
+/// 释放结果载荷（保留任务记录）。结果被消费后应尽早调用。
+int32_t nc_task_clear_result(NcEditor* editor, const char* task_id);
 
 /// 查询任务快照（JSON，需 nc_free_string）。不存在返回 NULL。
 char* nc_task_query(const NcEditor* editor, const char* task_id);
@@ -888,6 +896,9 @@ int32_t nc_task_tick(NcEditor* editor, int64_t now_ms);
 int32_t nc_ai_task_begin_ex(NcEditor* editor, int32_t feature, uint64_t target_id,
                             int32_t heartbeat_timeout_ms, int64_t total_timeout_ms,
                             int64_t now_ms, char** out_task_id, char** out_error);
+
+/// AI 任务：执行器确认已停止（配合 nc_ai_task_cancel）。
+int32_t nc_ai_task_cancel_ack(NcEditor* editor);
 
 /// 查询 AI 引擎与任务框架信息（供「关于」页/诊断）。
 /// - out_available：出参（可空）推理引擎是否可用（有 ONNX Runtime；1/0）；

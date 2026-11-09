@@ -152,14 +152,124 @@ NC_TEST(TaskRegistry2, OversizedResultFailsTask) {
     NC_CHECK(t->resultPayload.empty());
 }
 
-NC_TEST(TaskRegistry2, CancelSetsFlagAndState) {
+NC_TEST(TaskRegistry2, CancelRequestsButDoesNotDeclareStopped) {
     TaskRegistry reg;
     const std::string id = reg.createEx("ai.depth", fastConfig(), 0);
     reg.start(id, 0);
     NC_CHECK(reg.cancel(id));
     const TaskInfo* t = reg.find(id);
-    NC_CHECK(t->state == TaskState::Cancelled);
-    NC_CHECK(t->cancelRequested);  // 执行器必须轮询此标志
+    // 取消请求 ≠ 已取消：底层可能仍在跑。
+    NC_CHECK(t->state == TaskState::CancelRequested);
+    NC_CHECK(t->cancelRequested);
+    NC_CHECK(t->state != TaskState::Cancelled);
+}
+
+NC_TEST(TaskRegistry2, ExecutorAckMovesToCancelled) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.depth", fastConfig(), 0);
+    reg.start(id, 0);
+    reg.cancel(id);
+    NC_CHECK(reg.acknowledgeCancel(id));
+    NC_CHECK(reg.find(id)->state == TaskState::Cancelled);
+}
+
+NC_TEST(TaskRegistry2, AckWithoutRequestRejected) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.depth", fastConfig(), 0);
+    reg.start(id, 0);
+    // 没有取消请求就不能"确认停止"——否则可伪造取消成功。
+    NC_CHECK(!reg.acknowledgeCancel(id));
+    NC_CHECK(reg.find(id)->state == TaskState::Running);
+}
+
+NC_TEST(TaskRegistry2, RepeatedCancelIsIdempotent) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.depth", fastConfig(), 0);
+    reg.start(id, 0);
+    NC_CHECK(reg.cancel(id));
+    NC_CHECK(reg.cancel(id));  // 用户重复点取消不报错
+    NC_CHECK(reg.find(id)->state == TaskState::CancelRequested);
+}
+
+NC_TEST(TaskRegistry2, CancelRejectedOnTerminalTask) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.depth", fastConfig(), 0);
+    reg.start(id, 0);
+    reg.completeWithResult(id, "r", "{}", 0);
+    NC_CHECK(!reg.cancel(id));
+    NC_CHECK(reg.find(id)->state == TaskState::Completed);
+}
+
+NC_TEST(TaskRegistry2, UnacknowledgedCancelFailsOnTimeout) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.depth", fastConfig(), 1000);
+    reg.start(id, 1000);
+    reg.cancel(id);
+    // 执行器不响应取消 → 不能永远停在 CancelRequested
+    NC_CHECK_EQ(reg.tick(1500), std::size_t(0));
+    NC_CHECK_EQ(reg.tick(2200), std::size_t(1));
+    const TaskInfo* t = reg.find(id);
+    NC_CHECK(t->state == TaskState::Failed);
+    NC_CHECK(t->error.find("CANCEL_TIMEOUT") != std::string::npos);
+}
+
+NC_TEST(TaskRegistry2, RemoveRefusesActiveTasks) {
+    TaskRegistry reg;
+    const std::string running = reg.createEx("ai.depth", fastConfig(), 0);
+    reg.start(running, 0);
+    NC_CHECK(!reg.remove(running));  // 运行中不可删
+
+    const std::string cancelling = reg.createEx("ai.tts", fastConfig(), 0);
+    reg.start(cancelling, 0);
+    reg.cancel(cancelling);
+    NC_CHECK(!reg.remove(cancelling));  // 取消中也不可删
+
+    reg.acknowledgeCancel(cancelling);
+    NC_CHECK(reg.remove(cancelling));   // 终态可删
+    NC_CHECK(reg.remove(running) == false);
+}
+
+NC_TEST(TaskRegistry2, ClearResultReleasesPayload) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.tts", fastConfig(), 0);
+    reg.start(id, 0);
+    reg.completeWithResult(id, "ai.tts.audio", std::string(4096, 'a'), 0);
+    NC_CHECK_EQ(reg.find(id)->resultPayload.size(), std::size_t(4096));
+    NC_CHECK(reg.clearResult(id));
+    NC_CHECK(reg.find(id)->resultPayload.empty());
+    NC_CHECK(reg.find(id)->resultType.empty());
+    NC_CHECK(reg.find(id)->state == TaskState::Completed);  // 记录保留
+    NC_CHECK(!reg.clearResult("task-999"));
+}
+
+NC_TEST(TaskRegistry2, RepeatedTerminalTransitionsRejected) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.tts", fastConfig(), 0);
+    reg.start(id, 0);
+    NC_CHECK(reg.completeWithResult(id, "r", "{}", 0));
+    NC_CHECK(!reg.completeWithResult(id, "r2", "{}", 0));  // 重复完成
+    NC_CHECK(!reg.fail(id, "x", true));                    // 完成后失败
+    NC_CHECK(!reg.cancel(id));                             // 完成后取消
+    NC_CHECK(reg.find(id)->state == TaskState::Completed);
+}
+
+NC_TEST(TaskRegistry2, InterleavedQueryDeleteTransitions) {
+    // 核心层不是线程安全的（NcEditor 单线程约定），这里验证的是
+    // 「乱序调用不会破坏状态一致性」，而非真并发。
+    TaskRegistry reg;
+    const std::string a = reg.createEx("ai.tts", fastConfig(), 0);
+    const std::string b = reg.createEx("import", fastConfig(), 0);
+    reg.start(a, 0);
+    reg.start(b, 0);
+    NC_CHECK(reg.find(b) != nullptr);
+    reg.cancel(b);
+    NC_CHECK(reg.find(b)->state == TaskState::CancelRequested);
+    NC_CHECK(reg.find(a)->state == TaskState::Running);  // 互不影响
+    reg.acknowledgeCancel(b);
+    NC_CHECK(reg.remove(b));
+    NC_CHECK(reg.find(b) == nullptr);
+    NC_CHECK(reg.find(a) != nullptr);
+    NC_CHECK_EQ(reg.countInState(TaskState::Running), std::size_t(1));
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ const StateInfo kStates[] = {
     {TaskState::Queued, "queued"},       {TaskState::Running, "running"},
     {TaskState::Completed, "completed"}, {TaskState::Failed, "failed"},
     {TaskState::Cancelled, "cancelled"},
+    {TaskState::CancelRequested, "cancel_requested"},
 };
 
 /// taskType 允许小写字母/数字/下划线/点，1..32。
@@ -150,7 +151,9 @@ std::size_t TaskRegistry::tick(std::int64_t nowMs) {
     std::size_t timedOut = 0;
     for (auto& kv : tasks_) {
         TaskInfo& t = kv.second;
-        if (t.state != TaskState::Running) continue;
+        // 取消中的任务同样纳入超时：执行器迟迟不确认取消，
+        // 说明它可能卡死，不能让它永远停在 CancelRequested。
+        if (t.state != TaskState::Running && t.state != TaskState::CancelRequested) continue;
         // 首次 tick 时为「无时钟启动」的任务补一个基准：
         // 旧接口 nc_ai_task_begin 拿不到 now_ms，若永远不补基准，
         // 它的超时就永远不触发（RT-1 卡死依旧）。从第一次 tick 开始计时。
@@ -167,8 +170,11 @@ std::size_t TaskRegistry::tick(std::int64_t nowMs) {
             hit = true;
         } else if (t.config.heartbeatTimeoutMs > 0 &&
                    nowMs - t.lastHeartbeatMs > t.config.heartbeatTimeoutMs) {
-            t.error = "NC-SERVICE-TASK_HEARTBEAT_TIMEOUT: 超过 " +
-                      std::to_string(t.config.heartbeatTimeoutMs) + "ms 未收到真实进度";
+            t.error = t.state == TaskState::CancelRequested
+                          ? "NC-SERVICE-CANCEL_TIMEOUT: 取消请求已登记，但执行器在 " +
+                                std::to_string(t.config.heartbeatTimeoutMs) + "ms 内未确认停止"
+                          : "NC-SERVICE-TASK_HEARTBEAT_TIMEOUT: 超过 " +
+                                std::to_string(t.config.heartbeatTimeoutMs) + "ms 未收到真实进度";
             hit = true;
         }
         if (hit) {
@@ -203,8 +209,22 @@ bool TaskRegistry::cancel(const std::string& taskId) {
     auto it = tasks_.find(taskId);
     if (it == tasks_.end()) return false;
     if (isTerminal(it->second.state)) return false;
-    it->second.state = TaskState::Cancelled;
+    // 已登记过：幂等成功。重复点「取消」不应报错，也不应改变状态。
+    if (it->second.state == TaskState::CancelRequested) return true;
+    // 关键：这里**只登记请求**，不宣告已取消。
+    // 底层执行器可能还在跑，提前置 Cancelled 就是虚构能力。
     it->second.cancelRequested = true;
+    it->second.state = TaskState::CancelRequested;
+    return true;
+}
+
+bool TaskRegistry::acknowledgeCancel(const std::string& taskId) {
+    auto it = tasks_.find(taskId);
+    if (it == tasks_.end()) return false;
+    // 只有「已登记请求」的任务才能被确认停止；
+    // 否则任何人都能把一个正常任务直接伪造成 Cancelled。
+    if (it->second.state != TaskState::CancelRequested) return false;
+    it->second.state = TaskState::Cancelled;
     return true;
 }
 
@@ -221,7 +241,27 @@ const TaskInfo* TaskRegistry::find(const std::string& taskId) const {
 }
 
 bool TaskRegistry::remove(const std::string& taskId) {
-    return tasks_.erase(taskId) > 0;
+    auto it = tasks_.find(taskId);
+    if (it == tasks_.end()) return false;
+    // 运行中/取消中的任务不能删：删了之后执行器的进度与结果无处可写，
+    // 而且 UI 会丢失"仍在运行"的事实。
+    if (it->second.state == TaskState::Running ||
+        it->second.state == TaskState::CancelRequested) {
+        return false;
+    }
+    tasks_.erase(it);
+    return true;
+}
+
+bool TaskRegistry::clearResult(const std::string& taskId) {
+    auto it = tasks_.find(taskId);
+    if (it == tasks_.end()) return false;
+    it->second.resultType.clear();
+    it->second.resultPayload.clear();
+    // shrink_to_fit 让大块内存真正归还，而不是留在 capacity 里。
+    it->second.resultPayload.shrink_to_fit();
+    it->second.resultType.shrink_to_fit();
+    return true;
 }
 
 std::size_t TaskRegistry::countInState(TaskState state) const {

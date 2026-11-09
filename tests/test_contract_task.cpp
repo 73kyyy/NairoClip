@@ -85,10 +85,15 @@ NC_TEST(ContractTask, CancelSemantics) {
     TaskRegistry reg;
     const std::string id = reg.create("export");
     reg.start(id);
+    // T2.2 验收补充：取消请求 ≠ 已取消。
     NC_CHECK(reg.cancel(id));
-    NC_CHECK(reg.find(id)->state == TaskState::Cancelled);
+    NC_CHECK(reg.find(id)->state == TaskState::CancelRequested);
     NC_CHECK(reg.isCancelRequested(id));
-    NC_CHECK(!reg.cancel(id));  // 终态不可再取消
+    NC_CHECK(reg.cancel(id));                    // 重复登记：幂等成功
+    NC_CHECK(reg.acknowledgeCancel(id));         // 执行器确认后才算 Cancelled
+    NC_CHECK(reg.find(id)->state == TaskState::Cancelled);
+    NC_CHECK(!reg.acknowledgeCancel(id));        // 已终态不可再确认
+    NC_CHECK(!reg.cancel(id));                   // 终态不可再取消
 }
 
 NC_TEST(ContractTask, MissingTaskReturnsFalseAndNull) {

@@ -102,6 +102,9 @@ struct AiTask {
     std::string resultPayload;
     /// 关联对象（可选；如目标片段/素材 ID——供 UI 定位）。
     std::uint64_t targetId = 0;
+    /// 取消请求已登记但执行器尚未确认（T2.2 验收补充）。
+    /// 此时 state 仍为 Running——**不得**当作已取消。
+    bool cancelRequested = false;
 };
 
 /// 任务控制器（状态机；不做推理）。
@@ -138,9 +141,13 @@ public:
     /// 返回 false：当前无运行中任务。
     bool fail(const std::string& reason, bool retryable = true);
 
-    /// 取消（用户主动；UI 静默返回）。
+    /// 登记取消请求（用户主动）。只登记、不宣告已停止。
     /// 返回 false：当前无运行中任务。
     bool cancel();
+
+    /// 执行器确认已停止 → 状态才进入 Cancelled。
+    /// 未经请求直接确认返回 false。
+    bool confirmCancel();
 
     /// 复位到空闲（清空全部字段；UI 关闭提示后调用）。
     void reset();

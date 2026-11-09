@@ -25,6 +25,10 @@ enum class TaskState {
     Completed,
     Failed,
     Cancelled,
+    /// 取消请求已登记，但执行器**尚未确认停止**。
+    /// 与 Cancelled 的区别是硬性的：此时底层工作可能仍在跑，
+    /// 不得对外宣称"已取消"。执行器确认后才迁移到 Cancelled。
+    CancelRequested,
 };
 
 const char* taskStateName(TaskState state);
@@ -99,16 +103,27 @@ public:
     bool setProgress(const std::string& taskId, double progress);
     bool complete(const std::string& taskId);
     bool fail(const std::string& taskId, std::string error, bool retryable = true);
-    /// 请求取消：把状态置为 Cancelled 并打取消标记。
-    /// 已完成/已失败的任务返回 false。
+    /// 登记取消请求。**不**直接置为 Cancelled——底层可能仍在运行。
+    /// - 终态任务返回 false；
+    /// - 已登记过则幂等返回 true（重复取消不应报错）。
     bool cancel(const std::string& taskId);
+
+    /// 执行器确认已停止。只有 CancelRequested 状态可确认。
+    /// 未经请求直接确认返回 false（防止伪造取消成功）。
+    bool acknowledgeCancel(const std::string& taskId);
 
     bool isCancelRequested(const std::string& taskId) const;
 
     /// 查询。不存在返回 nullptr（返回指针在下次修改前有效）。
     const TaskInfo* find(const std::string& taskId) const;
 
+    /// 删除任务。**运行中或取消中的任务拒绝删除**（返回 false），
+    /// 否则会把仍在执行的任务从账本里抹掉，导致进度/结果无处可写。
     bool remove(const std::string& taskId);
+
+    /// 释放结果载荷（只清 resultType/resultPayload，保留任务记录）。
+    /// 用于结果已被消费、需要尽早释放大对象的场景。
+    bool clearResult(const std::string& taskId);
 
     std::size_t size() const { return tasks_.size(); }
     std::size_t countInState(TaskState state) const;

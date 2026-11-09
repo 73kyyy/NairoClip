@@ -49,13 +49,42 @@ class NativeEngineBridge(
         onPanelDepth?.invoke(depth)
     }
 
+    /**
+     * 任务看门狗（T2.2 验收补充）。
+     *
+     * 为什么必须独立：原实现只在 `state()`（UI 刷新）里推进 tick，
+     * 一旦界面不刷新（应用进后台、页面暂停、主线程被长任务阻塞），
+     * 超时检测就停了 —— 卡死的任务永远不会被判失败。
+     *
+     * 用单线程调度器按固定节拍推进；与引擎调用共用同一把对象锁，
+     * 因为 NcEditor 明确不是线程安全的（见 editor.h 头注释）。
+     * 剩余风险：UI 线程若长时间持有该锁，tick 会被延后，
+     * 延后量 = 那次引擎调用耗时，不会丢事件。
+     */
+    private val taskWatchdog: java.util.concurrent.ScheduledExecutorService =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "nc-task-watchdog").apply { isDaemon = true }
+        }
+
     init {
         editor = nativeCreate()
+        taskWatchdog.scheduleWithFixedDelay({
+            try {
+                synchronized(this) {
+                    if (editor != 0L) {
+                        nativeTaskTick(editor, System.currentTimeMillis())
+                    }
+                }
+            } catch (_: Throwable) {
+                // 看门狗自身不能把进程带崩，也不能吞掉引擎状态。
+            }
+        }, 1000L, 1000L, java.util.concurrent.TimeUnit.MILLISECONDS)
     }
 
     /** 由 Activity.onDestroy 调用。 */
     @Synchronized
     fun release() {
+        taskWatchdog.shutdownNow()
         if (editor != 0L) {
             nativeDestroy(editor)
             editor = 0L
@@ -160,6 +189,24 @@ class NativeEngineBridge(
     @Synchronized
     fun taskCancel(taskId: String): Int = try {
         nativeTaskCancel(ensure(), taskId)
+    } catch (e: Throwable) {
+        -1
+    }
+
+    /** 执行器确认已停止（配合 taskCancel），状态才进入 cancelled。 */
+    @JavascriptInterface
+    @Synchronized
+    fun taskCancelAck(taskId: String): Int = try {
+        nativeTaskCancelAck(ensure(), taskId)
+    } catch (e: Throwable) {
+        -1
+    }
+
+    /** 释放结果载荷（保留任务记录）。 */
+    @JavascriptInterface
+    @Synchronized
+    fun taskClearResult(taskId: String): Int = try {
+        nativeTaskClearResult(ensure(), taskId)
     } catch (e: Throwable) {
         -1
     }
@@ -388,6 +435,8 @@ class NativeEngineBridge(
     private external fun nativeTaskComplete(handle: Long, taskId: String, resultType: String, resultJson: String, nowMs: Long): Int
     private external fun nativeTaskFail(handle: Long, taskId: String, error: String, retryable: Int): Int
     private external fun nativeTaskCancel(handle: Long, taskId: String): Int
+    private external fun nativeTaskCancelAck(handle: Long, taskId: String): Int
+    private external fun nativeTaskClearResult(handle: Long, taskId: String): Int
     private external fun nativeTaskQuery(handle: Long, taskId: String): String
     private external fun nativeTaskTick(handle: Long, nowMs: Long): Int
     private external fun nativeState(handle: Long): String

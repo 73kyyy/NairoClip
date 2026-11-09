@@ -1978,6 +1978,24 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeTaskCancel(JNIEnv* env, jobject,
     return nc_task_cancel(ed, id.c_str());
 }
 
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskCancelAck(JNIEnv* env, jobject, jlong h,
+                                                              jstring taskId) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    const std::string id = JStr(env, taskId);
+    return nc_task_cancel_ack(ed, id.c_str());
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeTaskClearResult(JNIEnv* env, jobject, jlong h,
+                                                                jstring taskId) {
+    auto* ed = reinterpret_cast<NcEditor*>(h);
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    const std::string id = JStr(env, taskId);
+    return nc_task_clear_result(ed, id.c_str());
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskQuery(JNIEnv* env, jobject, jlong h,
                                                           jstring taskId) {
