@@ -15,6 +15,7 @@ add_library(nairoclip_core STATIC
     src/contract/command.cpp
     src/contract/event.cpp
     src/contract/task.cpp
+    src/contract/dispatch.cpp
     src/serialization.cpp
     src/recovery.cpp
     src/perf_probe.cpp

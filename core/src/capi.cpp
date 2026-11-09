@@ -1,4 +1,6 @@
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/contract/dispatch.h"
+#include "nairoclip/core/contract/event.h"
 #include "nairoclip/core/crash_handler.h"
 #include "nairoclip/core/xform.h"
 
@@ -103,6 +105,11 @@ struct NcEditor {
     OfflineScanReport offlineReport;
     /// 隐形水印导出配置（nc_watermark_set_export 设置；nc_export_run 消费）。
     InvisibleWatermarkSpec invisibleWatermark;
+    /// 契约层事件总线（P1）：命令成功后发布 timeline.changed。
+    contract::EventBus eventBus;
+    /// 契约层命令分发器（P1）：把 CommandRequest 信封翻译成真实编辑调用。
+    /// 必须在 editor 之后构造（持有 editor 引用）。
+    contract::CommandDispatcher* dispatcher = nullptr;
     /// 会员心跳状态机（文档第 8 部分五；平台层驱动）。
     HeartbeatState heartbeat;
     /// AI 任务状态机（文档 Part 4 各 AI 功能的统一任务契约）。
@@ -220,6 +227,13 @@ NcEditor* nc_editor_create(void) {
         delete handle;
         return nullptr;
     }
+    handle->dispatcher = new (std::nothrow)
+        contract::CommandDispatcher(*handle->editor, handle->eventBus);
+    if (handle->dispatcher == nullptr) {
+        delete handle->editor;
+        delete handle;
+        return nullptr;
+    }
     // 默认创建一条视频轨与主序列，保证开箱即可编辑。
     Sequence seq;
     seq.id = SequenceId{handle->project.ids.next()};
@@ -235,8 +249,54 @@ void nc_editor_destroy(NcEditor* editor) {
     if (editor == nullptr) {
         return;
     }
+    delete editor->dispatcher;
     delete editor->editor;
     delete editor;
+}
+
+// ---------------------------------------------------------------------------
+// 契约层统一命令入口（P1 纵向切片）
+// ---------------------------------------------------------------------------
+// 输入：CommandRequest 的 JSON 表示（07 §4 八字段）
+// 输出：CommandResult 的 JSON 表示（需 nc_free_string）
+//
+// 为什么走 JSON 而不是新增一堆扁平参数：
+//   信封是版本化对象（payload 可独立演进），扁平参数每次加字段都要改 ABI；
+//   且所有语言侧（Kotlin/Swift/JS）都天然能构造 JSON。
+// 失败语义：解析失败或 envelope 非法时**也返回 JSON**（status=rejected + error），
+//   只有 out 指针分配失败才返回 NULL —— 调用方永远能读到结构化原因。
+char* nc_apply_command(NcEditor* editor, const char* request_json) {
+    if (editor == nullptr || request_json == nullptr || editor->dispatcher == nullptr) {
+        return nullptr;
+    }
+    JsonValue parsed;
+    JsonParseError parseError;
+    if (!parseJson(request_json, parsed, parseError)) {
+        contract::CommandResult bad;
+        bad.status = contract::CommandStatus::Rejected;
+        bad.error = contract::makeError(contract::ErrorDomain::Project, "INVALID_PAYLOAD",
+                                        "命令 JSON 解析失败：" + parseError.message,
+                                        std::string(), true);
+        return dupString(toJsonString(contract::commandResultToJson(bad)));
+    }
+    contract::CommandRequest request;
+    if (!contract::commandRequestFromJson(parsed, &request)) {
+        contract::CommandResult bad;
+        bad.status = contract::CommandStatus::Rejected;
+        bad.error = contract::makeError(contract::ErrorDomain::Project, "INVALID_PAYLOAD",
+                                        "命令信封字段缺失或类型错误", std::string(), true);
+        return dupString(toJsonString(contract::commandResultToJson(bad)));
+    }
+    const contract::CommandResult result = editor->dispatcher->apply(request);
+    return dupString(toJsonString(contract::commandResultToJson(result)));
+}
+
+/// 当前工程 revision（契约层可见；命令 expectedRevision 应取此值）。
+uint64_t nc_contract_revision(const NcEditor* editor) {
+    if (editor == nullptr || editor->dispatcher == nullptr) {
+        return 0;
+    }
+    return editor->dispatcher->currentRevision();
 }
 
 char* nc_project_save(const NcEditor* editor) {
