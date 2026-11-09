@@ -105,6 +105,83 @@ class NativeEngineBridge(
     }
 
     /**
+     * 通用任务契约（T2.2）。
+     *
+     * 时间基准由平台层提供（System.currentTimeMillis），核心层不读系统时钟，
+     * 也不起后台线程 —— 超时由 [taskTick] 驱动看门狗判定。
+     *
+     * 与 applyCommand 一样，这是 typed 入口，不走 call() 的函数名分发。
+     */
+    @JavascriptInterface
+    @Synchronized
+    fun taskBegin(
+        type: String,
+        targetId: Long,
+        heartbeatTimeoutMs: Int,
+        totalTimeoutMs: Long
+    ): String = try {
+        nativeTaskBegin(
+            ensure(), type, targetId, heartbeatTimeoutMs, totalTimeoutMs,
+            System.currentTimeMillis()
+        )
+    } catch (e: Throwable) {
+        err("任务创建失败：${e.message}")
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun taskHeartbeat(taskId: String, progress: Double, stageNote: String): Int = try {
+        nativeTaskHeartbeat(
+            ensure(), taskId, progress, stageNote, System.currentTimeMillis()
+        )
+    } catch (e: Throwable) {
+        -1
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun taskComplete(taskId: String, resultType: String, resultJson: String): Int = try {
+        nativeTaskComplete(
+            ensure(), taskId, resultType, resultJson, System.currentTimeMillis()
+        )
+    } catch (e: Throwable) {
+        -1
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun taskFail(taskId: String, error: String, retryable: Boolean): Int = try {
+        nativeTaskFail(ensure(), taskId, error, if (retryable) 1 else 0)
+    } catch (e: Throwable) {
+        -1
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun taskCancel(taskId: String): Int = try {
+        nativeTaskCancel(ensure(), taskId)
+    } catch (e: Throwable) {
+        -1
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun taskQuery(taskId: String): String = try {
+        nativeTaskQuery(ensure(), taskId)
+    } catch (e: Throwable) {
+        """{"ok":false,"message":"查询失败"}"""
+    }
+
+    /** 推进看门狗时钟；返回本次被判超时的任务数。 */
+    @JavascriptInterface
+    @Synchronized
+    fun taskTick(): Int = try {
+        nativeTaskTick(ensure(), System.currentTimeMillis())
+    } catch (e: Throwable) {
+        0
+    }
+
+    /**
      * 一次性取出时间轴快照（工程/轨道/片段/素材/字幕/标记），
      * 由 native 侧直接调 nc_project_*、nc_track_*、nc_clip_info、nc_asset_*
      * 组装，避免 JS 侧发几十次调用。
@@ -112,6 +189,10 @@ class NativeEngineBridge(
     @JavascriptInterface
     @Synchronized
     fun state(): String = try {
+        // 顺带推进任务看门狗：UI 每次刷新都是一次时钟推进，
+        // 卡死的任务（长时间无真实进度）会在这里被判超时，
+        // 避免用户看到永远 0% 的进度条。
+        nativeTaskTick(ensure(), System.currentTimeMillis())
         nativeState(ensure())
     } catch (e: Throwable) {
         err("读取工程状态失败：${e.message}")
@@ -302,6 +383,13 @@ class NativeEngineBridge(
     private external fun nativeDestroy(handle: Long)
     private external fun nativeCall(handle: Long, fn: String, argsJson: String): String
     private external fun nativeApplyCommand(handle: Long, requestJson: String): String?
+    private external fun nativeTaskBegin(handle: Long, type: String, targetId: Long, heartbeatTimeoutMs: Int, totalTimeoutMs: Long, nowMs: Long): String
+    private external fun nativeTaskHeartbeat(handle: Long, taskId: String, progress: Double, stageNote: String, nowMs: Long): Int
+    private external fun nativeTaskComplete(handle: Long, taskId: String, resultType: String, resultJson: String, nowMs: Long): Int
+    private external fun nativeTaskFail(handle: Long, taskId: String, error: String, retryable: Int): Int
+    private external fun nativeTaskCancel(handle: Long, taskId: String): Int
+    private external fun nativeTaskQuery(handle: Long, taskId: String): String
+    private external fun nativeTaskTick(handle: Long, nowMs: Long): Int
     private external fun nativeState(handle: Long): String
     private external fun nativeFrame(handle: Long, timeUs: Long, width: Int): ByteArray
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
