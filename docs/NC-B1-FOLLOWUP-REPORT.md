@@ -399,7 +399,7 @@ out.a   = a + dst.a * (1 - a)
 |---|---|---|---|
 | `CI` | **42796799442** | ✅ **success** | build-and-test ✅ / ASAN ✅ / UB ✅ |
 | `Valgrind Memcheck` | **42796799387** | ✅ **success** | build ✅ / 16 分片全 ✅ / 汇总 ✅ |
-| `Android APK` | 见 §12 | ✅ success | Build APK + 冒烟 ✅ |
+| `Android APK` | **42814098289** | ✅ success | Build APK + 冒烟 ✅ |
 
 **主 CI run 不再因 Valgrind 超时被 cancelled —— 任务一达成。**
 且 Valgrind 不是"被取消"，而是**独立跑完并给出真实结论** —— 任务二达成。
@@ -413,11 +413,57 @@ out.a   = a + dst.a * (1 - a)
 | `180f22e3` | 首版：拆出独立 valgrind 工作流（8 分片）+ 测试覆盖度可审计 + Alpha 参考矩阵 |
 | `ce62123b` | 分片 8 → 16（解决慢用例集中） |
 | `1957fe0f` | 汇总改解析 XML + 独立工具 + 自检 10 用例；分片超时 45 → 90 |
-| 待填 | 本报告提交 |
-| 待填 | 合并入 main |
+| `db9a3b38` | 本报告（docs/NC-B1-FOLLOWUP-REPORT.md） |
+| `02cfbdf1` | 合并 PR #21 入 main（**代码 + 报告**） |
 
 ---
 
 ## 13. 最终 main HEAD
 
-（合并后填写）
+**`02cfbdf1181aab8e300d27d53831c9281dedeeb3`**（PR #21 合并提交，含全部代码与本报告）
+
+> 其后若仅补填文档字段，不改变任何代码结论。
+
+---
+
+## 14. main 侧复验（不是只引用分支结果）
+
+整改成果合并后，在 **main @ `02cfbdf1`** 上重新跑了完整验证：
+
+| 工作流 | run ID | run 级 | 作业 |
+|---|---|---|---|
+| `CI` | **42805407508** | ✅ **success** | build-and-test ✅ / ASAN ✅ / UB ✅ |
+| `Valgrind Memcheck` | **42805407989** | ✅ **success** | build ✅ / 16 分片全 ✅ / 汇总 ✅ |
+| `Android APK` | **42814098289** | ✅ **success** | Build APK ✅（含冒烟） |
+
+main 侧 Valgrind 汇总日志（与分支结果一致）：
+
+```
+分片输出文件数: 16 / 期望 16
+全量用例总数: 1764
+实际执行合计: 1764
+失败用例合计: 0
+✅ 覆盖度校验通过：所有分片并集覆盖全量用例。
+内存错误条目总数: 0
+泄漏分类: definitely=0 indirectly=0 possibly=0 still_reachable=0
+```
+
+运行链接：
+- CI: https://github.com/73kyyy/NairoClip/actions/runs/42805407508
+- Valgrind: https://github.com/73kyyy/NairoClip/actions/runs/42805407989
+- Android APK: https://github.com/73kyyy/NairoClip/actions/runs/42814098289
+
+---
+
+## 15. 结论
+
+| 任务 | 结论 |
+|---|---|
+| ① 完整 CI run | ✅ **已解决**：run 级 `success`，不再因 valgrind 超时 `cancelled` |
+| ② Valgrind 真实检测 | ✅ **已取得**：1764/1764 全覆盖，0 内存错误、0 泄漏 |
+| ③ CPU/GPU Alpha 一致性 | ⚠️ **GPU 侧未验证**：仓库无 GPU 后端（§5 证据），已交付建设方案（§9） |
+
+**三项中两项完成、一项如实标注无法验证。**
+未通过缩小测试范围、跳过检测、关闭检查或伪造 GPU 结果来制造通过。
+
+**停止执行，等待人工验收。未开始 B2/B3/B4/D。**
