@@ -376,17 +376,43 @@ Revision 唯一权威：`TimelineEditor::editRevision()` → `UndoStack::editRev
 | `check_wiring.py` | ✅ 通过（C ABI / JNI / 前端清单一致） |
 | `check_kotlin_block_comments.py` | ✅ 通过 |
 
-### 15.2 CI（main @ `193eadae`，实测）
+### 15.2 CI（实测）
 
-| 检查 | 结果 | 运行 ID |
+**代码提交 `193eadae`**
+
+| 作业 | 结果 | 运行 ID |
 |---|---|---|
-| `build-and-test` | ✅ success | 42731448422 |
-| `ASAN 诊断` | ✅ success | 42731448422 |
-| `UB 诊断`（UBSAN） | ✅ success | 42731448422 |
+| `build-and-test` | ✅ **success** | 42731448422 |
+| `ASAN 诊断` | ✅ **success** | 42731448422 |
+| `UB 诊断`（UBSAN） | ✅ **success** | 42731448422 |
+| `valgrind 诊断` | ⚪ cancelled（`continue-on-error`，非阻断） | 42731448422 |
+| **run 级结论** | **`cancelled`** | 42731448422 |
 | `Android APK` | ✅ success | 42731448431 |
 | APK 冒烟（badging/签名/ABI/原生库） | ✅ success | 42731448431 |
-| `Android Cross-Compile`（armeabi-v7a / arm64-v8a / x86_64） | ✅ success | 42731448465 |
-| `valgrind 诊断` | ⏳ 运行中（`continue-on-error`，不阻断） | 42731448422 |
+| `Android Cross-Compile`（v7a / arm64 / x86_64） | ✅ success | 42731448465 |
+
+**报告提交 `c541191b`（当前 main HEAD）**
+
+| 作业 | 结果 | 运行 ID |
+|---|---|---|
+| `build-and-test` | ✅ **success** | 42735430831 |
+| `ASAN 诊断` | ✅ **success** | 42735430831 |
+| `UB 诊断`（UBSAN） | ✅ **success** | 42735430831 |
+| `valgrind 诊断` | ⏳ 运行中（长耗时，`continue-on-error`） | 42735430831 |
+
+### 15.3 关于 run 级 `cancelled` 的说明（不掩饰）
+
+`193eadae` 的 CI run 在 GitHub 上显示为 **`cancelled`**，不是 `success`。
+原因：`valgrind 诊断` 作业（第 489 行 `continue-on-error: true`，**非阻断**）
+在运行约 40 分钟后被取消，导致 run 级结论落为 `cancelled`。
+
+- 三个**阻断性**作业（`build-and-test` / `ASAN` / `UB`）在该 run 中均为 `success`；
+- `Android APK` 与 `Cross-Compile` 为独立 workflow，均 `success`；
+- 仓库 `ci.yml` 未设 `concurrency` 组，取消来源未查明（疑为 runner 抢占）。
+
+**因此本报告不声称「main CI 全部 success」，而是如实记录：
+阻断性检查全部通过；run 级结论因非阻断诊断作业被取消而显示 `cancelled`。**
+valgrind 的实际结论未取得，属未验证项（见 §17 B1-TD-8）。
 
 > 本地 4 个 `PreviewQuality.*` 失败在 CI **全部通过** —— 证实为
 > 本地缺 FFmpeg 开发库导致的环境限制，非代码缺陷。
@@ -443,6 +469,7 @@ Revision 唯一权威：`TimelineEditor::editRevision()` → `UndoStack::editRev
 | B1-TD-5 | `frame_fit` 假成功未修（按授权不动） | 切适配模式无效果 | 独立缺陷单 |
 | B1-TD-6 | 4 个 `PreviewQuality` 用例需 FFmpeg，本地无法验证 | 依赖 CI | 环境 |
 | B1-TD-7 | 比例锁定未做成「状态」（每次调用由调用方传比例），UI 需自行保存锁定态 | 非工程数据，不违反单一事实源 | 产品决策 |
+| B1-TD-8 | `valgrind 诊断` 被取消，实际结论未取得 | 内存问题未由 valgrind 覆盖 | 待重跑 |
 
 ---
 
@@ -468,7 +495,7 @@ Revision 唯一权威：`TimelineEditor::editRevision()` → `UndoStack::editRev
 | 16 | 核心测试通过 | ✅ | 1691 用例 / 4 环境失败 |
 | 17 | ASAN/UBSAN 通过 | ✅ | §15.2（ASAN success / UB success） |
 | 18 | Android 构建通过 | ✅ | §15.2（APK success + 冒烟 success + 三 ABI 交叉编译 success） |
-| 19 | 主分支 CI 通过 | ✅ | §15.2（`build-and-test` success，main @ `193eadae`） |
+| 19 | 主分支 CI 通过 | ⚠️ 阻断项通过 | §15.2：`build-and-test`/ASAN/UB 全 success；**run 级结论为 `cancelled`**（非阻断 valgrind 被取消），未声称全绿 |
 | 20 | 验收报告含源码证据与测试结果 | ✅ | 本文档 |
 
 ---
@@ -482,8 +509,9 @@ Revision 唯一权威：`TimelineEditor::editRevision()` → `UndoStack::editRev
 **结论**：B1 三项整改的**源码修改已完成并通过全部构建/测试验证**
 （C++ 核心、C ABI、ASAN、UBSAN、Android 三 ABI 交叉编译、APK 构建与冒烟、main CI）。
 
-按任务书 §10.6 的 20 条标准：**17 条完全满足，3 条部分满足**
-（第 5 expectedRevision 专用用例、第 7 事件发布、第 14 Alpha 混合），
+按任务书 §10.6 的 20 条标准：**16 条完全满足，4 条部分满足**
+（第 5 expectedRevision 专用用例、第 7 事件发布、第 14 Alpha 混合、
+第 19 run 级 CI 结论为 `cancelled`），
 部分满足的原因与影响已在 §17 逐条列明，不隐藏、不美化。
 
 因此 B1 **不应标记为"全部完成"**，应标记为
