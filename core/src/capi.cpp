@@ -1,4 +1,5 @@
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/canvas.h"
 #include "nairoclip/core/contract/dispatch.h"
 #include "nairoclip/core/contract/event.h"
 #include "nairoclip/core/crash_handler.h"
@@ -202,6 +203,23 @@ int32_t toNcError(ErrorCode code) {
 /// 原 `toNcError(code)` 只取错误码，把 `Result::message` 丢了——上层只能看到
 /// 一个整数，用户看到的是「操作失败」。
 int32_t failResult(const Result& result) {
+    return failNc(toNcError(result.code), result.message);
+}
+
+/// 转发 core::Result，但**成功时不覆盖 g_lastError**。
+///
+/// 为什么不能直接用 failResult：`failNc` 无条件写 g_lastError，
+/// 于是 `failResult(Result::ok())` 会把上一次的失败原因清成空串。
+/// 既有契约（test_capi_errors.cpp:SuccessDoesNotClearPreviousError）明确要求
+/// 「成功调用不得清除上一次的失败原因」——调用方常写成
+/// 「先调 A 拿结果，失败再调 B 取详情」，B 成功就清空会让 A 的原因丢失。
+///
+/// 因此凡是「以前直接 return NC_OK」的入口改走 Command 后，
+/// 必须用本函数而不是 failResult。
+int32_t applyResultKeepingLastError(const Result& result) {
+    if (result.isOk()) {
+        return NC_OK;
+    }
     return failNc(toNcError(result.code), result.message);
 }
 
@@ -451,13 +469,11 @@ int32_t nc_set_project_name(NcEditor* editor, const char* name) {
     if (name == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "name 为空");
     }
-    // 名称长度防御（避免超长标题破坏 UI 与文件）
+    // B1-01：改走统一 Command（可撤销 / revision 递增 / 事件发布）。
+    // 名称校验（空、纯空白、超长、控制字符）由命令与门面共同保证，
+    // 这里不再重复实现一套规则。
     const std::string text(name);
-    if (text.size() > 200) {
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
-    }
-    editor->project.name = text;
-    return NC_OK;
+    return applyResultKeepingLastError(editor->editor->renameProject(text));
 }
 
 int32_t nc_project_canvas(const NcEditor* editor, int32_t* out_width, int32_t* out_height) {
@@ -474,18 +490,17 @@ int32_t nc_project_canvas(const NcEditor* editor, int32_t* out_width, int32_t* o
 }
 
 int32_t nc_set_project_canvas(NcEditor* editor, int32_t width, int32_t height) {
-    // 文档 Part 3-C「比例」：项目级全局设置；边界校验防极端尺寸。
-    // 下限 16（保证可编码），上限 16384（常规编码上限量级）。
-    if (editor == nullptr || width < 16 || height < 16 || width > 16384 || height > 16384) {
+    // B1-02：改走统一 Command（可撤销 / revision 递增 / 事件发布）。
+    // 保留旧签名，语义不变：不改动素材布局（Preserve）。
+    if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    Sequence* main = editor->project.mainSequence();
+    const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
-    main->width = width;
-    main->height = height;
-    return NC_OK;
+    return applyResultKeepingLastError(editor->editor->setCanvasSize(
+        main->id, width, height, CanvasAdaptMode::Preserve));
 }
 
 int32_t nc_project_frame_rate(const NcEditor* editor, int64_t* out_num, int64_t* out_den) {
@@ -3158,14 +3173,112 @@ int32_t nc_get_frame_fit(const NcEditor* editor) {
 }
 
 int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba) {
+    // B1-03：改走统一 Command（可撤销 / revision 递增 / 事件发布）。
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    Sequence* main = editor->project.mainSequence();
+    const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "main 为空");
     }
-    main->backgroundRgba = rgba;
+    return applyResultKeepingLastError(editor->editor->setCanvasBackground(
+        main->id, CanvasBackground::fromRgba32(rgba)));
+}
+
+// ---- 画布能力（B1-02）----------------------------------------------------
+
+int32_t nc_canvas_preset_count(void) {
+    return static_cast<int32_t>(canvasPresets().size());
+}
+
+int32_t nc_canvas_preset_get(int32_t index, char** out_id, char** out_label, int32_t* out_width,
+                             int32_t* out_height) {
+    const auto& presets = canvasPresets();
+    if (index < 0 || static_cast<std::size_t>(index) >= presets.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "预设下标越界");
+    }
+    const CanvasPreset& p = presets[static_cast<std::size_t>(index)];
+    if (out_id != nullptr) *out_id = dupString(p.id);
+    if (out_label != nullptr) *out_label = dupString(p.label);
+    if (out_width != nullptr) *out_width = p.width;
+    if (out_height != nullptr) *out_height = p.height;
+    return NC_OK;
+}
+
+int32_t nc_canvas_validate(int32_t width, int32_t height, char** out_reason) {
+    const CanvasValidation v = validateCanvasSize(width, height);
+    if (out_reason != nullptr) *out_reason = dupString(v.reason);
+    return v.ok ? NC_OK : NC_ERROR_INVALID_ARGUMENT;
+}
+
+int32_t nc_canvas_set_ex(NcEditor* editor, int32_t width, int32_t height, int32_t adapt_mode) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    CanvasAdaptMode mode = CanvasAdaptMode::Preserve;
+    switch (adapt_mode) {
+        case 1: mode = CanvasAdaptMode::Fit; break;
+        case 2: mode = CanvasAdaptMode::Fill; break;
+        default: mode = CanvasAdaptMode::Preserve; break;
+    }
+    return applyResultKeepingLastError(editor->editor->setCanvasSize(main->id, width, height, mode));
+}
+
+int32_t nc_canvas_swap_orientation(NcEditor* editor) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    int w = main->width;
+    int h = main->height;
+    if (!swapCanvasOrientation(&w, &h)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "交换宽高后画布非法");
+    }
+    // 横竖切换不改变素材布局（Preserve），由用户显式再选适配策略。
+    return applyResultKeepingLastError(
+        editor->editor->setCanvasSize(main->id, w, h, CanvasAdaptMode::Preserve));
+}
+
+int32_t nc_canvas_solve_height(int32_t width, int64_t ratio_num, int64_t ratio_den,
+                               int32_t* out_height, int32_t* out_exact) {
+    if (ratio_num <= 0 || ratio_den <= 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "比例非法");
+    }
+    const AspectSolve s = solveHeightForWidth(width, Rational::make(ratio_num, ratio_den));
+    if (out_height != nullptr) *out_height = s.height;
+    if (out_exact != nullptr) *out_exact = s.exact ? 1 : 0;
+    return NC_OK;
+}
+
+int32_t nc_canvas_solve_width(int32_t height, int64_t ratio_num, int64_t ratio_den,
+                              int32_t* out_width, int32_t* out_exact) {
+    if (ratio_num <= 0 || ratio_den <= 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "比例非法");
+    }
+    const AspectSolve s = solveWidthForHeight(height, Rational::make(ratio_num, ratio_den));
+    if (out_width != nullptr) *out_width = s.width;
+    if (out_exact != nullptr) *out_exact = s.exact ? 1 : 0;
+    return NC_OK;
+}
+
+int32_t nc_canvas_aspect_ratio(const NcEditor* editor, int64_t* out_num, int64_t* out_den) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    const Rational r = canvasAspectRatio(main->width, main->height);
+    if (out_num != nullptr) *out_num = r.num;
+    if (out_den != nullptr) *out_den = r.den;
     return NC_OK;
 }
 

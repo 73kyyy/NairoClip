@@ -9,6 +9,7 @@
    会突然断掉，这里按直接依赖写清楚。 */
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/xform.h"
+#include "nairoclip/core/canvas.h"
 #include "nairoclip/core/track.h"
 #include "nairoclip/core/text_content.h"
 
@@ -1149,6 +1150,95 @@ private:
     std::optional<Sequence> removedSequence_;
     std::vector<Clip> restoredClips_;
     std::vector<std::size_t> restoredIndexes_;
+};
+
+
+// ===========================================================================
+// B1：三个「直接写字段」绕过项的整改命令
+// ---------------------------------------------------------------------------
+// 背景：审计发现这三个操作直接写 `editor->project.name` / `Sequence::width`
+// 等字段，绕过 Command 体系——导致撤销无效、revision 不变、无事件。
+// 这三个命令把它们纳入统一执行路径。
+//
+// 共同约定：
+//   · apply 内做完整校验，失败**不产生任何副作用**；
+//   · revert 精确还原快照，不做"反向计算"（避免舍入漂移）；
+//   · isNoOp 如实报告「无实际变化」，让 UndoStack 不入栈、不递增 revision。
+// ===========================================================================
+
+/// 重命名工程（B1-01）。
+///
+/// 只改**显示名称**，不触碰磁盘文件名/路径——任务书 §4.3 明确要求两者区分。
+class RenameProjectCommand : public Command {
+public:
+    explicit RenameProjectCommand(std::string newName);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    bool isNoOp(const Project& project) const override;
+    std::string nameImpl() const override { return "重命名工程"; }
+
+    /// 名称校验（供门面与命令共用，避免两处规则不一致）。
+    /// 成功返回空串；失败返回用户可读原因。
+    static std::string validateName(const std::string& name);
+
+private:
+    std::string newName_;
+    std::optional<std::string> oldName_;
+};
+
+/// 设置画布尺寸（B1-02）。
+///
+/// 这是 B1 最完整的一项：尺寸校验、比例锁定由调用方完成，
+/// 命令本身负责「原子地改宽高 + 按策略适配片段 + 可撤销」。
+///
+/// 适配策略作用于**本序列所有视频/图片片段**的 ClipTransform::scale：
+///   · Preserve：不动任何片段（默认）；
+///   · Fit / Fill：按 `canvasAdaptScale` 算出倍数，与片段现有 scale 相乘。
+/// 不修改源素材、不改变时长、不动关键帧。
+class SetCanvasCommand : public Command {
+public:
+    SetCanvasCommand(SequenceId sequenceId, int width, int height, CanvasAdaptMode mode);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    bool isNoOp(const Project& project) const override;
+    std::string nameImpl() const override { return "修改画布尺寸"; }
+
+private:
+    SequenceId sequenceId_;
+    int width_;
+    int height_;
+    CanvasAdaptMode mode_;
+    // 快照：旧尺寸 + 每个被改片段 (轨道下标, 片段 ID, 旧 scale)
+    struct ScaleSnapshot {
+        std::size_t trackIndex = 0;
+        ClipId clipId;
+        double oldScale = 1.0;
+        bool oldEnabled = false;
+    };
+    std::optional<int> oldWidth_;
+    std::optional<int> oldHeight_;
+    std::vector<ScaleSnapshot> scaleSnapshots_;
+};
+
+/// 设置画布背景色（B1-03）。
+///
+/// 背景色参与真实合成（frame_fit / xform 的信箱边），因此这里只负责
+/// 权威数据的原子修改与撤销；渲染侧已按 0xRRGGBBAA + straight alpha 消费。
+class SetCanvasBackgroundCommand : public Command {
+public:
+    SetCanvasBackgroundCommand(SequenceId sequenceId, CanvasBackground background);
+
+    Result apply(Project& project) override;
+    Result revert(Project& project) override;
+    bool isNoOp(const Project& project) const override;
+    std::string nameImpl() const override { return "修改画布背景色"; }
+
+private:
+    SequenceId sequenceId_;
+    CanvasBackground background_;
+    std::optional<std::uint32_t> oldRgba_;
 };
 
 }  // namespace core

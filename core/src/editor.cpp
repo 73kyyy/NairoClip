@@ -744,6 +744,29 @@ Result TimelineEditor::redo() {
     return undoStack_.redo(project_);
 }
 
+Result TimelineEditor::renameProject(const std::string& newName) {
+    // 先校验再构造命令：让"名称非法"在入栈前就被挡住，
+    // 避免一次失败操作在历史面板留下条目。
+    const std::string reason = RenameProjectCommand::validateName(newName);
+    if (!reason.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, reason);
+    }
+    return commit(std::make_unique<RenameProjectCommand>(newName));
+}
+
+Result TimelineEditor::setCanvasSize(SequenceId sequenceId, int width, int height,
+                                     CanvasAdaptMode mode) {
+    const CanvasValidation v = validateCanvasSize(width, height);
+    if (!v.ok) {
+        return Result::fail(ErrorCode::InvalidArgument, v.reason);
+    }
+    return commit(std::make_unique<SetCanvasCommand>(sequenceId, width, height, mode));
+}
+
+Result TimelineEditor::setCanvasBackground(SequenceId sequenceId, CanvasBackground background) {
+    return commit(std::make_unique<SetCanvasBackgroundCommand>(sequenceId, background));
+}
+
 Result TimelineEditor::commit(std::unique_ptr<Command> command) {
     return undoStack_.push(project_, std::move(command));
 }

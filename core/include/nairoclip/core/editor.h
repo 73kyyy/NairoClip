@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nairoclip/core/canvas.h"
 #include "nairoclip/core/command.h"
 /* setClipShake / getClipShake 按值收发 ShakeParams，需要完整类型。 */
 #include "nairoclip/core/shake_effect.h"
@@ -34,6 +35,20 @@ public:
 
     Project& project() { return project_; }
     const Project& project() const { return project_; }
+
+    // ---- B1：工程级 / 画布级写入（全部走 Command）----
+
+    /// 重命名工程（B1-01）。只改显示名，不动磁盘路径。
+    /// 名称非法、或与当前名称相同（no-op）时不入撤销栈。
+    Result renameProject(const std::string& newName);
+
+    /// 修改画布尺寸（B1-02）。mode 决定是否对片段做适配缩放。
+    /// 尺寸非法时不做任何修改（失败原子性）。
+    Result setCanvasSize(SequenceId sequenceId, int width, int height,
+                         CanvasAdaptMode mode = CanvasAdaptMode::Preserve);
+
+    /// 修改画布背景色（B1-03）。RGBA 为 straight alpha、0xRRGGBBAA。
+    Result setCanvasBackground(SequenceId sequenceId, CanvasBackground background);
 
     // ---- 素材 ----
     /// 导入素材（进入撤销栈；返回素材 ID）。
