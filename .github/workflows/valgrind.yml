@@ -32,9 +32,15 @@ on:
   workflow_dispatch:
 
 env:
-  # 分片数。8 片 × 约 10 分钟 ≈ 与单片全量 ~50 分钟等价，但并行后墙钟约 15 分钟。
-  # 调整时只需改这里，矩阵会自动跟随（见 jobs.memcheck.strategy.matrix.shard）。
-  NC_VALGRIND_SHARDS: 8
+  # 分片数（16）。
+  #
+  # 为什么从 8 提到 16：实测 8 片时分布**很不均匀**——分片 1/2 各 37 分钟，
+  # 分片 0 跑满 45 分钟仍被超时取消（慢用例是按注册顺序模运算分片的，
+  # 几个重导出用例恰好落在同一片）。16 片把最慢片的工作量减半。
+  #
+  # 注意：分片数是**覆盖度**参数，不是"少跑"参数：各片并集仍严格等于全量，
+  # 由 summary 作业的 executed==total 校验兜底。
+  NC_VALGRIND_SHARDS: 16
 
 jobs:
   build:
@@ -109,7 +115,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 
     steps:
       - name: Checkout
@@ -178,6 +184,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      NC_EXPECTED_SHARDS: 16
 
     steps:
       - name: 下载全部分片证据
@@ -213,6 +221,17 @@ jobs:
           echo "全量用例总数:      $total_cases"
           echo "实际执行合计:      $total_exec"
           echo "失败用例合计:      $total_failed"
+          # 缺失分片定位：分片超时/失败时，到底哪几片没交结果一目了然。
+          expected="$NC_EXPECTED_SHARDS"
+          missing=""
+          for i in $(seq 0 $((expected-1))); do
+            [ -f "vgshards/vg-stdout-${i}.txt" ] || missing="$missing $i"
+          done
+          if [ -n "$missing" ]; then
+            echo "缺失分片：$missing"
+            echo "::error title=VG_MISSING_SHARDS::${missing}"
+          fi
+
           if [ "$total_cases" -gt 0 ] && [ "$total_exec" -ne "$total_cases" ]; then
             echo "::error title=VG_COVERAGE::执行数($total_exec) != 总数($total_cases)，存在遗漏"
             exit 1
