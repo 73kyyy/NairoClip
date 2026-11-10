@@ -12,6 +12,9 @@
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/frame_fit.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -309,4 +312,143 @@ NC_TEST(B1Blend, OpaqueForegroundStillFullyCoversBackground) {
     NC_CHECK_EQ(int(dst[1]), 100);
     NC_CHECK_EQ(int(dst[2]), 50);
     NC_CHECK_EQ(int(dst[3]), 255);
+}
+
+// ===========================================================================
+// 4. CPU Alpha 参考矩阵（NC-B1-FOLLOWUP 4.4）
+//    这些值将作为未来 GPU 后端的比对基准（当前无 GPU 后端，见报告）。
+// ===========================================================================
+
+namespace {
+
+/// straight-alpha 参考实现（浮点版，独立于 blendStraightOver 的整数实现）。
+/// 两条独立实现互相校验，避免"用被测代码证明被测代码"。
+CanvasBackground referenceBlend(CanvasBackground fg, CanvasBackground bg) {
+    const double a = static_cast<double>(fg.a) / 255.0;
+    const double inv = 1.0 - a;
+    CanvasBackground out;
+    out.r = static_cast<std::uint8_t>(std::lround(fg.r * a + bg.r * inv));
+    out.g = static_cast<std::uint8_t>(std::lround(fg.g * a + bg.g * inv));
+    out.b = static_cast<std::uint8_t>(std::lround(fg.b * a + bg.b * inv));
+    out.a = static_cast<std::uint8_t>(std::lround(255.0 * (a + (bg.a / 255.0) * inv)));
+    return out;
+}
+
+}  // namespace
+
+NC_TEST(B1AlphaMatrix, RequiredAlphaLevelsMatchReference) {
+    // 任务书 4.4 要求的最小矩阵：0 / 1 / 64 / 128 / 192 / 255
+    const int alphas[] = {0, 1, 64, 128, 192, 255};
+    CanvasBackground bg;
+    bg.r = 20;
+    bg.g = 60;
+    bg.b = 200;
+    bg.a = 255;
+
+    for (int a : alphas) {
+        CanvasBackground fg;
+        fg.r = 220;
+        fg.g = 30;
+        fg.b = 40;
+        fg.a = static_cast<std::uint8_t>(a);
+
+        const CanvasBackground expected = referenceBlend(fg, bg);
+
+        std::uint8_t dst[4] = {bg.r, bg.g, bg.b, bg.a};
+        const std::uint8_t src[4] = {fg.r, fg.g, fg.b, fg.a};
+        blendStraightOver(dst, src);
+
+        // 整数实现与浮点参考允许 ±1（四舍五入方向差异）
+        NC_CHECK(std::abs(int(dst[0]) - int(expected.r)) <= 1);
+        NC_CHECK(std::abs(int(dst[1]) - int(expected.g)) <= 1);
+        NC_CHECK(std::abs(int(dst[2]) - int(expected.b)) <= 1);
+        NC_CHECK(std::abs(int(dst[3]) - int(expected.a)) <= 1);
+    }
+}
+
+NC_TEST(B1AlphaMatrix, EndpointsAreExact) {
+    CanvasBackground bg;
+    bg.r = 20;
+    bg.g = 60;
+    bg.b = 200;
+    bg.a = 255;
+
+    // alpha=0 → 完全是背景
+    CanvasBackground fg;
+    fg.r = 220;
+    fg.g = 30;
+    fg.b = 40;
+    fg.a = 0;
+    std::uint8_t dst0[4] = {bg.r, bg.g, bg.b, bg.a};
+    const std::uint8_t src0[4] = {fg.r, fg.g, fg.b, 0};
+    blendStraightOver(dst0, src0);
+    NC_CHECK_EQ(int(dst0[0]), int(bg.r));
+    NC_CHECK_EQ(int(dst0[3]), 255);
+
+    // alpha=255 → 完全是前景
+    std::uint8_t dst1[4] = {bg.r, bg.g, bg.b, bg.a};
+    const std::uint8_t src1[4] = {fg.r, fg.g, fg.b, 255};
+    blendStraightOver(dst1, src1);
+    NC_CHECK_EQ(int(dst1[0]), int(fg.r));
+    NC_CHECK_EQ(int(dst1[1]), int(fg.g));
+    NC_CHECK_EQ(int(dst1[2]), int(fg.b));
+    NC_CHECK_EQ(int(dst1[3]), 255);
+}
+
+NC_TEST(B1AlphaMatrix, AlphaOneIsAlmostInvisible) {
+    // alpha=1 时前景只贡献 1/255，结果应几乎等于背景
+    CanvasBackground bg;
+    bg.r = 0;
+    bg.g = 0;
+    bg.b = 0;
+    bg.a = 255;
+    std::uint8_t dst[4] = {0, 0, 0, 255};
+    const std::uint8_t src[4] = {255, 255, 255, 1};
+    blendStraightOver(dst, src);
+    NC_CHECK(dst[0] <= 2);   // 0 or 1
+    NC_CHECK(dst[0] >= 0);
+}
+
+NC_TEST(B1AlphaMatrix, MultipleLayersCompositeInOrder) {
+    // 两层叠加：先 A 后 B，顺序敏感
+    std::uint8_t dst[4] = {0, 0, 0, 255};
+    const std::uint8_t a[4] = {255, 0, 0, 128};   // 半透明红
+    const std::uint8_t b[4] = {0, 0, 255, 128};   // 半透明蓝
+    blendStraightOver(dst, a);
+    const int rAfterA = dst[0];
+    const int bAfterA = dst[2];
+    blendStraightOver(dst, b);
+    // 叠蓝后红色应减少、蓝色应增加
+    NC_CHECK(dst[0] < rAfterA);
+    NC_CHECK(dst[2] > bAfterA);
+    NC_CHECK_EQ(int(dst[3]), 255);   // 底不透明，结果仍不透明
+}
+
+NC_TEST(B1AlphaMatrix, SemiTransparentBackgroundPropagates) {
+    // 半透明背景本身：alpha=128 的底 + 半透明前景
+    std::uint8_t dst[4] = {0, 0, 255, 128};       // 半透明蓝底
+    const std::uint8_t src[4] = {255, 0, 0, 128}; // 半透明红
+    blendStraightOver(dst, src);
+    // outA = 128 + 128*(1-128/255) ≈ 128 + 63.7 = 191.7 → 192
+    NC_CHECK(dst[3] >= 190 && dst[3] <= 194);
+    NC_CHECK(dst[0] > 0);
+    NC_CHECK(dst[2] > 0);
+}
+
+NC_TEST(B1AlphaMatrix, DifferentColorsStayInRange) {
+    // 覆盖多组前景/背景色，确保不出现溢出或通道错位
+    const std::uint8_t colors[][4] = {
+        {255, 0, 0, 128}, {0, 255, 0, 128}, {0, 0, 255, 128},
+        {255, 255, 255, 128}, {0, 0, 0, 128}, {127, 63, 191, 200},
+    };
+    for (const auto& src : colors) {
+        std::uint8_t dst[4] = {40, 80, 120, 255};
+        blendStraightOver(dst, src);
+        // 全部通道必须落在合法区间（uint8 天然如此，这里防的是逻辑溢出）
+        NC_CHECK(dst[3] == 255);  // 底不透明 → 结果不透明
+        // 红色通道应介于前景与背景之间
+        const int lo = std::min<int>(src[0], 40);
+        const int hi = std::max<int>(src[0], 40);
+        NC_CHECK(dst[0] >= lo - 1 && dst[0] <= hi + 1);
+    }
 }

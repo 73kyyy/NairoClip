@@ -191,6 +191,12 @@ inline int runAll() {
         return false;
     };
 
+    // 实际执行数：分片/过滤后真正跑了多少。
+    // 为什么必须单独统计：summary 原本只打印 registry().size()（总数），
+    // 分片时每个 job 都显示"共 1710 cases"，看起来像跑了全量，
+    // 实际只跑了 1/8 —— 汇总时无法证明覆盖度。
+    int executed = 0;
+
     int index = -1;
     for (auto& tc : registry()) {
         ++index;
@@ -214,6 +220,7 @@ inline int runAll() {
         const int before = failureCount();
         std::printf("[ RUN  ] %s.%s\n", tc.suite.c_str(), tc.name.c_str());
         tc.fn();
+        ++executed;
         // NC_TEST_CHECK_HEAP=1：每个用例后做一次堆一致性检查。
         //
         // 为什么需要：CI（x64/glibc）报 "malloc(): invalid size (unsorted)"
@@ -233,11 +240,16 @@ inline int runAll() {
         }
     }
     if (shards > 1) {
-        std::printf("\n===== 分片 %d/%d：共 %d cases | %d failed | %d checks failed =====\n",
-                    shard, shards, total, failedCases, failureCount());
+        // 同时打印「执行数/总数」，分片覆盖度可被汇总脚本核对。
+        std::printf("\n===== 分片 %d/%d：执行 %d/%d cases | %d failed | %d checks failed =====\n",
+                    shard, shards, executed, total, failedCases, failureCount());
+        std::printf("[SHARD_STATS] shard=%d shards=%d executed=%d total=%d failed=%d\n", shard,
+                    shards, executed, total, failedCases);
     } else {
-        std::printf("\n===== %d cases | %d failed | %d checks failed =====\n", total, failedCases,
-                    failureCount());
+        std::printf("\n===== 执行 %d/%d cases | %d failed | %d checks failed =====\n", executed,
+                    total, failedCases, failureCount());
+        std::printf("[SHARD_STATS] shard=0 shards=1 executed=%d total=%d failed=%d\n", executed,
+                    total, failedCases);
     }
     return failedCases == 0 ? 0 : 1;
 }
