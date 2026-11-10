@@ -24,7 +24,9 @@ on:
   workflow_dispatch:
   workflow_run:
     # 覆盖所有会产生「值得看」的结论的工作流
-    workflows: [ 'CI', 'Gen Assets', 'Android APK', 'Report' ]
+    # 'Valgrind Memcheck' 是独立的慢速内存诊断（NC-B1-FOLLOWUP 拆出），
+    # 单独展示结论，不参与主 CI 的阻断判定。
+    workflows: [ 'CI', 'Gen Assets', 'Android APK', 'Report', 'Valgrind Memcheck' ]
     types: [ completed ]
 
 permissions:
