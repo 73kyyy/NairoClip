@@ -3,304 +3,434 @@
 | 项目 | 内容 |
 |---|---|
 | 文档编号 | NC-B2-IMPLEMENTATION-TASK-PLAN |
-| **文档版本** | **V1.1（人工评审后修订）** |
+| **文档版本** | **V1.2（第二轮技术复审后修订）** |
 | 阶段 | C 阶段 · 批次 B2（9 组重复 op 收敛） |
 | 依据 | `docs/NC-C-COMMAND-AUDIT.md` §D-C2、`docs/NC-C-COMMAND-IMPLEMENTATION-PLAN.md` §3/§12、`docs/NC-B1-FOLLOWUP-REPORT.md` |
-| 审计基准 | `main` @ `b3fe63155816c6b7bba4ba178fa70ef0eb5be859`（本轮实测） |
+| 审计基准 | `main` @ `2ce8f32d7899f2b445a11271b1a64249546366b5`（本轮实测） |
 | 本轮性质 | **只修订本文档，不执行整改** |
 | 修订摘要 | 见 §0 |
 
 ---
 
-## 0. V1.1 修订摘要（对应人工评审 7 条意见）
+## 0. V1.2 修订摘要（对应第二轮复审 7 条意见）
 
-| # | 评审意见 | 本版处置 | 落点 |
+| # | 复审意见 | 本版处置 | 落点 |
 |---|---|---|---|
-| 1 | 别名归一化后必须保留原始 op 身份 | 新增 `OpCallContext.rawOp` / `viaAlias`，全链路携带；B3 将作为 `CommandRequest.originOp` 落审计 | §3.2 |
-| 2 | `OpAliasSpec` 必须完整表达 keyframe 两套默认值 | 每个参数独立 `canonicalDefault` / `legacyDefault`，不用一个笼统字段 | §3.3 |
-| 3 | 明确旧键/新键并存优先级，及缺失、null、错误类型 | 新增 §3.4「取值优先级与异常输入」表 | §3.4 |
-| 4 | `legacyOkPayload` 无法表达动态 `effect_id` | 改为 `OkSpec{shape, idKey}` 结构化响应描述 | §3.5 |
-| 5 | 需 JNI 实际调用路径的兼容性测试 | 抽出平台中立的 `nc_dispatch`，测试直接编译它；并明确剩余未覆盖部分 | §3.6 / §5 |
-| 6 | 保持 B2 仅 9 组边界 | §1 明确写出「不做 B3」，§9 列为禁止项 | §1 / §9 |
-| 7 | 保留每批独立 PR / 停止点 / 人工批准 | §4 / §10 原样保留并强化 | §4 / §10 |
+| 1 | `OpCallContext.spec` 规定规范名为 nullptr 是矛盾 | 改为：**短名与规范名都解析到同一份 `OpAliasSpec`**，用 `viaAlias` 区分入口；**只有未知 op 才没有 spec** | §3.2 |
+| 2 | keyframe 时间优先级不得插入 `time_us`；舍入方式需核实 | **逐字重读源码**：短名链为 `at_us → t`（**无 `time_us`**）；规范链为 `time_us`（**无 `at_us`/`t`**）。舍入为 `static_cast<int64_t>` = **截断**（V1.1 误写 `llround`，已纠正） | §2.3 / §3.4 |
+| 3 | `Int/Double/MicrosFromSeconds` 共用 `double` 默认值不安全 | 改为**类型化默认值** `ArgDefault{kind, i64/f64}` + 同 kind 强制；给出 Int 溢出、Double NaN/Inf、微秒溢出规则 | §3.3 |
+| 4 | 需要真实 nc_dispatch 测试链路契约 | 新增 §3.6 集成测试契约：JS 样本 → JSON → nc_dispatch → **真实 C ABI** → 响应；明确 Editor 生命周期、链接方式、动态 ID、失败路径、mock 标注 | §3.6 / §5 |
+| 5 | `rawOp` 暴露边界未定义 | 分三层定义：内部 `OpCallContext` / 日志诊断 / 前端 JSON；**前端响应结构不得改变** | §3.7 |
+| 6 | 兼容性与行为收紧混在一起 | 拆成两节：§3.8 合法输入兼容性（必须逐字一致）与 §3.9 非法类型收紧（**独立变更**，需真实样本与专项回归） | §3.8 / §3.9 |
+| 7 | `nc_dispatch` 改动边界 | 明确**只接管 9 组目标 op**；其余 op 保持原路径/参数/错误码/载荷，不因抽取而改变 | §3.10 / §4.2 |
+
+**V1.1 已纠正的错误（本轮主动披露）**
+
+| 位置 | V1.1 错误 | 正确（源码实测） |
+|---|---|---|
+| §3.4.1 优先级表 | 短名链写成 `at_us > time_us > t` | 短名链**只有** `at_us → t`，源码中**不存在** `time_us` |
+| §3.4.6 舍入 | 写成 `llround` | 源码是 `static_cast<int64_t>(x)`，即**向零截断** |
+| §3.4.1 通用 fallback | 假设所有组都有「旧键↔规范键」互回落 | 仅 `prop←property`、`at_us→t` 两处存在回落；`opacity`/`blend` 等**各读各的键，无互回落** |
 
 ---
 
-## 1. B2 的准确范围
-
-### 1.1 范围定义（不得扩大、不得与 B3 混淆）
-
-原始 C 阶段计划 §12 的批次划分：
+## 1. B2 的准确范围（不变）
 
 | 批次 | 内容 | 状态 |
 |---|---|---|
 | B1 | 三个绕过项接入统一 Command | ✅ 已完成 |
-| **B2** | **9 组重复 op 收敛（别名表 + 单一 commandType，行为不变）** | **本文档** |
-| B3 | 71 个门面 op 接入命令信封 | **本次不授权** |
+| **B2** | **9 组重复 op 收敛（别名表 + 单一 commandType，行为不变）** | 本文档 |
+| B3 | 71 个门面 op 接入命令信封 | 本次不授权 |
 | B4 | 事务与 Task 全面迁移 | 未授权 |
-| B5 | 全链路与兼容收口 | 未授权 |
+| B5 | 全链路收口 | 未授权 |
 
-**B2 只做重复 op 的收敛：**
-- 目标：同一业务操作**只有一个审计身份**（commandType），短名与规范名都路由到它；
-- **不把写操作迁移到命令信封**（B3 的活）；
-- **不改 `nc_*` 的业务语义与 C ABI 签名**；
-- **不改** `core/src/contract/*`（信封/dispatcher/事件）。
-
-### 1.2 一句话目标
-
-> 让「短名 op」与「规范 `nc_*` op」从「两段各自独立的业务代码」，
-> 变成「一个业务实现 + 一层**可审计、保留调用来源**的别名适配」。
+**B2 只做重复 op 的收敛**：一个业务实现 + 一层保留调用来源的别名适配；
+不迁移到命令信封；不改 `nc_*` 语义与签名；不改 `core/src/contract/*`。
 
 ---
 
-## 2. 涉及的 9 组操作与真实实现状态（本轮重新审计）
+## 2. 9 组操作的逐字源码核对（本轮重做）
 
-审计方法：解析 `mobile/native/android/nc_jni.cpp` 中每个 `if (op == "...")` 分支，
-提取**入参键**与 **Ok 载荷**，逐组比对。**不依据历史报告推断。**
+> 方法：直接读取 `mobile/native/android/nc_jni.cpp` 对应分支的**实际语句**，
+> 逐参数记录「键名、读取函数、默认值、回落条件、单位换算」。
+> 行号为本轮实测，仅作定位参考。
 
-### 2.1 总表
+### 2.1 读取函数语义（决定"非法输入"行为）
 
-| # | 短名 op | 规范 op | 入参是否一致 | 载荷是否一致 | 归类 |
+| 函数 | 实现要点 | 缺失 | `null` | 非数值 | `NaN`/`Inf` |
 |---|---|---|---|---|---|
-| 1 | `opacity` | `nc_set_clip_opacity` | ❌ `value` vs `opacity` | ❌ `""` vs `"{}"` | 有差异 |
-| 2 | `add_track` | `nc_add_track` | ✅ | ✅（`{"track_id":N}`） | 完全等价 |
-| 3 | `blend` | `nc_set_clip_blend_mode` | ✅ `mode` | ❌ `""` vs `"{}"` | 仅载荷差异 |
-| 4 | `effect_add` | `nc_add_effect` | ✅ `type,value` | ✅（`{"value":N}`） | 完全等价 |
-| 5 | `keyframe` | `nc_insert_keyframe` | ❌ 见 §2.2 | ❌ `""` vs `"{}"` | 有差异（**含默认值**） |
-| 6 | `remove_keyframe` | `nc_remove_keyframe` | ❌ 见 §2.2 | ✅ 都是 `""` | 仅入参差异 |
-| 7 | `adjust_effect_add` | `nc_adjustment_add_effect` | ✅ | ❌ `effect_id` vs `value`（**动态值**） | 仅载荷键名 |
-| 8 | `adjust_effect_remove` | `nc_adjustment_remove_effect` | ✅ | ✅ 都是 `""` | 完全等价 |
-| 9 | `adjust_lut` | `nc_adjustment_set_lut` | ✅ | ✅ 都是 `""` | 完全等价 |
+| `JNum(json,key,def)` | `strtod`，`end==start` 时返回 `def` | 返回 def | `strtod("null")` 失败 → **def** | 失败 → **def**（静默） | `strtod("nan")` 成功 → **返回 NaN**（危险） |
+| `JInt(json,key,def)` | `static_cast<int64_t>(JNum(...))` | 同 JNum | 同 JNum | 同 JNum | `int64(NaN)` 为**未定义行为** |
+| `JStrField(json,key)` | 找 `"` 后取到下一个 `"`，处理 `\n/\t/\` 转义 | 返回 `""` | `null` 无引号 → **`""`** | — | — |
 
-**统计**：完全等价 4 组；存在参数或载荷差异 5 组。
+> 这条表是 §3.9「非法类型」与 §3.3「类型安全默认值」的事实基础。
 
-### 2.2 三组关键差异（必须逐字保留旧调用方行为）
+### 2.2 九组读取链逐字对照
 
-**① `opacity` vs `nc_set_clip_opacity`**
+| # | 短名 op | 短名读取链（源码逐字） | 规范 op | 规范读取链（源码逐字） |
+|---|---|---|---|---|
+| 1 | `opacity` | `value`（JNum，def **1.0**） | `nc_set_clip_opacity` | `opacity`（JNum，def **1.0**） |
+| 2 | `add_track` | `name`（JStr）；`type`（JInt，def 0） | `nc_add_track` | 同左 |
+| 3 | `blend` | `mode`（JInt，def 0） | `nc_set_clip_blend_mode` | 同左 |
+| 4 | `effect_add` | `type`（JInt，def 0）；`value`（JNum，def **0.5**） | `nc_add_effect` | 同左 |
+| 5 | `keyframe` | 见 §2.3 | `nc_insert_keyframe` | 见 §2.3 |
+| 6 | `remove_keyframe` | 见 §2.3 | `nc_remove_keyframe` | 见 §2.3 |
+| 7 | `adjust_effect_add` | `track_index`（JInt，0）；`type`（JInt，0）；`value`（JNum，def **1.0**） | `nc_adjustment_add_effect` | 同左 |
+| 8 | `adjust_effect_remove` | `track_index`（JInt，0）；`effect_id`（JInt→uint64，0） | `nc_adjustment_remove_effect` | 同左 |
+| 9 | `adjust_lut` | `track_index`（JInt，0）；`path`（JStr，空→`nullptr`）；`strength`（JNum，def **1.0**） | `nc_adjustment_set_lut` | 同左 |
 
-```cpp
-// 短名：读 value，默认 1.0，成功返回 ""
-const int32_t rc = nc_set_clip_opacity(ed, ti, cid, JNum(a, "value", 1.0));
-// 全名：读 opacity，默认 1.0，成功返回 "{}"
-const double opacity = JNum(a, "opacity", 1.0);
+**注意**：第 1/3/7/8/9 组**各自只读自己那一套键，源码中没有任何跨键回落**。
+不得为了实现"统一"而新增互回落——那是行为变化。
+
+### 2.3 `keyframe` / `remove_keyframe` 的精确读取顺序（复审意见 2 的核心）
+
+**短名 `keyframe`（源码 832–844 行）**
+
+```
+1) prop  = JInt(a, "prop",  JInt(a, "property", 0))
+        → 先读 "prop"；缺失则读 "property"；再缺则 0
+2) atUs  = JInt(a, "at_us", -1)
+        → 先读 "at_us"，默认 -1
+3) if (atUs < 0)  atUs = (int64)(JNum(a, "t", 0.0) * 1e6)
+        → 只有 at_us 缺失或**显式 < 0** 时才读 "t"（单位秒）
+        → 换算 = 乘 1e6 后 static_cast<int64_t>（向零截断）
+        → "t" 缺失时 JNum 返回 0.0 → atUs = 0
+4) v     = JNum(a, "v", 1.0)
 ```
 
-**② `keyframe` vs `nc_insert_keyframe`**
+**规范名 `nc_insert_keyframe`（源码 539–552 行）**
 
-```cpp
-// 短名：prop ← (prop | property)；at_us ← (at_us | t*1e6)；值读 v，默认 1.0
-const int32_t prop = JInt(a, "prop", JInt(a, "property", 0));
-int64_t atUs = JInt(a, "at_us", -1);
-if (atUs < 0) atUs = JNum(a, "t", 0.0) * 1e6;
-nc_insert_keyframe(ed, ti, cid, prop, atUs, JNum(a, "v", 1.0));
-
-// 全名：property；time_us；值读 value，默认 0.0
-nc_insert_keyframe(ed, ti, cid, JInt(a, "property", 0), JInt(a, "time_us", 0),
-                   JNum(a, "value", 0.0));
+```
+1) property = JInt(a, "property", 0)
+2) time_us  = JInt(a, "time_us", 0)
+3) value    = JNum(a, "value", 0.0)
 ```
 
-> **关键**：差异不只是键名 —— **默认值不同**（`v` 默认 **1.0**，`value` 默认 **0.0**）。
-> 若用一个统一默认值，不传值的调用方行为会变。
+**短名 `remove_keyframe`（源码 614–621 行）**
 
-**③ `adjust_effect_add` vs `nc_adjustment_add_effect`**
+```
+1) prop = JInt(a, "prop", JInt(a, "property", 0))
+2) atUs = JInt(a, "at_us", -1); 若 < 0 → (int64)(JNum(a,"t",0.0) * 1e6)
+```
 
-同一 C ABI、同一入参，只是返回 JSON 的键名不同：
-`{"effect_id": N}` vs `{"value": N}` —— **N 是运行时返回的动态 ID**。
+**规范名 `nc_remove_keyframe`（源码 1890–1897 行）**
 
-### 2.3 调用方现状（谁在用短名 / 全名）
+```
+1) property = JInt(a, "property", 0)
+2) time_us  = JInt(a, "time_us", 0)
+```
 
-| 调用方 | 用法 | 文件 |
-|---|---|---|
-| `l3-panel.js` | 短名（`effect_add` / `blend` / `keyframe` / `opacity` 等） | `mobile/assets/l3-panel.js` |
-| `editor.js` | 短名（`canvas` / `track_flag` / `split` …） | `mobile/assets/editor.js` |
-| `nc-api.js` | **全名**（由 `tools/gen_ncapi.py` 从 `capi.h` 生成） | `mobile/assets/nc-api.js` |
-| `engine_static.js` | 少量短名 | `mobile/assets/engine_static.js` |
+**必须保持的四点（不得"优化"）**
 
-→ **两套调用方都真实存在**，B2 不能删掉任一入口。
+1. 短名链**没有** `time_us`；规范链**没有** `at_us` / `t`；
+2. `at_us < 0` 触发 `t` 回落 —— 这意味着**显式传负值**也会走 `t`（既有行为，需保留）；
+3. `t` 的换算用 **截断**（`static_cast<int64_t>`），不是四舍五入；
+4. `v` 默认 **1.0**，`value` 默认 **0.0** —— 两套默认值。
+
+### 2.4 关于舍入方式的差分验证要求（复审意见 2）
+
+V1.1 把舍入写成 `llround`，与源码不符。本版规定：
+
+| 项 | 规定 |
+|---|---|
+| 换算实现 | `static_cast<std::int64_t>(t * 1e6)`（**向零截断**） |
+| 差分验证 | B2-3 必须先写「新实现 vs 旧实现」差分测试，覆盖下述向量，**全部一致**才允许合并 |
+| 区分性向量 | `t=0.0000019` → 截断 **1** / 四舍五入 2<br>`t=1.9999999` → 截断 **1999999** / 四舍五入 2000000<br>`t=-0.0000019` → 截断 **-1** / 四舍五入 -2<br>`t=-1.9999999` → 截断 **-1999999** / 四舍五入 -2000000 |
+| 精度向量 | `t=1/3`≈0.3333333 → 333333；`t=0.5` → 500000 |
+| 边界向量 | `t=0`；`t=0.0000009`→0；`t=2^31` 秒（溢出检查） |
+| 负数向量 | `t=-0.5` → -500000；`t=-1.9999999` → -1999999 |
+
+> 若差分结果与上述任一不符 → **停止并报告**，不得改测试迁就实现。
 
 ---
 
 ## 3. 目标设计
 
-### 3.1 分层（修订：新增平台中立分发层）
+### 3.1 分层
 
 ```
 JS (短名或全名)
    ↓  NCEngine.call(op, argsJson)
-nc_jni.cpp                  ← 只做 jstring ↔ std::string 的编组
+nc_jni.cpp                ← 只做 jstring ↔ std::string 编组
    ↓
-nc_dispatch.{h,cpp}         ← 【新增】平台中立：别名归一化 + 参数归一化 + 调 C ABI + 响应成形
+nc_dispatch.{h,cpp}       ← 【新增】平台中立：分发 + 参数读取 + 响应成形
    ↓
-core/op_alias.{h,cpp}       ← 【新增】别名表 / commandType / 参数规则（纯数据 + 纯函数）
+core/op_alias.{h,cpp}     ← 【新增】别名规格表（纯数据 + 纯函数）
    ↓
 nc_* C ABI（不变）
 ```
 
-**为什么拆出 `nc_dispatch`**（直接回应评审意见 5）：
+### 3.2 `OpCallContext` 与 `spec` 归属（复审意见 1）
 
-- 原方案把归一化放 `core/op_alias`、JNI 自己调用，测试只能覆盖到 `op_alias`，
-  **碰不到 JNI 真正的分发与响应成形逻辑**；
-- 抽出 `nc_dispatch` 后，它**不依赖 `jni.h`**，可以在 Ubuntu CI 里直接编译并单测；
-- `nc_jni.cpp` 退化为纯粹的 JNI 编组（`GetStringUTFChars` / `NewStringUTF`），
-  这部分无法单测，但由 **Android Cross-Compile + APK 构建** 保证可编译可链接。
+**V1.1 的矛盾**：既规定"规范名调用时 `spec == nullptr`"，
+又要求规范名也要用 `canonicalDefault` / `canonicalOk` —— 无 spec 就无从取默认值与载荷。
 
-### 3.2 保留原始 op 身份（修订：评审意见 1）
+**V1.2 修正**：
 
 ```cpp
 struct OpCallContext {
-    std::string rawOp;          // 调用方**原始** op 字符串（短名或规范名），不可丢失
-    std::string canonicalOp;    // 归一化后的规范 op
-    std::string commandType;    // 唯一业务身份
-    bool viaAlias = false;      // true = 本次调用来自短名
-    const OpAliasSpec* spec = nullptr;  // 命中短名时的规格，否则 nullptr
+    std::string rawOp;         // 调用方原始 op（短名或规范名），不可丢失
+    std::string canonicalOp;   // 规范 op
+    std::string commandType;   // 唯一业务身份
+    bool viaAlias = false;     // true = 本次调用来自短名
+    const OpAliasSpec* spec = nullptr;  // **非空**：短名与规范名都指向同一份 spec
 };
+
+/// 解析结果：只有未知 op 才返回"无 spec"。
+enum class ResolveStatus { Known, UnknownOp };
+
+struct OpResolveResult {
+    ResolveStatus status;
+    OpCallContext ctx;   // status == Known 时有效
+};
+
+OpResolveResult resolveOp(const std::string& rawOp);
 ```
 
-约束：
-
-1. `rawOp` **不得**被覆盖或丢弃；`nc_dispatch` 返回结果时一并向调用方暴露
-   （诊断/日志用，不进 JSON 载荷，避免改变前端可见结构）；
-2. 错误消息统一前缀 `[op=<rawOp>]`，便于定位调用来源；
-3. **B3 迁移时**，`CommandRequest` 必须新增 `originOp = rawOp` 字段，
-   使审计记录能区分「同一个 commandType 是从短名还是规范名进来的」；
-   这条写进 B3 的前置要求，本批不实现；
-4. `viaAlias` 决定响应载荷形状（见 §3.5）—— 这是"保留来源"的**可观测**后果。
-
-### 3.3 `OpAliasSpec`：完整表达两套默认值（修订：评审意见 2）
+**规格表结构（9 条 spec，每条被两个名字命中）**
 
 ```cpp
-/// 单个参数的取值规则。
-struct OpArgSpec {
-    const char* canonicalKey;    // 规范键，如 "value"
-    const char* legacyKey;       // 旧键，如 "v"
-    const char* altKey;          // 可选第二旧键（如 "t"，单位秒）
-    enum class Kind { Int, Double, MicrosFromSeconds } kind = Kind::Double;
-
-    // --- 两套默认值：按调用入口分别生效 ---
-    bool hasCanonicalDefault = false;
-    double canonicalDefault = 0.0;   // 规范名调用时的默认
-    bool hasLegacyDefault = false;
-    double legacyDefault = 0.0;      // 短名调用时的默认
-};
-
 struct OpAliasSpec {
-    const char* opName;        // 短名
-    const char* canonicalOp;   // 规范 op
+    const char* canonicalOp;   // 规范名，如 "nc_set_clip_opacity"
+    const char* legacyOp;      // 短名，如 "opacity"（可 nullptr = 无短名）
     const char* commandType;   // 唯一业务身份
     const OpArgSpec* args;
     std::size_t argCount;
-    OkSpec canonicalOk;        // 规范名的成功载荷
-    OkSpec legacyOk;           // 短名的成功载荷
+    OkSpec canonicalOk;
+    OkSpec legacyOk;
 };
 ```
 
-**`keyframe` 的完整规格（示例，也是本批最复杂的一组）**
+`resolveOp()` 用**两级查找**：先匹配 `canonicalOp`（`viaAlias=false`），
+再匹配 `legacyOp`（`viaAlias=true`）；两者都命中同一条 `spec`。
 
-| 参数 | canonicalKey | legacyKey | altKey | 规范名默认 | 短名默认 |
-|---|---|---|---|---|---|
-| 属性 | `property` | `prop` | — | `0` | `0` |
-| 时间 | `time_us`（微秒） | `at_us`（微秒） | `t`（**秒**，×1e6） | `0` | `0`（由 `t` 缺省推出） |
-| 值 | `value` | `v` | — | **`0.0`** | **`1.0`** |
+**单元测试（必须有）**
 
-> 两套默认值**分别声明**，不允许写成「一个默认值 + 注释」。
-> 单元测试必须同时断言：只传 `v` 时取 1.0、只传 `value` 时取 0.0、
-> 两者都不传时按入口取各自默认。
-
-### 3.4 取值优先级与异常输入（修订：评审意见 3）
-
-#### 3.4.1 优先级（按调用入口区分首选键）
-
-| 调用入口 | 第 1 优先 | 第 2 优先 | 第 3 优先 | 兜底 |
-|---|---|---|---|---|
-| 短名（`viaAlias = true`） | `legacyKey` | `canonicalKey` | `altKey` | `legacyDefault` |
-| 规范名（`viaAlias = false`） | `canonicalKey` | `legacyKey` | — | `canonicalDefault` |
-
-**为什么这样定**：与现状逐字一致 ——
-- 短名分支原本就是 `JInt(a,"prop", JInt(a,"property",0))`（旧键优先）；
-- 规范分支只读规范键。
-把"首选键 = 入口自身的键"固化后，**两类现有调用方行为都不变**。
-
-#### 3.4.2 冲突（新旧键同时出现）
-
-- **采用首选键**的值；
-- 若两者值不相等 → 记录一条诊断（`op=<rawOp> key=<canonicalKey> conflict legacy=<v1> canonical=<v2> used=<v>`），
-  **不报错、不改变返回值**（避免破坏仍在双写的调用方）；
-- 该诊断只进日志/调试通道，**不进响应 JSON**。
-
-#### 3.4.3 缺失值
-
-- 所有候选键都不存在 → 用该入口的默认值；
-- 若该参数 `hasCanonicalDefault == false && hasLegacyDefault == false`（无默认）→
-  返回 `NC_ERROR_INVALID_ARGUMENT`，消息点名缺失键。
-
-#### 3.4.4 null
-
-- `null` **等同于「未提供」**：继续尝试下一优先级；全部为 null → 用默认值；
-- **不**把 null 当 0，也**不**报错。
-
-#### 3.4.5 错误类型
-
-| 输入 | 处理 |
+| 用例 | 断言 |
 |---|---|
-| 字符串给数值键（`"abc"` / `"123"`） | **拒绝**，`NC_ERROR_INVALID_ARGUMENT`，消息点明键名与期望类型 |
-| 对象/数组给标量键 | **拒绝**，同上 |
-| 布尔给数值键 | **拒绝**（不隐式转 0/1） |
-| 整数给 `Double` 键 | 接受（整转浮无损） |
-| 浮点给 `Int` 键 | 接受，按 `trunc` 取整（与 C ABI 一致） |
+| `OpAlias.SpecNonNullForBothNames` | 9 组 × 2 个名字共 18 次解析，`spec != nullptr` |
+| `OpAlias.SameSpecForPair` | `resolveOp(短名).spec == resolveOp(规范名).spec`（指针相等） |
+| `OpAlias.ViaAliasFlag` | 短名 → `viaAlias=true`；规范名 → `false` |
+| `OpAlias.UnknownOpHasNoSpec` | `resolveOp("nope")` → `status=UnknownOp`、`spec==nullptr` |
+| `OpAlias.CommandTypeUnique` | 9 条 spec 的 `commandType` 两两不同 |
 
-> **这是本批唯一的行为收紧**：现状 `JNum()` 遇到类型不对会静默回落到默认值，
-> 掩盖调用方 bug。收紧后非法类型会显式失败。
-> 风险与验证见 §7 RB-3；`B2-3` 必须先用真实前端调用形态回归，
-> 若有现存调用传错类型，**停下来报告**而不是放宽。
-
-#### 3.4.6 `Unit` 换算
-
-- `MicrosFromSeconds`：`time_us = round(t * 1e6)`；
-- 取整用 `llround`，并在测试中断言 `0.5s → 500000`、`1/3s → 333333`。
-
-### 3.5 响应载荷：结构化描述（修订：评审意见 4）
-
-原方案 `const char* legacyOkPayload` **无法表达动态 ID**（`{"effect_id": N}` 里的 N 是运行时返回值），
-现改为：
+### 3.3 `OpArgSpec`：类型安全默认值（复审意见 3）
 
 ```cpp
-enum class OkShape {
-    EmptyObject,   // "{}"
-    EmptyString,   // ""
-    IdObject,      // {"<idKey>": <uint64 id>}   ← id 来自 C ABI 返回值
+enum class ArgKind { Int32, Int64, Double, MicrosFromSeconds };
+
+/// 类型化默认值：kind 必须与参数 kind 一致，禁止隐式转换。
+struct ArgDefault {
+    bool present = false;
+    ArgKind kind = ArgKind::Double;
+    std::int64_t i64 = 0;   // 仅 Int32 / Int64 使用
+    double f64 = 0.0;       // 仅 Double / MicrosFromSeconds 使用（后者单位为**秒**）
+
+    static ArgDefault none();
+    static ArgDefault int32(std::int32_t v);
+    static ArgDefault int64(std::int64_t v);
+    static ArgDefault real(double v);              // 内部 assert isfinite
+    static ArgDefault microsFromSeconds(double s); // 内部 assert isfinite
 };
 
-struct OkSpec {
-    OkShape shape = OkShape::EmptyObject;
-    const char* idKey = nullptr;   // 仅 IdObject 用
+struct OpArgSpec {
+    const char* canonicalKey;
+    const char* legacyKey;   // 可 nullptr
+    const char* altKey;      // 可 nullptr（当前仅短名 keyframe/remove 的 "t"）
+    ArgKind kind;
+    ArgDefault canonicalDefault;
+    ArgDefault legacyDefault;
 };
 ```
 
-9 组的响应规格：
+**规则（必须逐条落进实现与测试）**
 
-| 组 | 规范名 OkSpec | 短名 OkSpec |
-|---|---|---|
-| `opacity` | `EmptyObject` | `EmptyString` |
-| `add_track` | `IdObject{track_id}` | `IdObject{track_id}` |
-| `blend` | `EmptyObject` | `EmptyString` |
-| `effect_add` | `IdObject{value}` | `IdObject{value}` |
-| `keyframe` | `EmptyObject` | `EmptyString` |
-| `remove_keyframe` | `EmptyString` | `EmptyString` |
-| `adjust_effect_add` | `IdObject{value}` | **`IdObject{effect_id}`** |
-| `adjust_effect_remove` | `EmptyString` | `EmptyString` |
-| `adjust_lut` | `EmptyString` | `EmptyString` |
-
-失败路径统一走既有 `Err(...)`，不因入口不同而改变错误码。
-
-### 3.6 别名表的职责边界（防止变成第二套业务逻辑）
-
-| 允许 | 禁止 |
+| 规则 | 说明 |
 |---|---|
-| 描述「短名 → 规范名」映射 | 做参数合法性校验以外的业务判断 |
-| 描述参数键映射与默认值 | 直接调用 C ABI（必须由 `nc_dispatch` 调） |
-| 描述成功载荷形状 | 持有状态、缓存、副作用 |
+| 默认值 kind == 参数 kind | 构造规格表时断言；另有单测 `OpArg.DefaultKindMatchesArgKind` 遍历 9 组全部参数 |
+| Int32 溢出 | 取值超出 `INT32_MIN..INT32_MAX` → `NC_ERROR_INVALID_ARGUMENT`（不得截断） |
+| Int64 溢出 | 超出 `INT64_MIN..INT64_MAX` → 同上 |
+| Double NaN / ±Inf | **拒绝**（`NC_ERROR_INVALID_ARGUMENT`），不得进入 C ABI |
+| MicrosFromSeconds 溢出 | `|s| * 1e6 > INT64_MAX` → 拒绝；换算后仍须 `isfinite` 检查 |
+| 禁止隐式转换 | 提供 `int32Value()` / `int64Value()` / `doubleValue()` 显式取值，内部 `assert(kind == ...)`；规格表中**不得**出现 `double` 字段承载整型默认值 |
+| 语义等价 | `Int32` 参数的默认值必须用 `ArgDefault::int32()` 构造，**不得**写 `ArgDefault::real(0.0)` |
 
-`op_alias` 是**纯数据 + 纯函数**，无 I/O、无全局状态，可被任意平台复用。
+> 本版把"默认值表达"与"运行时非法输入处理"**分开**：
+> 前者是规格表类型安全（本批必做），后者见 §3.9（独立变更）。
+
+### 3.4 参数读取：按入口分别登记，不做跨键回落（复审意见 2）
+
+**总原则**：`OpArgSpec` 的 `legacyKey` / `altKey` **只在该参数于源码短名链中真实出现过**时才填。
+
+| # | 参数（规范键） | 短名链（源码） | 规范链（源码） | 说明 |
+|---|---|---|---|---|
+| 1 | `value`（opacity 组） | `value` def 1.0 | `opacity` def 1.0 | 两组键**不同**；各自只读自己的 |
+| 2 | `name`,`type` | 同 | 同 | 无差异 |
+| 3 | `mode` | 同 | 同 | 无差异 |
+| 4 | `type`,`value` | 同（`value` def 0.5） | 同 | 无差异 |
+| 5 | `property` | `prop` → `property` → 0 | `property` → 0 | **短名有回落** |
+| 5 | `time_us` | `at_us`(def -1) → 若<0 读 `t`(秒) | `time_us`(JInt def 0) | **两套完全不同的键** |
+| 5 | `value` | `v` def **1.0** | `value` def **0.0** | 两套默认值 |
+| 6 | 同 5（无 `value`） | — | — | — |
+| 7/8/9 | 同 | 同 | 同 | 无差异 |
+
+**关于 `opacity` 组的重要澄清**：源码中短名只读 `value`、规范名只读 `opacity`。
+若要"同时接受两个键"，那是**新增能力**，必须单独标注为行为变化；
+本版**不采用**，保持各自只读自己的键。
+
+**冲突输入处理（仅针对源码本来就有回落的参数）**
+
+| 场景 | 处理 |
+|---|---|
+| 短名 `keyframe` 同时传 `prop` 与 `property` | `prop` 优先（源码内层 fallback 顺序），冲突仅记录诊断 |
+| 短名同时传 `at_us>=0` 与 `t` | `at_us` 优先，`t` 忽略 |
+| 短名 `at_us<0` 且传 `t` | 用 `t`（源码既有行为） |
+| 短名 `at_us<0` 且未传 `t` | `atUs = 0` |
+| 规范名同时传 `property` 与 `prop` | **只读 `property`**（源码无回落），`prop` 被忽略 |
+| 规范名同时传 `time_us` 与 `at_us` | **只读 `time_us`**，`at_us` 被忽略 |
+
+### 3.5 响应载荷：结构化描述
+
+```cpp
+enum class OkShape { EmptyObject, EmptyString, IdObject };
+struct OkSpec { OkShape shape = OkShape::EmptyObject; const char* idKey = nullptr; };
+```
+
+| 组 | 规范 OkSpec | 短名 OkSpec |
+|---|---|---|
+| opacity | EmptyObject | EmptyString |
+| add_track | IdObject{track_id} | IdObject{track_id} |
+| blend | EmptyObject | EmptyString |
+| effect_add | IdObject{value} | IdObject{value} |
+| keyframe | EmptyObject | EmptyString |
+| remove_keyframe | EmptyString | EmptyString |
+| adjust_effect_add | IdObject{value} | **IdObject{effect_id}** |
+| adjust_effect_remove | EmptyString | EmptyString |
+| adjust_lut | EmptyString | EmptyString |
+
+失败路径统一走既有 `Err(...)`，错误码不因入口不同而变。
+
+### 3.6 集成测试契约（复审意见 4）
+
+#### 3.6.1 目标链路
+
+```
+真实 JS 调用样本（从 l3-panel.js / nc-api.js 提取的 (op, argv 字符串)）
+   ↓  JSON 解析（与 nc_jni 相同的字符串，不重新构造）
+   ↓  nc_dispatch(op, argv) → OpCallContext → 参数求值
+   ↓  **真实 C ABI**（nc_*，不 mock）
+   ↓  返回值 + 载荷成形
+   ↓  断言 JSON 响应字符串
+```
+
+#### 3.6.2 真实 C ABI 的落地方式
+
+| 项 | 做法 |
+|---|---|
+| 被测 C ABI | 直接链接 `libnairoclip_core.a`（其中含 `capi.cpp`），**不实现任何 `nc_*` 的 mock** |
+| Editor 生命周期 | 每个用例 `nc_editor_create()` → 操作 → `nc_editor_destroy()`；用例结束断言无泄漏（ASAN 覆盖） |
+| 测试链接方式 | `tests/CMakeLists.txt` 把 `nc_dispatch.cpp` 与 `test_nc_dispatch_compat.cpp` 一起编进 `nairoclip_tests`（与既有测试同二进制） |
+| 动态 ID 验证 | `add_track` / `effect_add` / `adjust_effect_add` 返回的 ID 必须 **> 0 且与后续查询一致**（如 `nc_track_count` / `nc_effect_count` 增加） |
+| 失败路径 | 构造真实失败（如对不存在的 clip 操作）→ 断言 `Err` 且 **错误码与旧实现一致** |
+| 错误码 | 逐组比对「旧分支代码」与「新 dispatch」在同一输入下的 `rc` 值 |
+
+#### 3.6.3 必须标注 mock 的部分
+
+| 部分 | 是否 mock | 说明 |
+|---|---|---|
+| `nc_*` C ABI | ❌ 不 mock | 真实链接 |
+| `std::string`/JSON 解析 | ❌ 不 mock | 真实执行 |
+| `jstring` 编组（`GetStringUTFChars` / `NewStringUTF`） | ✅ **无法覆盖** | 需 JNI 运行时；不写成"已测试" |
+| JS 运行时（`window.NCEngine`） | ✅ **不执行** | 只取**真实样本字符串**，不跑 JS 引擎 |
+
+> 因此本测试的准确名称是「**nc_dispatch 与真实 C ABI 的集成测试**」，
+> **不是**「端到端 JS→JNI 测试」。文档与报告必须用前者措辞。
+
+#### 3.6.4 真机补充测试（B2-4 交付，非自动化）
+
+| 项 | 用例 |
+|---|---|
+| 空字符串 | `name=""`（add_track）、`path=""`（adjust_lut，应清除 LUT） |
+| 中文字符串 | `name="中文轨道"`、`path` 含中文路径 |
+| 错误输入 | 缺参数、类型错误、越界值 → 断言错误码与界面提示 |
+| JNI 字符串生命周期 | 连续 1000 次调用无崩溃/无句柄泄漏（`GetStringUTFChars` 必须 `ReleaseStringUTFChars`） |
+
+### 3.7 `rawOp` 暴露边界（复审意见 5）
+
+| 层 | 是否包含 `rawOp` | 形式 |
+|---|---|---|
+| **内部 `OpCallContext`** | ✅ 必须有 | 字段 `rawOp`，`resolveOp` 填写，全程不覆盖 |
+| **日志 / 诊断接口** | ✅ 必须有 | 错误消息前缀 `[op=<rawOp>]`；诊断回调携带 `rawOp`、`canonicalOp`、`viaAlias` |
+| **前端 JSON 响应** | ❌ **禁止** | `Ok(...)` / `Err(...)` 的 JSON **结构不变**；不得新增 `op` / `rawOp` 字段 |
+
+> 理由：前端多处按固定结构解析（`{ok, code, message, result}`），
+> 新增字段会让部分调用方的严格解析失败。**保留调用来源 ≠ 改变响应协议。**
+> 若将来需要前端可见的来源信息，必须走独立的诊断通道（不在 B2 范围）。
+
+### 3.8 合法输入兼容性（复审意见 6 之一）
+
+**定义**：合法输入 = 当前 `JNum`/`JInt`/`JStrField` 能正常取到值的输入
+（含缺失键与 `null`，因为源码把它们当"未提供"）。
+
+**要求**：对 9 组 × 两个名字的全部合法输入，**新旧实现逐字节一致**：
+
+| 维度 | 一致性要求 |
+|---|---|
+| 传给 C ABI 的参数值 | 逐位相等（含浮点） |
+| 返回的 `rc` | 相等 |
+| 成功载荷字符串 | 逐字节相等 |
+| 失败消息 | 逐字节相等 |
+
+**证明方式**：B2-2/B2-3 必须包含「旧实现 vs 新实现」差分测试——
+把**旧分支逻辑原样保留**在测试里作为 oracle，与新 dispatch 对比。
+（测试里的 oracle 是**测试代码**，不是生产代码；B2-4 随旧分支删除而移除。）
+
+### 3.9 非法类型行为收紧（复审意见 6 之二，**独立变更**）
+
+**这是与"兼容性"分开的独立行为变化**，必须单独评审、单独提交。
+
+| 输入形态 | 旧行为 | 新行为（收紧后） |
+|---|---|---|
+| `"value": "abc"`（字符串给数值键） | 静默用默认值 | `NC_ERROR_INVALID_ARGUMENT` |
+| `"value": {}` / `[]` | 静默用默认值 | 同上 |
+| `"value": true` | 静默用默认值 | 同上 |
+| `"value": NaN`（畸形 JSON） | `strtod` 得 NaN → 传给 C ABI（**UB 风险**） | `NC_ERROR_INVALID_ARGUMENT` |
+| `"type": 1e300`（Int32 溢出） | `int64→int32` 截断（实现定义） | `NC_ERROR_INVALID_ARGUMENT` |
+
+**启用前置条件（缺一不可）**：
+
+1. 产出「**真实前端调用样本清单**」：扫描 `l3-panel.js` / `editor.js` /
+   `nc-api.js` / `engine_static.js` 对 9 组 op 的**全部**调用点，列出每个参数的实际字面量类型；
+2. 证明**现存调用全部为合法类型**（否则停下来报告，不得放宽规则）；
+3. 专项回归测试覆盖上表 5 种形态；
+4. 由人工单独批准后才可启用；**默认在 B2-2/B2-3 保持旧行为**。
+
+**若样本清单无法证明合法** → 本项**不启用**，仅记录为后续技术债。
+
+### 3.10 `nc_dispatch` 的改动边界（复审意见 7）
+
+| 项 | 边界 |
+|---|---|
+| 接管范围 | **仅 9 组目标 op**（18 个名字） |
+| 其余 op（约 100 个） | **完全走原路径**：`DispatchEdit` 中保持原有 `if (op == ...)` 分支、原参数读取、原错误码、原载荷 |
+| 抽取方式 | 在 `DispatchEdit` **入口**做一次 `resolveOp`；命中 9 组才走新路径，否则落到原分支链 |
+| 禁止 | 不得借抽取重构其他 op；不得统一其他 op 的错误码；不得改动其载荷 |
+
+**代码形态（示意）**
+
+```cpp
+bool DispatchEdit(NcEditor* ed, const std::string& rawOp, const std::string& a,
+                  std::string* out) {
+    const OpResolveResult r = resolveOp(rawOp);
+    if (r.status == ResolveStatus::Known) {
+        return dispatchB2(ed, r.ctx, a, out);   // 仅 9 组
+    }
+    // ↓ 以下为其余 op 的原有分支链，**一行不动**
+    const int32_t ti = ...;
+    if (op == "split") { ... }
+    ...
+}
+```
 
 ---
 
@@ -310,104 +440,60 @@ struct OkSpec {
 |---|---|---|---|
 | **B2-0** | 基线核验 + 本文档人工批准 | — | — |
 | **B2-1** | 新增 `core/op_alias`（纯新增，**不接线**） | B2-0 | S |
-| **B2-2** | 4 组完全等价收敛（含抽出 `nc_dispatch`） | B2-1 | M |
-| **B2-3** | 5 组有差异收敛（参数/默认值/载荷适配） | B2-2 | M |
-| **B2-4** | 守卫工具 + 全量回归 + 文档 | B2-3 | M |
+| **B2-2** | 4 组等价收敛 + 抽出 `nc_dispatch`（仅接管 9 组） | B2-1 | M |
+| **B2-3** | 5 组差异收敛（参数/默认值/载荷）+ 差分验证 | B2-2 | M |
+| **B2-3b** | （可选）非法类型收紧，**单独提交、单独批准** | B2-3 + 样本清单 | S |
+| **B2-4** | 守卫工具 + 全量回归 + 文档 | B2-3(/3b) | M |
 
-### 4.1 各批具体动作
+### 4.1 各批动作要点
 
-**B2-1（纯新增，零行为变化）**
+**B2-1**：新增 `op_alias.h/.cpp` + `tests/test_op_alias.cpp`；**不接线**，运行时零变化。
 
-1. 新增 `core/include/nairoclip/core/op_alias.h`、`core/src/op_alias.cpp`；
-2. `core/CMakeLists.txt` 注册；
-3. 新增 `tests/test_op_alias.cpp`；
-4. **不接线到 JNI**（本批结束后运行时行为 0 变化，便于单独评审）。
+**B2-2**：
+1. 新增 `nc_dispatch.h/.cpp`（平台中立）；
+2. `DispatchEdit` 入口加 `resolveOp`，命中 9 组走新路径；
+3. **物理删除** `add_track` / `effect_add` / `adjust_effect_remove` / `adjust_lut` 四个短名分支；
+4. 其余 op 分支**一行不动**。
 
-**B2-2（4 组完全等价 + 抽出 nc_dispatch）**
+**B2-3**：
+1. 5 组按 §3.4 读取链实现；
+2. `keyframe`/`remove_keyframe` 的时间链严格按 §2.3；
+3. 差分测试（旧逻辑作 oracle）全覆盖；
+4. 删除 5 个短名分支。
 
-1. 新增 `mobile/native/android/nc_dispatch.h/.cpp`（平台中立，无 `jni.h`）；
-2. `nc_jni.cpp::DispatchEdit` 改为：
-   ```cpp
-   const OpCallContext ctx = resolveOp(rawOp);      // 归一化
-   if (!dispatchToAbi(ed, ctx, argsJson, out)) ...  // 分发
-   ```
-3. **物理删除** `add_track` / `effect_add` / `adjust_effect_remove` / `adjust_lut`
-   四个短名分支；
-4. 行为与载荷逐字节不变。
+**B2-3b**（可选）：按 §3.9 实施类型收紧，独立 PR。
 
-**B2-3（5 组有差异）**
-
-1. 规范分支的入参读取改为「按 §3.4 优先级」读；
-2. `keyframe` 的 `v`(1.0) / `value`(0.0) 两套默认值按入口生效；
-3. 成功载荷按 `OkSpec` 成形（`effect_id` 动态值走 `IdObject`）；
-4. 删除 5 个短名分支；
-5. **先跑真实前端调用形态回归**，再合并。
-
-**B2-4（守卫 + 回归）**
-
-1. `tools/check_op_alias.py`（进阻断 CI）：
-   - JNI 中 9 个短名的 `if (op == "...")` 分支数必须为 **0**；
-   - 每个 `canonicalOp` 在 JNI 中**有且仅有 1 个**分支；
-   - `commandType` 全表无重复；
-   - 别名表覆盖 9/9；
-   - `nc_jni.cpp` 必须包含 `resolveOp(` 调用（防止绕过归一化）。
-2. 更新本文档的 B2 状态；
-3. 全量回归。
+**B2-4**：`tools/check_op_alias.py` 进阻断 CI + 真机手测清单 + 文档更新。
 
 ---
 
-## 5. 测试要求（修订：评审意见 5 的落点）
+## 5. 测试要求
 
-### 5.1 三层测试结构
-
-| 层 | 测试文件 | 覆盖 | 在哪个 CI 跑 |
+| 层 | 文件 | 覆盖 | CI |
 |---|---|---|---|
-| **① 别名与规则** | `tests/test_op_alias.cpp` | 别名表、commandType 唯一性、参数优先级/默认值/异常输入 | `build-and-test`（阻断） |
-| **② 分发与响应** | `tests/test_nc_dispatch_compat.cpp` | **直接编译 `nc_dispatch.cpp`**：真实 argv JSON → C ABI 参数 → Ok 载荷形状 | `build-and-test`（阻断） |
-| **③ JNI 编组** | 无单测 | `jstring ↔ std::string`、`NewStringUTF` 生命周期 | **Android Cross-Compile + APK 构建**（编译/链接级） |
+| ① 规格与解析 | `tests/test_op_alias.cpp` | spec 非空（18 次）、同 spec、viaAlias、未知 op、commandType 唯一、默认值 kind 一致 | `build-and-test`（阻断） |
+| ② 分发 + **真实 C ABI** | `tests/test_nc_dispatch_compat.cpp` | §3.6 全链路；差分 oracle；动态 ID；失败路径；错误码 | `build-and-test`（阻断） |
+| ③ JNI 编组 | 无单测 | `jstring` 生命周期 | Cross-Compile + APK + **真机手测** |
 
-### 5.2 第 ② 层为什么算「JNI 实际调用路径」
+### 5.1 明确不覆盖（不得声称已测）
 
-`nc_dispatch.cpp` **就是** `DispatchEdit` 的全部非 JNI 逻辑：
-
-- 它在 `nc_jni.cpp` 里被真实调用；
-- 测试编译的是**同一个源文件**（不是复制品），输入是**从 JS 提取的真实 argv**；
-- 因此「op 字符串进来 → 归一化 → 读哪些键 → 调哪个 C ABI → 返回什么 JSON」
-  这条链路是被真实覆盖的。
-
-### 5.3 第 ③ 层未覆盖部分的如实声明
-
-**不能**在 Ubuntu CI 单测 `nc_jni.cpp`（缺 `jni.h` / JNI 运行时）。
-该部分靠：
-
-- `Android Cross-Compile`（三 ABI 编译）；
-- `Android APK`（真实打包 + 冒烟）；
-- **真机手测清单**（B2-4 交付，非自动化）：短名与全名各调 9 组操作一次。
-
-**不得**把 ①② 的通过说成「JNI 已全部验证」。
-
-### 5.4 各批测试清单
-
-| 批次 | 新增测试 | 判定 |
-|---|---|---|
-| B2-1 | `test_op_alias.cpp`：9 组 `canonicalOp`、短名/全名 commandType 相同、全表唯一、未知 op 原样返回、`rawOp` 保留 | 全通过 |
-| B2-2 | `test_nc_dispatch_compat.cpp`：4 组等价组，归一化前后**参数逐字段相等**、载荷逐字节相等 | 全通过 |
-| B2-3 | 增加 5 组差异组：旧键/新键都能取值；`v`=1.0 与 `value`=0.0 分别生效；`effect_id`/`value` 动态载荷正确；null/缺失/错误类型按要求处理 | 全通过 |
-| B2-4 | `check_op_alias.py`；真机手测清单执行记录 | CI success + 清单签核 |
+- `nc_jni.cpp` 的 JNI 编组本身；
+- JS 运行时执行（只取样本字符串）；
+- 真机交互（靠手测清单）。
 
 ---
 
 ## 6. 构建与验收要求（每批）
 
-| 检查 | 要求 |
-|---|---|
-| `build-and-test` | ✅ success（含新增单测 + `check_op_alias.py`） |
-| `ASAN 诊断` | ✅ success（**注意：该 job 为 `continue-on-error`，非阻断**） |
-| `UB 诊断` | ✅ success（同上） |
-| `Valgrind Memcheck` | ✅ success；16 分片全绿；`executed == total`；0 错误 0 泄漏 |
-| `Android APK` | ✅ success（含冒烟：badging / 签名 / ABI / 原生库） |
-| `Android Cross-Compile` | ✅ success（三 ABI） |
-| 前端静态检查 | `check_mobile_frontend.py` / `check_wiring.py` 通过 |
+| 检查 | 要求 | 备注 |
+|---|---|---|
+| `build-and-test` | ✅ success | 含 `check_op_alias.py` 与新增单测 |
+| `ASAN 诊断` | ✅ success | **该 job 为 `continue-on-error`，非阻断** |
+| `UB 诊断` | ✅ success | 同上 |
+| `Valgrind Memcheck` | ✅ success；16 分片全绿；`executed == total`；0 错误 | — |
+| `Android APK` | ✅ success（含冒烟） | — |
+| `Android Cross-Compile` | ✅ success（三 ABI） | 证明 JNI 可编译 |
+| 前端静态检查 | `check_mobile_frontend.py` / `check_wiring.py` 通过 | — |
 
 ---
 
@@ -415,78 +501,73 @@ struct OkSpec {
 
 | ID | 风险 | 等级 | 缓解 | 回滚 |
 |---|---|---|---|---|
-| RB-1 | 删除短名分支后旧 JS 调用失败 | 高 | 归一化在入口统一处理；9 组真实 argv 回归；真机手测 | 单批 revert |
-| RB-2 | `keyframe` 默认值 1.0/0.0 混用导致动画行为变化 | 高 | 两套默认值分别声明；专项用例断言三种情况 | 回退 B2-3 |
-| RB-3 | **类型收紧**（字符串给数值键由"静默默认"变"报错"）破坏现存调用 | 中 | B2-3 前先跑真实前端形态；发现即停并报告，不放宽规则 | 回退 B2-3 |
-| RB-4 | 载荷形状变化破坏前端解析 | 中 | `OkSpec` 结构化描述；逐组对比用例 | 回退 B2-3 |
-| RB-5 | 别名表与 JNI 分支不一致 | 中 | `check_op_alias.py` 阻断 CI | — |
-| RB-6 | 误把 B3 的「接入信封」混进 B2 | 高 | §9 明令禁止；B2 不碰 `contract/*` | — |
-| RB-7 | `nc_dispatch` 抽取引入回归 | 中 | B2-2 首批只搬 4 组等价组，diff 可逐行审 | 回退 B2-2 |
-| RB-8 | 原始 op 身份在后续重构中丢失 | 中 | `rawOp` 为 `OpCallContext` 必填字段；`check_op_alias.py` 断言其存在 | — |
+| RB-1 | 删短名分支后旧 JS 失败 | 高 | 入口统一归一化；9 组真实样本回归；真机手测 | 单批 revert |
+| RB-2 | `keyframe` 默认值 1.0/0.0 混用 | 高 | 两套默认值分别声明；三种情况各一条用例 | 回退 B2-3 |
+| RB-3 | **时间换算舍入被改**（截断→四舍五入） | **高** | §2.4 差分向量；不一致即停 | 回退 B2-3 |
+| RB-4 | 误加跨键回落（如给短名加 `time_us`） | **高** | §3.4 表逐字对照；差分测试覆盖"只传 `time_us` 的短名调用"应仍走默认 | 回退 B2-3 |
+| RB-5 | 载荷形状变化 | 中 | `OkSpec` + 逐字节比对 | 回退 B2-3 |
+| RB-6 | 抽取 `nc_dispatch` 波及非目标 op | **高** | §3.10 边界；对非目标 op 做"行为不变"抽查（至少 5 个） | 回退 B2-2 |
+| RB-7 | 类型收紧破坏现存调用 | 中 | §3.9 前置条件；独立 PR；默认不启用 | 不启用即可 |
+| RB-8 | 别名表与 JNI 分支不一致 | 中 | `check_op_alias.py` 阻断 CI | — |
+| RB-9 | `rawOp` 丢失 | 中 | 结构体必填 + 单测 + 工具断言 | — |
 
 ---
 
 ## 8. 验收标准（B2 整体）
 
-1. 9 组别名 **100%** 收敛，短名在 JNI 中**无独立业务分支**（工具校验）。
-2. 每组 `commandType` 唯一；短名与全名返回**同一个** commandType。
-3. `OpCallContext.rawOp` 全链路保留（工具 + 单测双重断言）。
-4. 「旧键优先/规范键优先」按入口生效，与现状逐字一致。
-5. `keyframe` 两套默认值（1.0 / 0.0）分别生效。
-6. 响应载荷：`EmptyObject` / `EmptyString` / `IdObject` 三种形状正确，
-   `effect_id` 动态值正确。
-7. null / 缺失 / 错误类型按 §3.4 处理。
-8. 旧 JS/Kotlin 调用行为不变（① ② 两层测试 + 真机手测）。
-9. `check_op_alias.py` 已进阻断 CI。
-10. 本地 + CI 全绿；Valgrind 全量 0 错误；APK 构建 + 冒烟 success。
+1. 9 组别名 100% 收敛；短名在 JNI 中无独立业务分支（工具校验）。
+2. 每组的短名与规范名**解析到同一份 `OpAliasSpec`**（指针相等断言）。
+3. `commandType` 唯一（9 条两两不同）。
+4. `rawOp` 在 `OpCallContext` 与诊断路径完整保留；**前端 JSON 结构不变**。
+5. **合法输入**新旧逐字节一致（差分测试，含缺失与 `null`）。
+6. `keyframe`/`remove_keyframe` 时间链按 §2.3；**差分向量全通过**（截断语义）。
+7. `v`=1.0 / `value`=0.0 两套默认值分别生效。
+8. 载荷三种形状正确，`effect_id` 动态值正确。
+9. `nc_dispatch` 只接管 9 组；非目标 op 行为不变（抽查通过）。
+10. `check_op_alias.py` 进阻断 CI；本地 + CI 全绿；Valgrind 0 错误；APK 冒烟 success。
+11. （若启用 B2-3b）类型收紧有真实样本清单与专项回归，且经单独批准。
 
 ---
 
-## 9. 明确禁止（B2 边界）
+## 9. 明确禁止
 
-**禁止修改的文件/模块**：
-
-- `core/src/contract/*`（信封、dispatcher、事件）—— 属 B3；
-- `core/src/commands.cpp` 中 71 个门面命令的实现；
-- `nc_*` C ABI 签名（`capi.h` 不得删改既有声明）；
-- `core/src/preview.cpp` / `frame_fit.cpp` / `xform.cpp`（渲染路径）；
-- `frame_fit` 的任何行为（仍属独立缺陷单 `docs/DEFECT-frame_fit-noop.md`）；
-- `.github/workflows/ci.yml` 的 job 结构（只允许新增一个检查步骤）。
-
-**禁止提前开展**：
-
-- B3（71 个门面 op 接入信封）、B4（事务/Task）、B5、D 阶段；
-- GPU 任何生产代码（G0.5 及以后）；
-- 删除任何旧 op 名（必须保留到调用方全部迁移）；
-- 新增媒体编解码依赖或修改现有编解码实现。
+- 修改 `core/src/contract/*`（属 B3）；
+- 修改 71 个门面命令实现；
+- 修改 `nc_*` C ABI 签名；
+- 修改 `preview.cpp` / `frame_fit.cpp` / `xform.cpp`；
+- 修改 `frame_fit` 任何行为；
+- 借 `nc_dispatch` 抽取重构非目标 op；
+- 在前端 JSON 响应中新增字段；
+- 删除任何旧 op 名；
+- 提前进入 B3/B4/B5/D；启动 GPU 生产代码（G0.5+）；
+- 新增编解码依赖或修改编解码实现。
 
 ---
 
-## 10. 停止点与人工验收条件
+## 10. 停止点与人工验收
 
-| 批次 | 停止点 | 人工验收条件 |
+| 批次 | 停止点 | 验收条件 |
 |---|---|---|
-| B2-1 | 提交 `core/op_alias`（纯新增）后停止 | 评审别名表 9/9、commandType 唯一性、两套默认值表达、单测覆盖；确认**未接线到 JNI** |
-| B2-2 | 4 组等价收敛 + `nc_dispatch` 抽取后停止 | 评审「短名分支已物理删除」的 diff；确认载荷逐字节不变；确认 `rawOp` 保留 |
-| B2-3 | 5 组差异收敛后停止 | 逐组评审参数优先级与默认值；确认 `v`/`value` 分别生效；确认类型收紧清单与前端回归结果 |
-| B2-4 | 守卫 + 文档后停止 | 确认 `check_op_alias.py` 进阻断 CI；真机手测清单签核；全量回归绿 |
+| B2-1 | 提交 `core/op_alias` 后停止 | spec 非空/同 spec/命令类型唯一/默认值 kind 一致 全部通过；确认未接线 |
+| B2-2 | 4 组等价收敛 + `nc_dispatch` 后停止 | 确认非目标 op 分支未变（diff 审查 + 抽查）；载荷逐字节一致 |
+| B2-3 | 5 组差异收敛后停止 | 逐组核对读取链；差分向量全过；确认无跨键回落 |
+| B2-3b | 类型收紧（若启用） | 真实样本清单 + 专项回归 + 单独批准 |
+| B2-4 | 守卫 + 文档后停止 | `check_op_alias.py` 进阻断 CI；真机手测签核；全量回归绿 |
 
-**每批一个独立 PR、独立停止点；任何一批未获人工批准，不得进入下一批。**
+**每批独立 PR、独立停止点；未获人工批准不得进入下一批。**
 
 ---
 
 ## 11. 与 GPU 工作流的关系
 
-B2 与 GPU G0/G0.5 **可并行**，但：
-
-- 二者**不得同时修改** `mobile/native/android/nc_jni.cpp`；
-- 文件所有权：**B2 期间 `nc_jni.cpp` 归 B2 独占**（B2 要删短名分支并抽出 `nc_dispatch`）；
-- GPU 若需改动，必须等 B2 合并后再申请交接。
+- 可并行，但**不得同时修改** `mobile/native/android/nc_jni.cpp`；
+- **B2 期间 `nc_jni.cpp` 归 B2 独占**；
+- GPU 若需改动须等 B2 合并后申请交接。
 
 ---
 
 ## 12. 前置条件
 
-1. B1 最终验收通过（见 `docs/NC-B1-FINAL-ACCEPTANCE-REPORT.md`）；
-2. 本文档 V1.1 获人工复审批准；
-3. 执行前重新核验 main HEAD（不得沿用 `b3fe6315` 作为执行时基线）。
+1. B1 最终验收通过；
+2. 本文档 V1.2 获人工复审批准；
+3. 执行前重新核验 main HEAD（不得沿用 `2ce8f32d` 作为执行基线）。
