@@ -3041,5 +3041,180 @@ Result SetClipLutCommand::revert(Project& project) {
     return Result::ok();
 }
 
+
+// ===========================================================================
+// B1：三个绕过项的整改命令实现
+// ===========================================================================
+
+// ---- B1-01 重命名工程 ------------------------------------------------------
+
+RenameProjectCommand::RenameProjectCommand(std::string newName) : newName_(std::move(newName)) {}
+
+std::string RenameProjectCommand::validateName(const std::string& name) {
+    if (name.empty()) return "工程名称不能为空";
+    // 纯空白视为空：否则 UI 上会出现"看起来没名字"的工程。
+    bool onlySpace = true;
+    for (char c : name) {
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+            onlySpace = false;
+            break;
+        }
+    }
+    if (onlySpace) return "工程名称不能只包含空白字符";
+    // 长度按**字节**限制（与既有 C ABI 的 200 字节一致）；
+    // 中文 UTF-8 每字 3 字节，因此约 66 个汉字。
+    if (name.size() > 200) return "工程名称过长（最多 200 字节）";
+    // 控制字符会破坏 JSON 序列化与文件系统展示，直接拒绝。
+    for (unsigned char c : name) {
+        if (c < 0x20 || c == 0x7F) return "工程名称包含非法控制字符";
+    }
+    return std::string();
+}
+
+Result RenameProjectCommand::apply(Project& project) {
+    const std::string reason = validateName(newName_);
+    if (!reason.empty()) {
+        return Result::fail(ErrorCode::InvalidArgument, reason);
+    }
+    // 先快照再写入：revert 用快照还原，不做反向推导。
+    oldName_ = project.name;
+    project.name = newName_;
+    return Result::ok();
+}
+
+Result RenameProjectCommand::revert(Project& project) {
+    if (!oldName_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少重命名前快照");
+    }
+    project.name = *oldName_;
+    return Result::ok();
+}
+
+bool RenameProjectCommand::isNoOp(const Project& project) const {
+    return project.name == newName_;
+}
+
+// ---- B1-02 画布尺寸 -------------------------------------------------------
+
+SetCanvasCommand::SetCanvasCommand(SequenceId sequenceId, int width, int height,
+                                   CanvasAdaptMode mode)
+    : sequenceId_(sequenceId), width_(width), height_(height), mode_(mode) {}
+
+Result SetCanvasCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const CanvasValidation v = validateCanvasSize(width_, height_);
+    if (!v.ok) {
+        // 尺寸非法 → 不写任何字段（失败原子性）
+        return Result::fail(ErrorCode::InvalidArgument, v.reason);
+    }
+    oldWidth_ = seq->width;
+    oldHeight_ = seq->height;
+    scaleSnapshots_.clear();
+
+    // 适配策略：只改 ClipTransform.scale，不动素材、时长、关键帧。
+    // Preserve 不做任何片段改动（任务书 §5.6 A）。
+    if (mode_ != CanvasAdaptMode::Preserve) {
+        for (std::size_t ti = 0; ti < seq->tracks.size(); ++ti) {
+            Track& track = seq->tracks[ti];
+            if (track.type != TrackType::Video) continue;
+            for (Clip& clip : track.clips) {
+                // 只处理有素材尺寸的片段；文本/复合片段没有源宽高，跳过。
+                if (!clip.asset.isValid()) continue;
+                const MediaAsset* asset = project.findAsset(clip.asset);
+                if (asset == nullptr || asset->width <= 0 || asset->height <= 0) continue;
+                const double factor =
+                    canvasAdaptScale(mode_, asset->width, asset->height, width_, height_);
+                if (factor <= 0.0) continue;
+                ScaleSnapshot snap;
+                snap.trackIndex = ti;
+                snap.clipId = clip.id;
+                snap.oldScale = clip.transform.scale;
+                snap.oldEnabled = clip.transform.enabled;
+                scaleSnapshots_.push_back(snap);
+                clip.transform.scale = clip.transform.scale * factor;
+                clip.transform.clamp();
+                clip.transform.enabled = true;
+            }
+        }
+    }
+
+    seq->width = width_;
+    seq->height = height_;
+    return Result::ok();
+}
+
+Result SetCanvasCommand::revert(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    if (!oldWidth_.has_value() || !oldHeight_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少画布尺寸快照");
+    }
+    // 先还原片段缩放（按快照，不按倍数反算）
+    for (const ScaleSnapshot& snap : scaleSnapshots_) {
+        if (snap.trackIndex >= seq->tracks.size()) continue;
+        Track& track = seq->tracks[snap.trackIndex];
+        for (Clip& clip : track.clips) {
+            if (clip.id == snap.clipId) {
+                clip.transform.scale = snap.oldScale;
+                clip.transform.enabled = snap.oldEnabled;
+                break;
+            }
+        }
+    }
+    seq->width = *oldWidth_;
+    seq->height = *oldHeight_;
+    return Result::ok();
+}
+
+bool SetCanvasCommand::isNoOp(const Project& project) const {
+    const Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) return true;
+    // 尺寸没变且不需要适配 → 真正的空操作。
+    return seq->width == width_ && seq->height == height_;
+}
+
+// ---- B1-03 画布背景色 -----------------------------------------------------
+
+SetCanvasBackgroundCommand::SetCanvasBackgroundCommand(SequenceId sequenceId,
+                                                       CanvasBackground background)
+    : sequenceId_(sequenceId), background_(background) {}
+
+Result SetCanvasBackgroundCommand::apply(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    const CanvasValidation v = validateBackgroundRgba(background_.toRgba32());
+    if (!v.ok) {
+        return Result::fail(ErrorCode::InvalidArgument, v.reason);
+    }
+    oldRgba_ = seq->backgroundRgba;
+    seq->backgroundRgba = background_.toRgba32();
+    return Result::ok();
+}
+
+Result SetCanvasBackgroundCommand::revert(Project& project) {
+    Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) {
+        return Result::fail(ErrorCode::NotFound, "序列不存在");
+    }
+    if (!oldRgba_.has_value()) {
+        return Result::fail(ErrorCode::Internal, "缺少背景色快照");
+    }
+    seq->backgroundRgba = *oldRgba_;
+    return Result::ok();
+}
+
+bool SetCanvasBackgroundCommand::isNoOp(const Project& project) const {
+    const Sequence* seq = project.findSequence(sequenceId_);
+    if (seq == nullptr) return true;
+    return seq->backgroundRgba == background_.toRgba32();
+}
+
 }  // namespace core
 }  // namespace nairoclip

@@ -52,6 +52,10 @@
 
   /** int32_t nc_abi_version() */
   NC_API.nc_abi_version = () => call("nc_abi_version", {});
+  /** char* nc_apply_command(request_json) */
+  NC_API.nc_apply_command = (args = {}) => call("nc_apply_command", args);
+  /** uint64_t nc_contract_revision() */
+  NC_API.nc_contract_revision = () => call("nc_contract_revision", {});
   /** char* nc_project_save() */
   NC_API.nc_project_save = () => call("nc_project_save", {});
   /** int32_t nc_project_load(nclip_text, detail) */
@@ -96,10 +100,16 @@
   NC_API.nc_remove_asset = (args = {}) => call("nc_remove_asset", args);
   /** int32_t nc_asset_is_referenced(asset_id) */
   NC_API.nc_asset_is_referenced = (args = {}) => call("nc_asset_is_referenced", args);
-  /** int32_t nc_asset_reorder(from_index, to_index) — to_index 是移动后的目标位置 */
+  /** int32_t nc_asset_reorder(from_index, to_index) */
   NC_API.nc_asset_reorder = (args = {}) => call("nc_asset_reorder", args);
   /** uint64_t nc_import_asset(name, path, type, duration_us) */
   NC_API.nc_import_asset = (args = {}) => call("nc_import_asset", args);
+  /** int32_t nc_extract_audio(asset_id, out_path, out_error) */
+  NC_API.nc_extract_audio = (args = {}) => call("nc_extract_audio", args);
+  /** int32_t nc_ref_analyze(asset_id, out_json, out_error) */
+  NC_API.nc_ref_analyze = (args = {}) => call("nc_ref_analyze", args);
+  /** int32_t nc_ref_apply(track_index, asset_ids, start_seconds, durations, shot_count, transition_kinds, contrast, saturation, shake_amplitude, shake_frequency, speed_amount, effect_kinds, effect_amount, lut_preset, lut_strength, out_error) */
+  NC_API.nc_ref_apply = (args = {}) => call("nc_ref_apply", args);
   /** uint64_t nc_add_track(name, track_type) */
   NC_API.nc_add_track = (args = {}) => call("nc_add_track", args);
   /** uint64_t nc_insert_clip(track_index, asset_id, start_us, duration_us) */
@@ -120,6 +130,22 @@
   NC_API.nc_rename_track = (args = {}) => call("nc_rename_track", args);
   /** int32_t nc_move_track(track_index, new_index) */
   NC_API.nc_move_track = (args = {}) => call("nc_move_track", args);
+  /** int32_t nc_create_track_group(track_indices, count, name, out_group_id) */
+  NC_API.nc_create_track_group = (args = {}) => call("nc_create_track_group", args);
+  /** int32_t nc_remove_track_group(group_id) */
+  NC_API.nc_remove_track_group = (args = {}) => call("nc_remove_track_group", args);
+  /** int32_t nc_set_group_muted(group_id, muted) */
+  NC_API.nc_set_group_muted = (args = {}) => call("nc_set_group_muted", args);
+  /** int32_t nc_set_group_hidden(group_id, hidden) */
+  NC_API.nc_set_group_hidden = (args = {}) => call("nc_set_group_hidden", args);
+  /** int32_t nc_set_group_locked(group_id, locked) */
+  NC_API.nc_set_group_locked = (args = {}) => call("nc_set_group_locked", args);
+  /** int32_t nc_group_count() */
+  NC_API.nc_group_count = () => call("nc_group_count", {});
+  /** int32_t nc_group_get(index, out_group_id, out_name, out_track_count) */
+  NC_API.nc_group_get = (args = {}) => call("nc_group_get", args);
+  /** uint64_t nc_track_group_of(track_index) */
+  NC_API.nc_track_group_of = (args = {}) => call("nc_track_group_of", args);
   /** int32_t nc_set_track_locked(track_index, locked) */
   NC_API.nc_set_track_locked = (args = {}) => call("nc_set_track_locked", args);
   /** int32_t nc_set_track_muted(track_index, muted) */
@@ -148,6 +174,10 @@
   NC_API.nc_freeze_frame = (args = {}) => call("nc_freeze_frame", args);
   /** int32_t nc_reverse_clip(track_index, clip_id) */
   NC_API.nc_reverse_clip = (args = {}) => call("nc_reverse_clip", args);
+  /** int32_t nc_clip_is_reversed(track_index, clip_id) */
+  NC_API.nc_clip_is_reversed = (args = {}) => call("nc_clip_is_reversed", args);
+  /** int32_t nc_clip_is_frozen(track_index, clip_id) */
+  NC_API.nc_clip_is_frozen = (args = {}) => call("nc_clip_is_frozen", args);
   /** int32_t nc_clip_info(track_index, clip_index, out_clip_id, out_start_us, out_duration_us, out_asset_id, out_speed_num, out_speed_den, out_enabled) */
   NC_API.nc_clip_info = (args = {}) => call("nc_clip_info", args);
   /** int32_t nc_set_clip_enabled(track_index, clip_id, enabled) */
@@ -178,6 +208,8 @@
   NC_API.nc_transition_count = (args = {}) => call("nc_transition_count", args);
   /** int32_t nc_transition_get(track_index, index, out_type, out_duration_us, out_from_clip, out_to_clip, out_name) */
   NC_API.nc_transition_get = (args = {}) => call("nc_transition_get", args);
+  /** int32_t nc_transition_get_id(track_index, index, out_id) */
+  NC_API.nc_transition_get_id = (args = {}) => call("nc_transition_get_id", args);
   /** int32_t nc_transition_type_count() */
   NC_API.nc_transition_type_count = () => call("nc_transition_type_count", {});
   /** const char* nc_transition_type_name(type) */
@@ -194,6 +226,14 @@
   NC_API.nc_preview_subtitles = (args = {}) => call("nc_preview_subtitles", args);
   /** void nc_preview_invalidate() */
   NC_API.nc_preview_invalidate = () => call("nc_preview_invalidate", {});
+  /** int32_t nc_preview_cache_stats(out_frame_hits, out_frame_misses, out_reader_opens, out_cached_frames, out_capacity) */
+  NC_API.nc_preview_cache_stats = (args = {}) => call("nc_preview_cache_stats", args);
+  /** int32_t nc_preview_set_cache_scale(scale) */
+  NC_API.nc_preview_set_cache_scale = (args = {}) => call("nc_preview_set_cache_scale", args);
+  /** double nc_preview_get_cache_scale() */
+  NC_API.nc_preview_get_cache_scale = () => call("nc_preview_get_cache_scale", {});
+  /** int32_t nc_preview_cache_stats_ex(out_invalidated_by_edit, out_upscaled_from_cache, out_cache_scale) */
+  NC_API.nc_preview_cache_stats_ex = (args = {}) => call("nc_preview_cache_stats_ex", args);
   /** int32_t nc_thumbnail_generate(asset_id, count, max_width, max_height, out_images, out_times_us, out_count) */
   NC_API.nc_thumbnail_generate = (args = {}) => call("nc_thumbnail_generate", args);
   /** int32_t nc_thumbnail_size(out_width, out_height) */
@@ -208,6 +248,8 @@
   NC_API.nc_scene_detect = (args = {}) => call("nc_scene_detect", args);
   /** int32_t nc_beat_detect(track_index, out_bpm, out_confidence, out_beat_count, out_beats) */
   NC_API.nc_beat_detect = (args = {}) => call("nc_beat_detect", args);
+  /** int32_t nc_beat_sync_apply(target_track, audio_track, asset_ids, usable_seconds, material_count, min_shot_seconds, prefer_transitions, out_clips, out_bpm, out_warning, out_error) */
+  NC_API.nc_beat_sync_apply = (args = {}) => call("nc_beat_sync_apply", args);
   /** int32_t nc_set_clip_speed_curve(track_index, clip_id, source_times, speeds, easings, point_count) */
   NC_API.nc_set_clip_speed_curve = (args = {}) => call("nc_set_clip_speed_curve", args);
   /** int32_t nc_clip_speed_curve_count(track_index, clip_id) */
@@ -250,6 +292,8 @@
   NC_API.nc_keyframe_count = (args = {}) => call("nc_keyframe_count", args);
   /** int32_t nc_keyframe_get(track_index, clip_id, property, index, out_time_us, out_value, out_easing) */
   NC_API.nc_keyframe_get = (args = {}) => call("nc_keyframe_get", args);
+  /** int32_t nc_keyframe_get_ex(track_index, clip_id, property, index, out_time_us, out_value, out_easing, out_c1x, out_c1y, out_c2x, out_c2y) */
+  NC_API.nc_keyframe_get_ex = (args = {}) => call("nc_keyframe_get_ex", args);
   /** int32_t nc_set_clip_background(track_index, clip_id, mode, rgba, intensity) */
   NC_API.nc_set_clip_background = (args = {}) => call("nc_set_clip_background", args);
   /** int32_t nc_get_clip_background(track_index, clip_id, out_mode, out_rgba, out_intensity) */
@@ -282,6 +326,28 @@
   NC_API.nc_ai_task_reset = () => call("nc_ai_task_reset", {});
   /** char* nc_ai_task_failure_text() */
   NC_API.nc_ai_task_failure_text = () => call("nc_ai_task_failure_text", {});
+  /** int32_t nc_task_begin(type, target_id, heartbeat_timeout_ms, total_timeout_ms, now_ms, out_task_id, out_error) */
+  NC_API.nc_task_begin = (args = {}) => call("nc_task_begin", args);
+  /** int32_t nc_task_heartbeat(task_id, progress, stage_note, now_ms) */
+  NC_API.nc_task_heartbeat = (args = {}) => call("nc_task_heartbeat", args);
+  /** int32_t nc_task_complete(task_id, result_type, result_json, now_ms) */
+  NC_API.nc_task_complete = (args = {}) => call("nc_task_complete", args);
+  /** int32_t nc_task_fail(task_id, error, retryable) */
+  NC_API.nc_task_fail = (args = {}) => call("nc_task_fail", args);
+  /** int32_t nc_task_cancel(task_id) */
+  NC_API.nc_task_cancel = (args = {}) => call("nc_task_cancel", args);
+  /** int32_t nc_task_cancel_ack(task_id) */
+  NC_API.nc_task_cancel_ack = (args = {}) => call("nc_task_cancel_ack", args);
+  /** int32_t nc_task_clear_result(task_id) */
+  NC_API.nc_task_clear_result = (args = {}) => call("nc_task_clear_result", args);
+  /** char* nc_task_query(task_id) */
+  NC_API.nc_task_query = (args = {}) => call("nc_task_query", args);
+  /** int32_t nc_task_tick(now_ms) */
+  NC_API.nc_task_tick = (args = {}) => call("nc_task_tick", args);
+  /** int32_t nc_ai_task_begin_ex(feature, target_id, heartbeat_timeout_ms, total_timeout_ms, now_ms, out_task_id, out_error) */
+  NC_API.nc_ai_task_begin_ex = (args = {}) => call("nc_ai_task_begin_ex", args);
+  /** int32_t nc_ai_task_cancel_ack() */
+  NC_API.nc_ai_task_cancel_ack = () => call("nc_ai_task_cancel_ack", {});
   /** int32_t nc_ai_engine_info(out_available, out_version, out_note) */
   NC_API.nc_ai_engine_info = (args = {}) => call("nc_ai_engine_info", args);
   /** int32_t nc_depth_load(model_path, out_error) */
@@ -300,6 +366,22 @@
   NC_API.nc_superres_unload = () => call("nc_superres_unload", {});
   /** int32_t nc_superres_loaded() */
   NC_API.nc_superres_loaded = () => call("nc_superres_loaded", {});
+  /** int32_t nc_stem_load(model_path, out_error) */
+  NC_API.nc_stem_load = (args = {}) => call("nc_stem_load", args);
+  /** int32_t nc_stem_unload() */
+  NC_API.nc_stem_unload = () => call("nc_stem_unload", {});
+  /** int32_t nc_stem_loaded() */
+  NC_API.nc_stem_loaded = () => call("nc_stem_loaded", {});
+  /** int32_t nc_stem_separate(samples, frame_count, channels, sample_rate, mode, intensity, out_vocals, out_vocal_frames, out_instrumental, out_instrumental_frames, out_sample_rate, out_channels, out_error) */
+  NC_API.nc_stem_separate = (args = {}) => call("nc_stem_separate", args);
+  /** int32_t nc_interpolation_load(model_path, out_error) */
+  NC_API.nc_interpolation_load = (args = {}) => call("nc_interpolation_load", args);
+  /** int32_t nc_interpolation_unload() */
+  NC_API.nc_interpolation_unload = () => call("nc_interpolation_unload", {});
+  /** int32_t nc_interpolation_loaded() */
+  NC_API.nc_interpolation_loaded = () => call("nc_interpolation_loaded", {});
+  /** int32_t nc_interpolation_frame(frame0, frame1, width, height, timestep, mode, out_rgba, out_width, out_height, out_error) */
+  NC_API.nc_interpolation_frame = (args = {}) => call("nc_interpolation_frame", args);
   /** int32_t nc_superres_upscale(rgba, width, height, scale, out_rgba, out_width, out_height, out_tiles, out_fallbacks, out_error) */
   NC_API.nc_superres_upscale = (args = {}) => call("nc_superres_upscale", args);
   /** int32_t nc_translate_load(encoder_path, decoder_path, decoder_with_past_path, tokenizer_json_path, out_error) */
@@ -334,16 +416,44 @@
   NC_API.nc_speech_mel = (args = {}) => call("nc_speech_mel", args);
   /** uint64_t nc_add_effect(track_index, clip_id, type, value) */
   NC_API.nc_add_effect = (args = {}) => call("nc_add_effect", args);
+  /** int32_t nc_update_effect(track_index, clip_id, effect_id, type, value) */
+  NC_API.nc_update_effect = (args = {}) => call("nc_update_effect", args);
   /** int32_t nc_remove_effect(track_index, clip_id, effect_id) */
   NC_API.nc_remove_effect = (args = {}) => call("nc_remove_effect", args);
+  /** int32_t nc_effect_spec(type, out_name, out_unit, out_hint, out_min, out_max, out_def) */
+  NC_API.nc_effect_spec = (args = {}) => call("nc_effect_spec", args);
+  /** int32_t nc_surge_preset_count() */
+  NC_API.nc_surge_preset_count = () => call("nc_surge_preset_count", {});
+  /** const char* nc_surge_preset_name(index) */
+  NC_API.nc_surge_preset_name = (args = {}) => call("nc_surge_preset_name", args);
+  /** int32_t nc_surge_preset_describe(index, out_summary, out_error) */
+  NC_API.nc_surge_preset_describe = (args = {}) => call("nc_surge_preset_describe", args);
+  /** int32_t nc_surge_preset_apply(track_index, clip_id, preset_index, intensity, out_summary, out_error) */
+  NC_API.nc_surge_preset_apply = (args = {}) => call("nc_surge_preset_apply", args);
   /** int32_t nc_effect_count(track_index, clip_id) */
   NC_API.nc_effect_count = (args = {}) => call("nc_effect_count", args);
-  /** int32_t nc_effect_get(track_index, clip_id, index, out_type, out_value, out_enabled) */
+  /** int32_t nc_effect_get(track_index, clip_id, index, out_effect_id, out_type, out_value, out_enabled) */
   NC_API.nc_effect_get = (args = {}) => call("nc_effect_get", args);
+  /** int32_t nc_set_effect_enabled(track_index, clip_id, effect_id, enabled) */
+  NC_API.nc_set_effect_enabled = (args = {}) => call("nc_set_effect_enabled", args);
+  /** int32_t nc_move_effect(track_index, clip_id, effect_id, direction) */
+  NC_API.nc_move_effect = (args = {}) => call("nc_move_effect", args);
+  /** uint64_t nc_adjustment_add_effect(track_index, type, value) */
+  NC_API.nc_adjustment_add_effect = (args = {}) => call("nc_adjustment_add_effect", args);
+  /** int32_t nc_adjustment_remove_effect(track_index, effect_id) */
+  NC_API.nc_adjustment_remove_effect = (args = {}) => call("nc_adjustment_remove_effect", args);
+  /** int32_t nc_adjustment_set_lut(track_index, path, strength) */
+  NC_API.nc_adjustment_set_lut = (args = {}) => call("nc_adjustment_set_lut", args);
+  /** int32_t nc_adjustment_effect_get(track_index, index, out_effect_id, out_type, out_value, out_enabled) */
+  NC_API.nc_adjustment_effect_get = (args = {}) => call("nc_adjustment_effect_get", args);
+  /** int32_t nc_adjustment_get(track_index, out_effect_count, out_has_lut, out_lut_strength, out_lut_path) */
+  NC_API.nc_adjustment_get = (args = {}) => call("nc_adjustment_get", args);
   /** int32_t nc_insert_keyframe(track_index, clip_id, property, time_us, value) */
   NC_API.nc_insert_keyframe = (args = {}) => call("nc_insert_keyframe", args);
   /** int32_t nc_remove_keyframe(track_index, clip_id, property, time_us) */
   NC_API.nc_remove_keyframe = (args = {}) => call("nc_remove_keyframe", args);
+  /** int32_t nc_set_keyframe_easing(track_index, clip_id, property, time_us, easing, c1x, c1y, c2x, c2y) */
+  NC_API.nc_set_keyframe_easing = (args = {}) => call("nc_set_keyframe_easing", args);
   /** int32_t nc_set_clip_audio(track_index, clip_id, gain_db, fade_in_us, fade_out_us) */
   NC_API.nc_set_clip_audio = (args = {}) => call("nc_set_clip_audio", args);
   /** int32_t nc_set_clip_denoise(track_index, clip_id, strength) */
@@ -352,14 +462,52 @@
   NC_API.nc_get_clip_denoise = (args = {}) => call("nc_get_clip_denoise", args);
   /** int32_t nc_auto_edit(track_index, profile_shots, shot_count, avg_r, avg_g, avg_b, avg_saturation, avg_contrast, asset_ids, usable_seconds, material_count, apply_color, out_error) */
   NC_API.nc_auto_edit = (args = {}) => call("nc_auto_edit", args);
+  /** int32_t nc_set_clip_shake(track_index, clip_id, trajectory, amplitude, frequency, phase, decay_seconds, seed) */
+  NC_API.nc_set_clip_shake = (args = {}) => call("nc_set_clip_shake", args);
+  /** int32_t nc_get_clip_shake(track_index, clip_id, out_trajectory, out_amplitude, out_frequency, out_phase, out_decay_seconds, out_seed) */
+  NC_API.nc_get_clip_shake = (args = {}) => call("nc_get_clip_shake", args);
+  /** int32_t nc_set_clip_xform(track_index, clip_id, kind, args) */
+  NC_API.nc_set_clip_xform = (args = {}) => call("nc_set_clip_xform", args);
+  /** int32_t nc_get_clip_xform(track_index, clip_id, kind, out_args, out_enabled, out_edge) */
+  NC_API.nc_get_clip_xform = (args = {}) => call("nc_get_clip_xform", args);
+  /** int32_t nc_clear_clip_xform(track_index, clip_id, kind) */
+  NC_API.nc_clear_clip_xform = (args = {}) => call("nc_clear_clip_xform", args);
   /** int64_t nc_export_run(out_path, crf, include_audio, attach_ai_label, ai_label_text, , out_error) */
   NC_API.nc_export_run = (args = {}) => call("nc_export_run", args);
+  /** int64_t nc_export_run_ex(out_path, crf, include_audio, attach_ai_label, ai_label_text, video_codec, , out_error) */
+  NC_API.nc_export_run_ex = (args = {}) => call("nc_export_run_ex", args);
+  /** uint64_t nc_add_text_clip(text, start_us, duration_us, font_size, color, alignment, anchor_x, anchor_y) */
+  NC_API.nc_add_text_clip = (args = {}) => call("nc_add_text_clip", args);
+  /** int32_t nc_set_clip_text(clip_id, text) */
+  NC_API.nc_set_clip_text = (args = {}) => call("nc_set_clip_text", args);
+  /** int32_t nc_get_clip_text(clip_id, out_text) */
+  NC_API.nc_get_clip_text = (args = {}) => call("nc_get_clip_text", args);
+  /** int32_t nc_set_text_style(clip_id, font_size, color, outline_color, outline_width, alignment, anchor_x, anchor_y) */
+  NC_API.nc_set_text_style = (args = {}) => call("nc_set_text_style", args);
+  /** int32_t nc_text_clip_count() */
+  NC_API.nc_text_clip_count = () => call("nc_text_clip_count", {});
   /** int32_t nc_set_frame_fit(mode) */
   NC_API.nc_set_frame_fit = (args = {}) => call("nc_set_frame_fit", args);
   /** int32_t nc_get_frame_fit() */
   NC_API.nc_get_frame_fit = () => call("nc_get_frame_fit", {});
   /** int32_t nc_set_background_color(rgba) */
   NC_API.nc_set_background_color = (args = {}) => call("nc_set_background_color", args);
+  /** int32_t nc_canvas_preset_count() */
+  NC_API.nc_canvas_preset_count = () => call("nc_canvas_preset_count", {});
+  /** int32_t nc_canvas_preset_get(index, out_id, out_label, out_width, out_height) */
+  NC_API.nc_canvas_preset_get = (args = {}) => call("nc_canvas_preset_get", args);
+  /** int32_t nc_canvas_validate(width, height, out_reason) */
+  NC_API.nc_canvas_validate = (args = {}) => call("nc_canvas_validate", args);
+  /** int32_t nc_canvas_set_ex(width, height, adapt_mode) */
+  NC_API.nc_canvas_set_ex = (args = {}) => call("nc_canvas_set_ex", args);
+  /** int32_t nc_canvas_swap_orientation() */
+  NC_API.nc_canvas_swap_orientation = () => call("nc_canvas_swap_orientation", {});
+  /** int32_t nc_canvas_solve_height(width, ratio_num, ratio_den, out_height, out_exact) */
+  NC_API.nc_canvas_solve_height = (args = {}) => call("nc_canvas_solve_height", args);
+  /** int32_t nc_canvas_solve_width(height, ratio_num, ratio_den, out_width, out_exact) */
+  NC_API.nc_canvas_solve_width = (args = {}) => call("nc_canvas_solve_width", args);
+  /** int32_t nc_canvas_aspect_ratio(out_num, out_den) */
+  NC_API.nc_canvas_aspect_ratio = (args = {}) => call("nc_canvas_aspect_ratio", args);
   /** int32_t nc_set_track_auto_duck(track_index, enabled, sensitivity, duck_amount_db, attack_us, release_us, hold_us) */
   NC_API.nc_set_track_auto_duck = (args = {}) => call("nc_set_track_auto_duck", args);
   /** int32_t nc_get_track_auto_duck(track_index, out_enabled, out_sensitivity, out_duck_amount_db) */
@@ -402,6 +550,14 @@
   NC_API.nc_proxy_usage = (args = {}) => call("nc_proxy_usage", args);
   /** int32_t nc_proxy_clear_records() */
   NC_API.nc_proxy_clear_records = () => call("nc_proxy_clear_records", {});
+  /** int32_t nc_preview_set_cache_budget(bytes) */
+  NC_API.nc_preview_set_cache_budget = (args = {}) => call("nc_preview_set_cache_budget", args);
+  /** int64_t nc_preview_get_cache_budget() */
+  NC_API.nc_preview_get_cache_budget = () => call("nc_preview_get_cache_budget", {});
+  /** int32_t nc_preview_prewarm(frame_count) */
+  NC_API.nc_preview_prewarm = (args = {}) => call("nc_preview_prewarm", args);
+  /** int32_t nc_proxy_generate(asset_id, out_path, quality, crf, max_frames, , out_frames, out_width, out_height, out_error) */
+  NC_API.nc_proxy_generate = (args = {}) => call("nc_proxy_generate", args);
   /** int32_t nc_export_presets(out_ids, capacity, out_count) */
   NC_API.nc_export_presets = (args = {}) => call("nc_export_presets", args);
   /** int32_t nc_export_preset_info(preset_id, out_width, out_height, out_fps, out_requires_pro, out_label) */
@@ -428,8 +584,30 @@
   NC_API.nc_chroma_key_estimate = (args = {}) => call("nc_chroma_key_estimate", args);
   /** int32_t nc_set_clip_blend_mode(track_index, clip_id, mode) */
   NC_API.nc_set_clip_blend_mode = (args = {}) => call("nc_set_clip_blend_mode", args);
+  /** int32_t nc_blend_mode_count() */
+  NC_API.nc_blend_mode_count = () => call("nc_blend_mode_count", {});
+  /** const char* nc_blend_mode_name(mode) */
+  NC_API.nc_blend_mode_name = (args = {}) => call("nc_blend_mode_name", args);
   /** int32_t nc_get_clip_blend_mode(track_index, clip_id) */
   NC_API.nc_get_clip_blend_mode = (args = {}) => call("nc_get_clip_blend_mode", args);
+  /** int32_t nc_set_clip_transform(track_index, clip_id, enabled, scale, pos_x, pos_y, rotation_degrees, anchor) */
+  NC_API.nc_set_clip_transform = (args = {}) => call("nc_set_clip_transform", args);
+  /** int32_t nc_get_clip_transform(track_index, clip_id, out_enabled, out_scale, out_pos_x, out_pos_y, out_rotation_degrees, out_anchor) */
+  NC_API.nc_get_clip_transform = (args = {}) => call("nc_get_clip_transform", args);
+  /** int32_t nc_clear_clip_transform(track_index, clip_id) */
+  NC_API.nc_clear_clip_transform = (args = {}) => call("nc_clear_clip_transform", args);
+  /** int32_t nc_set_clip_lut(track_index, clip_id, path, strength) */
+  NC_API.nc_set_clip_lut = (args = {}) => call("nc_set_clip_lut", args);
+  /** int32_t nc_get_clip_lut(track_index, clip_id, out_path, out_strength) */
+  NC_API.nc_get_clip_lut = (args = {}) => call("nc_get_clip_lut", args);
+  /** int32_t nc_lut_validate_file(path, out_size, out_title, out_message) */
+  NC_API.nc_lut_validate_file = (args = {}) => call("nc_lut_validate_file", args);
+  /** int32_t nc_lut_preset_count() */
+  NC_API.nc_lut_preset_count = () => call("nc_lut_preset_count", {});
+  /** const char* nc_lut_preset_name(index) */
+  NC_API.nc_lut_preset_name = (args = {}) => call("nc_lut_preset_name", args);
+  /** int32_t nc_lut_preset_apply(track_index, clip_id, preset_index, strength, out_error) */
+  NC_API.nc_lut_preset_apply = (args = {}) => call("nc_lut_preset_apply", args);
   /** int32_t nc_model_catalog(out_ids, capacity, out_count) */
   NC_API.nc_model_catalog = (args = {}) => call("nc_model_catalog", args);
   /** int32_t nc_model_info(model_id, out_name, out_description, out_size_bytes, out_version, out_requires_pro, out_capability) */
@@ -544,230 +722,33 @@
   NC_API.nc_template_apply = (args = {}) => call("nc_template_apply", args);
   /** int32_t nc_template_apply_slots(template_id, slot_indices, material_ids, count, out_summary, out_error) */
   NC_API.nc_template_apply_slots = (args = {}) => call("nc_template_apply_slots", args);
-
-  /* ---------------------------------------------------------------
-     补齐的封装（2026-11-04）
-     ---------------------------------------------------------------
-     这 34 个函数此前只存在于 C ABI，`NC_API.<name>` 没有对应封装。
-     后果：前端只能用通用入口 `engineCall('nc_xxx', {...})`，
-     与文件既有的「一函数一封装」风格不一致，且失去 IDE 提示。
-
-     分组只是为了可读性，调用方式完全一致。 */
-
-  /* ---- 调整图层（§4.7）---- */
-  /** int32_t nc_adjustment_get(track_index, out_effect_count, out_lut_path, out_lut_strength) */
-  NC_API.nc_adjustment_get = (args = {}) => call("nc_adjustment_get", args);
-  /** int32_t nc_adjustment_add_effect(track_index, type, value, out_effect_id) */
-  NC_API.nc_adjustment_add_effect = (args = {}) => call("nc_adjustment_add_effect", args);
-  /** int32_t nc_adjustment_remove_effect(track_index, effect_id) */
-  NC_API.nc_adjustment_remove_effect = (args = {}) => call("nc_adjustment_remove_effect", args);
-  /** int32_t nc_adjustment_effect_get(track_index, index, out_id, out_type, out_value, out_enabled) */
-  NC_API.nc_adjustment_effect_get = (args = {}) => call("nc_adjustment_effect_get", args);
-  /** int32_t nc_adjustment_set_lut(track_index, path, strength) */
-  NC_API.nc_adjustment_set_lut = (args = {}) => call("nc_adjustment_set_lut", args);
-
-  /* ---- 片段 LUT / 摇动 / 变换 / xform ---- */
-  /** int32_t nc_set_clip_lut(track_index, clip_id, path, strength) */
-  NC_API.nc_set_clip_lut = (args = {}) => call("nc_set_clip_lut", args);
-  /** int32_t nc_get_clip_lut(track_index, clip_id, out_path, out_strength) */
-  NC_API.nc_get_clip_lut = (args = {}) => call("nc_get_clip_lut", args);
-  /** int32_t nc_lut_validate_file(path, out_error) */
-  NC_API.nc_lut_validate_file = (args = {}) => call("nc_lut_validate_file", args);
-  /** int32_t nc_lut_preset_count() */
-  NC_API.nc_lut_preset_count = () => call("nc_lut_preset_count", {});
-  /** int32_t nc_lut_preset_name(index, out_name) */
-  NC_API.nc_lut_preset_name = (args = {}) => call("nc_lut_preset_name", args);
-
-  /** int32_t nc_set_clip_shake(track_index, clip_id, amplitude, frequency, enabled) */
-  NC_API.nc_set_clip_shake = (args = {}) => call("nc_set_clip_shake", args);
-  /** int32_t nc_get_clip_shake(track_index, clip_id, out_amplitude, out_frequency, out_enabled) */
-  NC_API.nc_get_clip_shake = (args = {}) => call("nc_get_clip_shake", args);
-
-  /** int32_t nc_set_clip_transform(track_index, clip_id, enabled, scale, pos_x, pos_y, rotation, anchor) */
-  NC_API.nc_set_clip_transform = (args = {}) => call("nc_set_clip_transform", args);
-  /** int32_t nc_get_clip_transform(track_index, clip_id, ...) */
-  NC_API.nc_get_clip_transform = (args = {}) => call("nc_get_clip_transform", args);
-  /** int32_t nc_clear_clip_transform(track_index, clip_id) */
-  NC_API.nc_clear_clip_transform = (args = {}) => call("nc_clear_clip_transform", args);
-
-  /** int32_t nc_set_clip_xform(track_index, clip_id, kind, value, angle, freq, phase, axis, cols, rows, gap, anchor, enabled) */
-  NC_API.nc_set_clip_xform = (args = {}) => call("nc_set_clip_xform", args);
-  /** int32_t nc_get_clip_xform(track_index, clip_id, kind, ...) */
-  NC_API.nc_get_clip_xform = (args = {}) => call("nc_get_clip_xform", args);
-  /** int32_t nc_clear_clip_xform(track_index, clip_id, kind) */
-  NC_API.nc_clear_clip_xform = (args = {}) => call("nc_clear_clip_xform", args);
-
-  /* ---- 特效栈管理 ---- */
-  /** int32_t nc_update_effect(track_index, clip_id, effect_id, value, enabled) */
-  NC_API.nc_update_effect = (args = {}) => call("nc_update_effect", args);
-  /** int32_t nc_set_effect_enabled(track_index, clip_id, effect_id, enabled) */
-  NC_API.nc_set_effect_enabled = (args = {}) => call("nc_set_effect_enabled", args);
-  /** int32_t nc_move_effect(track_index, clip_id, effect_id, new_index) */
-  NC_API.nc_move_effect = (args = {}) => call("nc_move_effect", args);
-
-  /* ---- 轨道组 ---- */
-  /** int32_t nc_create_track_group(name, out_group_id) */
-  NC_API.nc_create_track_group = (args = {}) => call("nc_create_track_group", args);
-  /** int32_t nc_remove_track_group(group_id) */
-  NC_API.nc_remove_track_group = (args = {}) => call("nc_remove_track_group", args);
-  /** int32_t nc_group_count() */
-  NC_API.nc_group_count = () => call("nc_group_count", {});
-  /** int32_t nc_group_get(index, out_id, out_name, out_track_count) */
-  NC_API.nc_group_get = (args = {}) => call("nc_group_get", args);
-  /** int32_t nc_set_group_hidden(group_id, hidden) */
-  NC_API.nc_set_group_hidden = (args = {}) => call("nc_set_group_hidden", args);
-  /** int32_t nc_set_group_locked(group_id, locked) */
-  NC_API.nc_set_group_locked = (args = {}) => call("nc_set_group_locked", args);
-  /** int32_t nc_set_group_muted(group_id, muted) */
-  NC_API.nc_set_group_muted = (args = {}) => call("nc_set_group_muted", args);
-  /** int32_t nc_track_group_of(track_index) */
-  NC_API.nc_track_group_of = (args = {}) => call("nc_track_group_of", args);
-
-  /* ---- 其它 ---- */
-  /** int32_t nc_clip_is_frozen(track_index, clip_id) */
-  NC_API.nc_clip_is_frozen = (args = {}) => call("nc_clip_is_frozen", args);
-  /** int32_t nc_clip_is_reversed(track_index, clip_id) */
-  NC_API.nc_clip_is_reversed = (args = {}) => call("nc_clip_is_reversed", args);
-  /** int32_t nc_beat_sync_apply(target_track, audio_track, ...) */
-  NC_API.nc_beat_sync_apply = (args = {}) => call("nc_beat_sync_apply", args);
-  /** int32_t nc_blend_mode_count() */
-  NC_API.nc_blend_mode_count = () => call("nc_blend_mode_count", {});
-  /** int32_t nc_blend_mode_name(index, out_name) */
-  NC_API.nc_blend_mode_name = (args = {}) => call("nc_blend_mode_name", args);
-  /** int32_t nc_preview_cache_stats(out_hits, out_misses, out_cached) */
-  NC_API.nc_preview_cache_stats = (args = {}) => call("nc_preview_cache_stats", args);
-  /** int32_t nc_transition_get_id(...) */
-  NC_API.nc_transition_get_id = (args = {}) => call("nc_transition_get_id", args);
-
-  /* ---- 预览质量（§8.3.1）---- */
-  /** int32_t nc_preview_reset_full_quality() —— 暂停时回全质量 */
+  /** void nc_perf_probe_enable(on) */
+  NC_API.nc_perf_probe_enable = (args = {}) => call("nc_perf_probe_enable", args);
+  /** int32_t nc_perf_probe_enabled() */
+  NC_API.nc_perf_probe_enabled = () => call("nc_perf_probe_enabled", {});
+  /** void nc_perf_probe_reset() */
+  NC_API.nc_perf_probe_reset = () => call("nc_perf_probe_reset", {});
+  /** int32_t nc_perf_probe_get(stage, out_avg_ms, out_p99_ms, out_max_ms, out_count) */
+  NC_API.nc_perf_probe_get = (args = {}) => call("nc_perf_probe_get", args);
+  /** const char* nc_perf_stage_name(stage) */
+  NC_API.nc_perf_stage_name = (args = {}) => call("nc_perf_stage_name", args);
+  /** int32_t nc_install_crash_handler(crash_dir) */
+  NC_API.nc_install_crash_handler = (args = {}) => call("nc_install_crash_handler", args);
+  /** const char* nc_crash_log_path() */
+  NC_API.nc_crash_log_path = () => call("nc_crash_log_path", {});
+  /** uint64_t nc_release_memory(level) */
+  NC_API.nc_release_memory = (args = {}) => call("nc_release_memory", args);
+  /** int32_t nc_preview_reset_full_quality() */
   NC_API.nc_preview_reset_full_quality = () => call("nc_preview_reset_full_quality", {});
   /** int32_t nc_preview_is_degraded() */
   NC_API.nc_preview_is_degraded = () => call("nc_preview_is_degraded", {});
   /** double nc_preview_min_scale() */
   NC_API.nc_preview_min_scale = () => call("nc_preview_min_scale", {});
-
-  /* ---- 崩溃捕获与内存（§8 P0）---- */
-  /** int32_t nc_install_crash_handler(dir) —— 安装信号处理器，crash.log 写到 dir */
-  NC_API.nc_install_crash_handler = (args = {}) => call("nc_install_crash_handler", args);
-  /** const char* nc_crash_log_path() —— 上次崩溃日志路径（无则空串；需 nc_free_string） */
-  NC_API.nc_crash_log_path = () => call("nc_crash_log_path", {});
-
-  /* ---- 性能埋点（§8 P0）---- */
-  /** int32_t nc_perf_probe_enable(enabled) */
-  NC_API.nc_perf_probe_enable = (args = {}) => call("nc_perf_probe_enable", args);
-  /** int32_t nc_perf_probe_enabled() */
-  NC_API.nc_perf_probe_enabled = () => call("nc_perf_probe_enabled", {});
-  /** int32_t nc_perf_probe_reset() */
-  NC_API.nc_perf_probe_reset = () => call("nc_perf_probe_reset", {});
-  /** int32_t nc_perf_probe_get(out_json) —— 五段统计（decode/fit/effect/composite/transfer） */
-  NC_API.nc_perf_probe_get = (args = {}) => call("nc_perf_probe_get", args);
-  /** const char* nc_perf_stage_name(stage) */
-  NC_API.nc_perf_stage_name = (args = {}) => call("nc_perf_stage_name", args);
-
-  /* ---- 内存回收（§8 P0）---- */
-  /** int32_t nc_release_memory(level) —— 0=低 1=严重 2=系统低内存（清缓存不毁工程） */
-  NC_API.nc_release_memory = (args = {}) => call("nc_release_memory", args);
-
-  /* ---- AI 剪辑（参考视频驱动）---- */
-  /** int32_t nc_ref_analyze(asset_id) → { profile: {...} } */
-  NC_API.nc_ref_analyze = (args = {}) => call("nc_ref_analyze", args);
-  /** int32_t nc_ref_apply(track_index, asset_ids[], start_seconds[], durations[],
-                            transition_kinds[], contrast, saturation,
-                            shake_amplitude, shake_frequency) → { count } */
-  NC_API.nc_ref_apply = (args = {}) => call("nc_ref_apply", args);
-
-  /* ---- 关键帧曲线（贝塞尔自定义）---- */
-  /** int32_t nc_set_keyframe_easing(track_index, clip_id, property, time_us, easing, c1x..c2y)
-      easing: 0 线性 / 1 缓入 / 2 缓出 / 3 缓入缓出 / 4 阶梯 / 5 贝塞尔 */
-  NC_API.nc_set_keyframe_easing = (args = {}) => call("nc_set_keyframe_easing", args);
-  /** int32_t nc_keyframe_get_ex(track_index, clip_id, property, index) → 含控制点 */
-  NC_API.nc_keyframe_get_ex = (args = {}) => call("nc_keyframe_get_ex", args);
-  /** int32_t nc_extract_audio(asset_id, out_path) — 流复制，不重编码 */
-  NC_API.nc_extract_audio = (args = {}) => call("nc_extract_audio", args);
-
-  /* ---- 超燃预设（P-08）---- */
-  /** int32_t nc_surge_preset_count() */
-  NC_API.nc_surge_preset_count = () => call("nc_surge_preset_count", {});
-  /** const char* nc_surge_preset_name(index) */
-  NC_API.nc_surge_preset_name = (args = {}) => call("nc_surge_preset_name", args);
-  /** int32_t nc_surge_preset_describe(index, out_summary, out_error) */
-  NC_API.nc_surge_preset_describe = (args = {}) => call("nc_surge_preset_describe", args);
-  /** int32_t nc_surge_preset_apply(track_index, clip_id, preset_index, intensity, ...) */
-  NC_API.nc_surge_preset_apply = (args = {}) => call("nc_surge_preset_apply", args);
-
-  /* ---- 特效语义化规格（P-10）---- */
-  /** int32_t nc_effect_spec(type, out_name, out_unit, out_hint, out_min, out_max, out_def) */
-  NC_API.nc_effect_spec = (args = {}) => call("nc_effect_spec", args);
-
-  /* ---- 内置 LUT 预设（20 个，程序化生成）---- */
-  /** int32_t nc_lut_preset_count() */
-  NC_API.nc_lut_preset_count = () => call("nc_lut_preset_count", {});
-  /** const char* nc_lut_preset_name(index) */
-  NC_API.nc_lut_preset_name = (args = {}) => call("nc_lut_preset_name", args);
-  /** int32_t nc_lut_preset_apply(track_index, clip_id, preset_index, strength, out_error) */
-  NC_API.nc_lut_preset_apply = (args = {}) => call("nc_lut_preset_apply", args);
-
-  /* ---- 降采样缓存（P2）---- */
-  /** int32_t nc_preview_set_cache_scale(scale) —— 1.0 = 关闭；移动端建议 0.5 */
-  NC_API.nc_preview_set_cache_scale = (args = {}) => call("nc_preview_set_cache_scale", args);
-  /** double nc_preview_get_cache_scale() */
-  NC_API.nc_preview_get_cache_scale = () => call("nc_preview_get_cache_scale", {});
-  /** int32_t nc_preview_cache_stats_ex(out_invalidated, out_upscaled, out_cache_scale) */
-  NC_API.nc_preview_cache_stats_ex = (args = {}) => call("nc_preview_cache_stats_ex", args);
-
-  /* ---- 帧缓存分级预算（P1 内存分级）---- */
-  /** int32_t nc_preview_set_cache_budget(bytes) */
-  NC_API.nc_preview_set_cache_budget = (args = {}) => call("nc_preview_set_cache_budget", args);
-  /** int64_t nc_preview_get_cache_budget() */
-  NC_API.nc_preview_get_cache_budget = () => call("nc_preview_get_cache_budget", {});
-
-  /* ---- 预览预热（P2 首次打开预热）---- */
-  /** int32_t nc_preview_prewarm(frame_count) —— 预渲染开头几帧 */
-  NC_API.nc_preview_prewarm = (args = {}) => call("nc_preview_prewarm", args);
-
-  /* ---- 代理文件生成（P2 代理模式）---- */
-  /** int32_t nc_proxy_generate(asset_id, out_path, quality, crf, max_frames, progress_cb, out_frames, out_width, out_height, out_error) */
-  NC_API.nc_proxy_generate = (args = {}) => call("nc_proxy_generate", args);
-
-  /* ---- 人声分离（UVR-MDX）---- */
-  /** int32_t nc_stem_load(model_path, out_error) */
-  NC_API.nc_stem_load = (args = {}) => call("nc_stem_load", args);
-  /** int32_t nc_stem_unload() */
-  NC_API.nc_stem_unload = () => call("nc_stem_unload", {});
-  /** int32_t nc_stem_loaded() */
-  NC_API.nc_stem_loaded = () => call("nc_stem_loaded", {});
-  /** int32_t nc_stem_separate(samples, frame_count, channels, sample_rate, mode, intensity, ...) */
-  NC_API.nc_stem_separate = (args = {}) => call("nc_stem_separate", args);
-
-  /* ---- 光流补帧（RIFE）---- */
-  /** int32_t nc_interpolation_load(model_path, out_error) */
-  NC_API.nc_interpolation_load = (args = {}) => call("nc_interpolation_load", args);
-  /** int32_t nc_interpolation_unload() */
-  NC_API.nc_interpolation_unload = () => call("nc_interpolation_unload", {});
-  /** int32_t nc_interpolation_loaded() */
-  NC_API.nc_interpolation_loaded = () => call("nc_interpolation_loaded", {});
-  /** int32_t nc_interpolation_frame(frame0, frame1, width, height, timestep, mode, ...) */
-  NC_API.nc_interpolation_frame = (args = {}) => call("nc_interpolation_frame", args);
-
-  /* ---- 文本片段（§4.6）---- */
-  /** int64_t nc_add_text_clip(text, start_us, duration_us, font_size, color, alignment, anchor_x, anchor_y) */
-  NC_API.nc_add_text_clip = (args = {}) => call("nc_add_text_clip", args);
-  /** int32_t nc_set_clip_text(clip_id, text) */
-  NC_API.nc_set_clip_text = (args = {}) => call("nc_set_clip_text", args);
-  /** int32_t nc_get_clip_text(clip_id, out_text) */
-  NC_API.nc_get_clip_text = (args = {}) => call("nc_get_clip_text", args);
-  /** int32_t nc_set_text_style(clip_id, font_size, color, outline_color, outline_width, alignment, anchor_x, anchor_y) */
-  NC_API.nc_set_text_style = (args = {}) => call("nc_set_text_style", args);
-  /** int32_t nc_text_clip_count() */
-  NC_API.nc_text_clip_count = () => call("nc_text_clip_count", {});
-
-  /* ---- 导出（可指定编码格式）---- */
-  /** int64_t nc_export_run_ex(out_path, crf, include_audio, attach_ai_label, ai_label_text, video_codec, progress_cb, out_error) */
-  NC_API.nc_export_run_ex = (args = {}) => call("nc_export_run_ex", args);
+  /** int32_t nc_asset_is_hdr(asset_id) */
+  NC_API.nc_asset_is_hdr = (args = {}) => call("nc_asset_is_hdr", args);
 
   /* 接口名清单：便于 UI 侧自检「我调的函数是否存在」 */
-  NC_API.FUNCTIONS = ["nc_abi_version", "nc_project_save", "nc_project_load", "nc_project_duration_us", "nc_track_count", "nc_clip_count", "nc_project_name", "nc_set_project_name", "nc_project_canvas", "nc_set_project_canvas", "nc_project_frame_rate", "nc_set_project_frame_rate", "nc_can_undo", "nc_can_redo", "nc_undo_count", "nc_redo_count", "nc_undo_history_name", "nc_clear_undo_history", "nc_set_undo_depth_limit", "nc_asset_count", "nc_asset_get", "nc_remove_asset", "nc_asset_is_referenced", "nc_asset_reorder", "nc_import_asset", "nc_add_track", "nc_insert_clip", "nc_undo", "nc_redo", "nc_track_get", "nc_track_get_view", "nc_set_track_view", "nc_remove_track", "nc_rename_track", "nc_move_track", "nc_set_track_locked", "nc_set_track_muted", "nc_set_track_hidden", "nc_remove_clip", "nc_split_clip", "nc_move_clip", "nc_move_clip_to_track", "nc_trim_clip_start", "nc_trim_clip_end", "nc_set_clip_speed", "nc_ripple_delete", "nc_duplicate_clip", "nc_freeze_frame", "nc_reverse_clip", "nc_clip_info", "nc_set_clip_enabled", "nc_get_clip_opacity", "nc_set_clip_opacity", "nc_set_clip_filter", "nc_get_clip_filter", "nc_filter_display_name", "nc_upsert_subtitle", "nc_remove_subtitle", "nc_subtitle_count", "nc_subtitle_get", "nc_add_transition", "nc_remove_transition", "nc_transition_count", "nc_transition_get", "nc_transition_type_count", "nc_transition_type_name", "nc_transition_category", "nc_transition_supports_direction", "nc_clip_get", "nc_preview_render", "nc_preview_subtitles", "nc_preview_invalidate", "nc_thumbnail_generate", "nc_thumbnail_size", "nc_waveform_generate", "nc_waveform_bucket_count", "nc_waveform_bucket_get", "nc_scene_detect", "nc_beat_detect", "nc_set_clip_speed_curve", "nc_clip_speed_curve_count", "nc_clip_speed_curve_get", "nc_speed_curve_preset_name", "nc_speed_curve_preset_display_name", "nc_apply_speed_curve_preset", "nc_set_camera_tracking", "nc_set_camera_tracking_scaled", "nc_tracking_point_count", "nc_tracking_point_get", "nc_tracking_point_get_scaled", "nc_clear_camera_tracking", "nc_set_depth_effect", "nc_get_depth_effect", "nc_add_transition_keyframe", "nc_transition_keyframe_count", "nc_transition_keyframe_get", "nc_remove_transition_keyframe", "nc_transition_duration_us", "nc_keyframe_count", "nc_keyframe_get", "nc_set_clip_background", "nc_get_clip_background", "nc_add_marker", "nc_remove_marker", "nc_marker_count", "nc_marker_get", "nc_detach_audio", "nc_ai_feature_access", "nc_ai_task_status", "nc_ai_task_begin", "nc_ai_task_progress", "nc_ai_task_succeed", "nc_ai_task_fail", "nc_ai_task_cancel", "nc_ai_task_reset", "nc_ai_task_failure_text", "nc_ai_engine_info", "nc_depth_load", "nc_depth_unload", "nc_depth_loaded", "nc_depth_estimate", "nc_depth_apply_effect", "nc_superres_load", "nc_superres_unload", "nc_superres_loaded", "nc_superres_upscale", "nc_translate_load", "nc_translate_unload", "nc_translate_loaded", "nc_translate_text", "nc_translate_subtitles", "nc_matting_load", "nc_matting_unload", "nc_matting_loaded", "nc_matting_estimate", "nc_person_effect_apply", "nc_speech_load", "nc_speech_unload", "nc_speech_loaded", "nc_speech_transcribe", "nc_speech_mel", "nc_add_effect", "nc_remove_effect", "nc_effect_count", "nc_effect_get", "nc_insert_keyframe", "nc_remove_keyframe", "nc_set_clip_audio", "nc_set_clip_denoise", "nc_get_clip_denoise", "nc_auto_edit", "nc_export_run", "nc_set_frame_fit", "nc_get_frame_fit", "nc_set_background_color", "nc_set_track_auto_duck", "nc_get_track_auto_duck", "nc_create_compound_clip", "nc_unwrap_compound_clip", "nc_clip_is_compound", "nc_set_track_solo", "nc_set_track_gain", "nc_get_track_mixer", "nc_set_master_gain", "nc_get_master_gain", "nc_set_entitlement", "nc_get_entitlement", "nc_can_add_track", "nc_would_clamp_export", "nc_ai_check", "nc_ai_check_fix_all", "nc_proxy_check_import", "nc_proxy_set_record", "nc_proxy_get_record", "nc_proxy_usage", "nc_proxy_clear_records", "nc_export_presets", "nc_export_preset_info", "nc_export_estimate", "nc_export_setup_preset", "nc_speech_analyze", "nc_speech_cut_apply", "nc_set_clip_mask", "nc_get_clip_mask", "nc_matting_access", "nc_set_clip_chroma_key", "nc_get_clip_chroma_key", "nc_chroma_key_estimate", "nc_set_clip_blend_mode", "nc_get_clip_blend_mode", "nc_model_catalog", "nc_model_info", "nc_model_status", "nc_model_access_allowed", "nc_model_download_begin", "nc_model_download_progress", "nc_model_download_pause", "nc_model_download_resume", "nc_model_download_cancel", "nc_model_download_finish", "nc_model_download_fail", "nc_model_download_state", "nc_model_resume_plan", "nc_model_install", "nc_model_remove", "nc_model_storage_stats", "nc_model_decrypt", "nc_chapter_detect", "nc_chapter_apply", "nc_chapter_count", "nc_chapter_get", "nc_chapter_rename", "nc_reference_style_access", "nc_movie_version_access", "nc_smart_movie_plan", "nc_smart_movie_apply", "nc_regeneration_impact", "nc_regeneration_clear", "nc_chapter_clear", "nc_export_enqueue", "nc_export_poll_next", "nc_export_job_state", "nc_export_job_progress", "nc_export_job_update", "nc_export_queue_summary", "nc_export_queue_cancel_all", "nc_media_scan_offline", "nc_media_apply_offline_flags", "nc_media_relink", "nc_media_find_relink_candidates", "nc_media_relink_batch", "nc_media_set_digest", "nc_watermark_account_hash", "nc_watermark_set_export", "nc_watermark_detect", "nc_heartbeat_handle", "nc_heartbeat_network_error", "nc_heartbeat_status", "nc_heartbeat_periodic_due", "nc_heartbeat_clear_lock", "nc_last_error", "nc_template_list", "nc_template_slot_count", "nc_track_accepts_media", "nc_track_placement_reason", "nc_template_apply", "nc_template_apply_slots", "nc_install_crash_handler", "nc_crash_log_path", "nc_perf_probe_enable", "nc_perf_probe_enabled", "nc_perf_probe_reset", "nc_perf_probe_get", "nc_perf_stage_name", "nc_release_memory", "nc_adjustment_add_effect", "nc_adjustment_effect_get", "nc_adjustment_get", "nc_adjustment_remove_effect", "nc_adjustment_set_lut", "nc_beat_sync_apply", "nc_blend_mode_count", "nc_blend_mode_name", "nc_clear_clip_transform", "nc_clear_clip_xform", "nc_clip_is_frozen", "nc_clip_is_reversed", "nc_create_track_group", "nc_get_clip_lut", "nc_get_clip_shake", "nc_get_clip_transform", "nc_get_clip_xform", "nc_group_count", "nc_group_get", "nc_lut_preset_count", "nc_lut_preset_name", "nc_lut_validate_file", "nc_move_effect", "nc_preview_cache_stats", "nc_remove_track_group", "nc_set_clip_lut", "nc_set_clip_shake", "nc_set_clip_transform", "nc_set_clip_xform", "nc_set_effect_enabled", "nc_set_group_hidden", "nc_set_group_locked", "nc_set_group_muted", "nc_track_group_of", "nc_transition_get_id", "nc_update_effect", "nc_preview_reset_full_quality", "nc_preview_is_degraded", "nc_preview_min_scale", "nc_add_text_clip", "nc_set_clip_text", "nc_get_clip_text", "nc_set_text_style", "nc_text_clip_count", "nc_export_run_ex", "nc_stem_load", "nc_stem_unload", "nc_stem_loaded", "nc_stem_separate", "nc_interpolation_load", "nc_interpolation_unload", "nc_interpolation_loaded", "nc_interpolation_frame", "nc_proxy_generate", "nc_preview_prewarm", "nc_preview_set_cache_budget", "nc_preview_get_cache_budget", "nc_preview_set_cache_scale", "nc_preview_get_cache_scale", "nc_preview_cache_stats_ex", "nc_lut_preset_apply", "nc_effect_spec", "nc_surge_preset_count", "nc_surge_preset_name", "nc_surge_preset_describe", "nc_surge_preset_apply", "nc_set_keyframe_easing", "nc_keyframe_get_ex", "nc_extract_audio", "nc_ref_analyze", "nc_ref_apply"];
+  NC_API.FUNCTIONS = ["nc_abi_version", "nc_apply_command", "nc_contract_revision", "nc_project_save", "nc_project_load", "nc_project_duration_us", "nc_track_count", "nc_clip_count", "nc_project_name", "nc_set_project_name", "nc_project_canvas", "nc_set_project_canvas", "nc_project_frame_rate", "nc_set_project_frame_rate", "nc_can_undo", "nc_can_redo", "nc_undo_count", "nc_redo_count", "nc_undo_history_name", "nc_clear_undo_history", "nc_set_undo_depth_limit", "nc_asset_count", "nc_asset_get", "nc_remove_asset", "nc_asset_is_referenced", "nc_asset_reorder", "nc_import_asset", "nc_extract_audio", "nc_ref_analyze", "nc_ref_apply", "nc_add_track", "nc_insert_clip", "nc_undo", "nc_redo", "nc_track_get", "nc_track_get_view", "nc_set_track_view", "nc_remove_track", "nc_rename_track", "nc_move_track", "nc_create_track_group", "nc_remove_track_group", "nc_set_group_muted", "nc_set_group_hidden", "nc_set_group_locked", "nc_group_count", "nc_group_get", "nc_track_group_of", "nc_set_track_locked", "nc_set_track_muted", "nc_set_track_hidden", "nc_remove_clip", "nc_split_clip", "nc_move_clip", "nc_move_clip_to_track", "nc_trim_clip_start", "nc_trim_clip_end", "nc_set_clip_speed", "nc_ripple_delete", "nc_duplicate_clip", "nc_freeze_frame", "nc_reverse_clip", "nc_clip_is_reversed", "nc_clip_is_frozen", "nc_clip_info", "nc_set_clip_enabled", "nc_get_clip_opacity", "nc_set_clip_opacity", "nc_set_clip_filter", "nc_get_clip_filter", "nc_filter_display_name", "nc_upsert_subtitle", "nc_remove_subtitle", "nc_subtitle_count", "nc_subtitle_get", "nc_add_transition", "nc_remove_transition", "nc_transition_count", "nc_transition_get", "nc_transition_get_id", "nc_transition_type_count", "nc_transition_type_name", "nc_transition_category", "nc_transition_supports_direction", "nc_clip_get", "nc_preview_render", "nc_preview_subtitles", "nc_preview_invalidate", "nc_preview_cache_stats", "nc_preview_set_cache_scale", "nc_preview_get_cache_scale", "nc_preview_cache_stats_ex", "nc_thumbnail_generate", "nc_thumbnail_size", "nc_waveform_generate", "nc_waveform_bucket_count", "nc_waveform_bucket_get", "nc_scene_detect", "nc_beat_detect", "nc_beat_sync_apply", "nc_set_clip_speed_curve", "nc_clip_speed_curve_count", "nc_clip_speed_curve_get", "nc_speed_curve_preset_name", "nc_speed_curve_preset_display_name", "nc_apply_speed_curve_preset", "nc_set_camera_tracking", "nc_set_camera_tracking_scaled", "nc_tracking_point_count", "nc_tracking_point_get", "nc_tracking_point_get_scaled", "nc_clear_camera_tracking", "nc_set_depth_effect", "nc_get_depth_effect", "nc_add_transition_keyframe", "nc_transition_keyframe_count", "nc_transition_keyframe_get", "nc_remove_transition_keyframe", "nc_transition_duration_us", "nc_keyframe_count", "nc_keyframe_get", "nc_keyframe_get_ex", "nc_set_clip_background", "nc_get_clip_background", "nc_add_marker", "nc_remove_marker", "nc_marker_count", "nc_marker_get", "nc_detach_audio", "nc_ai_feature_access", "nc_ai_task_status", "nc_ai_task_begin", "nc_ai_task_progress", "nc_ai_task_succeed", "nc_ai_task_fail", "nc_ai_task_cancel", "nc_ai_task_reset", "nc_ai_task_failure_text", "nc_task_begin", "nc_task_heartbeat", "nc_task_complete", "nc_task_fail", "nc_task_cancel", "nc_task_cancel_ack", "nc_task_clear_result", "nc_task_query", "nc_task_tick", "nc_ai_task_begin_ex", "nc_ai_task_cancel_ack", "nc_ai_engine_info", "nc_depth_load", "nc_depth_unload", "nc_depth_loaded", "nc_depth_estimate", "nc_depth_apply_effect", "nc_superres_load", "nc_superres_unload", "nc_superres_loaded", "nc_stem_load", "nc_stem_unload", "nc_stem_loaded", "nc_stem_separate", "nc_interpolation_load", "nc_interpolation_unload", "nc_interpolation_loaded", "nc_interpolation_frame", "nc_superres_upscale", "nc_translate_load", "nc_translate_unload", "nc_translate_loaded", "nc_translate_text", "nc_translate_subtitles", "nc_matting_load", "nc_matting_unload", "nc_matting_loaded", "nc_matting_estimate", "nc_person_effect_apply", "nc_speech_load", "nc_speech_unload", "nc_speech_loaded", "nc_speech_transcribe", "nc_speech_mel", "nc_add_effect", "nc_update_effect", "nc_remove_effect", "nc_effect_spec", "nc_surge_preset_count", "nc_surge_preset_name", "nc_surge_preset_describe", "nc_surge_preset_apply", "nc_effect_count", "nc_effect_get", "nc_set_effect_enabled", "nc_move_effect", "nc_adjustment_add_effect", "nc_adjustment_remove_effect", "nc_adjustment_set_lut", "nc_adjustment_effect_get", "nc_adjustment_get", "nc_insert_keyframe", "nc_remove_keyframe", "nc_set_keyframe_easing", "nc_set_clip_audio", "nc_set_clip_denoise", "nc_get_clip_denoise", "nc_auto_edit", "nc_set_clip_shake", "nc_get_clip_shake", "nc_set_clip_xform", "nc_get_clip_xform", "nc_clear_clip_xform", "nc_export_run", "nc_export_run_ex", "nc_add_text_clip", "nc_set_clip_text", "nc_get_clip_text", "nc_set_text_style", "nc_text_clip_count", "nc_set_frame_fit", "nc_get_frame_fit", "nc_set_background_color", "nc_canvas_preset_count", "nc_canvas_preset_get", "nc_canvas_validate", "nc_canvas_set_ex", "nc_canvas_swap_orientation", "nc_canvas_solve_height", "nc_canvas_solve_width", "nc_canvas_aspect_ratio", "nc_set_track_auto_duck", "nc_get_track_auto_duck", "nc_create_compound_clip", "nc_unwrap_compound_clip", "nc_clip_is_compound", "nc_set_track_solo", "nc_set_track_gain", "nc_get_track_mixer", "nc_set_master_gain", "nc_get_master_gain", "nc_set_entitlement", "nc_get_entitlement", "nc_can_add_track", "nc_would_clamp_export", "nc_ai_check", "nc_ai_check_fix_all", "nc_proxy_check_import", "nc_proxy_set_record", "nc_proxy_get_record", "nc_proxy_usage", "nc_proxy_clear_records", "nc_preview_set_cache_budget", "nc_preview_get_cache_budget", "nc_preview_prewarm", "nc_proxy_generate", "nc_export_presets", "nc_export_preset_info", "nc_export_estimate", "nc_export_setup_preset", "nc_speech_analyze", "nc_speech_cut_apply", "nc_set_clip_mask", "nc_get_clip_mask", "nc_matting_access", "nc_set_clip_chroma_key", "nc_get_clip_chroma_key", "nc_chroma_key_estimate", "nc_set_clip_blend_mode", "nc_blend_mode_count", "nc_blend_mode_name", "nc_get_clip_blend_mode", "nc_set_clip_transform", "nc_get_clip_transform", "nc_clear_clip_transform", "nc_set_clip_lut", "nc_get_clip_lut", "nc_lut_validate_file", "nc_lut_preset_count", "nc_lut_preset_name", "nc_lut_preset_apply", "nc_model_catalog", "nc_model_info", "nc_model_status", "nc_model_access_allowed", "nc_model_download_begin", "nc_model_download_progress", "nc_model_download_pause", "nc_model_download_resume", "nc_model_download_cancel", "nc_model_download_finish", "nc_model_download_fail", "nc_model_download_state", "nc_model_resume_plan", "nc_model_install", "nc_model_remove", "nc_model_storage_stats", "nc_model_decrypt", "nc_chapter_detect", "nc_chapter_apply", "nc_chapter_count", "nc_chapter_get", "nc_chapter_rename", "nc_reference_style_access", "nc_movie_version_access", "nc_smart_movie_plan", "nc_smart_movie_apply", "nc_regeneration_impact", "nc_regeneration_clear", "nc_chapter_clear", "nc_export_enqueue", "nc_export_poll_next", "nc_export_job_state", "nc_export_job_progress", "nc_export_job_update", "nc_export_queue_summary", "nc_export_queue_cancel_all", "nc_media_scan_offline", "nc_media_apply_offline_flags", "nc_media_relink", "nc_media_find_relink_candidates", "nc_media_relink_batch", "nc_media_set_digest", "nc_watermark_account_hash", "nc_watermark_set_export", "nc_watermark_detect", "nc_heartbeat_handle", "nc_heartbeat_network_error", "nc_heartbeat_status", "nc_heartbeat_periodic_due", "nc_heartbeat_clear_lock", "nc_last_error", "nc_template_list", "nc_template_slot_count", "nc_track_accepts_media", "nc_track_placement_reason", "nc_template_apply", "nc_template_apply_slots", "nc_perf_probe_enable", "nc_perf_probe_enabled", "nc_perf_probe_reset", "nc_perf_probe_get", "nc_perf_stage_name", "nc_install_crash_handler", "nc_crash_log_path", "nc_release_memory", "nc_preview_reset_full_quality", "nc_preview_is_degraded", "nc_preview_min_scale", "nc_asset_is_hdr"];
 
   window.NC_API = NC_API;
 })();

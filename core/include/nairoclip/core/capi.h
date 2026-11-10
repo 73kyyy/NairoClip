@@ -1423,6 +1423,43 @@ int32_t nc_get_frame_fit(const NcEditor* editor);
 /// 设置画幅适配的背景填充色（Fit 模式的信箱/邮筒边颜色；0xRRGGBBAA）。
 int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba);
 
+// ---- 画布能力（B1-02）----
+// 说明：宽高是唯一权威数据；比例由宽高精确计算，不单独存储。
+// 以下接口只做「查询/换算/校验」，不修改工程；写入一律走
+// nc_set_project_canvas / nc_canvas_set_ex（内部为统一 Command）。
+
+/// 画布比例预设数量（1:1 / 4:5 / 3:4 / 9:16 / 2:3 / 16:9 / 4:3 / 3:2 / 21:9 / 2.39:1）。
+int32_t nc_canvas_preset_count(void);
+
+/// 读取第 index 个预设。出参字符串需 nc_free_string（可 NULL）。
+/// 返回 NC_OK / NC_ERROR_OUT_OF_RANGE。
+int32_t nc_canvas_preset_get(int32_t index, char** out_id, char** out_label, int32_t* out_width,
+                             int32_t* out_height);
+
+/// 校验宽高是否构成合法画布（纯计算，不改工程）。
+/// 合法返回 NC_OK；非法返回错误码，out_reason 给出原因（需 nc_free_string）。
+int32_t nc_canvas_validate(int32_t width, int32_t height, char** out_reason);
+
+/// 设置画布尺寸并指定素材适配策略。
+/// - adapt_mode：0=preserve 1=fit 2=fill（见 core/canvas.h）；
+/// - 走统一 Command：可撤销、revision 递增、发布事件。
+int32_t nc_canvas_set_ex(NcEditor* editor, int32_t width, int32_t height, int32_t adapt_mode);
+
+/// 横竖屏切换（交换宽高），走统一 Command。
+int32_t nc_canvas_swap_orientation(NcEditor* editor);
+
+/// 比例锁定：给定宽度，按 (ratio_num/ratio_den) 推算高度。
+/// 纯计算；out_exact 表示取整后比例是否严格相等（1/0）。
+int32_t nc_canvas_solve_height(int32_t width, int64_t ratio_num, int64_t ratio_den,
+                               int32_t* out_height, int32_t* out_exact);
+
+/// 比例锁定：给定高度，按比例推算宽度。
+int32_t nc_canvas_solve_width(int32_t height, int64_t ratio_num, int64_t ratio_den,
+                              int32_t* out_width, int32_t* out_exact);
+
+/// 读取当前画布宽高比（有理数出参，精确无浮点误差）。
+int32_t nc_canvas_aspect_ratio(const NcEditor* editor, int64_t* out_num, int64_t* out_den);
+
 // ---- 音频自动闪避（文档「🎵音频 → 自动闪避」）----
 
 /// 设置轨道自动闪避（轨道下标；enabled 0/1；sensitivity 0..1；

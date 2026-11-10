@@ -870,6 +870,97 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置画布失败，错误码 " + std::to_string(rc));
         return true;
     }
+    // ---- 画布能力（B1-02）----
+    // op 名与 capi.h 声明**逐一对应**：nc-api.js 由 tools/gen_ncapi.py 从
+    // capi.h 自动生成，名字一致才能自动接通，无需手改生成物。
+    // 所有写入（set_ex / swap）内部都是统一 Command：可撤销 + revision + 事件。
+    if (op == "nc_canvas_preset_count") {
+        *out = Ok(std::to_string(nc_canvas_preset_count()));
+        return true;
+    }
+    if (op == "nc_canvas_preset_get") {
+        char* id = nullptr;
+        char* label = nullptr;
+        int32_t w = 0;
+        int32_t h = 0;
+        const int32_t rc = nc_canvas_preset_get(static_cast<int32_t>(JInt(a, "index", 0)), &id,
+                                                &label, &w, &h);
+        if (rc != NC_OK) {
+            *out = Err("预设下标越界");
+            return true;
+        }
+        std::string j = "{\"out_id\":\"" + JEsc(id ? id : "") + "\",\"out_label\":\"" +
+                        JEsc(label ? label : "") + "\",\"out_width\":" + std::to_string(w) +
+                        ",\"out_height\":" + std::to_string(h) + "}";
+        if (id) nc_free_string(id);
+        if (label) nc_free_string(label);
+        *out = Ok(j);
+        return true;
+    }
+    if (op == "nc_canvas_validate") {
+        char* reason = nullptr;
+        const int32_t rc = nc_canvas_validate(static_cast<int32_t>(JInt(a, "width", 0)),
+                                              static_cast<int32_t>(JInt(a, "height", 0)), &reason);
+        const std::string why = reason != nullptr ? std::string(reason) : std::string();
+        if (reason != nullptr) nc_free_string(reason);
+        *out = rc == NC_OK
+                   ? Ok("{\"out_reason\":\"\"}")
+                   : Err(why.empty() ? std::string("画布尺寸非法") : why);
+        return true;
+    }
+    if (op == "nc_canvas_set_ex") {
+        const int32_t rc = nc_canvas_set_ex(
+            ed, static_cast<int32_t>(JInt(a, "width", 1080)),
+            static_cast<int32_t>(JInt(a, "height", 1920)),
+            static_cast<int32_t>(JInt(a, "adapt_mode", 0)));
+        *out = rc == NC_OK ? Ok("") : Err("设置画布失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_canvas_swap_orientation") {
+        const int32_t rc = nc_canvas_swap_orientation(ed);
+        *out = rc == NC_OK ? Ok("") : Err("横竖切换失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_canvas_solve_height") {
+        int32_t height = 0;
+        int32_t exact = 0;
+        const int32_t rc = nc_canvas_solve_height(
+            static_cast<int32_t>(JInt(a, "width", 0)), JInt(a, "ratio_num", 1),
+            JInt(a, "ratio_den", 1), &height, &exact);
+        if (rc != NC_OK) {
+            *out = Err("比例换算失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"out_height\":" + std::to_string(height) +
+                  ",\"out_exact\":" + std::to_string(exact) + "}");
+        return true;
+    }
+    if (op == "nc_canvas_solve_width") {
+        int32_t width = 0;
+        int32_t exact = 0;
+        const int32_t rc = nc_canvas_solve_width(
+            static_cast<int32_t>(JInt(a, "height", 0)), JInt(a, "ratio_num", 1),
+            JInt(a, "ratio_den", 1), &width, &exact);
+        if (rc != NC_OK) {
+            *out = Err("比例换算失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"out_width\":" + std::to_string(width) +
+                  ",\"out_exact\":" + std::to_string(exact) + "}");
+        return true;
+    }
+    if (op == "nc_canvas_aspect_ratio") {
+        int64_t num = 0;
+        int64_t den = 1;
+        const int32_t rc = nc_canvas_aspect_ratio(ed, &num, &den);
+        if (rc != NC_OK) {
+            *out = Err("读取比例失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"out_num\":" + std::to_string(num) + ",\"out_den\":" +
+                  std::to_string(den) + "}");
+        return true;
+    }
     if (op == "lut") {
         // 片段 3D LUT（P-01）。path 为空 = 清除。
         const std::string path = JStrField(a, "path");
