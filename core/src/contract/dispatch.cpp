@@ -104,6 +104,11 @@ CommandResult CommandDispatcher::apply(const CommandRequest& request) {
     const TrackId trk{trackId};
     const ClipId clp{clipId};
 
+    // 事件统一由 TimelineEditor::commit() 在**真实提交成功后**发布一次。
+    // 这里只把 commandId 传下去作为 correlationId，自己不再 publish，
+    // 否则同一变更会产生两条事件（重复通知）。
+    editor_.setCorrelationId(request.commandId);
+
     Result editResult;
     if (request.commandType == "clip.move") {
         Rational target;
@@ -129,6 +134,8 @@ CommandResult CommandDispatcher::apply(const CommandRequest& request) {
                                            "未支持的命令类型：" + request.commandType,
                                            "commandType"));
     }
+
+    editor_.setCorrelationId("");
 
     if (!editResult.isOk()) {
         return rejected(request, mapCoreResult(editResult, ErrorDomain::Timeline));
@@ -156,8 +163,8 @@ CommandResult CommandDispatcher::apply(const CommandRequest& request) {
     payload.set("origin", JsonValue::string(commandOriginName(request.origin)));
     event.payload = payload;
 
+    // 只记录供查询，**不重复发布**：实际事件由 commit() 发布（唯一来源）。
     lastEvent_ = event;
-    bus_.publish(event);
 
     return result;
 }

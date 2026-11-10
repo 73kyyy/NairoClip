@@ -373,7 +373,7 @@ NC_TEST(B1Canvas, CapiPresetAndValidate) {
 NC_TEST(B1Canvas, CapiSetExAndSwap) {
     NcEditor* ed = nc_editor_create();
     NC_CHECK(ed != nullptr);
-    NC_CHECK_EQ(nc_canvas_set_ex(ed, 1080, 1080, 0), NC_OK);
+    NC_CHECK_EQ(nc_canvas_set_ex(ed, 1080, 1080, 0, 0), NC_OK);
     int32_t w = 0;
     int32_t h = 0;
     NC_CHECK_EQ(nc_project_canvas(ed, &w, &h), NC_OK);
@@ -385,7 +385,7 @@ NC_TEST(B1Canvas, CapiSetExAndSwap) {
     NC_CHECK_EQ(w, 1080);   // 正方形交换后不变
     NC_CHECK_EQ(h, 1080);
 
-    NC_CHECK_EQ(nc_canvas_set_ex(ed, 1920, 1080, 1), NC_OK);
+    NC_CHECK_EQ(nc_canvas_set_ex(ed, 1920, 1080, 1, 0), NC_OK);
     NC_CHECK_EQ(nc_canvas_swap_orientation(ed), NC_OK);
     NC_CHECK_EQ(nc_project_canvas(ed, &w, &h), NC_OK);
     NC_CHECK_EQ(w, 1080);
