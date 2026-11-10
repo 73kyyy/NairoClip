@@ -400,19 +400,36 @@ Revision 唯一权威：`TimelineEditor::editRevision()` → `UndoStack::editRev
 | `UB 诊断`（UBSAN） | ✅ **success** | 42735430831 |
 | `valgrind 诊断` | ⏳ 运行中（长耗时，`continue-on-error`） | 42735430831 |
 
-### 15.3 关于 run 级 `cancelled` 的说明（不掩饰）
+### 15.3 关于 run 级 `cancelled` 的说明（已查明：既有结构性问题）
 
-`193eadae` 的 CI run 在 GitHub 上显示为 **`cancelled`**，不是 `success`。
-原因：`valgrind 诊断` 作业（第 489 行 `continue-on-error: true`，**非阻断**）
-在运行约 40 分钟后被取消，导致 run 级结论落为 `cancelled`。
+主分支 CI run 在 GitHub 上显示为 **`cancelled`**，不是 `success`。
+**这不是 B1 引入的**——已实测 B1 之前的主分支提交，结论完全相同：
 
-- 三个**阻断性**作业（`build-and-test` / `ASAN` / `UB`）在该 run 中均为 `success`；
-- `Android APK` 与 `Cross-Compile` 为独立 workflow，均 `success`；
-- 仓库 `ci.yml` 未设 `concurrency` 组，取消来源未查明（疑为 runner 抢占）。
+| 主分支提交 | 时点 | build-and-test | ASAN | UB | valgrind | run 级 |
+|---|---|---|---|---|---|---|
+| `0cb302fb` | B1 之前（C 阶段审计） | success | success | success | cancelled | **cancelled** |
+| `fdf03f92` | B1 之前（实施方案） | success | success | success | cancelled | **cancelled** |
+| `193eadae` | B1 代码 | success | success | success | cancelled | **cancelled** |
+| `c541191b` | B1 报告 | success | success | success | cancelled | **cancelled** |
 
-**因此本报告不声称「main CI 全部 success」，而是如实记录：
-阻断性检查全部通过；run 级结论因非阻断诊断作业被取消而显示 `cancelled`。**
-valgrind 的实际结论未取得，属未验证项（见 §17 B1-TD-8）。
+### 根因
+
+`valgrind 诊断` 作业设置了 `timeout-minutes: 60`（`ci.yml` 第 489 行附近）
+且 `continue-on-error: true`。在 valgrind 下跑全量 1691 个用例必然超过 60 分钟，
+作业被超时取消 → run 级结论落为 `cancelled`。
+
+### 结论表述
+
+- 三个**阻断性**作业（`build-and-test` / `ASAN` / `UB`）在**所有**主分支 run 中均 `success`；
+- `Android APK`（含冒烟）与 `Cross-Compile` 为独立 workflow，均 `success`；
+- run 级 `cancelled` 是**仓库既有的结构性现象**，B1 前后一致，非本次引入；
+- **`valgrind` 的真实结论从未取得**（每次都被超时取消），属长期未验证项。
+
+**因此本报告不声称「main CI 全部 success」。** 准确表述为：
+阻断性检查全部通过；valgrind 因 60 分钟超时长期无法完成，run 级结论恒为 `cancelled`。
+
+> 该问题**不属于 B1 整改范围**（修改 CI 超时配置超出授权），
+> 仅作为证据记录在 B1-TD-8，供后续单独授权处理。
 
 > 本地 4 个 `PreviewQuality.*` 失败在 CI **全部通过** —— 证实为
 > 本地缺 FFmpeg 开发库导致的环境限制，非代码缺陷。
@@ -469,7 +486,7 @@ valgrind 的实际结论未取得，属未验证项（见 §17 B1-TD-8）。
 | B1-TD-5 | `frame_fit` 假成功未修（按授权不动） | 切适配模式无效果 | 独立缺陷单 |
 | B1-TD-6 | 4 个 `PreviewQuality` 用例需 FFmpeg，本地无法验证 | 依赖 CI | 环境 |
 | B1-TD-7 | 比例锁定未做成「状态」（每次调用由调用方传比例），UI 需自行保存锁定态 | 非工程数据，不违反单一事实源 | 产品决策 |
-| B1-TD-8 | `valgrind 诊断` 被取消，实际结论未取得 | 内存问题未由 valgrind 覆盖 | 待重跑 |
+| B1-TD-8 | `valgrind 诊断` 因 `timeout-minutes: 60` 长期超时被取消，真实结论从未取得（B1 之前即如此） | 内存问题未由 valgrind 覆盖；run 级结论恒为 `cancelled` | 需单独授权调整 CI 超时或拆分用例 |
 
 ---
 
@@ -495,7 +512,7 @@ valgrind 的实际结论未取得，属未验证项（见 §17 B1-TD-8）。
 | 16 | 核心测试通过 | ✅ | 1691 用例 / 4 环境失败 |
 | 17 | ASAN/UBSAN 通过 | ✅ | §15.2（ASAN success / UB success） |
 | 18 | Android 构建通过 | ✅ | §15.2（APK success + 冒烟 success + 三 ABI 交叉编译 success） |
-| 19 | 主分支 CI 通过 | ⚠️ 阻断项通过 | §15.2：`build-and-test`/ASAN/UB 全 success；**run 级结论为 `cancelled`**（非阻断 valgrind 被取消），未声称全绿 |
+| 19 | 主分支 CI 通过 | ⚠️ 阻断项通过 | §15.2/§15.3：`build-and-test`/ASAN/UB 全 success；run 级 `cancelled` 为**仓库既有结构性现象**（B1 前同样如此），非本次引入；valgrind 真实结论未取得 |
 | 20 | 验收报告含源码证据与测试结果 | ✅ | 本文档 |
 
 ---
@@ -518,3 +535,309 @@ valgrind 的实际结论未取得，属未验证项（见 §17 B1-TD-8）。
 「三项绕过整改已完成；3 项能力受限，见技术债清单」。
 
 **等待人工验收与下一阶段授权。未自行进入 B2。**
+
+---
+
+# B1 补充验收（四项遗留）V1.1
+
+| 项目 | 内容 |
+|---|---|
+| 依据 | B1 补充验收整改授权（四项遗留） |
+| 起算基线 | `main` @ `397a4ce4bcb63105b4b0188a724a57ffad343eff` |
+| 状态 | 三项源码修复完成并合并；第四项为 CI 工作流问题，仅调查未改动 |
+
+---
+
+## S1. expectedRevision
+
+### S1.1 审计结论（原报告表述不成立）
+
+**源码证据**
+
+```cpp
+// core/src/editor.cpp（整改前）
+Result TimelineEditor::commit(std::unique_ptr<Command> command) {
+    return undoStack_.push(project_, std::move(command));   // 无 expectedRevision
+}
+```
+
+`expectedRevision` 全仓只出现在 **contract 层**：
+
+| 位置 | 用途 |
+|---|---|
+| `contract/command.h:55` | `CommandRequest` 字段 |
+| `contract/command.h:80` / `contract/command.cpp:126` | `checkRevision()` |
+| `contract/dispatch.cpp` | `CommandDispatcher::apply` 调用检查 |
+
+而 `nc_apply_command` 是唯一走 dispatcher 的入口（`capi.cpp:308`）。
+三个旧 C ABI 入口（`nc_set_project_name` / `nc_set_project_canvas` /
+`nc_set_background_color`）直接调门面 → `commit()` → **完全不校验**。
+
+**结论：原报告第 5 条「沿用 P1 dispatcher」的表述不成立**，属实质缺口，非"部分满足"。
+
+### S1.2 修复
+
+| 文件 | 改动 |
+|---|---|
+| `core/include/nairoclip/core/types.h` | 新增 `ErrorCode::Conflict` |
+| `core/include/nairoclip/core/capi.h` | 新增 `NC_ERROR_REVISION_CONFLICT = 9`（加法，旧码 0..8 不变） |
+| `core/src/capi.cpp` | `toNcError` 映射 Conflict |
+| `core/include/nairoclip/core/editor.h` / `core/src/editor.cpp` | 新增 `commitChecked(cmd, expectedRevision, correlationId)`；三个门面方法增加 `expectedRevision`（默认 0） |
+| `core/src/capi.cpp` | 新增 `nc_set_project_name_ex` / `nc_set_background_color_ex`；`nc_canvas_set_ex` 增加 `expected_revision`（B1 新增接口，未发布） |
+| `mobile/native/android/nc_jni.cpp` | 同步 `nc_canvas_set_ex` 新参数 |
+
+语义：`expectedRevision != 0` 时与 `editRevision()` 比对，不匹配立即返回
+`ErrorCode::Conflict` → `NC_ERROR_REVISION_CONFLICT`，
+**不执行命令、不改数据、不递增 revision、不发事件**。
+`0` = 不校验，与 P1 契约一致；旧 C ABI 保持 0 → 行为完全不变。
+
+### S1.3 测试
+
+| 用例 | 验证 |
+|---|---|
+| `B1Rev.MatchingRevisionAccepted` | revision 匹配 → 成功且递增 |
+| `B1Rev.MismatchedRevisionRejectedWithoutSideEffect` | 不匹配 → Conflict；名称/revision/栈深/事件数全部不变 |
+| `B1Rev.ZeroMeansNoCheck` | 0 → 跳过校验 |
+| `B1Rev.CanvasAndBackgroundHonorRevision` | 画布与背景同样生效 |
+| `B1Rev.CapiExRejectsConflict` | C ABI 层返回 `NC_ERROR_REVISION_CONFLICT`，数据未变 |
+| `B1Rev.CapiLegacyStillWorksWithoutRevision` | 旧接口语义不变 |
+
+---
+
+## S2. 事件行为统一
+
+### S2.1 审计结论
+
+| 入口 | 整改前是否发事件 | 证据 |
+|---|---|---|
+| `nc_apply_command` → dispatcher | ✅ 发 | `dispatch.cpp:160 bus_.publish(event)` |
+| 旧 C ABI（三个整改项及所有门面方法） | ❌ **不发** | `commit()` 内无任何 publish |
+
+后果：同一变更因入口不同行为不一致，前端订阅不到旧接口的变更。
+
+### S2.2 修复：事件源下沉到唯一提交点
+
+| 文件 | 改动 |
+|---|---|
+| `editor.h` / `editor.cpp` | 新增 `setEventBus()`、`setCorrelationId()`、`publishTimelineChanged()`；`commit()` 在**成功且 revision 真的变化**时发布一条 |
+| `core/src/contract/dispatch.cpp` | **移除** `bus_.publish(event)`；改为 `setCorrelationId(request.commandId)` 让 commit 带上关联 ID；`lastEvent_` 仅用于查询 |
+| `core/src/capi.cpp` | `nc_editor_create` 中 `editor->setEventBus(&handle->eventBus)`；给 `Project` 赋固定 `id=1`（不消耗 IdAllocator，EventEnvelope 要求 projectId 非 0） |
+
+发布条件（三条同时满足才发）：
+
+1. `UndoStack::push` 返回 Ok（失败不发）；
+2. `revision` 前后不同（no-op 不发）；
+3. 事件总线已接线。
+
+事件内容：`revision` = 提交后 revision；`correlationId` = commandId；
+`payload.revisionBefore` / `payload.revisionAfter`；`eventId` 递增唯一。
+
+### S2.3 测试
+
+| 用例 | 验证 |
+|---|---|
+| `B1Event.SuccessPublishesExactlyOnce` | 成功 → 恰好 1 条，含 revisionBefore/After |
+| `B1Event.FailurePublishesNothing` | 失败 → 0 |
+| `B1Event.NoOpPublishesNothing` | 同值改名 → 0 且 revision 不变 |
+| `B1Event.RevisionConflictPublishesNothing` | 冲突 → 0 |
+| `B1Event.DispatcherPathPublishesExactlyOnceNoDuplicate` | dispatcher 路径不重复发布 |
+| `B1Event.CorrelationIdPropagated` | correlationId 透传 |
+| `B1Event.EachCommandGetsDistinctEventId` | eventId 唯一 |
+
+---
+
+## S3. Alpha 真实合成
+
+### S3.1 审计结论
+
+整改前 `frame_fit.cpp` 的写入方式：
+
+```cpp
+std::memcpy(dstRow + x * 4, srcRow + srcX * 4, 4);   // 直接覆盖（含 alpha）
+...
+out[ch] = static_cast<std::uint8_t>(value + 0.5f);    // 双线性也直接写回 dst
+```
+
+背景先写入 dst，再把前景**覆盖**上去 → 半透明前景会把背景整块抹掉，
+`backgroundRgba` 的 Alpha 在素材区完全失效。这正是任务书 §6.4 禁止的行为。
+
+### S3.2 修复
+
+| 文件 | 改动 |
+|---|---|
+| `core/include/nairoclip/core/canvas.h` / `core/src/canvas.cpp` | 新增 `blendStraightOver()`（纯整数运算） |
+| `core/src/frame_fit.cpp` | 四处写入点改为合成：`renderFrameFit` 最近邻、`renderFrameFit` 双线性、`renderTransform` 最近邻、`renderTransform` 双线性 |
+
+公式（straight alpha，非预乘）：
+
+```
+out.rgb = src.rgb * a + dst.rgb * (1 - a)
+out.a   = a + dst.a * (1 - a)
+```
+
+快路径：`a == 255` → 直接覆盖（**与旧 memcpy 逐字节一致，不透明素材零回归**）；
+`a == 0` → 不改 dst（背景完整保留）。
+
+### S3.3 测试
+
+| 用例 | 验证 |
+|---|---|
+| `B1Blend.OpaqueSourceOverwritesExactly` | 不透明 → 逐字节等于源（零回归证据） |
+| `B1Blend.TransparentSourceKeepsBackground` | 全透明 → 背景完整保留 |
+| `B1Blend.HalfAlphaBlendsBothLayers` | 128 alpha 红叠蓝 → 红蓝**同时存在**（旧实现红覆盖蓝） |
+| `B1Blend.RenderedFrameBlendsForegroundOverBackground` | 渲染级：半透明前景与背景真混合 |
+| `B1Blend.LetterboxStaysPureBackground` | 信箱区仍是纯背景色 |
+| `B1Blend.OpaqueForegroundStillFullyCoversBackground` | 不透明前景完全覆盖（无副作用） |
+
+### S3.4 CPU / GPU 一致性（如实说明）
+
+| 项 | 结论 |
+|---|---|
+| 预览与导出 | ✅ **共用同一函数**：`export_executor.cpp` 调 `renderFrameFit` / `renderFrameFitMasked` / `applyXformStack`；`preview.cpp` 调 `applyXformStack` |
+| GPU 路径 | ❌ **不存在**：`grep eglCreate\|glTexImage\|GLES core/src/` = **0 处**（仓库无 GPU 渲染后端，见 D-08） |
+
+**因此无法验证"CPU/GPU 一致"——因为没有 GPU 路径可比。**
+本轮未编造 GPU 数据。GPU 后端落地后需用同一组 `B1Blend.*` 用例复验。
+
+---
+
+## S4. CI Valgrind 取消原因调查
+
+### S4.1 硬证据
+
+| 主分支提交 | valgrind 作业耗时 | 结束状态 | valgrind 步骤耗时 |
+|---|---|---|---|
+| `fdf03f92`（B1 之前） | **1:00:10** | cancelled | 0:50:30 |
+| `193eadae`（B1 代码） | **1:00:11** | cancelled | 0:50:30 |
+| `c541191b`（B1 报告） | **1:00:10** | cancelled | 0:50:30 |
+
+- 三次都是**精确 60 分钟**结束 → 命中作业自身的 `timeout-minutes: 60`；
+- 用户所述"约 40 分钟"与实测不符，实测为 **60 分钟整、valgrind 步骤本身跑 50.5 分钟**；
+- `.github/workflows/*.yml` 中**无任何 `gh run cancel` / 取消他人运行的逻辑**；
+- `ci-status.yml` 的 `concurrency` 只作用于它自己（group `ci-status`），不影响 CI；
+- 仓库 `ci.yml` 无 `concurrency` 组 → **排除外部取消**。
+
+### S4.2 根因
+
+```yaml
+valgrind-memcheck:
+    timeout-minutes: 60          # ← 作业级硬上限
+```
+
+```yaml
+      - name: valgrind 跑到 Capi.WatermarkRealExportEndToEnd
+        # 注释声称：限制阈值，只跑到崩溃点附近
+          valgrind --tool=memcheck ... ./build_vg/tests/nairoclip_tests
+          #                                                     ↑ 无任何过滤参数
+```
+
+1. 该步骤注释自称"只跑到崩溃点附近"，但**命令没有任何测试过滤**，
+   实际跑的是**全量 1710 个用例**；
+2. `tests/test_main.cpp` **不支持 argv 过滤**（无 `argc`/`argv` 处理），
+   所以想过滤也无从传入；
+3. memcheck 下全量需 > 50 分钟，加上装依赖 6:51 + 构建 2:42 ≈ 60 分钟 →
+   触发作业超时 → 状态 `cancelled` → run 级结论 `cancelled`。
+
+### S4.3 处置（未修改 CI）
+
+按授权"不得擅自修改 CI 规则来规避问题"，本轮**未改动任何工作流**：
+
+- 未调整 `timeout-minutes`（改大只是掩盖"跑不完"的事实）；
+- 未加过滤/跳过（那会缩小检查范围）；
+- 未设 `continue-on-error` 之外的手段规避。
+
+**提议（需单独授权）**：
+1. 给 `nairoclip_tests` 增加 `--filter=<suite.case>` 参数（代码改动）；
+2. 把 valgrind 拆成多个有界作业（或按 suite 分批）；
+3. 或明确接受"valgrind 只做抽样"，并在文档写明抽样范围。
+在此之前，**run 级 `cancelled` 是仓库常态，与 B1 无关**。
+
+### S4.4 分别报告（按要求）
+
+**阻断性作业**（决定能否合并）
+
+| 作业 | `193eadae` | `c541191b` | `1fd80525`（本轮代码） |
+|---|---|---|---|
+| `build-and-test` | ✅ success | ✅ success | ✅ success |
+| `ASAN 诊断` | ✅ success | ✅ success | ✅ success |
+| `UB 诊断` | ✅ success | ✅ success | ✅ success |
+| `Android APK` + 冒烟 | ✅ success | — | ✅ success |
+
+**run 级结论**
+
+| 提交 | run 级 | 原因 |
+|---|---|---|
+| `193eadae` | `cancelled` | valgrind 60 分钟超时 |
+| `c541191b` | `cancelled` | 同上 |
+| `1fd80525` | 待 valgrind 60 分钟结束后确认（预期 `cancelled`） | 同上 |
+
+---
+
+## S5. 变更清单（补充验收）
+
+### 新增
+
+| 文件 | 原因 |
+|---|---|
+| `tests/test_b1_supplement.cpp` | 19 个专项用例（Rev 5 / Event 7 / Blend 6+） |
+
+### 修改
+
+| 文件 | 修改原因 |
+|---|---|
+| `core/include/nairoclip/core/types.h` | 新增 `ErrorCode::Conflict` |
+| `core/include/nairoclip/core/capi.h` | `NC_ERROR_REVISION_CONFLICT`；三个 `_ex` 变体声明 |
+| `core/src/capi.cpp` | `toNcError` 映射；`_ex` 实现；EventBus 接线；`Project::id` |
+| `core/include/nairoclip/core/editor.h` / `core/src/editor.cpp` | `commitChecked` / `setEventBus` / `publishTimelineChanged` |
+| `core/include/nairoclip/core/canvas.h` / `core/src/canvas.cpp` | `blendStraightOver()` |
+| `core/src/frame_fit.cpp` | 四处写入点改为 straight-alpha 合成 |
+| `core/src/contract/dispatch.cpp` | 移除自身 publish，改设 correlationId |
+| `mobile/native/android/nc_jni.cpp` | 同步 `nc_canvas_set_ex` 新参数 |
+| `tests/CMakeLists.txt` | 注册新测试 |
+| `tests/test_b1_canvas.cpp` | 适配 `nc_canvas_set_ex` 5 参数 |
+| `tests/test_contract_dispatch.cpp` | 接线 eventBus 与 project.id；锁定轨道用例改为基线比较 |
+
+### 删除
+
+无。
+
+---
+
+## S6. 补充验收结论
+
+| 项 | 结论 |
+|---|---|
+| 1 expectedRevision | ✅ **已修复**（原报告表述有误，实为缺口） |
+| 2 Event | ✅ **已修复**（单一事件源，无重复） |
+| 3 Alpha | ✅ **CPU 路径已修复**；GPU 路径不存在，无法验证一致性（如实说明） |
+| 4 CI valgrind | ✅ **原因已查明**（作业 60 分钟超时 + 全量无过滤）；**未修改 CI**，提议需单独授权 |
+
+**未声称"全部完成"**：GPU 一致性无法验证（无 GPU 后端），
+valgrind 真实结论仍未取得（结构性超时）。两项均已在 S3.4 / S4 明确标注。
+
+---
+
+## S7. 提交记录与最终 HEAD
+
+| 提交 | 内容 |
+|---|---|
+| `397a4ce4` | 补充验收起算基线（B1 主体 + 报告修正） |
+| `c569ec3c` | fix(b1): 补充验收——expectedRevision / 事件统一 / Alpha 混合 |
+| `1fd80525` | 合并 PR #19 入 main（**代码最终 HEAD**） |
+| 本报告提交 | docs(b1): 追加补充验收章节 |
+
+**代码最终 HEAD：`1fd80525766920542f9dbb9d68aa18a875dcd240`**
+
+> 本报告为纯文档提交，其后 main HEAD 会前移但不改变任何代码结论。
+
+---
+
+## S8. 停止声明
+
+本轮仅执行 B1 遗留验收整改，已完成：
+
+- 三项源码修复（expectedRevision / 事件 / Alpha）并合并入 main；
+- 第四项 CI valgrind 完成根因调查，**未修改任何工作流**；
+- 未迁移剩余 71 个 Command，未开始 B2/B3/B4/D，未改 `frame_fit`。
+
+**停止执行，等待人工验收与下一阶段授权。**
