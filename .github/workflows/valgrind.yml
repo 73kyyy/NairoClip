@@ -4,20 +4,18 @@ name: Valgrind Memcheck
 #
 # 为什么从 ci.yml 拆出来：
 #   原 valgrind-memcheck 作业 timeout-minutes=60，而 memcheck 下跑全量测试
-#   需要 >50 分钟（实测 step 0:50:30 未完成），加上装依赖 6:51 + 构建 2:42，
-#   必然撞上 60 分钟上限 → Job 被 timeout 取消 → **整个 CI run 结论变成
-#   cancelled**（即使 build-and-test / ASAN / UB 全绿）。
-#   这不是测试失败，也不是外部取消，是作业自身上限。
+#   实测 step 0:50:30 仍未完成；加装依赖 6:51 + 构建 2:42 → 必然撞上限 →
+#   Job 被 timeout 取消 → **整个 CI run 结论变 cancelled**
+#   （即使 build-and-test / ASAN / UB 全绿）。三次主分支 run 均为
+#   1:00:10 / 1:00:11 / 1:00:10，排除外部取消与测试失败。
 #
 # 拆分原则（不是"取消 Valgrind"）：
-#   · 覆盖不减：仍然跑**全量**测试，只是按 NC_TEST_SHARDS 分成 N 片并行；
-#   · 不跳过：每片用模运算分片，所有分片并集 = 全量；
-#   · 可审计：每片打印 [SHARD_STATS] executed/total，汇总 job 核对覆盖度；
-#   · 真实结论：启用 leak-check，发现内存错误即失败，不掩盖。
+#   · 覆盖不减：仍跑**全量**测试，只按 NC_TEST_SHARDS 分片并行；
+#   · 不跳过：模运算分片，各片并集 = 全量；
+#   · 可审计：每片打印 [SHARD_STATS] executed/total，汇总作业校验并集；
+#   · 真实结论：`--leak-check=full`，Definitely/Indirectly 泄漏计入失败。
 #
-# 触发与依赖：
-#   · push main / pull_request / 手动；
-#   · 独立于 CI，不参与阻断；结论由 ci-status 汇总工作流单独展示。
+# 触发与依赖：独立于 CI，不参与阻断；结论由 ci-status 单独展示。
 
 on:
   push:
@@ -25,6 +23,7 @@ on:
     paths:
       - 'core/**'
       - 'tests/**'
+      - 'tools/vg_summary.py'
       - 'CMakeLists.txt'
       - '.github/workflows/valgrind.yml'
   pull_request:
@@ -34,12 +33,11 @@ on:
 env:
   # 分片数（16）。
   #
-  # 为什么从 8 提到 16：实测 8 片时分布**很不均匀**——分片 1/2 各 37 分钟，
-  # 分片 0 跑满 45 分钟仍被超时取消（慢用例是按注册顺序模运算分片的，
-  # 几个重导出用例恰好落在同一片）。16 片把最慢片的工作量减半。
-  #
-  # 注意：分片数是**覆盖度**参数，不是"少跑"参数：各片并集仍严格等于全量，
-  # 由 summary 作业的 executed==total 校验兜底。
+  # 实测依据：8 分片时分布很不均匀（模运算按注册顺序分片）——
+  #   分片 7=3:21，5=11:57，1=37:21，2=37:46，0=跑满 45:10 被取消。
+  # 提到 16 片后，最慢片仍需 >45 分钟（已把 memcheck 超时放到 90 分钟）。
+  # 分片数是**覆盖度**参数而非"少跑"参数：并集仍严格等于全量，
+  # 由 `tools/vg_summary.py coverage` 的 executed==total 校验兜底。
   NC_VALGRIND_SHARDS: 16
 
 jobs:
@@ -73,8 +71,8 @@ jobs:
           tar -xzf ort.tgz -C ort --strip-components=1
 
       - name: Configure（-g -O0）
-        # Release + -O0 + -g：既有 Release 的行为（含 NDEBUG 与否的取舍不变），
-        # 但保留行号与不优化，valgrind 才能给出准确的调用栈。
+        # Release 配置 + -O0 + -g：行为与 CI 一致，但保留行号且不优化，
+        # valgrind 才能给出准确调用栈。
         run: |
           cmake -S . -B build_vg -DCMAKE_BUILD_TYPE=Release \
             -DNAIROCLIP_ORT_ROOT="$GITHUB_WORKSPACE/ort" \
@@ -84,19 +82,17 @@ jobs:
         run: cmake --build build_vg -j$(nproc)
 
       - name: 打包测试程序
-        # 只传测试二进制 + ORT 运行库：各分片各自 apt 装 FFmpeg 运行库，
-        # 避免把 .so 打进 artifact（体积大且与系统库版本耦合）。
         run: |
           mkdir -p vgdist
           cp build_vg/tests/nairoclip_tests vgdist/
           mkdir -p vgdist/ort/lib
           cp -a ort/lib/*.so* vgdist/ort/lib/ 2>/dev/null || true
-          # 记录构建元信息，供报告引用
           {
             echo "commit=$(git rev-parse HEAD)"
             echo "runner_os=$RUNNER_OS"
             echo "runner_arch=$(uname -m)"
-            echo "cmake_flags=-O0 -g (Release config, no optimization)"
+            echo "toolchain=$(g++ --version | head -1)"
+            echo "valgrind_config=-O0 -g (CMAKE_BUILD_TYPE=Release)"
           } > vgdist/build-meta.txt
           ls -lh vgdist
 
@@ -111,7 +107,10 @@ jobs:
     name: memcheck 分片 ${{ matrix.shard }}
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90 分钟：实测最重的一片在 16 分片下仍 >45 分钟（几个重导出用例
+    # 恰好落在同一模上）。45 分钟是**低估**，不是"跑不完"。
+    # 分片是独立作业，放宽它不影响主 CI 的阻断语义。
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -143,10 +142,10 @@ jobs:
           chmod +x vgdist/nairoclip_tests
           export LD_LIBRARY_PATH="$PWD/vgdist/ort/lib:${LD_LIBRARY_PATH:-}"
           echo "分片 $NC_TEST_SHARD/$NC_TEST_SHARDS"
-          # --leak-check=full：必须拿到 Definitely/Indirectly lost 的真实分类，
-          #   否则"内存检测"只是空话。
-          # --errors-for-leak-kinds=definite,indirect：确定/间接泄漏计入失败；
-          #   possible 与 still reachable 只记录不判失败（见报告分类说明）。
+
+          # --leak-check=full：拿到 Definitely/Indirectly 的真实分类；
+          # --errors-for-leak-kinds=definite,indirect：这两类计入失败；
+          # --xml：机器可读证据（注意它会让 --log-file 文本变空，汇总必须解析 XML）。
           valgrind --tool=memcheck \
             --error-exitcode=99 \
             --track-origins=yes --num-callers=25 \
@@ -154,15 +153,13 @@ jobs:
             --show-leak-kinds=definite,indirect,possible \
             --errors-for-leak-kinds=definite,indirect \
             --xml=yes --xml-file="/tmp/vg-shard-${NC_TEST_SHARD}.xml" \
-            --log-file="/tmp/vg-shard-${NC_TEST_SHARD}.txt" \
             ./vgdist/nairoclip_tests > "/tmp/vg-stdout-${NC_TEST_SHARD}.txt" 2>&1
           rc=$?
           echo "valgrind exit=$rc"
+
           echo "---------------- 分片统计 ----------------"
           grep -h '\[SHARD_STATS\]' "/tmp/vg-stdout-${NC_TEST_SHARD}.txt" || echo "（无 SHARD_STATS）"
-          echo "---------------- 错误摘要 ----------------"
-          grep -E 'Invalid (read|write)|Use of uninitialised|Invalid free|Mismatched free|definitely lost|indirectly lost' \
-            "/tmp/vg-shard-${NC_TEST_SHARD}.txt" | head -40 || true
+
           echo "::error title=VG_SHARD_${NC_TEST_SHARD}_RC::exit=$rc"
           exit $rc
 
@@ -173,7 +170,6 @@ jobs:
           name: vg-shard-${{ matrix.shard }}
           path: |
             /tmp/vg-shard-*.xml
-            /tmp/vg-shard-*.txt
             /tmp/vg-stdout-*.txt
           retention-days: 14
           if-no-files-found: warn
@@ -188,6 +184,9 @@ jobs:
       NC_EXPECTED_SHARDS: 16
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: 下载全部分片证据
         uses: actions/download-artifact@v4
         with:
@@ -195,73 +194,21 @@ jobs:
           path: vgshards
           merge-multiple: true
 
-      - name: 汇总
+      - name: 覆盖度校验
+        run: python3 tools/vg_summary.py coverage --dir vgshards --shards "$NC_EXPECTED_SHARDS"
+
+      - name: 内存错误汇总
         run: |
           set -uo pipefail
-          echo "================ Valgrind 分片汇总 ================"
-          total_exec=0
-          total_cases=0
-          total_failed=0
-          shards=0
-          for f in vgshards/vg-stdout-*.txt; do
-            [ -f "$f" ] || continue
-            line=$(grep -h '\[SHARD_STATS\]' "$f" | tail -1)
-            [ -z "$line" ] && continue
-            echo "  $f -> $line"
-            shards=$((shards+1))
-            e=$(echo "$line" | sed -n 's/.*executed=\([0-9]*\).*/\1/p')
-            t=$(echo "$line" | sed -n 's/.*total=\([0-9]*\).*/\1/p')
-            fa=$(echo "$line" | sed -n 's/.*failed=\([0-9]*\).*/\1/p')
-            total_exec=$((total_exec + ${e:-0}))
-            total_cases=${t:-$total_cases}
-            total_failed=$((total_failed + ${fa:-0}))
-          done
-          echo "---------------------------------------------------"
-          echo "分片数:            $shards"
-          echo "全量用例总数:      $total_cases"
-          echo "实际执行合计:      $total_exec"
-          echo "失败用例合计:      $total_failed"
-          # 缺失分片定位：分片超时/失败时，到底哪几片没交结果一目了然。
-          expected="$NC_EXPECTED_SHARDS"
-          missing=""
-          for i in $(seq 0 $((expected-1))); do
-            [ -f "vgshards/vg-stdout-${i}.txt" ] || missing="$missing $i"
-          done
-          if [ -n "$missing" ]; then
-            echo "缺失分片：$missing"
-            echo "::error title=VG_MISSING_SHARDS::${missing}"
-          fi
+          python3 tools/vg_summary.py memory --dir vgshards | tee /tmp/vg-memory.txt
 
-          if [ "$total_cases" -gt 0 ] && [ "$total_exec" -ne "$total_cases" ]; then
-            echo "::error title=VG_COVERAGE::执行数($total_exec) != 总数($total_cases)，存在遗漏"
-            exit 1
-          fi
-          echo "覆盖度校验通过：所有分片并集覆盖全量用例。"
-
-          echo "---------------- 内存错误统计 ----------------"
-          # 直接读 memcheck 的 ERROR SUMMARY 行
-          errs=0
-          for f in vgshards/vg-shard-*.txt; do
-            [ -f "$f" ] || continue
-            e=$(grep -h 'ERROR SUMMARY:' "$f" | tail -1 | sed -n 's/.*ERROR SUMMARY: \([0-9]*\).*/\1/p')
-            errs=$((errs + ${e:-0}))
-          done
-          echo "ERROR SUMMARY 合计: $errs"
-
-          echo "---------------- 泄漏分类 ----------------"
-          for f in vgshards/vg-shard-*.txt; do
-            [ -f "$f" ] || continue
-            grep -hE 'definitely lost|indirectly lost|possibly lost|still reachable' "$f" | tail -4
-          done | sort -u
-
+      - name: 写入 step summary
+        if: always()
+        run: |
           {
             echo "## Valgrind Memcheck 汇总"
             echo ""
-            echo "| 项 | 值 |"
-            echo "|---|---|"
-            echo "| 分片数 | $shards |"
-            echo "| 全量用例总数 | $total_cases |"
-            echo "| 实际执行合计 | $total_exec |"
-            echo "| 失败用例合计 | $total_failed |"
-            echo "| ERROR SUMMARY 合计 | $errs |"
+            echo '```'
+            cat /tmp/vg-memory.txt 2>/dev/null || echo "（无内存汇总）"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

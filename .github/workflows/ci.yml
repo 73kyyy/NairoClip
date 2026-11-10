@@ -83,6 +83,12 @@ jobs:
         # 放在 Configure 之前：纯文件读取，失败得早，不浪费编译时间。
         run: python3 tools/check_mobile_frontend.py .
 
+      - name: Valgrind 汇总工具自检
+        # tools/vg_summary.py 是「Valgrind 覆盖度/内存结论」的唯一判定者：
+        # 它若把缺失分片算成通过、或把截断 XML 当成 0 错误，
+        # 诊断链就会给出**假的绿色**。因此把这个自检放进阻断性作业。
+        run: python3 tools/test_vg_summary.py
+
       - name: C ABI 调用点检查自检
         # 先跑检查器自己的单元测试，再跑真实检查。
         # 为什么：2026-11 一次 CI 失败的真因是检查器把注释里的 `nc_xxx()`
