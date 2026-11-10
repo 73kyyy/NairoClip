@@ -63,6 +63,9 @@ enum NcErrorCode {
     NC_ERROR_UNSUPPORTED = 6,
     NC_ERROR_INTERNAL = 7,
     NC_ERROR_CANCELLED = 8,
+    /// expectedRevision 与当前工程 revision 不一致（乐观并发冲突）。
+    /// 调用方应刷新快照后重试，而不是盲目覆盖。
+    NC_ERROR_REVISION_CONFLICT = 9,
 };
 
 /// 不透明编辑器句柄。
@@ -111,6 +114,11 @@ int32_t nc_clip_count(const NcEditor* editor, int32_t track_index);
 char* nc_project_name(const NcEditor* editor);
 /// 设置工程名称（草稿重命名；返回错误码）。
 int32_t nc_set_project_name(NcEditor* editor, const char* name);
+
+/// 重命名工程（带乐观并发校验）。expected_revision 非 0 时与当前 revision
+/// 不一致即返回 NC_ERROR_REVISION_CONFLICT，**不执行任何修改**。
+/// 0 = 不校验（等价于旧接口 nc_set_project_name）。
+int32_t nc_set_project_name_ex(NcEditor* editor, const char* name, uint64_t expected_revision);
 
 /// 工程画布尺寸（像素；主序列）。
 int32_t nc_project_canvas(const NcEditor* editor, int32_t* out_width, int32_t* out_height);
@@ -1423,6 +1431,9 @@ int32_t nc_get_frame_fit(const NcEditor* editor);
 /// 设置画幅适配的背景填充色（Fit 模式的信箱/邮筒边颜色；0xRRGGBBAA）。
 int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba);
 
+/// 设置画布背景色（带乐观并发校验）。0 = 不校验。
+int32_t nc_set_background_color_ex(NcEditor* editor, uint32_t rgba, uint64_t expected_revision);
+
 // ---- 画布能力（B1-02）----
 // 说明：宽高是唯一权威数据；比例由宽高精确计算，不单独存储。
 // 以下接口只做「查询/换算/校验」，不修改工程；写入一律走
@@ -1443,7 +1454,8 @@ int32_t nc_canvas_validate(int32_t width, int32_t height, char** out_reason);
 /// 设置画布尺寸并指定素材适配策略。
 /// - adapt_mode：0=preserve 1=fit 2=fill（见 core/canvas.h）；
 /// - 走统一 Command：可撤销、revision 递增、发布事件。
-int32_t nc_canvas_set_ex(NcEditor* editor, int32_t width, int32_t height, int32_t adapt_mode);
+int32_t nc_canvas_set_ex(NcEditor* editor, int32_t width, int32_t height, int32_t adapt_mode,
+                         uint64_t expected_revision);
 
 /// 横竖屏切换（交换宽高），走统一 Command。
 int32_t nc_canvas_swap_orientation(NcEditor* editor);

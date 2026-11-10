@@ -195,6 +195,7 @@ int32_t toNcError(ErrorCode code) {
         case ErrorCode::Unsupported: return NC_ERROR_UNSUPPORTED;
         case ErrorCode::Internal: return NC_ERROR_INTERNAL;
         case ErrorCode::Cancelled: return NC_ERROR_CANCELLED;
+        case ErrorCode::Conflict: return NC_ERROR_REVISION_CONFLICT;
     }
     return NC_ERROR_INTERNAL;
 }
@@ -256,6 +257,14 @@ NcEditor* nc_editor_create(void) {
     Sequence seq;
     seq.id = SequenceId{handle->project.ids.next()};
     handle->project.sequences.push_back(seq);
+    /* 事件总线接线（B1 补充）：让 TimelineEditor::commit() 成为**唯一**事件源。
+       以前只有 CommandDispatcher 发事件，旧 C ABI 入口不发 —— 同一变更
+       因入口不同而行为不一致。
+       同时给 Project 一个有效 id：EventEnvelope 要求 projectId 非 0，
+       而 Project 默认 id 为 0（无效），会导致事件被 publish 静默拒绝。
+       这里固定用 1 且**不消耗** IdAllocator，避免打乱既有内容 id 序列。 */
+    handle->project.id = ProjectId{1};
+    handle->editor->setEventBus(&handle->eventBus);
 #ifdef NAIROCLIP_HAS_FFMPEG
     // 预览渲染器读取器工厂（FFmpeg 构建下启用真实解码预览）
     handle->previewFactory = std::make_unique<FFmpegReaderFactory>();
@@ -473,7 +482,20 @@ int32_t nc_set_project_name(NcEditor* editor, const char* name) {
     // 名称校验（空、纯空白、超长、控制字符）由命令与门面共同保证，
     // 这里不再重复实现一套规则。
     const std::string text(name);
-    return applyResultKeepingLastError(editor->editor->renameProject(text));
+    // 旧签名没有 revision 参数 → expectedRevision = 0（不校验），
+    // 与 P1 契约「0 = 不校验」一致。需要并发控制的调用方走 _ex 变体。
+    return applyResultKeepingLastError(editor->editor->renameProject(text, 0));
+}
+
+int32_t nc_set_project_name_ex(NcEditor* editor, const char* name, uint64_t expected_revision) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    if (name == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "name 为空");
+    }
+    return applyResultKeepingLastError(
+        editor->editor->renameProject(std::string(name), expected_revision));
 }
 
 int32_t nc_project_canvas(const NcEditor* editor, int32_t* out_width, int32_t* out_height) {
@@ -3211,7 +3233,8 @@ int32_t nc_canvas_validate(int32_t width, int32_t height, char** out_reason) {
     return v.ok ? NC_OK : NC_ERROR_INVALID_ARGUMENT;
 }
 
-int32_t nc_canvas_set_ex(NcEditor* editor, int32_t width, int32_t height, int32_t adapt_mode) {
+int32_t nc_canvas_set_ex(NcEditor* editor, int32_t width, int32_t height, int32_t adapt_mode,
+                         uint64_t expected_revision) {
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -3225,7 +3248,8 @@ int32_t nc_canvas_set_ex(NcEditor* editor, int32_t width, int32_t height, int32_
         case 2: mode = CanvasAdaptMode::Fill; break;
         default: mode = CanvasAdaptMode::Preserve; break;
     }
-    return applyResultKeepingLastError(editor->editor->setCanvasSize(main->id, width, height, mode));
+    return applyResultKeepingLastError(
+        editor->editor->setCanvasSize(main->id, width, height, mode, expected_revision));
 }
 
 int32_t nc_canvas_swap_orientation(NcEditor* editor) {
@@ -3280,6 +3304,18 @@ int32_t nc_canvas_aspect_ratio(const NcEditor* editor, int64_t* out_num, int64_t
     if (out_num != nullptr) *out_num = r.num;
     if (out_den != nullptr) *out_den = r.den;
     return NC_OK;
+}
+
+int32_t nc_set_background_color_ex(NcEditor* editor, uint32_t rgba, uint64_t expected_revision) {
+    if (editor == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    return applyResultKeepingLastError(editor->editor->setCanvasBackground(
+        main->id, CanvasBackground::fromRgba32(rgba), expected_revision));
 }
 
 int32_t nc_set_track_auto_duck(NcEditor* editor, int32_t track_index, int32_t enabled,

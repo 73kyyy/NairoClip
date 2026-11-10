@@ -195,6 +195,28 @@ CanvasValidation validateBackgroundRgba(std::uint32_t rgba) {
     return v;
 }
 
+void blendStraightOver(std::uint8_t* dstRgba, const std::uint8_t* srcRgba) {
+    if (dstRgba == nullptr || srcRgba == nullptr) return;
+    const int a = srcRgba[3];
+    if (a == 255) {
+        // 不透明：直接覆盖。与旧 memcpy 行为逐字节一致 —— 保证不透明素材零回归。
+        dstRgba[0] = srcRgba[0];
+        dstRgba[1] = srcRgba[1];
+        dstRgba[2] = srcRgba[2];
+        dstRgba[3] = 255;
+        return;
+    }
+    if (a == 0) {
+        return;  // 全透明：dst 不变（背景得以保留）
+    }
+    const int inv = 255 - a;
+    // 四舍五入：+127 再 /255，避免整数截断让半透明叠加整体偏暗。
+    dstRgba[0] = static_cast<std::uint8_t>((srcRgba[0] * a + dstRgba[0] * inv + 127) / 255);
+    dstRgba[1] = static_cast<std::uint8_t>((srcRgba[1] * a + dstRgba[1] * inv + 127) / 255);
+    dstRgba[2] = static_cast<std::uint8_t>((srcRgba[2] * a + dstRgba[2] * inv + 127) / 255);
+    dstRgba[3] = static_cast<std::uint8_t>((a * 255 + dstRgba[3] * inv + 127) / 255);
+}
+
 CanvasBackground flattenOnto(CanvasBackground src, CanvasBackground bg) {
     // straight alpha 合成：out = src*a + bg*(1-a)
     const double a = static_cast<double>(src.a) / 255.0;

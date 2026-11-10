@@ -744,31 +744,86 @@ Result TimelineEditor::redo() {
     return undoStack_.redo(project_);
 }
 
-Result TimelineEditor::renameProject(const std::string& newName) {
+Result TimelineEditor::renameProject(const std::string& newName,
+                                     std::uint64_t expectedRevision) {
     // 先校验再构造命令：让"名称非法"在入栈前就被挡住，
     // 避免一次失败操作在历史面板留下条目。
     const std::string reason = RenameProjectCommand::validateName(newName);
     if (!reason.empty()) {
         return Result::fail(ErrorCode::InvalidArgument, reason);
     }
-    return commit(std::make_unique<RenameProjectCommand>(newName));
+    return commitChecked(std::make_unique<RenameProjectCommand>(newName), expectedRevision);
 }
 
 Result TimelineEditor::setCanvasSize(SequenceId sequenceId, int width, int height,
-                                     CanvasAdaptMode mode) {
+                                     CanvasAdaptMode mode, std::uint64_t expectedRevision) {
     const CanvasValidation v = validateCanvasSize(width, height);
     if (!v.ok) {
         return Result::fail(ErrorCode::InvalidArgument, v.reason);
     }
-    return commit(std::make_unique<SetCanvasCommand>(sequenceId, width, height, mode));
+    return commitChecked(std::make_unique<SetCanvasCommand>(sequenceId, width, height, mode),
+                         expectedRevision);
 }
 
-Result TimelineEditor::setCanvasBackground(SequenceId sequenceId, CanvasBackground background) {
-    return commit(std::make_unique<SetCanvasBackgroundCommand>(sequenceId, background));
+Result TimelineEditor::setCanvasBackground(SequenceId sequenceId, CanvasBackground background,
+                                           std::uint64_t expectedRevision) {
+    return commitChecked(std::make_unique<SetCanvasBackgroundCommand>(sequenceId, background),
+                         expectedRevision);
 }
 
-Result TimelineEditor::commit(std::unique_ptr<Command> command) {
-    return undoStack_.push(project_, std::move(command));
+Result TimelineEditor::commit(std::unique_ptr<Command> command,
+                              const std::string& correlationId) {
+    const std::uint64_t before = undoStack_.editRevision();
+    const Result r = undoStack_.push(project_, std::move(command));
+    if (!r.isOk()) {
+        return r;  // 失败：不发布任何事件
+    }
+    const std::uint64_t after = undoStack_.editRevision();
+    // revision 没变 = no-op（isNoOp 拦截 / 空命令）→ 没有真实变更，不发事件。
+    // 这是「不得因为命令返回成功就发布事件」的落点。
+    if (after != before) {
+        publishTimelineChanged(before, after, correlationId);
+    }
+    return r;
+}
+
+Result TimelineEditor::commitChecked(std::unique_ptr<Command> command,
+                                     std::uint64_t expectedRevision,
+                                     const std::string& correlationId) {
+    if (expectedRevision != 0) {
+        const std::uint64_t current = undoStack_.editRevision();
+        if (expectedRevision != current) {
+            // 冲突：命令根本不执行，不产生任何副作用、不递增 revision、不发事件。
+            return Result::fail(ErrorCode::Conflict,
+                                "工程已被其他操作修改（expected=" +
+                                    std::to_string(expectedRevision) + " current=" +
+                                    std::to_string(current) + "），请刷新后重试");
+        }
+    }
+    return commit(std::move(command), correlationId);
+}
+
+void TimelineEditor::publishTimelineChanged(std::uint64_t revisionBefore,
+                                            std::uint64_t revisionAfter,
+                                            const std::string& correlationId) {
+    if (eventBus_ == nullptr) return;
+    const std::string corr = correlationId.empty() ? correlationId_ : correlationId;
+    contract::EventEnvelope e;
+    e.schemaVersion = contract::kSchemaVersion;
+    const std::string seq = std::to_string(++eventSeq_);
+    e.eventId = corr.empty() ? ("evt-" + seq) : (corr + "#" + seq);
+    e.eventType = contract::eventTypeTimelineChanged();
+    // projectId 必须是有效非零值；NcEditor 创建时会给 Project 分配固定 id。
+    e.projectId = project_.id.value;
+    e.revision = revisionAfter;
+    e.occurredAtMs = 0;  // 核心层不读系统时钟，由平台层补时间戳
+    e.correlationId = corr;
+    JsonValue payload = JsonValue::object();
+    payload.set("revisionBefore", JsonValue::integer(static_cast<std::int64_t>(revisionBefore)));
+    payload.set("revisionAfter", JsonValue::integer(static_cast<std::int64_t>(revisionAfter)));
+    e.payload = payload;
+    // publish 内部会校验信封；projectId 为 0 时会被拒绝（不静默成功）。
+    eventBus_->publish(e);
 }
 
 }  // namespace core

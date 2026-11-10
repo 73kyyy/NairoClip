@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/canvas.h"
+#include "nairoclip/core/contract/event.h"
 #include "nairoclip/core/command.h"
 /* setClipShake / getClipShake 按值收发 ShakeParams，需要完整类型。 */
 #include "nairoclip/core/shake_effect.h"
@@ -40,15 +41,18 @@ public:
 
     /// 重命名工程（B1-01）。只改显示名，不动磁盘路径。
     /// 名称非法、或与当前名称相同（no-op）时不入撤销栈。
-    Result renameProject(const std::string& newName);
+    /// expectedRevision 非 0 时校验乐观并发；不匹配返回 ErrorCode::Conflict。
+    Result renameProject(const std::string& newName, std::uint64_t expectedRevision = 0);
 
     /// 修改画布尺寸（B1-02）。mode 决定是否对片段做适配缩放。
     /// 尺寸非法时不做任何修改（失败原子性）。
     Result setCanvasSize(SequenceId sequenceId, int width, int height,
-                         CanvasAdaptMode mode = CanvasAdaptMode::Preserve);
+                         CanvasAdaptMode mode = CanvasAdaptMode::Preserve,
+                         std::uint64_t expectedRevision = 0);
 
     /// 修改画布背景色（B1-03）。RGBA 为 straight alpha、0xRRGGBBAA。
-    Result setCanvasBackground(SequenceId sequenceId, CanvasBackground background);
+    Result setCanvasBackground(SequenceId sequenceId, CanvasBackground background,
+                               std::uint64_t expectedRevision = 0);
 
     // ---- 素材 ----
     /// 导入素材（进入撤销栈；返回素材 ID）。
@@ -281,11 +285,31 @@ public:
     bool inTransaction() const { return undoStack_.inTransaction(); }
     void setMergeEnabled(bool enabled) { undoStack_.setMergeEnabled(enabled); }
 
+    /// 事件总线（可空）。非空时，**成功且 revision 真的变化**才发布一次
+    /// timeline.changed —— 失败与 no-op 一律不发，避免「成功通知」造假。
+    void setEventBus(contract::EventBus* bus) { eventBus_ = bus; }
+
+    /// 当前关联 ID（供事件 correlationId 使用）。由 dispatcher 在调用门面前设置。
+    void setCorrelationId(std::string id) { correlationId_ = std::move(id); }
+    const std::string& correlationId() const { return correlationId_; }
+
 private:
-    Result commit(std::unique_ptr<Command> command);
+    /// 提交命令。correlationId 为空时使用 setCorrelationId 设置的值。
+    Result commit(std::unique_ptr<Command> command, const std::string& correlationId = std::string());
+
+    /// 带乐观并发校验的提交：expectedRevision 非 0 且与当前 revision 不等时
+    /// 返回 ErrorCode::Conflict，**不执行任何修改**。
+    Result commitChecked(std::unique_ptr<Command> command, std::uint64_t expectedRevision,
+                         const std::string& correlationId = std::string());
+
+    void publishTimelineChanged(std::uint64_t revisionBefore, std::uint64_t revisionAfter,
+                                const std::string& correlationId);
 
     Project& project_;
     UndoStack undoStack_;
+    contract::EventBus* eventBus_ = nullptr;
+    std::string correlationId_;
+    std::uint64_t eventSeq_ = 0;
 };
 
 }  // namespace core

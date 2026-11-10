@@ -22,6 +22,8 @@ struct Fixture {
     int eventCount = 0;
 
     Fixture() {
+        // EventEnvelope 要求 projectId 非 0；真实 NcEditor 在创建时赋 id。
+        project.id = ProjectId{1};
         Sequence s;
         s.id = SequenceId{project.ids.next()};
         project.sequences.push_back(s);
@@ -36,6 +38,10 @@ struct Fixture {
         editor.insertClip(seq, track, c, &out);
         clip = out;
 
+        // B1 补充：事件源统一到 TimelineEditor::commit()。
+        // 必须把总线接到 editor 上，否则命令成功也不会发事件
+        // （这正是「旧入口不发事件」缺陷的根因）。
+        editor.setEventBus(&bus);
         bus.subscribe(eventTypeTimelineChanged(),
                       [this](const EventEnvelope&) { ++eventCount; });
     }
@@ -184,13 +190,18 @@ NC_TEST(ContractDispatch, RemoveDropsClip) {
 
 NC_TEST(ContractDispatch, MoveRejectedByLockedTrack) {
     Fixture f;
+    // setTrackLocked 本身是**成功**命令，会正常发一条事件（B1 补充后所有
+    // 成功提交都发事件）。因此先记下基线，再断言"失败的命令不新增事件"。
     f.editor.setTrackLocked(f.seq, f.track, true);
+    const int eventsAfterLock = f.eventCount;
+    NC_CHECK_EQ(eventsAfterLock, 1);
+
     CommandRequest r = f.request("clip.move", "cmd-move-7");
     f.setTime(&r, "targetStart", 2, 1);
     const CommandResult res = f.dispatcher.apply(r);
     NC_CHECK(!res.isAccepted());
     NC_CHECK_EQ(res.error.code, std::string("NC-TIMELINE-TRACK_LOCKED"));
-    NC_CHECK_EQ(f.eventCount, 0);
+    NC_CHECK_EQ(f.eventCount, eventsAfterLock);   // 失败不新增事件
 }
 
 NC_TEST(ContractDispatch, RevisionAdvancesPerSuccessfulCommand) {

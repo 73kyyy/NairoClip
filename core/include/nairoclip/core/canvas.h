@@ -138,5 +138,19 @@ CanvasValidation validateBackgroundRgba(std::uint32_t rgba);
 /// 公式：out = src*a + bg*(1-a)
 CanvasBackground flattenOnto(CanvasBackground src, CanvasBackground bg);
 
+/// 把 straight-alpha 的源像素**合成**到目标像素上（原地修改 dst）。
+///
+/// 为什么需要：渲染链路原本是「背景先写 dst，再把前景 memcpy/插值写回 dst」，
+/// 等于前景**覆盖**背景。前景半透明时背景被整块抹掉，Alpha 形同虚设。
+/// 正确语义是 straight-alpha 合成（非预乘）：
+///
+///     out.rgb = src.rgb * a + dst.rgb * (1 - a)
+///     out.a   = a + dst.a * (1 - a)
+///
+/// 快路径：a == 255 → 直接拷贝（结果与旧行为逐字节一致，保证不透明素材零回归）；
+///         a == 0   → 不动 dst。
+/// 全程整数运算，避免浮点舍入在 CPU/GPU 之间产生 1 LSB 差异。
+void blendStraightOver(std::uint8_t* dstRgba, const std::uint8_t* srcRgba);
+
 }  // namespace core
 }  // namespace nairoclip

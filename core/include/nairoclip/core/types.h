@@ -63,6 +63,7 @@ enum class ErrorCode {
     Unsupported,
     Internal,    // 内部一致性错误（通常不应出现；见 asserts）
     Cancelled,   // 用户取消（导出等长任务）
+    Conflict,    // 乐观并发冲突（expectedRevision 不匹配）
 };
 
 /// 操作结果：错误码 + 可读信息。

@@ -1,3 +1,4 @@
+#include "nairoclip/core/canvas.h"
 #include "nairoclip/core/frame_fit.h"
 
 #include <algorithm>
@@ -165,8 +166,10 @@ bool renderFrameFitMasked(const std::uint8_t* src, int srcW, int srcH, int srcSt
             for (int x = clipX0; x < clipX1; ++x) {
                 const int srcX = rect.srcX + (x - rect.dstX);
                 if (srcX < 0 || srcX >= srcW) continue;
-                std::memcpy(dstRow + static_cast<std::size_t>(x) * 4,
-                            srcRow + static_cast<std::size_t>(srcX) * 4, 4);
+                // B1 补充：straight-alpha 合成，而不是覆盖。
+                // 前景半透明时，背景（信箱边）必须透出来。
+                blendStraightOver(dstRow + static_cast<std::size_t>(x) * 4,
+                                  srcRow + static_cast<std::size_t>(srcX) * 4);
                 if (sourceMask != nullptr) {
                     sourceMask[static_cast<std::size_t>(y) * static_cast<std::size_t>(dstW) +
                                static_cast<std::size_t>(x)] = 255;
@@ -228,11 +231,14 @@ bool renderFrameFitMasked(const std::uint8_t* src, int srcW, int srcH, int srcSt
 
             const int outX = clipX0 + static_cast<int>(i);
             std::uint8_t* out = dstRow + static_cast<std::size_t>(outX) * 4;
+            // 先插值出源像素，再与背景合成（不能直接写回 dst，否则覆盖背景）
+            std::uint8_t sampled[4];
             for (int ch = 0; ch < 4; ++ch) {
                 const float value = p00[ch] * w00 + p10[ch] * w10 + p01[ch] * w01 +
                                     p11[ch] * w11;
-                out[ch] = static_cast<std::uint8_t>(value + 0.5f);
+                sampled[ch] = static_cast<std::uint8_t>(value + 0.5f);
             }
+            blendStraightOver(out, sampled);
             if (sourceMask != nullptr) {
                 sourceMask[static_cast<std::size_t>(y) * static_cast<std::size_t>(dstW) +
                            static_cast<std::size_t>(outX)] = 255;
@@ -407,11 +413,10 @@ bool renderTransform(const std::uint8_t* src, int srcW, int srcH, int srcStride,
                     out[3] = bgA;
                     continue;
                 }
-                std::memcpy(out,
-                            src + static_cast<std::size_t>(iy) *
-                                      static_cast<std::size_t>(stride) +
-                                static_cast<std::size_t>(ix) * 4,
-                            4);
+                blendStraightOver(out,
+                                  src + static_cast<std::size_t>(iy) *
+                                            static_cast<std::size_t>(stride) +
+                                      static_cast<std::size_t>(ix) * 4);
                 continue;
             }
 
@@ -514,11 +519,13 @@ bool renderTransform(const std::uint8_t* src, int srcW, int srcH, int srcStride,
             const double w01 = (1.0 - fx) * fy;
             const double w11 = fx * fy;
 
+            std::uint8_t sampled[4];
             for (int ch = 0; ch < 4; ++ch) {
                 const double value =
                     p00[ch] * w00 + p10[ch] * w10 + p01[ch] * w01 + p11[ch] * w11;
-                out[ch] = static_cast<std::uint8_t>(value + 0.5);
+                sampled[ch] = static_cast<std::uint8_t>(value + 0.5);
             }
+            blendStraightOver(out, sampled);
         }
     }
     return true;

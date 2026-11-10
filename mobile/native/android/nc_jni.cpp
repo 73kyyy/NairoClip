@@ -912,7 +912,8 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const int32_t rc = nc_canvas_set_ex(
             ed, static_cast<int32_t>(JInt(a, "width", 1080)),
             static_cast<int32_t>(JInt(a, "height", 1920)),
-            static_cast<int32_t>(JInt(a, "adapt_mode", 0)));
+            static_cast<int32_t>(JInt(a, "adapt_mode", 0)),
+            static_cast<uint64_t>(JInt(a, "expected_revision", 0)));
         *out = rc == NC_OK ? Ok("") : Err("设置画布失败，错误码 " + std::to_string(rc));
         return true;
     }
