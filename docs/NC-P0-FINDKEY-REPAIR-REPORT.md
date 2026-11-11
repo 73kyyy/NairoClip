@@ -375,12 +375,14 @@ APK 构建 run 42955399380 中：
 
 | 文件 | 类型 | 行数变化 | 说明 |
 |---|---|---|---|
-| `core/include/nairoclip/core/json_args.h` | **新增** | +100 | 接口与状态枚举 |
-| `core/src/json_args.cpp` | **新增** | +430 | 单遍结构扫描实现 |
+| `core/include/nairoclip/core/json_args.h` | **新增** | +101 | 接口与状态枚举 |
+| `core/src/json_args.cpp` | **新增** | +408 | 单遍结构扫描实现 |
 | `core/CMakeLists.txt` | 修改 | +1 | 注册 `src/json_args.cpp` |
-| `mobile/native/android/nc_jni.cpp` | 修改 | −55/+54 | 5 个辅助函数改为委托；删除 `FindKey` |
-| `tests/test_json_args.cpp` | **新增** | +560 | FK-001~FK-024 + 4 个附加用例 |
+| `mobile/native/android/nc_jni.cpp` | 修改 | **+32 / −69**（净 −37） | 5 个辅助函数改为委托；删除 45 行 `FindKey` 及内联解析 |
+| `tests/test_json_args.cpp` | **新增** | +395 | FK-001~FK-024 + 4 个附加用例 |
 | `tests/CMakeLists.txt` | 修改 | +1 | 注册 `test_json_args.cpp` |
+| `docs/NC-P0-FINDKEY-REPAIR-REPORT.md` | **新增** | +460 | 本报告 |
+| **合计** | 4 新增 / 3 修改 | +1398 / −69 | — |
 
 **未修改**：C ABI（`capi.h`/`capi.cpp`）、Editor API、GPU、音频、媒体、B1 报告、
 GPU 架构文档、`core/json.h`/`json.cpp`、任何 CI 工作流文件。
@@ -420,10 +422,10 @@ GPU 架构文档、`core/json.h`/`json.cpp`、任何 CI 工作流文件。
 | 项 | 值 |
 |---|---|
 | 修复前 HEAD | `2ad6fb22ab89675627681dde1bf3180bc13a19e7` |
-| 修复提交 | `9e32997952551f7d80e31ba46c01446e2a9ea2cb` |
+| 修复提交 | `9e32997952551f7d80e31ba46c01446e2a9ea2cb`（代码+测试）<br>`a5efaaa25370304a54bec8799a9bbb2c073c2465`（本报告） |
 | 分支 | `fix/p0-findkey` |
 | PR | #28（**未合并**） |
-| 变更文件数 | 6（3 新增 / 3 修改） |
+| 变更文件数 | 7（4 新增 / 3 修改） |
 
 ---
 
