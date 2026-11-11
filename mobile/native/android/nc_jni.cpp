@@ -362,6 +362,18 @@ std::string BuildState(NcEditor* ed) {
 // 只开放前端 UI 实际需要的编辑动作，映射到 capi.h 已声明函数。
 bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                   std::string* out) {
+    /* P1-1：执行**任何**编辑之前先拒绝歧义参数对象。
+       背景：JNum/JInt 只能返回一个值，无法把"重复键"报给调用方，只能回落默认值；
+       那会让 {"track_index":2,"track_index":1} 静默变成轨道 0 —— 错误轨道被执行。
+       这里在入口一次性拦下，命中即返回错误，**不进入任何 nc_* 编辑调用**。
+       注：本函数是 nativeCall 的唯一编辑分发入口（已审计 30 个 JNI 入口，
+       其余入口不读 JSON 参数，见 docs/NC-P0-FIX-2 报告 §3）。 */
+    const std::string argsError = nairoclip::core::precheckEditArgs(a);
+    if (!argsError.empty()) {
+        *out = Err(argsError);
+        return true;
+    }
+
     const int32_t ti = static_cast<int32_t>(JInt(a, "track", JInt(a, "track_index", 0)));
     const uint64_t cid = static_cast<uint64_t>(JInt(a, "clip_id", JInt(a, "clip", 0)));
 

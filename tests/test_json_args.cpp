@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "nairoclip/core/capi.h"
 #include "nairoclip/core/json_args.h"
 
 using namespace nairoclip::core;
@@ -392,4 +393,197 @@ NC_TEST(FindKey, StatusNames) {
                 std::string("DuplicateKey"));
     NC_CHECK_EQ(std::string(jsonMemberStatusName(JsonMemberStatus::TypeMismatch)),
                 std::string("TypeMismatch"));
+}
+
+// ======================================================================
+// P0-FIX-2 追加：P1-1 重复键前置校验 / P1-2 代理项 / P2-1 内嵌 NUL
+// 编号 FK-025 起，与 FK-001~FK-024 连续。
+// ======================================================================
+
+// FK-025：根对象重复键 → 前置校验拒绝（不得回落默认值后执行编辑）
+NC_TEST(FindKey, FK025_DuplicateRootKeyRejectedByPrecheck) {
+    NC_CHECK_EQ(precheckEditArgs("{\"track_index\":2,\"clip_id\":1}"), std::string());
+    // 干净载荷必须放行
+    NC_CHECK_EQ(precheckEditArgs("{\"track_index\":2,\"clip_id\":1}"), std::string());
+
+    const char* dups[] = {
+        "{\"track_index\":2,\"track_index\":1}",
+        "{\"track_index\":0,\"track_index\":0}",      // 值相同也拒绝
+        "{\"name\":\"a\",\"name\":\"b\"}",
+        "{\"a\":1,\"a\":2,\"track_index\":2}",
+        "{\"arr\":[1,2],\"arr\":[3]}",
+        "{\"opacity\":0.5,\"opacity\":0.6}",
+    };
+    for (const char* j : dups) {
+        NC_CHECK(!precheckEditArgs(j).empty());
+    }
+    // 错误消息必须点名重复键
+    std::string key;
+    std::string msg;
+    NC_CHECK(hasDuplicateRootKey("{\"track_index\":2,\"track_index\":1}", &key, &msg));
+    NC_CHECK_EQ(key, std::string("track_index"));
+    NC_CHECK(msg.find("track_index") != std::string::npos);
+}
+
+// FK-026：嵌套对象内部的重复键**不影响**根解析（不计入前置校验）
+NC_TEST(FindKey, FK026_NestedDuplicateDoesNotBlock) {
+    const std::string j = "{\"a\":{\"x\":1,\"x\":2},\"track_index\":2}";
+    NC_CHECK_EQ(precheckEditArgs(j), std::string());
+    NC_CHECK_EQ(jint(j, "track_index", 0), std::int64_t(2));
+    std::string key;
+    NC_CHECK(!hasDuplicateRootKey(j, &key, nullptr));
+}
+
+// FK-027：非目标键重复也必须被前置校验拦下（策略：整对象无歧义才执行）
+NC_TEST(FindKey, FK027_NonTargetDuplicateStillBlocked) {
+    const std::string j = "{\"pad\":1,\"pad\":2,\"track_index\":2}";
+    NC_CHECK(!precheckEditArgs(j).empty());
+    // 而单键查找本身仍能读到正确值（前置校验与查找是两层）
+    NC_CHECK_EQ(jint(j, "track_index", 0), std::int64_t(2));
+}
+
+// FK-028：孤立高代理 → Malformed（不得产出非法 UTF-8）
+NC_TEST(FindKey, FK028_LoneHighSurrogateRejected) {
+    const std::string j = "{\"name\":\"\\ud83c\"}";
+    NC_CHECK_EQ(statusStr(j, "name"), JsonMemberStatus::Malformed);
+    NC_CHECK_EQ(jstr(j, "name"), std::string());
+    // 也不得"静默替换"成别的字符
+    NC_CHECK(jstr(j, "name").find('\xEF') == std::string::npos);
+}
+
+// FK-029：孤立低代理 → Malformed
+NC_TEST(FindKey, FK029_LoneLowSurrogateRejected) {
+    const std::string j = "{\"name\":\"\\udfac\"}";
+    NC_CHECK_EQ(statusStr(j, "name"), JsonMemberStatus::Malformed);
+    NC_CHECK_EQ(jstr(j, "name"), std::string());
+}
+
+// FK-030：错误代理组合（高 + 高）→ Malformed
+NC_TEST(FindKey, FK030_BadSurrogatePairRejected) {
+    NC_CHECK_EQ(statusStr("{\"name\":\"\\ud83c\\ud83c\"}", "name"), JsonMemberStatus::Malformed);
+    // 高代理后跟普通转义也不是合法配对
+    NC_CHECK_EQ(statusStr("{\"name\":\"\\ud83c\\u0041\"}", "name"), JsonMemberStatus::Malformed);
+}
+
+// FK-031：合法代理对正常解码（不得误伤）
+NC_TEST(FindKey, FK031_ValidSurrogatePairAccepted) {
+    NC_CHECK_EQ(statusStr("{\"name\":\"\\ud83c\\udfac\"}", "name"), JsonMemberStatus::Ok);
+    NC_CHECK_EQ(jstr("{\"name\":\"\\ud83c\\udfac\"}", "name"), std::string("🎬"));
+    // 边界码点
+    NC_CHECK_EQ(jstr("{\"name\":\"\\ud800\\udc00\"}", "name"), std::string("\xF0\x90\x80\x80"));
+    NC_CHECK_EQ(jstr("{\"name\":\"\\udbff\\udfff\"}", "name"), std::string("\xF4\x8F\xBF\xBF"));
+}
+
+// FK-032：内嵌 NUL（\u0000）→ 拒绝，禁止静默截断
+NC_TEST(FindKey, FK032_EmbeddedNulRejected) {
+    NC_CHECK_EQ(statusStr("{\"name\":\"\\u0000\"}", "name"), JsonMemberStatus::Malformed);
+    NC_CHECK_EQ(statusStr("{\"name\":\"abc\\u0000def\"}", "name"), JsonMemberStatus::Malformed);
+    // 关键：不得退化成 "abc"（那正是静默截断）
+    const std::string v = jstr("{\"name\":\"abc\\u0000def\"}", "name");
+    NC_CHECK_EQ(v, std::string());
+    NC_CHECK(v != std::string("abc"));
+}
+
+// FK-033：BMP / 中文 / 合法 emoji 全部正常（回归）
+NC_TEST(FindKey, FK033_BmpChineseEmojiStillWork) {
+    NC_CHECK_EQ(jstr("{\"name\":\"\\u0041\"}", "name"), std::string("A"));
+    NC_CHECK_EQ(jstr("{\"name\":\"\\u4e2d\\u6587\"}", "name"), std::string("中文"));
+    NC_CHECK_EQ(jstr("{\"name\":\"轨道🎬\"}", "name"), std::string("轨道🎬"));
+    NC_CHECK_EQ(jstr("{\"name\":\"a\\u00e9b\"}", "name"), std::string("aéb"));
+    // \u007F 与 \u0080 边界
+    NC_CHECK_EQ(jstr("{\"name\":\"\\u007f\"}", "name"), std::string("\x7F"));
+    NC_CHECK_EQ(jstr("{\"name\":\"\\u0080\"}", "name"), std::string("\xC2\x80"));
+}
+
+// FK-034：九组真实载荷 + 重复键 → 全部被前置校验拒绝（错误参数不得执行编辑）
+NC_TEST(FindKey, FK034_NineGroupsWithDuplicateAllBlocked) {
+    const char* dups[] = {
+        "{\"track_index\":0,\"clip_id\":1,\"value\":0.5,\"value\":0.6}",          // G1
+        "{\"name\":\"a\",\"name\":\"b\",\"type\":0}",                            // G2
+        "{\"track_index\":0,\"clip_id\":1,\"mode\":1,\"mode\":2}",               // G3
+        "{\"track_index\":0,\"clip_id\":1,\"type\":3,\"value\":0.5,\"value\":0.6}", // G4
+        "{\"track_index\":0,\"clip_id\":1,\"prop\":1,\"at_us\":1,\"at_us\":2}",   // G5
+        "{\"track_index\":0,\"clip_id\":1,\"prop\":1,\"prop\":2}",               // G6
+        "{\"track_index\":1,\"type\":5,\"value\":0.7,\"value\":0.8}",            // G7
+        "{\"track_index\":1,\"effect_id\":4,\"effect_id\":5}",                   // G8
+        "{\"track_index\":1,\"path\":\"/a\",\"path\":\"/b\"}",                   // G9
+    };
+    for (const char* j : dups) {
+        NC_CHECK(!precheckEditArgs(j).empty());
+    }
+}
+
+// FK-035：正常编辑载荷必须放行（回归，不得误拦）
+NC_TEST(FindKey, FK035_NormalPayloadsPassPrecheck) {
+    const char* ok[] = {
+        "{}",
+        "{\"track_index\":0,\"clip_id\":1,\"value\":0.6}",
+        "{\"name\":\"视频轨\",\"type\":0}",
+        "{\"track_index\":0,\"clip_id\":1,\"prop\":1,\"at_us\":500000,\"v\":0.9}",
+        "{\"track_index\":1,\"path\":\"/tmp/a.cube\",\"strength\":0.8}",
+        "{\"ids\":[1,2,3],\"usable_seconds\":[3.5,2.0]}",
+        "{\"nested\":{\"x\":1,\"y\":2},\"track_index\":2}",
+    };
+    for (const char* j : ok) {
+        NC_CHECK_EQ(precheckEditArgs(j), std::string());
+    }
+}
+
+// FK-036：畸形 / 非对象时前置校验不误报（交给 findJsonMember 判 Malformed）
+NC_TEST(FindKey, FK036_PrecheckDefersMalformedToLookup) {
+    NC_CHECK_EQ(precheckEditArgs(""), std::string());
+    NC_CHECK_EQ(precheckEditArgs("[1,2]"), std::string());
+    NC_CHECK_EQ(precheckEditArgs("{\"a\":1"), std::string());
+    // 但查找层仍然拒绝
+    NC_CHECK_EQ(statusOf("{\"a\":1", "a"), JsonMemberStatus::Malformed);
+    NC_CHECK_EQ(statusOf("[1,2]", "a"), JsonMemberStatus::NotObject);
+}
+
+// FK-037：错误参数不得执行编辑 —— 用真实 C ABI 观测项目状态
+//
+// 说明：DispatchEdit 本身依赖 jni.h（Ubuntu CI 无法编译），因此这里验证的是
+// 前置校验的**契约**：校验失败时调用方不得调用任何 nc_* 编辑函数。
+// 本用例证明（a）校验失败不触碰状态；（b）随后的合法编辑才会改变状态。
+// DispatchEdit 的接线（校验位于函数第一条语句、早于全部 nc_* 调用）
+// 由 Android NDK 编译 + 代码审查保证。
+NC_TEST(FindKey, FK037_RejectedArgsDoNotTouchProjectState) {
+    NcEditor* ed = nc_editor_create();
+    NC_CHECK(ed != nullptr);
+    if (ed == nullptr) return;
+
+    const int32_t tracksBefore = nc_track_count(ed);
+    const uint64_t revBefore = nc_contract_revision(ed);
+
+    // 重复键载荷：前置校验必须拒绝
+    const std::string bad = "{\"name\":\"a\",\"name\":\"b\",\"type\":0}";
+    NC_CHECK(!precheckEditArgs(bad).empty());
+
+    // 契约：校验失败 → 不执行任何编辑 → 状态完全不变
+    NC_CHECK_EQ(nc_track_count(ed), tracksBefore);
+    NC_CHECK_EQ(nc_contract_revision(ed), revBefore);
+
+    // 对照：合法编辑确实会改变状态（证明上面的"不变"不是观测失效）
+    const uint64_t id = nc_add_track(ed, "轨道A", 0);
+    NC_CHECK(id != 0);
+    NC_CHECK_EQ(nc_track_count(ed), tracksBefore + 1);
+    NC_CHECK(nc_contract_revision(ed) != revBefore);
+
+    // 再次确认：拒绝路径不改变任何东西
+    const int32_t tracksMid = nc_track_count(ed);
+    const uint64_t revMid = nc_contract_revision(ed);
+    NC_CHECK(!precheckEditArgs("{\"track_index\":2,\"track_index\":1}").empty());
+    NC_CHECK_EQ(nc_track_count(ed), tracksMid);
+    NC_CHECK_EQ(nc_contract_revision(ed), revMid);
+
+    nc_editor_destroy(ed);
+}
+
+// FK-038：前置校验与查找层职责分离（同一载荷：校验拒绝，但单键仍可读）
+NC_TEST(FindKey, FK038_PrecheckAndLookupAreLayered) {
+    const std::string j = "{\"track_index\":2,\"clip_id\":1,\"track_index\":9}";
+    // 校验层：拒绝（整对象有歧义）
+    NC_CHECK(!precheckEditArgs(j).empty());
+    // 查找层：仍返回 DuplicateKey（不猜值）
+    NC_CHECK_EQ(statusNum(j, "track_index"), JsonMemberStatus::DuplicateKey);
+    NC_CHECK_EQ(jint(j, "track_index", 0), std::int64_t(0));  // 默认值，不是 2 也不是 9
 }

@@ -97,5 +97,20 @@ bool jsonU64Array(const std::string& json, const JsonMemberSpan& span,
 /// 状态的可读名（测试与日志用）。
 const char* jsonMemberStatusName(JsonMemberStatus status);
 
+// ---- 编辑前置校验（P1-1：重复键必须拒绝，不得回落默认值）-------------------
+
+/// 检测**根对象**是否存在重复键（任意键）。
+/// 返回 true 表示存在重复；*outKey / *outMessage 给出第一个重复键与说明。
+/// 嵌套对象内部的重复键不影响根解析，因此不计入。
+bool hasDuplicateRootKey(const std::string& json, std::string* outKey,
+                         std::string* outMessage);
+
+/// 编辑前置校验：返回空串 = 通过；非空 = 错误消息，**调用方必须拒绝执行编辑**。
+///
+/// 为什么需要它：`JNum`/`JInt` 的签名只能返回一个值，无法向调用方报告
+/// "重复键"这类错误，只能回落默认值 —— 那会让错误轨道/错误参数被静默执行。
+/// 因此把重复键检测提前到**执行任何 nc_* 编辑之前**。
+std::string precheckEditArgs(const std::string& json);
+
 }  // namespace core
 }  // namespace nairoclip
