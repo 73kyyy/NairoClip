@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/json_args.h"
 #include "nairoclip/core/xform.h"
 
 namespace {
@@ -51,97 +52,59 @@ jstring ToJStr(JNIEnv* env, const std::string& s) {
     return env->NewStringUTF(s.c_str());
 }
 
-// --- 扁平 JSON 参数读取（{"k": 1, "k2": "s"}）------------------------------
+// ---- JSON 参数读取（结构感知，P0 修复 NC-P0-FINDKEY-REPAIR）----------------
+//
+// 修复前：`json.find("\"" + key + "\"")` 做子串搜索，不理解 JSON 结构 →
+//   字符串值里出现键名文本、嵌套对象/数组里的同名键都会被误命中
+//   （已复现：{"path":"track_index","strength":0.5,"track_index":2}
+//    把 track_index 读成 0.5，静默操作错误轨道）。
+//
+// 修复后：定位交给 core::findJsonMember（只匹配根对象的直接成员，
+//   正确处理转义/嵌套/数组/重复键），**值的语义转换保持原样**：
+//   数值仍走 strtod、整数仍经 double 中转、字符串仍按同一套转义规则解码。
+//   因此九组 18 个 op 的合法参数语义逐位不变。
 
-bool FindKey(const std::string& json, const std::string& key, size_t* outPos) {
-    const std::string pat = "\"" + key + "\"";
-    size_t p = json.find(pat);
-    if (p == std::string::npos) return false;
-    p = json.find(':', p + pat.size());
-    if (p == std::string::npos) return false;
-    *outPos = p + 1;
-    return true;
+/// 便捷：定位成员并按期望类型校验。
+static nairoclip::core::JsonLookup findMember(const std::string& json,
+                                              const std::string& key,
+                                              nairoclip::core::JsonValueKind expected) {
+    return nairoclip::core::findJsonMember(json, key, expected);
 }
 
 double JNum(const std::string& json, const std::string& key, double def) {
-    size_t p = 0;
-    if (!FindKey(json, key, &p)) return def;
-    while (p < json.size() && (json[p] == ' ' || json[p] == '\t')) ++p;
-    char* end = nullptr;
-    const double v = std::strtod(json.c_str() + p, &end);
-    return (end == json.c_str() + p) ? def : v;
+    const auto hit = findMember(json, key, nairoclip::core::JsonValueKind::Number);
+    if (hit.status != nairoclip::core::JsonMemberStatus::Ok) return def;
+    return nairoclip::core::jsonNumberValue(json, hit.span, def);
 }
 
 int64_t JInt(const std::string& json, const std::string& key, int64_t def) {
+    // 保持修复前语义：经 double 中转（>2^53 的整数按 double 舍入）。
     return static_cast<int64_t>(JNum(json, key, static_cast<double>(def)));
 }
 
 std::string JStrField(const std::string& json, const std::string& key) {
-    size_t p = 0;
-    if (!FindKey(json, key, &p)) return {};
-    while (p < json.size() && json[p] != '"') {
-        if (json[p] == '}' || json[p] == ',') return {};
-        ++p;
-    }
-    if (p >= json.size()) return {};
-    ++p;
-    std::string out;
-    while (p < json.size() && json[p] != '"') {
-        if (json[p] == '\\' && p + 1 < json.size()) {
-            const char c = json[p + 1];
-            out.push_back(c == 'n' ? '\n' : c == 't' ? '\t' : c);
-            p += 2;
-            continue;
-        }
-        out.push_back(json[p]);
-        ++p;
-    }
-    return out;
+    const auto hit = findMember(json, key, nairoclip::core::JsonValueKind::String);
+    if (hit.status != nairoclip::core::JsonMemberStatus::Ok) return {};
+    return nairoclip::core::jsonStringValue(json, hit.span);
 }
 
 /// 读取 double 数组（如 "usable_seconds": [3.5, 2.0]）。
-/// 与 JVecU64 同形状，只是用 strtod 解析小数。
 bool JVecDouble(const std::string& json, const std::string& key, std::vector<double>* out) {
     if (out == nullptr) return false;
     out->clear();
-    size_t p = 0;
-    if (!FindKey(json, key, &p)) return false;
-    while (p < json.size() && (json[p] == ' ' || json[p] == '\t')) ++p;
-    if (p >= json.size() || json[p] != '[') return false;
-    ++p;
-    while (p < json.size() && json[p] != ']') {
-        if (json[p] == ' ' || json[p] == '\t' || json[p] == ',') { ++p; continue; }
-        char* end = nullptr;
-        const double v = std::strtod(json.c_str() + p, &end);
-        if (end == json.c_str() + p) break;  // 非数字：停止，避免死循环
-        out->push_back(v);
-        p = static_cast<size_t>(end - json.c_str());
-    }
-    return !out->empty();
+    const auto hit = findMember(json, key, nairoclip::core::JsonValueKind::Array);
+    if (hit.status != nairoclip::core::JsonMemberStatus::Ok) return false;
+    return nairoclip::core::jsonNumberArray(json, hit.span, out);
 }
 
-/// 读取 uint64 数组（如 "material_ids": [1,2,3]）。
-/// 只支持扁平整数数组：本桥的入参是桥自己序列化的，不含嵌套对象。
-/// 返回 false 表示键不存在或不是数组。
+/// 读取 uint64 数组（如 "material_ids": [1,2,3]）。只支持扁平整数数组。
 bool JVecU64(const std::string& json, const std::string& key,
              std::vector<uint64_t>* out) {
     if (out == nullptr) return false;
     out->clear();
-    size_t p = 0;
-    if (!FindKey(json, key, &p)) return false;
-    while (p < json.size() && (json[p] == ' ' || json[p] == '\t')) ++p;
-    if (p >= json.size() || json[p] != '[') return false;
-    ++p;
-    while (p < json.size() && json[p] != ']') {
-        // 跳过空白与逗号
-        if (json[p] == ' ' || json[p] == '\t' || json[p] == ',') { ++p; continue; }
-        char* end = nullptr;
-        const unsigned long long v = std::strtoull(json.c_str() + p, &end, 10);
-        if (end == json.c_str() + p) break;  // 非数字：停止，避免死循环
-        out->push_back(static_cast<uint64_t>(v));
-        p = static_cast<size_t>(end - json.c_str());
-    }
-    return !out->empty();
+    const auto hit = findMember(json, key, nairoclip::core::JsonValueKind::Array);
+    if (hit.status != nairoclip::core::JsonMemberStatus::Ok) return false;
+    return nairoclip::core::jsonU64Array(json, hit.span, out);
 }
 
 std::string JEsc(const std::string& in) {

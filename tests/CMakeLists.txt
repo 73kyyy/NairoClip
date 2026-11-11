@@ -20,6 +20,7 @@ add_executable(nairoclip_tests
     test_b1_canvas.cpp
     test_b1_supplement.cpp
     test_json.cpp
+    test_json_args.cpp
     test_serialization.cpp
     test_recovery.cpp
     test_animation.cpp
