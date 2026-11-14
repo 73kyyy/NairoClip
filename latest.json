@@ -1,0 +1,193 @@
+{
+  "generated_at": "2026-11-14T15:50:52Z",
+  "repo": "73kyyy/NairoClip",
+  "latest": {
+    "Android APK": {
+      "conclusion": "success",
+      "run_number": 146,
+      "run_id": 43611431215,
+      "head_sha": "933d6ef1a580901954a18654e4f312c0d32b4a34",
+      "event": "workflow_dispatch",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/43611431215",
+      "created_at": "2026-11-14T15:40:24Z"
+    },
+    "Android Cross-Compile": {
+      "conclusion": "success",
+      "run_number": 82,
+      "run_id": 43608781063,
+      "head_sha": "8592c3de2897052e7d88ac425c3180ccd92bf31f",
+      "event": "workflow_dispatch",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/43608781063",
+      "created_at": "2026-11-14T15:10:55Z"
+    },
+    "CI": {
+      "conclusion": "success",
+      "run_number": 396,
+      "run_id": 43611437661,
+      "head_sha": "933d6ef1a580901954a18654e4f312c0d32b4a34",
+      "event": "workflow_dispatch",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/43611437661",
+      "created_at": "2026-11-14T15:40:28Z"
+    },
+    "CI Status": {
+      "conclusion": null,
+      "run_number": 629,
+      "run_id": 43612354715,
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/43612354715",
+      "created_at": "2026-11-14T15:50:46Z"
+    },
+    "Report": {
+      "conclusion": "success",
+      "run_number": 309,
+      "run_id": 43612331029,
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/43612331029",
+      "created_at": "2026-11-14T15:50:30Z"
+    }
+  },
+  "recent": [
+    {
+      "name": "CI Status",
+      "conclusion": null,
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 629,
+      "created_at": "2026-11-14T15:50:46Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 628,
+      "created_at": "2026-11-14T15:50:30Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 309,
+      "created_at": "2026-11-14T15:50:30Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 627,
+      "created_at": "2026-11-14T15:49:12Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 626,
+      "created_at": "2026-11-14T15:49:00Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 308,
+      "created_at": "2026-11-14T15:49:00Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "success",
+      "head_sha": "933d6ef1a580901954a18654e4f312c0d32b4a34",
+      "run_number": 396,
+      "created_at": "2026-11-14T15:40:28Z"
+    },
+    {
+      "name": "Android APK",
+      "conclusion": "success",
+      "head_sha": "933d6ef1a580901954a18654e4f312c0d32b4a34",
+      "run_number": 146,
+      "created_at": "2026-11-14T15:40:24Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 625,
+      "created_at": "2026-11-14T15:32:36Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 307,
+      "created_at": "2026-11-14T15:32:25Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 624,
+      "created_at": "2026-11-14T15:32:25Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 623,
+      "created_at": "2026-11-14T15:30:17Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 622,
+      "created_at": "2026-11-14T15:29:58Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 306,
+      "created_at": "2026-11-14T15:29:58Z"
+    },
+    {
+      "name": "Android APK",
+      "conclusion": "failure",
+      "head_sha": "3242a31be1f7d65b92857ad2ccc1bce83a5af6c6",
+      "run_number": 145,
+      "created_at": "2026-11-14T15:22:41Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "success",
+      "head_sha": "3242a31be1f7d65b92857ad2ccc1bce83a5af6c6",
+      "run_number": 395,
+      "created_at": "2026-11-14T15:22:34Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 621,
+      "created_at": "2026-11-14T15:19:09Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 620,
+      "created_at": "2026-11-14T15:18:57Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 305,
+      "created_at": "2026-11-14T15:18:56Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 619,
+      "created_at": "2026-11-14T15:18:53Z"
+    }
+  ]
+}
