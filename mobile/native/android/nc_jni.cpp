@@ -30,6 +30,7 @@
 #include <limits>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "nairoclip/core/capi.h"
@@ -1916,36 +1917,6 @@ jbyteArray PngToJByteArray(JNIEnv* env, uint8_t* data, int32_t len) {
 
 }  // namespace
 
-extern "C" {
-
-/* 全局引擎句柄。
-   ------------------------------------------------------------------------
-   绝大部分 JNI 函数通过参数 `jlong h` 拿句柄（多实例安全）。
-   但 `nativeReleaseMemory` 是**系统内存回调触发的**，没有参数可传 ——
-   只能靠这个全局句柄。
-
-   为什么只有一个：本 App 的设计就是单工程单实例，
-   多实例会让「撤销历史 / 素材缓存」的语义变复杂，没必要。 */
-/* S1-1 根因修复：Editor 生命周期同步。
-   ------------------------------------------------------------------
-   原实现的两个真实缺陷（N-1 / N-2）：
-     N-2）`g_currentEditor` 是裸指针；nativeDestroy 里
-          「读取-判空-使用」之间没有互斥。若另一线程在这几行之间
-          完成 destroy，判空通过后使用的就是已释放对象（TOCTOU → UAF）。
-     N-1）Kotlin 侧有 7 个入口未加 @Synchronized，却直接调用
-          nativeAttachSurface / nativeBlitFrame / nativeReleaseMemory /
-          nativePreviewSetCacheBudget / nativeInstallCrashHandler /
-          nativeSurfaceReady 等，可与 release() 并发。
-   修复方案（最小且可从根本保证安全）：
-     · `g_currentEditor` 改为 `std::atomic<NcEditor*>`（消除数据竞争读）
-     · 引入 `g_editorLifecycleMutex`，把「取得指针 → 使用 → 归还」放进
-       同一临界区；`nativeDestroy` 在同一锁内「先置空再销毁」。
-       这样"判空与使用非原子"从机制上不可能发生。
-     · 用 `std::recursive_mutex`：部分入口（如 nc_preview_* 内部可能回调）
-       存在同线程重入，普通 mutex 会自死锁。
-     · 锁序：本文件只有这一把生命周期锁，不存在锁顺序反转。
-       持锁期间不调用 Kotlin/Java 回调，故不会反向重入 Engine。
-   ------------------------------------------------------------------ */
 static std::atomic<NcEditor*> g_currentEditor{nullptr};
 static std::recursive_mutex g_editorLifecycleMutex;
 
@@ -1997,6 +1968,37 @@ private:
     NcEditor* editor_ = nullptr;
 };
 }  // namespace
+
+extern "C" {
+
+/* 全局引擎句柄。
+   ------------------------------------------------------------------------
+   绝大部分 JNI 函数通过参数 `jlong h` 拿句柄（多实例安全）。
+   但 `nativeReleaseMemory` 是**系统内存回调触发的**，没有参数可传 ——
+   只能靠这个全局句柄。
+
+   为什么只有一个：本 App 的设计就是单工程单实例，
+   多实例会让「撤销历史 / 素材缓存」的语义变复杂，没必要。 */
+/* S1-1 根因修复：Editor 生命周期同步。
+   ------------------------------------------------------------------
+   原实现的两个真实缺陷（N-1 / N-2）：
+     N-2）`g_currentEditor` 是裸指针；nativeDestroy 里
+          「读取-判空-使用」之间没有互斥。若另一线程在这几行之间
+          完成 destroy，判空通过后使用的就是已释放对象（TOCTOU → UAF）。
+     N-1）Kotlin 侧有 7 个入口未加 @Synchronized，却直接调用
+          nativeAttachSurface / nativeBlitFrame / nativeReleaseMemory /
+          nativePreviewSetCacheBudget / nativeInstallCrashHandler /
+          nativeSurfaceReady 等，可与 release() 并发。
+   修复方案（最小且可从根本保证安全）：
+     · `g_currentEditor` 改为 `std::atomic<NcEditor*>`（消除数据竞争读）
+     · 引入 `g_editorLifecycleMutex`，把「取得指针 → 使用 → 归还」放进
+       同一临界区；`nativeDestroy` 在同一锁内「先置空再销毁」。
+       这样"判空与使用非原子"从机制上不可能发生。
+     · 用 `std::recursive_mutex`：部分入口（如 nc_preview_* 内部可能回调）
+       存在同线程重入，普通 mutex 会自死锁。
+     · 锁序：本文件只有这一把生命周期锁，不存在锁顺序反转。
+       持锁期间不调用 Kotlin/Java 回调，故不会反向重入 Engine。
+   ------------------------------------------------------------------ */
 
 JNIEXPORT jlong JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeCreate(JNIEnv*, jobject) {
