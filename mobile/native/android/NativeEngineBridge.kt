@@ -89,6 +89,13 @@ class NativeEngineBridge(
             nativeDestroy(editor)
             editor = 0L
         }
+        /* Fix 1（Activity 重建）：本实例销毁后必须解除全局绑定，
+           否则 companion 的 Surface / 内存回调仍会把调用转发到
+           已销毁的旧实例上。此处持锁（this），与 companion 侧
+           synchronized(inst) 使用同一监视器，故不会与之交错。 */
+        if (instanceForSurface === this) {
+            instanceForSurface = null
+        }
     }
 
     @Synchronized
@@ -504,18 +511,23 @@ class NativeEngineBridge(
                 pendingRasterizerRegister = true
                 return
             }
-            try {
-                inst.nativeRegisterTextRasterizer(AndroidTextRasterizer)
-            } catch (e: Throwable) {
-                // 老 so 可能没有这个符号 —— 不让它影响启动
+            synchronized(inst) {
+                try {
+                    inst.nativeRegisterTextRasterizer(AndroidTextRasterizer)
+                } catch (e: Throwable) {
+                    // 老 so 可能没有这个符号 —— 不让它影响启动
+                }
             }
         }
 
         fun unregisterTextRasterizer() {
             pendingRasterizerRegister = false
-            try {
-                instanceForSurface?.nativeRegisterTextRasterizer(null)
-            } catch (e: Throwable) {
+            val inst = instanceForSurface ?: return
+            synchronized(inst) {
+                try {
+                    inst.nativeRegisterTextRasterizer(null)
+                } catch (e: Throwable) {
+                }
             }
         }
 
@@ -524,6 +536,10 @@ class NativeEngineBridge(
            内部转发到实例 external（external 必须是非静态的，
            因为 JNI 签名带 jobject self）。 */
 
+        /* Fix 1：跨线程可见性。读写都不再依赖 Companion 监视器
+           （Companion 监视器与实例监视器是**两把不同的锁**，
+            这正是上一版修复无效的根因）。 */
+        @Volatile
         private var instanceForSurface: NativeEngineBridge? = null
 
         /** 引擎实例尚未创建时收到的「注册文本栅格化器」请求。 */
@@ -533,42 +549,49 @@ class NativeEngineBridge(
         val instance: NativeEngineBridge?
             get() = instanceForSurface
 
-        @Synchronized
         fun attachSurface(surface: android.view.Surface?, width: Int, height: Int): Boolean {
             val inst = instanceForSurface ?: return false
-            return try {
-                inst.nativeAttachSurface(surface, width, height)
-            } catch (e: Throwable) {
-                false
+            /* 锁"拥有 engine 的那个实例"，与 release() 的 @Synchronized 同一监视器。
+               不再用 Companion 监视器 —— 它与实例监视器互不相干。 */
+            return synchronized(inst) {
+                try {
+                    inst.nativeAttachSurface(surface, width, height)
+                } catch (e: Throwable) {
+                    false
+                }
             }
         }
 
-        @Synchronized
         fun detachSurface() {
-            try {
-                instanceForSurface?.nativeDetachSurface()
-            } catch (e: Throwable) {
+            val inst = instanceForSurface ?: return
+            synchronized(inst) {
+                try {
+                    inst.nativeDetachSurface()
+                } catch (e: Throwable) {
+                }
             }
         }
 
-        @Synchronized
         fun blitFrame(handle: Long, timeUs: Long): Boolean {
             val inst = instanceForSurface ?: return false
-            return try {
-                inst.nativeBlitFrame(handle, timeUs)
-            } catch (e: Throwable) {
-                false
+            return synchronized(inst) {
+                try {
+                    inst.nativeBlitFrame(handle, timeUs)
+                } catch (e: Throwable) {
+                    false
+                }
             }
         }
 
         /** 安装崩溃处理器（§8.1）。用单例实例转发。 */
-        @Synchronized
         fun installCrashHandler(dir: String): Boolean {
             val inst = instanceForSurface ?: return false
-            return try {
-                inst.nativeInstallCrashHandler(dir)
-            } catch (e: Throwable) {
-                false
+            return synchronized(inst) {
+                try {
+                    inst.nativeInstallCrashHandler(dir)
+                } catch (e: Throwable) {
+                    false
+                }
             }
         }
 
@@ -582,44 +605,49 @@ class NativeEngineBridge(
          * （MemoryGuard.frameCacheBudgetBytes），而这里只负责跨 JNI 传递。
          * 分开的好处是预算算法可以单测，不必起引擎。
          */
-        @Synchronized
         fun setPreviewCacheBudget(bytes: Long): Boolean {
             val inst = instanceForSurface ?: return false
-            return try {
-                inst.nativePreviewSetCacheBudget(bytes) == 0
-            } catch (e: Throwable) {
-                false
+            return synchronized(inst) {
+                try {
+                    inst.nativePreviewSetCacheBudget(bytes) == 0
+                } catch (e: Throwable) {
+                    false
+                }
             }
         }
 
         /** 读取引擎当前的帧缓存预算（字节；引擎未就绪返回 -1）。 */
         fun previewCacheBudget(): Long {
             val inst = instanceForSurface ?: return -1L
-            return try {
-                inst.nativePreviewGetCacheBudget()
-            } catch (e: Throwable) {
-                -1L
+            return synchronized(inst) {
+                try {
+                    inst.nativePreviewGetCacheBudget()
+                } catch (e: Throwable) {
+                    -1L
+                }
             }
         }
 
         /** 释放内存（§8.2 第 11 条）。返回估算释放字节数。 */
-        @Synchronized
         fun releaseMemory(level: Int): Long {
             val inst = instanceForSurface ?: return 0L
-            return try {
-                inst.nativeReleaseMemory(level)
-            } catch (e: Throwable) {
-                0L
+            return synchronized(inst) {
+                try {
+                    inst.nativeReleaseMemory(level)
+                } catch (e: Throwable) {
+                    0L
+                }
             }
         }
 
-        @Synchronized
         fun surfaceReady(): Boolean {
             val inst = instanceForSurface ?: return false
-            return try {
-                inst.nativeSurfaceReady()
-            } catch (e: Throwable) {
-                false
+            return synchronized(inst) {
+                try {
+                    inst.nativeSurfaceReady()
+                } catch (e: Throwable) {
+                    false
+                }
             }
         }
 
@@ -637,6 +665,10 @@ class NativeEngineBridge(
          * 失败不影响任何功能：core 侧有 96MB 的保守默认值兜底。
          */
         fun bindInstance(inst: NativeEngineBridge, cacheBudgetBytes: Long = 0L) {
+            /* Fix 1：绑定本身也必须在实例监视器内完成，
+               否则 release() 可能正好在"已绑定但预算未设"的窗口执行，
+               留下"绑定了已销毁实例"的状态。 */
+            synchronized(inst) {
             instanceForSurface = inst
             /* 引擎就绪 —— 补注册启动阶段排队的文本栅格化器。 */
             if (pendingRasterizerRegister) {
@@ -657,6 +689,7 @@ class NativeEngineBridge(
                 } catch (e: Throwable) {
                     android.util.Log.w("NcMemory", "帧缓存策略设置失败（用默认值）", e)
                 }
+            }
             }
         }
     }

@@ -1958,19 +1958,68 @@ auto withCurrentEditor(Fn&& fn) -> decltype(fn(std::declval<NcEditor*>())) {
     NcEditor* ed = g_currentEditor.load(std::memory_order_acquire);
     return fn(ed);
 }
+
+/// JNI 句柄生命周期守卫（S1-1 根因修复 · Fix 3）。
+///
+/// 问题：原实现是
+///     auto* ed = reinterpret_cast<NcEditor*>(h);
+///     if (!ed) return ...;          // 仅判空
+/// 判空只证明"非 0"，**不证明**该指针仍是当前有效 Editor；而且从判空到
+/// 使用之间没有互斥，destroy 可以在任意点插入（TOCTOU → UAF）。
+///
+/// 本守卫的语义：
+///   1) 构造时在 g_editorLifecycleMutex 内校验 `h == g_currentEditor`，
+///      只有"确实是当前实例"才放行 —— 过期句柄/重复销毁后的句柄一律拒绝；
+///   2) 校验通过后**继续持锁**直到析构，使"校验 → 使用"成为原子区，
+///      销毁不可能插进来；
+///   3) 校验失败时 get() 返回 nullptr，调用方按"引擎不可用"处理。
+///
+/// 锁用 recursive_mutex：同一线程内嵌套的 JNI 调用（如 preview 内部回调）
+/// 不会自死锁。
+class EditorHandleGuard {
+public:
+    explicit EditorHandleGuard(jlong h) : lock_(g_editorLifecycleMutex) {
+        NcEditor* cur = g_currentEditor.load(std::memory_order_acquire);
+        NcEditor* given = reinterpret_cast<NcEditor*>(h);
+        if (cur != nullptr && given == cur) {
+            editor_ = cur;
+        }
+    }
+    /// 有效句柄返回 Editor 指针；过期/空/已销毁句柄返回 nullptr。
+    NcEditor* get() const { return editor_; }
+    explicit operator bool() const { return editor_ != nullptr; }
+
+    EditorHandleGuard(const EditorHandleGuard&) = delete;
+    EditorHandleGuard& operator=(const EditorHandleGuard&) = delete;
+
+private:
+    std::lock_guard<std::recursive_mutex> lock_;
+    NcEditor* editor_ = nullptr;
+};
 }  // namespace
 
 JNIEXPORT jlong JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeCreate(JNIEnv*, jobject) {
-    NcEditor* ed = nc_editor_create();
+    NcEditor* created = nc_editor_create();
+    if (created == nullptr) {
+        return 0;   /* 创建失败：明确返回 0（无效句柄），不写全局状态 */
+    }
     {
         std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
         NcEditor* expected = nullptr;
-        /* 单实例设计：已有实例时仍覆盖，但记录以便排查（不改变既有行为）。 */
-        g_currentEditor.store(ed, std::memory_order_release);
-        (void)expected;
+        /* Fix 2：单实例约束在代码层强制，而不是只靠"架构约定"。
+           CAS 失败说明已有实例 —— 此时：
+             · 不覆盖（否则旧实例泄漏且全局句柄指向新实例，旧句柄悬垂）
+             · 销毁刚创建的 created，避免泄漏
+             · 返回既有实例句柄，调用方仍得到有效句柄 */
+        if (!g_currentEditor.compare_exchange_strong(
+                expected, created,
+                std::memory_order_acq_rel, std::memory_order_acquire)) {
+            nc_editor_destroy(created);
+            return reinterpret_cast<jlong>(expected);   /* 既有有效实例 */
+        }
     }
-    return reinterpret_cast<jlong>(ed);
+    return reinterpret_cast<jlong>(created);
 }
 
 JNIEXPORT void JNICALL
@@ -1978,28 +2027,33 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeDestroy(JNIEnv*, jobject, jlong 
     if (h == 0) return;
     NcEditor* ed = reinterpret_cast<NcEditor*>(h);
     std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
-    /* 在同一临界区内：先摘除全局句柄，再销毁。
-       由于所有访问路径都持有同一把锁，此刻不可能有别的线程
-       正处在「判空通过、尚未使用」的窗口里。 */
+    /* Fix 3：单次销毁语义。
+       只有"该句柄确实是当前实例"时 CAS 才会成功，此时：
+           CAS 成功 → 全局句柄已置空（其它线程此后一律看到"引擎不可用"）
+                    → 销毁该实例
+           CAS 失败 → 句柄过期/已被销毁/不属于当前实例
+                    → **绝不销毁**（否则就是 double free）
+       原实现忽略 CAS 返回值后无条件 destroy，重复销毁即 double free。 */
     NcEditor* expected = ed;
-    g_currentEditor.compare_exchange_strong(expected, nullptr,
-                                           std::memory_order_acq_rel);
+    if (!g_currentEditor.compare_exchange_strong(
+            expected, nullptr,
+            std::memory_order_acq_rel, std::memory_order_acquire)) {
+        return;   /* 过期句柄或重复销毁：安全忽略 */
+    }
     nc_editor_destroy(ed);
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
     JNIEnv* env, jobject, jlong h, jstring fn, jstring argsJson) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
-    if (!ed) return ToJStr(env, Err("引擎未初始化"));
+    /* Fix 3：句柄有效性在生命周期锁内校验，并持锁至调用结束。 */
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return ToJStr(env, Err("引擎句柄已失效"));
 
     const std::string name = JStr(env, fn);
     const std::string args = JStr(env, argsJson);
 
-    /* S1-1：与 nativeDestroy 共用生命周期锁。
-       否则 Kotlin 的 @Synchronized（另一把锁）挡不住 C++ 侧的 destroy：
-       持有旧句柄的调用可能在 dispatch 途中撞上 nc_editor_destroy。 */
-    std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
     std::string out;
     if (DispatchEdit(ed, name, args, &out)) return ToJStr(env, out);
     return ToJStr(env, Err("未开放的操作：" + name));
@@ -2012,7 +2066,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeApplyCommand(
     JNIEnv* env, jobject, jlong h, jstring requestJson) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return nullptr;
     const std::string req = JStr(env, requestJson);
     char* raw = nc_apply_command(ed, req.c_str());
@@ -2029,7 +2084,8 @@ JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskBegin(
     JNIEnv* env, jobject, jlong h, jstring type, jlong targetId, jint heartbeatTimeoutMs,
     jlong totalTimeoutMs, jlong nowMs) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return ToJStr(env, "{\"ok\":false,\"message\":\"引擎未初始化\"}");
     const std::string kind = JStr(env, type);
     char* outId = nullptr;
@@ -2054,7 +2110,8 @@ JNIEXPORT jint JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskHeartbeat(
     JNIEnv* env, jobject, jlong h, jstring taskId, jdouble progress, jstring stageNote,
     jlong nowMs) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return NC_ERROR_INVALID_ARGUMENT;
     const std::string id = JStr(env, taskId);
     const std::string note = JStr(env, stageNote);
@@ -2065,7 +2122,8 @@ JNIEXPORT jint JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskComplete(
     JNIEnv* env, jobject, jlong h, jstring taskId, jstring resultType, jstring resultJson,
     jlong nowMs) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return NC_ERROR_INVALID_ARGUMENT;
     const std::string id = JStr(env, taskId);
     const std::string rtype = JStr(env, resultType);
@@ -2076,7 +2134,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeTaskComplete(
 JNIEXPORT jint JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskFail(
     JNIEnv* env, jobject, jlong h, jstring taskId, jstring error, jint retryable) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return NC_ERROR_INVALID_ARGUMENT;
     const std::string id = JStr(env, taskId);
     const std::string text = JStr(env, error);
@@ -2086,7 +2145,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeTaskFail(
 JNIEXPORT jint JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskCancel(JNIEnv* env, jobject, jlong h,
                                                            jstring taskId) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return NC_ERROR_INVALID_ARGUMENT;
     const std::string id = JStr(env, taskId);
     return nc_task_cancel(ed, id.c_str());
@@ -2095,7 +2155,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeTaskCancel(JNIEnv* env, jobject,
 JNIEXPORT jint JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskCancelAck(JNIEnv* env, jobject, jlong h,
                                                               jstring taskId) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return NC_ERROR_INVALID_ARGUMENT;
     const std::string id = JStr(env, taskId);
     return nc_task_cancel_ack(ed, id.c_str());
@@ -2104,7 +2165,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeTaskCancelAck(JNIEnv* env, jobje
 JNIEXPORT jint JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskClearResult(JNIEnv* env, jobject, jlong h,
                                                                 jstring taskId) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return NC_ERROR_INVALID_ARGUMENT;
     const std::string id = JStr(env, taskId);
     return nc_task_clear_result(ed, id.c_str());
@@ -2113,7 +2175,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeTaskClearResult(JNIEnv* env, job
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskQuery(JNIEnv* env, jobject, jlong h,
                                                           jstring taskId) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return ToJStr(env, "{\"ok\":false,\"message\":\"引擎未初始化\"}");
     const std::string id = JStr(env, taskId);
     char* q = nc_task_query(ed, id.c_str());
@@ -2126,14 +2189,16 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeTaskQuery(JNIEnv* env, jobject, 
 JNIEXPORT jint JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeTaskTick(JNIEnv* env, jobject, jlong h,
                                                          jlong nowMs) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return NC_ERROR_INVALID_ARGUMENT;
     return nc_task_tick(ed, nowMs);
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeState(JNIEnv* env, jobject, jlong h) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return ToJStr(env, Err("引擎未初始化"));
     return ToJStr(env, BuildState(ed));
 }
@@ -2141,7 +2206,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeState(JNIEnv* env, jobject, jlon
 JNIEXPORT jbyteArray JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeFrame(
     JNIEnv* env, jobject, jlong h, jlong timeUs, jint width) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return nullptr;
 
     // nc_preview_render 输出的是 RGBA8 像素，不是 PNG。
@@ -2193,7 +2259,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeFrame(
 JNIEXPORT jbyteArray JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeThumb(
     JNIEnv* env, jobject, jlong h, jlong assetId, jint index, jint width) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return nullptr;
 
     // 声明：int32_t nc_thumbnail_generate(editor, asset_id, count, max_width,
@@ -2241,7 +2308,8 @@ JNIEXPORT jbyteArray JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativePresetFrame(
     JNIEnv* env, jobject, jlong h, jstring kind, jint style,
     jlong timeUs, jint width) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return nullptr;
 
     // 找第一条有片段的主轨，取其首片段作为套预设的对象
@@ -2324,7 +2392,8 @@ JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeInstallModel(
     JNIEnv* env, jobject, jlong h, jstring modelId, jbyteArray data,
     jstring path, jstring sha256, jlong nowUnix) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return ToJStr(env, Err("引擎未初始化"));
     if (data == nullptr) return ToJStr(env, Err("模型字节为空"));
 
@@ -2353,7 +2422,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeInstallModel(
 
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeModels(JNIEnv* env, jobject, jlong h) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
 
     // 声明：int32_t nc_model_catalog(char*** out_ids, int32_t capacity, int32_t* out_count)
     // 先用 capacity=0 查总数，再按实际数量分配。
@@ -2406,7 +2476,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeModels(JNIEnv* env, jobject, jlo
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeWaveform(
     JNIEnv* env, jobject, jlong h, jlong assetId) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (!ed) return ToJStr(env, "{\"buckets\":[]}");
 
     double peak = 0.0;
@@ -2654,7 +2725,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeDetachSurface(JNIEnv*, jobject) 
 JNIEXPORT jboolean JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeBlitFrame(
     JNIEnv*, jobject, jlong h, jlong timeUs) {
-    auto* ed = reinterpret_cast<NcEditor*>(h);
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
     if (ed == nullptr || g_surface.window == nullptr) return JNI_FALSE;
 
     uint8_t* rgba = nullptr;

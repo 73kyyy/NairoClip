@@ -28,6 +28,7 @@ add_executable(nairoclip_tests
     test_capi.cpp
     test_s1_lifecycle.cpp
     test_s1_lifecycle_concurrency.cpp
+    test_s1_jni_lifetime_protocol.cpp
     test_capi_timeline.cpp
     test_capi_media.cpp
     test_person_effects.cpp
