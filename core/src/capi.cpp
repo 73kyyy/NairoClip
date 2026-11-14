@@ -437,16 +437,55 @@ int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail)
         setDetail(detail, result.result.message);
         return failResult(result.result);
     }
-    // 替换工程后必须重建编辑器（引用失效）。
+    /* S1-1：安全替换工程（生命周期修复）。
+       ------------------------------------------------------------------
+       修复前存在三个连带缺陷（均在 load 成功后触发）：
+         1) CommandDispatcher 持 `TimelineEditor& editor_`（dispatch.h:44）。
+            旧代码 delete editor 后未重建 dispatcher → 悬垂引用，
+            其后任何 nc_apply_command 都是 use-after-free。
+         2) TimelineEditor::setEventBus(&eventBus) 仅在 nc_editor_create 做过。
+            重建 editor 后 eventBus_ 为 nullptr → commit() 不再发布事件。
+         3) project.id 在 create 时为 ProjectId{1}；load 用 move 整体替换后
+            变回 0 → EventBus 对 projectId==0 的事件静默丢弃。
+       修复策略（备份-恢复）：
+         · 先把旧工程内容移入局部备份（editor->project 对象地址不变，
+           因此旧 editor / dispatcher 持有的引用仍然有效）
+         · 在 editor->project 上重建 editor + dispatcher
+         · 任一步失败 → 把备份移回，旧状态完整复原（含旧 editor 一致性）
+         · 全部成功 → 接线 eventBus、恢复 project id，再释放旧对象
+       ------------------------------------------------------------------ */
+    TimelineEditor* oldEditor = editor->editor;
+    contract::CommandDispatcher* oldDispatcher = editor->dispatcher;
+
+    Project backup = std::move(editor->project);   // 旧内容（同址对象，引用安全）
     editor->project = std::move(loaded);
-    delete editor->editor;
-    editor->editor = new (std::nothrow) TimelineEditor(editor->project);
-    if (editor->editor == nullptr) {
+    /* 与 nc_editor_create 一致：EventEnvelope 要求 projectId 非 0，
+       否则 EventBus 会静默丢弃该工程的全部事件。 */
+    editor->project.id = ProjectId{1};
+
+    auto* newEditor = new (std::nothrow) TimelineEditor(editor->project);
+    if (newEditor == nullptr) {
+        editor->project = std::move(backup);       // 完整复原旧状态
         setDetail(detail, "内存分配失败");
         return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
     }
-    /* 加载后预热开头几帧（P2）。
-       失败不影响加载结果 —— 预热只是「让首屏更快」，不是功能本身。 */
+    auto* newDispatcher = new (std::nothrow)
+        contract::CommandDispatcher(*newEditor, editor->eventBus);
+    if (newDispatcher == nullptr) {
+        delete newEditor;
+        editor->project = std::move(backup);       // 完整复原旧状态
+        setDetail(detail, "内存分配失败");
+        return failNc(NC_ERROR_INTERNAL, "参数或状态非法");
+    }
+    newEditor->setEventBus(&editor->eventBus);
+
+    /* 提交：新指针接管，先断旧引用再释放（dispatcher 先删，顺序与原实现一致）。 */
+    editor->editor = newEditor;
+    editor->dispatcher = newDispatcher;
+    delete oldDispatcher;
+    delete oldEditor;
+
+    /* 加载后预热开头几帧（P2）。失败不影响加载结果。 */
     (void)nc_preview_prewarm(editor, 6);
     return NC_OK;
 }
