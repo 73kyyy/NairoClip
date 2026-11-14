@@ -11,6 +11,7 @@ add_library(nairoclip_core STATIC
     src/transition.cpp
     src/speed_curve.cpp
     src/json.cpp
+    src/json_args.cpp
     src/contract/error.cpp
     src/contract/command.cpp
     src/contract/event.cpp
