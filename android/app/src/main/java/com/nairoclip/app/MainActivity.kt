@@ -49,16 +49,14 @@ class MainActivity : AppCompatActivity() {
         // libnc_jni.so：NativeEngineBridge 里 external 方法的实现
         NativeEngineBridge.loadLibrary()
         /* ---- 崩溃捕获（§8.1 第 3 条）----
-           在 loadLibrary 之后立刻装 —— 越早越好，
-           晚装的这段时间里崩了就抓不到。
-           日志目录用 filesDir：应用私有，不需要存储权限。 */
-        try {
-            val crashDir = filesDir.absolutePath
-            val ok = NativeEngineBridge.installCrashHandler(crashDir)
-            if (ok) android.util.Log.i("NcCrash", "崩溃处理器已安装: $crashDir/crash.log")
-        } catch (e: Throwable) {
-            android.util.Log.w("NcCrash", "安装失败（不影响启动）", e)
-        }
+           S1-1 修复：**不能**在这里安装。
+           installCrashHandler 内部是 `instanceForSurface ?: return false`
+           （NativeEngineBridge.kt:563），而 instanceForSurface 只在
+           bindInstance() 里赋值（:633）。本方法此前在此处调用时引擎尚未创建
+           （eng 在下方创建，bindInstance 更晚），因此该调用**恒定返回 false**，
+           崩溃处理器从未真正安装过 —— 崩溃日志一直是空的。
+           现在移到 bindInstance 之后，见下方「崩溃捕获安装」块。
+           目录仍用 filesDir：应用私有，无需存储权限。 */
 
         /* ---- 先算基准预算（内存压力回调要用它算下调比例）----
            必须早于 memoryGuard 创建：否则在 66~170 行之间若收到
@@ -179,6 +177,21 @@ class MainActivity : AppCompatActivity() {
             "帧缓存预算 ${cacheBudget / (1024 * 1024)} MB " +
             "（memoryClass=${(getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).memoryClass}MB）")
         NativeEngineBridge.bindInstance(eng, cacheBudget)
+        /* ---- 崩溃捕获安装（S1-1 修复：移至引擎绑定之后）----
+           installCrashHandler 依赖 instanceForSurface，必须在 bindInstance
+           之后调用才会真正生效。失败不阻断启动（崩溃捕获是增强能力，
+           不是启动必需项），但会记录明确日志便于诊断。 */
+        try {
+            val crashDir = filesDir.absolutePath
+            if (NativeEngineBridge.installCrashHandler(crashDir)) {
+                android.util.Log.i("NcCrash", "崩溃处理器已安装: $crashDir/crash.log")
+            } else {
+                android.util.Log.w("NcCrash",
+                    "崩溃处理器未安装（引擎实例不可用）: $crashDir")
+            }
+        } catch (e: Throwable) {
+            android.util.Log.w("NcCrash", "安装失败（不影响启动）", e)
+        }
         webView.addJavascriptInterface(NativeAuthBridge(this, webView), "NCAndroid")
         /* 预览区坐标桥（P6）：JS 上报预览区位置，SurfaceView 据此定位。
            独立命名空间，不与认证桥混用。 */

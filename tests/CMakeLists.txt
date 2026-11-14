@@ -26,6 +26,7 @@ add_executable(nairoclip_tests
     test_animation.cpp
     test_export_plan.cpp
     test_capi.cpp
+    test_s1_lifecycle.cpp
     test_capi_timeline.cpp
     test_capi_media.cpp
     test_person_effects.cpp
