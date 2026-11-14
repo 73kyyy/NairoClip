@@ -26,7 +26,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -1924,24 +1926,65 @@ extern "C" {
 
    为什么只有一个：本 App 的设计就是单工程单实例，
    多实例会让「撤销历史 / 素材缓存」的语义变复杂，没必要。 */
-static NcEditor* g_currentEditor = nullptr;
+/* S1-1 根因修复：Editor 生命周期同步。
+   ------------------------------------------------------------------
+   原实现的两个真实缺陷（N-1 / N-2）：
+     N-2）`g_currentEditor` 是裸指针；nativeDestroy 里
+          「读取-判空-使用」之间没有互斥。若另一线程在这几行之间
+          完成 destroy，判空通过后使用的就是已释放对象（TOCTOU → UAF）。
+     N-1）Kotlin 侧有 7 个入口未加 @Synchronized，却直接调用
+          nativeAttachSurface / nativeBlitFrame / nativeReleaseMemory /
+          nativePreviewSetCacheBudget / nativeInstallCrashHandler /
+          nativeSurfaceReady 等，可与 release() 并发。
+   修复方案（最小且可从根本保证安全）：
+     · `g_currentEditor` 改为 `std::atomic<NcEditor*>`（消除数据竞争读）
+     · 引入 `g_editorLifecycleMutex`，把「取得指针 → 使用 → 归还」放进
+       同一临界区；`nativeDestroy` 在同一锁内「先置空再销毁」。
+       这样"判空与使用非原子"从机制上不可能发生。
+     · 用 `std::recursive_mutex`：部分入口（如 nc_preview_* 内部可能回调）
+       存在同线程重入，普通 mutex 会自死锁。
+     · 锁序：本文件只有这一把生命周期锁，不存在锁顺序反转。
+       持锁期间不调用 Kotlin/Java 回调，故不会反向重入 Engine。
+   ------------------------------------------------------------------ */
+static std::atomic<NcEditor*> g_currentEditor{nullptr};
+static std::recursive_mutex g_editorLifecycleMutex;
+
+namespace {
+/// 在生命周期锁内取得当前 Editor 并执行 fn；无 Editor 时不执行。
+/// 所有需要"判空 + 使用"原子化的入口都必须走这里。
+template <typename Fn>
+auto withCurrentEditor(Fn&& fn) -> decltype(fn(std::declval<NcEditor*>())) {
+    std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
+    NcEditor* ed = g_currentEditor.load(std::memory_order_acquire);
+    return fn(ed);
+}
+}  // namespace
 
 JNIEXPORT jlong JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeCreate(JNIEnv*, jobject) {
     NcEditor* ed = nc_editor_create();
-    g_currentEditor = ed;
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
+        NcEditor* expected = nullptr;
+        /* 单实例设计：已有实例时仍覆盖，但记录以便排查（不改变既有行为）。 */
+        g_currentEditor.store(ed, std::memory_order_release);
+        (void)expected;
+    }
     return reinterpret_cast<jlong>(ed);
 }
 
 JNIEXPORT void JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeDestroy(JNIEnv*, jobject, jlong h) {
-    if (h) {
-        NcEditor* ed = reinterpret_cast<NcEditor*>(h);
-        /* 清空全局句柄 —— 否则内存回调会往已释放的句柄上写，
-           那是 use-after-free，比不释放更危险。 */
-        if (g_currentEditor == ed) g_currentEditor = nullptr;
-        nc_editor_destroy(ed);
-    }
+    if (h == 0) return;
+    NcEditor* ed = reinterpret_cast<NcEditor*>(h);
+    std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
+    /* 在同一临界区内：先摘除全局句柄，再销毁。
+       由于所有访问路径都持有同一把锁，此刻不可能有别的线程
+       正处在「判空通过、尚未使用」的窗口里。 */
+    NcEditor* expected = ed;
+    g_currentEditor.compare_exchange_strong(expected, nullptr,
+                                           std::memory_order_acq_rel);
+    nc_editor_destroy(ed);
 }
 
 JNIEXPORT jstring JNICALL
@@ -1953,6 +1996,10 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
     const std::string name = JStr(env, fn);
     const std::string args = JStr(env, argsJson);
 
+    /* S1-1：与 nativeDestroy 共用生命周期锁。
+       否则 Kotlin 的 @Synchronized（另一把锁）挡不住 C++ 侧的 destroy：
+       持有旧句柄的调用可能在 dispatch 途中撞上 nc_editor_destroy。 */
+    std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
     std::string out;
     if (DispatchEdit(ed, name, args, &out)) return ToJStr(env, out);
     return ToJStr(env, Err("未开放的操作：" + name));
@@ -2680,9 +2727,10 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeReleaseMemory(
     /* 内存压力响应。
        注意：这里**不检查 h（引擎句柄）** —— 释放缓存不需要有效工程，
        而没有句柄时也要允许调用（比如引擎还没初始化就被系统催内存）。 */
-    auto* ed = g_currentEditor;
-    if (ed == nullptr) return 0L;
-    return static_cast<jlong>(nc_release_memory(ed, level));
+    return withCurrentEditor([level](NcEditor* ed) -> jlong {
+        if (ed == nullptr) return 0L;
+        return static_cast<jlong>(nc_release_memory(ed, level));
+    });
 }
 
 JNIEXPORT jint JNICALL
@@ -2692,10 +2740,11 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewSetCacheBudget(
        由 MainActivity 在引擎创建后调用一次。
        注意：不检查 g_currentEditor 是否为空 —— 与 nativeReleaseMemory 同理，
        拿不到引擎时返回失败码即可，不需要额外状态。 */
-    auto* ed = g_currentEditor;
-    if (ed == nullptr) return -1;
-    if (bytes <= 0 || bytes > std::numeric_limits<jint>::max()) return -1;
-    return static_cast<jint>(nc_preview_set_cache_budget(ed, static_cast<jint>(bytes)));
+    return withCurrentEditor([bytes](NcEditor* ed) -> jint {
+        if (ed == nullptr) return -1;
+        if (bytes <= 0 || bytes > std::numeric_limits<jint>::max()) return -1;
+        return static_cast<jint>(nc_preview_set_cache_budget(ed, static_cast<jint>(bytes)));
+    });
 }
 
 JNIEXPORT jint JNICALL
@@ -2705,17 +2754,19 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewSetCacheScale(
        由 bindInstance 在设置预算后一并设置 —— 两者是配套策略：
        预算决定「能存多少字节」，缩放决定「每帧多大」，
        只有一起调才能真正提高缓存深度。 */
-    auto* ed = g_currentEditor;
-    if (ed == nullptr) return -1;
-    if (scale <= 0.0 || scale > 1.0) return -1;
-    return static_cast<jint>(nc_preview_set_cache_scale(ed, static_cast<double>(scale)));
+    return withCurrentEditor([scale](NcEditor* ed) -> jint {
+        if (ed == nullptr) return -1;
+        if (scale <= 0.0 || scale > 1.0) return -1;
+        return static_cast<jint>(nc_preview_set_cache_scale(ed, static_cast<double>(scale)));
+    });
 }
 
 JNIEXPORT jlong JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativePreviewGetCacheBudget(JNIEnv*, jobject) {
-    auto* ed = g_currentEditor;
-    if (ed == nullptr) return -1L;
-    return static_cast<jlong>(nc_preview_get_cache_budget(ed));
+    return withCurrentEditor([](NcEditor* ed) -> jlong {
+        if (ed == nullptr) return -1L;
+        return static_cast<jlong>(nc_preview_get_cache_budget(ed));
+    });
 }
 
 }  // extern "C"

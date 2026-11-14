@@ -533,6 +533,7 @@ class NativeEngineBridge(
         val instance: NativeEngineBridge?
             get() = instanceForSurface
 
+        @Synchronized
         fun attachSurface(surface: android.view.Surface?, width: Int, height: Int): Boolean {
             val inst = instanceForSurface ?: return false
             return try {
@@ -542,6 +543,7 @@ class NativeEngineBridge(
             }
         }
 
+        @Synchronized
         fun detachSurface() {
             try {
                 instanceForSurface?.nativeDetachSurface()
@@ -549,6 +551,7 @@ class NativeEngineBridge(
             }
         }
 
+        @Synchronized
         fun blitFrame(handle: Long, timeUs: Long): Boolean {
             val inst = instanceForSurface ?: return false
             return try {
@@ -559,6 +562,7 @@ class NativeEngineBridge(
         }
 
         /** 安装崩溃处理器（§8.1）。用单例实例转发。 */
+        @Synchronized
         fun installCrashHandler(dir: String): Boolean {
             val inst = instanceForSurface ?: return false
             return try {
@@ -578,6 +582,7 @@ class NativeEngineBridge(
          * （MemoryGuard.frameCacheBudgetBytes），而这里只负责跨 JNI 传递。
          * 分开的好处是预算算法可以单测，不必起引擎。
          */
+        @Synchronized
         fun setPreviewCacheBudget(bytes: Long): Boolean {
             val inst = instanceForSurface ?: return false
             return try {
@@ -598,6 +603,7 @@ class NativeEngineBridge(
         }
 
         /** 释放内存（§8.2 第 11 条）。返回估算释放字节数。 */
+        @Synchronized
         fun releaseMemory(level: Int): Long {
             val inst = instanceForSurface ?: return 0L
             return try {
@@ -607,6 +613,7 @@ class NativeEngineBridge(
             }
         }
 
+        @Synchronized
         fun surfaceReady(): Boolean {
             val inst = instanceForSurface ?: return false
             return try {
