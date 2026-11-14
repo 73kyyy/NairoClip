@@ -91,11 +91,10 @@ class NativeEngineBridge(
         }
         /* Fix 1（Activity 重建）：本实例销毁后必须解除全局绑定，
            否则 companion 的 Surface / 内存回调仍会把调用转发到
-           已销毁的旧实例上。此处持锁（this），与 companion 侧
-           synchronized(inst) 使用同一监视器，故不会与之交错。 */
-        if (instanceForSurface === this) {
-            instanceForSurface = null
-        }
+           已销毁的旧实例上。
+           经 companion 的 unbindIfCurrent() 完成 —— 该变量是 companion
+           的 private 成员，只能由 companion 内部访问。 */
+        unbindIfCurrent(this)
     }
 
     @Synchronized
@@ -549,6 +548,22 @@ class NativeEngineBridge(
         val instance: NativeEngineBridge?
             get() = instanceForSurface
 
+        /**
+         * 解除全局绑定（S1-1 Fix 1）。
+         *
+         * 由实例的 release() 调用：本实例销毁后，companion 的 Surface /
+         * 内存回调不得再把调用转发到它。在实例监视器内完成，与
+         * release() 的 @Synchronized 及各回调的 synchronized(inst) 同一把锁
+         * （Java 监视器可重入，故在 release() 内调用不会自死锁）。
+         */
+        fun unbindIfCurrent(inst: NativeEngineBridge) {
+            synchronized(inst) {
+                if (instanceForSurface === inst) {
+                    instanceForSurface = null
+                }
+            }
+        }
+
         fun attachSurface(surface: android.view.Surface?, width: Int, height: Int): Boolean {
             val inst = instanceForSurface ?: return false
             /* 锁"拥有 engine 的那个实例"，与 release() 的 @Synchronized 同一监视器。
@@ -669,7 +684,7 @@ class NativeEngineBridge(
                否则 release() 可能正好在"已绑定但预算未设"的窗口执行，
                留下"绑定了已销毁实例"的状态。 */
             synchronized(inst) {
-            instanceForSurface = inst
+                instanceForSurface = inst
             /* 引擎就绪 —— 补注册启动阶段排队的文本栅格化器。 */
             if (pendingRasterizerRegister) {
                 pendingRasterizerRegister = false
