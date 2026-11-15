@@ -22,31 +22,58 @@ namespace core {
 
 namespace detail {
 
-/// 可观测的递归互斥量（S1-1 M-2）。
+/// 可观测的递归互斥量（S1-1 M-2 修正版）。
 ///
 /// 为什么不用 std::recursive_mutex：
-///   测试必须能**直接观测**"某线程已进入获取锁的路径、且正被阻塞"。
-///   仅靠 started 标记 + 有限次 yield() 无法区分：
-///     · 线程还没被调度到；
-///     · 线程已尝试获取锁；
-///     · 线程确实被持有中的临界区挡住。
-///   本类型在**阻塞前**自增 waiters_，因此当
-///     (a) 锁被别的线程持有，且 (b) waiterCount() > 0
-///   时可以确定：该线程已到达锁获取点，且不可能继续 —— 即确实被阻塞。
+///   测试必须能**直接观测**"某线程已尝试获取锁且失败、正在等待"，
+///   而 started 标记 + 有限次 yield() 无法区分"尚未被调度"与"已被阻塞"。
 ///
-/// 语义与 std::recursive_mutex 等价（同一线程可重入）。
-/// 额外开销：仅在有竞争时一次原子自增/自减；无竞争路径不变。
+/// 与上一版的关键差异（修正）：
+///   上一版在调用 inner_.lock() **之前无条件** fetch_add —— 无竞争的正常
+///   获取也会短暂增加计数，因此计数并不代表"竞争等待者"，也无法建立
+///   "计数增加 ⇔ 获取失败" 的因果关系。
+///   本版改为：**先用 try_lock() 探测**，
+///     · try_lock 成功 → 无竞争获取，计数**不变**；
+///     · try_lock 失败 → 才记录一次竞争，然后阻塞在 lock() 上；
+///       拿到锁后撤销记录。
+///   因此 `contendedCount() > 0` 的**精确含义**是：
+///     "有线程在此锁上 try_lock 失败过、且尚未完成获取"。
+///
+/// ⚠️ 语义边界（不得夸大）：
+///   contendedCount() > 0 **不表示**操作系统已把该线程挂起。
+///   它表示"该线程已观测到获取失败并进入等待"；由于此时锁由他人持有，
+///   它不可能继续推进 —— 这就是测试所需的全部强度。
+///
+/// 四种状态：
+///   ① 正常无竞争获取：try_lock 成功，contended 不变
+///   ② 同线程递归获取：owner == self，直接 ++recursion_，contended 不变
+///   ③ 真实竞争：try_lock 失败 → contended++ → lock() 阻塞
+///   ④ 竞争者最终获得：lock() 返回 → contended--
 class RecursiveMutex {
 public:
     void lock() {
-        if (ownerId() == currentThreadId()) {
-            ++recursion_;                       // 同线程重入
+        const std::uint64_t me = currentThreadId();
+        if (owner_.load(std::memory_order_acquire) == me) {
+            ++recursion_;                       // ② 递归获取
             return;
         }
-        waiters_.fetch_add(1, std::memory_order_acq_rel);
-        inner_.lock();
-        waiters_.fetch_sub(1, std::memory_order_acq_rel);
-        owner_.store(currentThreadId(), std::memory_order_release);
+        if (inner_.try_lock()) {                // ① 无竞争获取
+            owner_.store(me, std::memory_order_release);
+            recursion_ = 1;
+            return;
+        }
+        /* ③ 真实竞争：try_lock 失败后才记录 */
+        contended_.fetch_add(1, std::memory_order_acq_rel);
+        try {
+            inner_.lock();
+        } catch (...) {
+            /* 异常路径：撤销记录，避免计数泄漏 */
+            contended_.fetch_sub(1, std::memory_order_acq_rel);
+            throw;
+        }
+        /* ④ 竞争者最终获得 */
+        contended_.fetch_sub(1, std::memory_order_acq_rel);
+        owner_.store(me, std::memory_order_release);
         recursion_ = 1;
     }
 
@@ -58,24 +85,30 @@ public:
     }
 
     bool try_lock() {
-        if (ownerId() == currentThreadId()) {
+        const std::uint64_t me = currentThreadId();
+        if (owner_.load(std::memory_order_acquire) == me) {
             ++recursion_;
             return true;
         }
         if (!inner_.try_lock()) {
             return false;
         }
-        owner_.store(currentThreadId(), std::memory_order_release);
+        owner_.store(me, std::memory_order_release);
         recursion_ = 1;
         return true;
     }
 
-    /// 正在**等待**获取本锁的线程数（仅供测试观测）。
-    /// 无竞争时为 0；某线程卡在 lock() 上期间 >= 1。
-    int waiterCount() const { return waiters_.load(std::memory_order_acquire); }
+    /// 已观测到真实竞争、尚未完成获取的线程数（仅供测试观测）。
+    /// 语义：try_lock 失败后自增，取得锁后自减。
+    /// **不代表**操作系统已挂起该线程。
+    int contendedCount() const {
+        return contended_.load(std::memory_order_acquire);
+    }
 
     /// 当前持有者线程 id（0 = 未持有）。仅供测试断言。
-    std::uint64_t ownerId() const { return owner_.load(std::memory_order_acquire); }
+    std::uint64_t ownerId() const {
+        return owner_.load(std::memory_order_acquire);
+    }
 
 private:
     static std::uint64_t currentThreadId() {
@@ -87,7 +120,7 @@ private:
 
     std::mutex inner_;
     std::atomic<std::uint64_t> owner_{0};
-    std::atomic<int> waiters_{0};
+    std::atomic<int> contended_{0};
     int recursion_ = 0;   // 仅由持有者线程读写
 };
 

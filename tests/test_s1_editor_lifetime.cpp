@@ -32,6 +32,8 @@
 namespace {
 
 using nairoclip::core::EditorLifetime;
+/// 直接测试锁本身时使用的类型别名（与生产同一类型）。
+using Mutex = EditorLifetime::Mutex;
 
 /// 模拟一个 Engine 对象；用 alive 计数验证"最多销毁一次"。
 struct FakeEngine {
@@ -59,9 +61,9 @@ private:
 NC_TEST(S1EditorLifetime, RepeatedCreateRejected) {
     EditorLifetime lt;
     FakeEngine a{1}, b{2};
-    /* 反证：无竞争时等待计数必须为 0 —— 否则"waiterCount>0 即阻塞"
-       这条判据就恒真、失去意义。 */
-    NC_CHECK_EQ(lt.mutex().waiterCount(), 0);
+    /* 反证：无竞争时竞争计数必须为 0 —— 否则"contendedCount>0 即存在
+       真实竞争"这条判据就恒真、失去意义。 */
+    NC_CHECK_EQ(lt.mutex().contendedCount(), 0);
     NC_CHECK_EQ(lt.mutex().ownerId(), 0);
     NC_CHECK(lt.tryAdopt(&a) == EditorLifetime::AdoptResult::kAdopted);
     // 第二次创建必须被拒绝，且不改变既有所有者
@@ -148,10 +150,10 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
     // 确定性依据（不使用 sleep，也不用"有限次 yield + done==0"这种弱证明）：
     //   1) 持锁线程进入临界区后，从**外部** try_lock() 必须失败
     //      → 证明锁确实被持有；
-    //   2) 竞争者启动后，等待 mutex().waiterCount() 达到 kContenders
-    //      → waiterCount 在**阻塞前**自增，因此 >0 表示该线程已到达
-    //        锁获取点；此时锁被他人持有，它不可能继续 —— 即确实被阻塞。
-    //      这排除了"线程还没被调度到"的假象。
+    //   2) 竞争者启动后，等待 mutex().contendedCount() 达到 kContenders
+    //      → contendedCount 只在 try_lock() **失败后**自增，因此 >0 表示
+    //        该线程已实际尝试获取并失败、正在等待；此时锁由他人持有，
+    //        它不可能继续推进。这排除了"线程还没被调度到"的假象。
     //   3) 放行后竞争者继续，恰好一次 beginRelease 成功。
     for (int round = 0; round < 100; ++round) {
         EditorLifetime lt;
@@ -202,10 +204,10 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
         }
 
         // (2) 确定性等待：所有竞争者都已进入锁获取路径并阻塞
-        while (lt.mutex().waiterCount() < kContenders) {
+        while (lt.mutex().contendedCount() < kContenders) {
             std::this_thread::yield();
         }
-        NC_CHECK(lt.mutex().waiterCount() >= kContenders);
+        NC_CHECK(lt.mutex().contendedCount() >= kContenders);
         NC_CHECK_EQ(contendersDone.load(), 0);   // 无一完成
         NC_CHECK_EQ(releases.load(), 0);         // 无一释放成功
         NC_CHECK_EQ(accesses.load(), 0);         // 无一访问成功
@@ -231,7 +233,8 @@ NC_TEST(S1EditorLifetime, ReleaseWhileInFlight) {
     //
     // 与 SameHandleMultiThread 相同的确定性依据：
     //   · 外部 try_lock 失败 → 锁确实被持有；
-    //   · waiterCount() 达到 1 → 销毁线程已到达锁获取点且必然阻塞；
+    //   · contendedCount() 达到 1 → 销毁线程 try_lock 已失败、正在等待，
+    //     且锁由 holder 持有 → 它不可能推进；
     //   · 此时断言 current() 仍指向 e、releaseDone 仍为 false
     //     → 证明"释放不能越过正在持有的临界区"；
     //   · 放行后释放成功；随后旧句柄访问被拒。
@@ -272,10 +275,10 @@ NC_TEST(S1EditorLifetime, ReleaseWhileInFlight) {
         });
 
         // 确定性：销毁线程已进入锁获取路径（必然阻塞，因为锁被 holder 持有）
-        while (lt.mutex().waiterCount() == 0) {
+        while (lt.mutex().contendedCount() == 0) {
             std::this_thread::yield();
         }
-        NC_CHECK(lt.mutex().waiterCount() >= 1);
+        NC_CHECK(lt.mutex().contendedCount() >= 1);
         NC_CHECK(!releaseDone.load());                          // 释放尚未完成
         NC_CHECK_EQ(lt.current(), static_cast<void*>(&e));      // Engine 仍存活
 
@@ -320,4 +323,115 @@ NC_TEST(S1EditorLifetime, CreateAccessDestroyShared) {
     for (auto& th : ts) th.join();
     NC_CHECK_EQ(failures.load(), 0);
     NC_CHECK_EQ(lt.current(), static_cast<void*>(nullptr));  // 最终无人持有
+}
+
+// ---------------------------------------------------------------------------
+// S1RecursiveMutex：锁状态语义的定点测试
+// 对应要求：无竞争 / 递归 / 真实竞争 / 竞争者最终获得 / 多线程+递归不死锁
+// ---------------------------------------------------------------------------
+
+NC_TEST(S1RecursiveMutex, UncontendedLockKeepsContendedZero) {
+    // ① 正常无竞争获取：竞争计数必须保持 0
+    Mutex m;
+    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.ownerId(), 0);
+
+    m.lock();
+    NC_CHECK_EQ(m.contendedCount(), 0);   // 无竞争不计数
+    NC_CHECK(m.ownerId() != 0);
+
+    m.unlock();
+    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.ownerId(), 0);
+
+    // 无竞争的 try_lock 同样不计数
+    NC_CHECK(m.try_lock());
+    NC_CHECK_EQ(m.contendedCount(), 0);
+    m.unlock();
+    NC_CHECK_EQ(m.contendedCount(), 0);
+}
+
+NC_TEST(S1RecursiveMutex, RecursiveLockNotCountedAsContention) {
+    // ② 同线程递归获取：不得被误计为竞争等待者
+    Mutex m;
+    m.lock();
+    m.lock();
+    m.lock();
+    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK(m.ownerId() != 0);
+
+    m.unlock();
+    m.unlock();
+    m.unlock();
+    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.ownerId(), 0);
+
+    // 递归 try_lock 也不计竞争
+    m.lock();
+    NC_CHECK(m.try_lock());
+    NC_CHECK_EQ(m.contendedCount(), 0);
+    m.unlock();
+    m.unlock();
+    NC_CHECK_EQ(m.contendedCount(), 0);
+}
+
+NC_TEST(S1RecursiveMutex, ContentionObservedWhenHolderHolds) {
+    // ③ holder 持锁时，其他线程 try_lock 失败 → 竞争记录准确增加
+    // ④ holder 释放后竞争者取得锁 → 计数最终归零
+    for (int round = 0; round < 100; ++round) {
+        Mutex m;
+        m.lock();                       // 主线程持有
+        const std::uint64_t holder = m.ownerId();
+        NC_CHECK(holder != 0);
+
+        std::atomic<bool> started{false};
+        std::thread contender([&] {
+            started.store(true, std::memory_order_release);
+            m.lock();                   // try_lock 必失败 → contended++ → 阻塞
+            m.unlock();
+        });
+
+        while (!started.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        // 观测到真实竞争（try_lock 失败已被记录）
+        while (m.contendedCount() == 0) {
+            std::this_thread::yield();
+        }
+        NC_CHECK(m.contendedCount() >= 1);
+        NC_CHECK_EQ(m.ownerId(), holder);   // 仍由主线程持有
+
+        m.unlock();                          // 放行
+        contender.join();
+
+        // ④ 竞争者取得并释放后，计数归零
+        NC_CHECK_EQ(m.contendedCount(), 0);
+        NC_CHECK_EQ(m.ownerId(), 0);
+    }
+}
+
+NC_TEST(S1RecursiveMutex, MultiThreadContentionWithRecursionNoDeadlock) {
+    // ⑤ 多线程竞争 + 递归获取：不死锁，最终状态干净
+    Mutex m;
+    std::atomic<long long> done{0};
+    constexpr int kThreads = 4;
+    constexpr int kRounds = 500;
+
+    std::vector<std::thread> ts;
+    for (int t = 0; t < kThreads; ++t) {
+        ts.emplace_back([&] {
+            for (int r = 0; r < kRounds; ++r) {
+                m.lock();
+                m.lock();               // 递归
+                done.fetch_add(1, std::memory_order_relaxed);
+                m.unlock();
+                m.unlock();
+            }
+        });
+    }
+    for (auto& th : ts) th.join();
+
+    NC_CHECK_EQ(done.load(), static_cast<long long>(kThreads) * kRounds);
+    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.ownerId(), 0);
 }
