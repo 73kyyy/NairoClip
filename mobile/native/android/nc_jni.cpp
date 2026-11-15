@@ -1928,7 +1928,7 @@ namespace {
 /// 所有需要"判空 + 使用"原子化的入口都必须走这里。
 template <typename Fn>
 auto withCurrentEditor(Fn&& fn) -> decltype(fn(std::declval<NcEditor*>())) {
-    std::lock_guard<std::recursive_mutex> lock(g_editorLifetime.mutex());
+    std::lock_guard<nairoclip::core::EditorLifetime::Mutex> lock(g_editorLifetime.mutex());
     NcEditor* ed = static_cast<NcEditor*>(g_editorLifetime.current());
     return fn(ed);
 }
@@ -1967,7 +1967,7 @@ public:
     EditorHandleGuard& operator=(const EditorHandleGuard&) = delete;
 
 private:
-    std::lock_guard<std::recursive_mutex> lock_;
+    std::lock_guard<nairoclip::core::EditorLifetime::Mutex> lock_;
     NcEditor* editor_ = nullptr;
 };
 }  // namespace
@@ -1997,8 +1997,8 @@ extern "C" {
      · 引入 `g_editorLifecycleMutex`，把「取得指针 → 使用 → 归还」放进
        同一临界区；`nativeDestroy` 在同一锁内「先置空再销毁」。
        这样"判空与使用非原子"从机制上不可能发生。
-     · 用 `std::recursive_mutex`：部分入口（如 nc_preview_* 内部可能回调）
-       存在同线程重入，普通 mutex 会自死锁。
+     · 用 EditorLifetime::Mutex（可观测的递归互斥量，语义等同
+       std::recursive_mutex）：部分入口存在同线程重入，普通 mutex 会自死锁。
      · 锁序：本文件只有这一把生命周期锁，不存在锁顺序反转。
        持锁期间不调用 Kotlin/Java 回调，故不会反向重入 Engine。
    ------------------------------------------------------------------ */
@@ -2030,7 +2030,7 @@ JNIEXPORT void JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeDestroy(JNIEnv*, jobject, jlong h) {
     if (h == 0) return;
     NcEditor* ed = reinterpret_cast<NcEditor*>(h);
-    std::lock_guard<std::recursive_mutex> lock(g_editorLifetime.mutex());
+    std::lock_guard<nairoclip::core::EditorLifetime::Mutex> lock(g_editorLifetime.mutex());
     /* Fix 3：单次销毁语义。
        只有"该句柄确实是当前实例"时 CAS 才会成功，此时：
            CAS 成功 → 全局句柄已置空（其它线程此后一律看到"引擎不可用"）

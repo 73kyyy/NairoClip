@@ -59,6 +59,10 @@ private:
 NC_TEST(S1EditorLifetime, RepeatedCreateRejected) {
     EditorLifetime lt;
     FakeEngine a{1}, b{2};
+    /* 反证：无竞争时等待计数必须为 0 —— 否则"waiterCount>0 即阻塞"
+       这条判据就恒真、失去意义。 */
+    NC_CHECK_EQ(lt.mutex().waiterCount(), 0);
+    NC_CHECK_EQ(lt.mutex().ownerId(), 0);
     NC_CHECK(lt.tryAdopt(&a) == EditorLifetime::AdoptResult::kAdopted);
     // 第二次创建必须被拒绝，且不改变既有所有者
     NC_CHECK(lt.tryAdopt(&b) == EditorLifetime::AdoptResult::kAlreadyExists);
@@ -139,13 +143,16 @@ NC_TEST(S1EditorLifetime, ConcurrentCreateSingleOwner) {
 }
 
 NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
-    // 场景 3：同一句柄被多线程同时访问 + 销毁（确定性版本）。
+    // 场景 3：同一句柄被多线程同时访问 + 销毁。
     //
-    // 两阶段设计，避免"销毁线程偶然先拿到锁"被误判为覆盖了竞争：
-    //   阶段一：一个线程持有临界区不放手 → 其余线程的 withHandle 与
-    //           beginRelease **全部**必须被阻塞（显式确认已尝试但未完成）；
-    //   阶段二：放行 → 恰好一个 beginRelease 成功，其余失败；
-    //           最终 current() 归零，后续访问被拒。
+    // 确定性依据（不使用 sleep，也不用"有限次 yield + done==0"这种弱证明）：
+    //   1) 持锁线程进入临界区后，从**外部** try_lock() 必须失败
+    //      → 证明锁确实被持有；
+    //   2) 竞争者启动后，等待 mutex().waiterCount() 达到 kContenders
+    //      → waiterCount 在**阻塞前**自增，因此 >0 表示该线程已到达
+    //        锁获取点；此时锁被他人持有，它不可能继续 —— 即确实被阻塞。
+    //      这排除了"线程还没被调度到"的假象。
+    //   3) 放行后竞争者继续，恰好一次 beginRelease 成功。
     for (int round = 0; round < 100; ++round) {
         EditorLifetime lt;
         FakeEngine e{1};
@@ -153,14 +160,12 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
 
         std::atomic<bool> holderEntered{false};
         std::atomic<bool> allowFinish{false};
-        std::atomic<int>  contendersStarted{0};
-        std::atomic<int>  contendersDone{0};
-        std::atomic<int>  releases{0};
         std::atomic<int>  accesses{0};
+        std::atomic<int>  releases{0};
+        std::atomic<int>  contendersDone{0};
 
         constexpr int kContenders = 3;
 
-        // 持有临界区的线程
         std::thread holder([&] {
             (void)lt.withHandle(&e, [&](void*) {
                 holderEntered.store(true, std::memory_order_release);
@@ -173,11 +178,19 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
             std::this_thread::yield();
         }
 
-        // 竞争者：尝试访问 + 尝试销毁
+        // (1) 证明锁被持有：外部 try_lock 必须失败
+        {
+            const bool probe = lt.mutex().try_lock();
+            NC_CHECK(!probe);
+            if (probe) {
+                lt.mutex().unlock();   // 不应发生；防止后续卡死
+            }
+            NC_CHECK(lt.mutex().ownerId() != 0);
+        }
+
         std::vector<std::thread> cs;
         for (int t = 0; t < kContenders; ++t) {
             cs.emplace_back([&] {
-                contendersStarted.fetch_add(1, std::memory_order_acq_rel);
                 if (lt.withHandle(&e, [](void*) {})) {
                     accesses.fetch_add(1, std::memory_order_acq_rel);
                 }
@@ -188,27 +201,25 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
             });
         }
 
-        // 确认所有竞争者都已开始，并自旋确认它们**都还没完成**（被阻塞）
-        while (contendersStarted.load(std::memory_order_acquire) < kContenders) {
+        // (2) 确定性等待：所有竞争者都已进入锁获取路径并阻塞
+        while (lt.mutex().waiterCount() < kContenders) {
             std::this_thread::yield();
         }
-        for (int spin = 0; spin < 20000 && contendersDone.load() < kContenders; ++spin) {
-            std::this_thread::yield();
-        }
-        NC_CHECK_EQ(contendersDone.load(), 0);   // 全部被临界区阻塞
-        NC_CHECK_EQ(releases.load(), 0);
-        NC_CHECK_EQ(accesses.load(), 0);
+        NC_CHECK(lt.mutex().waiterCount() >= kContenders);
+        NC_CHECK_EQ(contendersDone.load(), 0);   // 无一完成
+        NC_CHECK_EQ(releases.load(), 0);         // 无一释放成功
+        NC_CHECK_EQ(accesses.load(), 0);         // 无一访问成功
+        NC_CHECK_EQ(lt.current(), static_cast<void*>(&e));  // Engine 仍存活
 
-        // 放行
+        // (3) 放行 → 竞争者继续
         allowFinish.store(true, std::memory_order_release);
         holder.join();
         for (auto& c : cs) c.join();
 
-        // 阶段二：竞争完成 —— 销毁恰好成功一次
         NC_CHECK_EQ(contendersDone.load(), kContenders);
-        NC_CHECK_EQ(releases.load(), 1);
+        NC_CHECK_EQ(releases.load(), 1);         // 同一 Engine 最多一次有效释放
         NC_CHECK_EQ(lt.current(), static_cast<void*>(nullptr));
-        // 销毁后再访问必须被拒
+
         bool reached = false;
         NC_CHECK(!lt.withHandle(&e, [&](void*) { reached = true; }));
         NC_CHECK(!reached);
@@ -216,70 +227,68 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
 }
 
 NC_TEST(S1EditorLifetime, ReleaseWhileInFlight) {
-    // 场景 7：销毁与"正在执行"的调用交错 —— **确定性时序**，不用 sleep。
+    // 场景 7：in-flight 调用完成之前，Engine 不能被释放。
     //
-    // 时序（每一步都有显式信号，不依赖调度运气）：
-    //   ① 调用线程进入 withHandle() 临界区 → 置 entered
-    //   ② 主线程等到 entered（确定已进入临界区）
-    //   ③ 启动销毁线程 → 置 releaserStarted 后尝试 beginRelease（会被阻塞）
-    //   ④ 主线程等到 releaserStarted，再自旋一段确认 releaseDone **仍为 false**
-    //      → 证明"销毁不能插进执行中的调用"
-    //   ⑤ 放行 allowFinish，调用线程离开临界区
-    //   ⑥ join 调用线程；join 销毁线程 → 销毁随即成功
-    //   ⑦ 销毁后再调用必须被拒绝
+    // 与 SameHandleMultiThread 相同的确定性依据：
+    //   · 外部 try_lock 失败 → 锁确实被持有；
+    //   · waiterCount() 达到 1 → 销毁线程已到达锁获取点且必然阻塞；
+    //   · 此时断言 current() 仍指向 e、releaseDone 仍为 false
+    //     → 证明"释放不能越过正在持有的临界区"；
+    //   · 放行后释放成功；随后旧句柄访问被拒。
     for (int round = 0; round < 100; ++round) {
         EditorLifetime lt;
         FakeEngine e{1};
         NC_CHECK(lt.tryAdopt(&e) == EditorLifetime::AdoptResult::kAdopted);
 
-        std::atomic<bool> entered{false};
+        std::atomic<bool> holderEntered{false};
         std::atomic<bool> allowFinish{false};
-        std::atomic<bool> releaserStarted{false};
-        std::atomic<bool> releaseDone{false};
         std::atomic<bool> releaseResult{false};
+        std::atomic<bool> releaseDone{false};
 
-        std::thread caller([&] {
+        std::thread holder([&] {
             (void)lt.withHandle(&e, [&](void*) {
-                entered.store(true, std::memory_order_release);
-                // 在临界区内等待放行 —— 此时锁被持有，销毁无法进行
+                holderEntered.store(true, std::memory_order_release);
                 while (!allowFinish.load(std::memory_order_acquire)) {
                     std::this_thread::yield();
                 }
             });
         });
-
-        // ② 确定性确认调用线程已在临界区内
-        while (!entered.load(std::memory_order_acquire)) {
+        while (!holderEntered.load(std::memory_order_acquire)) {
             std::this_thread::yield();
         }
 
+        // 证明锁被持有
+        {
+            const bool probe = lt.mutex().try_lock();
+            NC_CHECK(!probe);
+            if (probe) {
+                lt.mutex().unlock();
+            }
+        }
+
         std::thread releaser([&] {
-            releaserStarted.store(true, std::memory_order_release);
             releaseResult.store(lt.beginRelease(&e));
             releaseDone.store(true, std::memory_order_release);
         });
 
-        // ④ 确认销毁线程已在尝试，且**尚未**完成
-        while (!releaserStarted.load(std::memory_order_acquire)) {
+        // 确定性：销毁线程已进入锁获取路径（必然阻塞，因为锁被 holder 持有）
+        while (lt.mutex().waiterCount() == 0) {
             std::this_thread::yield();
         }
-        for (int spin = 0; spin < 20000 && !releaseDone.load(std::memory_order_acquire);
-             ++spin) {
-            std::this_thread::yield();
-        }
-        NC_CHECK(!releaseDone.load());   // 关键断言：销毁被临界区阻塞
+        NC_CHECK(lt.mutex().waiterCount() >= 1);
+        NC_CHECK(!releaseDone.load());                          // 释放尚未完成
+        NC_CHECK_EQ(lt.current(), static_cast<void*>(&e));      // Engine 仍存活
 
-        // ⑤ 放行调用线程
+        // 放行
         allowFinish.store(true, std::memory_order_release);
-        caller.join();                   // ⑥ 调用完成
+        holder.join();
         releaser.join();
 
-        // ⑦ 销毁随后成功
         NC_CHECK(releaseDone.load());
         NC_CHECK(releaseResult.load());
         NC_CHECK_EQ(lt.current(), static_cast<void*>(nullptr));
 
-        // 销毁后新调用必须被拒绝
+        // 释放成功后旧句柄访问被拒
         bool reached = false;
         NC_CHECK(!lt.withHandle(&e, [&](void*) { reached = true; }));
         NC_CHECK(!reached);

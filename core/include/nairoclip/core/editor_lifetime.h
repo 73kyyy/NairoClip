@@ -14,10 +14,84 @@
 #define NAIROCLIP_CORE_EDITOR_LIFETIME_H
 
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 
 namespace nairoclip {
 namespace core {
+
+namespace detail {
+
+/// 可观测的递归互斥量（S1-1 M-2）。
+///
+/// 为什么不用 std::recursive_mutex：
+///   测试必须能**直接观测**"某线程已进入获取锁的路径、且正被阻塞"。
+///   仅靠 started 标记 + 有限次 yield() 无法区分：
+///     · 线程还没被调度到；
+///     · 线程已尝试获取锁；
+///     · 线程确实被持有中的临界区挡住。
+///   本类型在**阻塞前**自增 waiters_，因此当
+///     (a) 锁被别的线程持有，且 (b) waiterCount() > 0
+///   时可以确定：该线程已到达锁获取点，且不可能继续 —— 即确实被阻塞。
+///
+/// 语义与 std::recursive_mutex 等价（同一线程可重入）。
+/// 额外开销：仅在有竞争时一次原子自增/自减；无竞争路径不变。
+class RecursiveMutex {
+public:
+    void lock() {
+        if (ownerId() == currentThreadId()) {
+            ++recursion_;                       // 同线程重入
+            return;
+        }
+        waiters_.fetch_add(1, std::memory_order_acq_rel);
+        inner_.lock();
+        waiters_.fetch_sub(1, std::memory_order_acq_rel);
+        owner_.store(currentThreadId(), std::memory_order_release);
+        recursion_ = 1;
+    }
+
+    void unlock() {
+        if (--recursion_ == 0) {
+            owner_.store(0, std::memory_order_release);
+            inner_.unlock();
+        }
+    }
+
+    bool try_lock() {
+        if (ownerId() == currentThreadId()) {
+            ++recursion_;
+            return true;
+        }
+        if (!inner_.try_lock()) {
+            return false;
+        }
+        owner_.store(currentThreadId(), std::memory_order_release);
+        recursion_ = 1;
+        return true;
+    }
+
+    /// 正在**等待**获取本锁的线程数（仅供测试观测）。
+    /// 无竞争时为 0；某线程卡在 lock() 上期间 >= 1。
+    int waiterCount() const { return waiters_.load(std::memory_order_acquire); }
+
+    /// 当前持有者线程 id（0 = 未持有）。仅供测试断言。
+    std::uint64_t ownerId() const { return owner_.load(std::memory_order_acquire); }
+
+private:
+    static std::uint64_t currentThreadId() {
+        static std::atomic<std::uint64_t> next{1};
+        thread_local const std::uint64_t id =
+            next.fetch_add(1, std::memory_order_relaxed);
+        return id;
+    }
+
+    std::mutex inner_;
+    std::atomic<std::uint64_t> owner_{0};
+    std::atomic<int> waiters_{0};
+    int recursion_ = 0;   // 仅由持有者线程读写
+};
+
+}  // namespace detail
 
 /// Editor 生命周期仲裁器（严格单所有者）。
 ///
@@ -40,7 +114,7 @@ public:
         if (created == nullptr) {
             return AdoptResult::kInvalidArgument;
         }
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        std::lock_guard<Mutex> lock(mutex_);
         void* expected = nullptr;
         if (!current_.compare_exchange_strong(expected, created,
                                               std::memory_order_acq_rel,
@@ -60,7 +134,7 @@ public:
         if (handle == nullptr) {
             return false;
         }
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        std::lock_guard<Mutex> lock(mutex_);
         void* expected = handle;
         return current_.compare_exchange_strong(expected, nullptr,
                                                 std::memory_order_acq_rel,
@@ -74,7 +148,7 @@ public:
     /// 「校验 → 使用」在同一临界区内完成，销毁无法插入。
     template <typename Fn>
     bool withHandle(void* handle, Fn&& fn) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        std::lock_guard<Mutex> lock(mutex_);
         void* cur = current_.load(std::memory_order_acquire);
         if (cur == nullptr || handle == nullptr || handle != cur) {
             return false;
@@ -88,13 +162,18 @@ public:
         return current_.load(std::memory_order_acquire);
     }
 
+    /// 生命周期互斥量类型（可观测的递归互斥量）。
+    /// 对外语义等同 std::recursive_mutex，额外提供 waiterCount() 供测试
+    /// 确定性观测锁竞争，不改变任何加锁/解锁行为。
+    using Mutex = detail::RecursiveMutex;
+
     /// 生命周期互斥量。调用方持有它可把「校验 + 使用」变成原子区。
-    /// 使用 recursive_mutex：同一线程内的嵌套 JNI 调用不会自死锁。
-    std::recursive_mutex& mutex() { return mutex_; }
+    /// 递归语义：同一线程内的嵌套 JNI 调用不会自死锁。
+    Mutex& mutex() { return mutex_; }
 
 private:
     std::atomic<void*> current_{nullptr};
-    std::recursive_mutex mutex_;
+    Mutex mutex_;
 };
 
 }  // namespace core
