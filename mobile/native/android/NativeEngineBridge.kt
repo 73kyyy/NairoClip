@@ -82,8 +82,8 @@ class NativeEngineBridge(
     }
 
     /** 由 Activity.onDestroy 调用。 */
-    @Synchronized
-    fun release() {
+        fun release() {
+        synchronized(stateLock) {
         taskWatchdog.shutdownNow()
         if (editor != 0L) {
             nativeDestroy(editor)
@@ -95,21 +95,34 @@ class NativeEngineBridge(
            经 companion 的 unbindIfCurrent() 完成 —— 该变量是 companion
            的 private 成员，只能由 companion 内部访问。 */
         unbindIfCurrent(this)
-    }
+    
+        }}
 
-    @Synchronized
-    private fun ensure(): Long {
-        if (editor == 0L) editor = nativeCreate()
-        return editor
-    }
+        private fun ensure(): Long {
+            synchronized(stateLock) {
+                if (editor == 0L) {
+                    val h = nativeCreate()
+                    if (h == 0L) {
+                        /* F-1（严格单所有者）：已有其它实例持有 Engine 时，
+                           nativeCreate 明确返回 0。本实例必须保持"未创建"，
+                           绝不写入无效句柄，也绝不销毁他人 Engine。 */
+                        android.util.Log.w(
+                            "NcEngine", "引擎创建被拒绝（已有实例持有），本实例保持未创建")
+                    } else {
+                        editor = h
+                    }
+                }
+                return editor
+            }
+        }
 
     /**
      * 任意 C ABI 函数。fn 必须是 nc_ 开头的函数名，argsJson 为参数对象。
      * 失败也返回结构化 JSON，绝不把异常抛给 JS。
      */
     @JavascriptInterface
-    @Synchronized
-    fun call(fn: String, argsJson: String): String {
+        fun call(fn: String, argsJson: String): String {
+        synchronized(stateLock) {
         if (fn.isEmpty() || !fn.startsWith("nc_")) {
             return err("只接受 nc_ 开头的函数名")
         }
@@ -118,7 +131,8 @@ class NativeEngineBridge(
         } catch (e: Throwable) {
             err("引擎调用失败：${e.message}")
         }
-    }
+    
+        }}
 
     /**
      * 契约层统一命令入口（P1/P2）。
@@ -131,11 +145,12 @@ class NativeEngineBridge(
      * 新增功能一律走这里；call() 只保留给尚未迁移的老路径（P2 逐步清空）。
      */
     @JavascriptInterface
-    @Synchronized
-    fun applyCommand(requestJson: String): String = try {
+        fun applyCommand(requestJson: String): String = try {
+        synchronized(stateLock) {
         nativeApplyCommand(ensure(), requestJson.ifBlank { "{}" })
             ?: err("引擎返回空结果")
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         err("命令执行失败：${e.message}")
     }
 
@@ -148,89 +163,98 @@ class NativeEngineBridge(
      * 与 applyCommand 一样，这是 typed 入口，不走 call() 的函数名分发。
      */
     @JavascriptInterface
-    @Synchronized
-    fun taskBegin(
+        fun taskBegin(
         type: String,
         targetId: Long,
         heartbeatTimeoutMs: Int,
         totalTimeoutMs: Long
     ): String = try {
+        synchronized(stateLock) {
         nativeTaskBegin(
             ensure(), type, targetId, heartbeatTimeoutMs, totalTimeoutMs,
             System.currentTimeMillis()
         )
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         err("任务创建失败：${e.message}")
     }
 
     @JavascriptInterface
-    @Synchronized
-    fun taskHeartbeat(taskId: String, progress: Double, stageNote: String): Int = try {
+        fun taskHeartbeat(taskId: String, progress: Double, stageNote: String): Int = try {
+        synchronized(stateLock) {
         nativeTaskHeartbeat(
             ensure(), taskId, progress, stageNote, System.currentTimeMillis()
         )
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         -1
     }
 
     @JavascriptInterface
-    @Synchronized
-    fun taskComplete(taskId: String, resultType: String, resultJson: String): Int = try {
+        fun taskComplete(taskId: String, resultType: String, resultJson: String): Int = try {
+        synchronized(stateLock) {
         nativeTaskComplete(
             ensure(), taskId, resultType, resultJson, System.currentTimeMillis()
         )
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         -1
     }
 
     @JavascriptInterface
-    @Synchronized
-    fun taskFail(taskId: String, error: String, retryable: Boolean): Int = try {
+        fun taskFail(taskId: String, error: String, retryable: Boolean): Int = try {
+        synchronized(stateLock) {
         nativeTaskFail(ensure(), taskId, error, if (retryable) 1 else 0)
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         -1
     }
 
     @JavascriptInterface
-    @Synchronized
-    fun taskCancel(taskId: String): Int = try {
+        fun taskCancel(taskId: String): Int = try {
+        synchronized(stateLock) {
         nativeTaskCancel(ensure(), taskId)
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         -1
     }
 
     /** 执行器确认已停止（配合 taskCancel），状态才进入 cancelled。 */
     @JavascriptInterface
-    @Synchronized
-    fun taskCancelAck(taskId: String): Int = try {
+        fun taskCancelAck(taskId: String): Int = try {
+        synchronized(stateLock) {
         nativeTaskCancelAck(ensure(), taskId)
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         -1
     }
 
     /** 释放结果载荷（保留任务记录）。 */
     @JavascriptInterface
-    @Synchronized
-    fun taskClearResult(taskId: String): Int = try {
+        fun taskClearResult(taskId: String): Int = try {
+        synchronized(stateLock) {
         nativeTaskClearResult(ensure(), taskId)
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         -1
     }
 
     @JavascriptInterface
-    @Synchronized
-    fun taskQuery(taskId: String): String = try {
+        fun taskQuery(taskId: String): String = try {
+        synchronized(stateLock) {
         nativeTaskQuery(ensure(), taskId)
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         """{"ok":false,"message":"查询失败"}"""
     }
 
     /** 推进看门狗时钟；返回本次被判超时的任务数。 */
     @JavascriptInterface
-    @Synchronized
-    fun taskTick(): Int = try {
+        fun taskTick(): Int = try {
+        synchronized(stateLock) {
         nativeTaskTick(ensure(), System.currentTimeMillis())
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         0
     }
 
@@ -240,35 +264,39 @@ class NativeEngineBridge(
      * 组装，避免 JS 侧发几十次调用。
      */
     @JavascriptInterface
-    @Synchronized
-    fun state(): String = try {
+        fun state(): String = try {
+        synchronized(stateLock) {
         // 顺带推进任务看门狗：UI 每次刷新都是一次时钟推进，
         // 卡死的任务（长时间无真实进度）会在这里被判超时，
         // 避免用户看到永远 0% 的进度条。
         nativeTaskTick(ensure(), System.currentTimeMillis())
         nativeState(ensure())
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         err("读取工程状态失败：${e.message}")
     }
 
     /** 预览帧。返回 data:URL，前端直接挂 <img>。失败返回空串。 */
     @JavascriptInterface
-    @Synchronized
-    fun frameDataUrl(timeUs: Long, width: Int): String =
+        fun frameDataUrl(timeUs: Long, width: Int): String =
         renderDataUrl(timeUs, width, isThumb = false, thumbIndex = 0)
 
     /** 素材缩略图。 */
     @JavascriptInterface
-    @Synchronized
-    fun thumbDataUrl(assetId: Long, index: Int, width: Int): String =
+        fun thumbDataUrl(assetId: Long, index: Int, width: Int): String =
         renderDataUrl(assetId, width, isThumb = true, thumbIndex = index)
 
     /** 音频波形。 */
     @JavascriptInterface
-    @Synchronized
-    fun waveform(assetId: Long): String = try {
+        fun waveform(assetId: Long): String = try {
+        synchronized(stateLock) {
+        synchronized(stateLock) {
+        synchronized(stateLock) {
         nativeWaveform(ensure(), assetId)
-    } catch (e: Throwable) {
+    
+        }
+        }
+        }} catch (e: Throwable) {
         """{"buckets":[]}"""
     }
 
@@ -277,15 +305,16 @@ class NativeEngineBridge(
      * 不改变工程状态。返回 data:URL；失败返回空串。
      */
     @JavascriptInterface
-    @Synchronized
-    fun presetFrame(kind: String, style: Int, timeUs: Long, width: Int): String {
+        fun presetFrame(kind: String, style: Int, timeUs: Long, width: Int): String {
+        synchronized(stateLock) {
         val raw: ByteArray = try {
             nativePresetFrame(ensure(), kind, style, timeUs, width.coerceIn(16, 1024))
         } catch (e: Throwable) {
             ByteArray(0)
         }
         return rgbaToDataUrl(raw)
-    }
+    
+        }}
 
     /**
      * 草稿列表。C ABI 没有工程目录接口，草稿扫描是平台层职责：
@@ -316,8 +345,8 @@ class NativeEngineBridge(
      * 返回 {"installed":1|0,"message":"…"}。
      */
     @JavascriptInterface
-    @Synchronized
-    fun installModel(modelId: String, filePath: String): String {
+        fun installModel(modelId: String, filePath: String): String {
+        synchronized(stateLock) {
         val f = java.io.File(filePath)
         if (!f.isFile) return err("文件不存在：$filePath")
 
@@ -341,7 +370,8 @@ class NativeEngineBridge(
         } catch (e: Throwable) {
             err("安装调用失败：${e.message}")
         }
-    }
+    
+        }}
 
     /** 模型文件应放的目录（应用私有）。 */
     @JavascriptInterface
@@ -354,10 +384,11 @@ class NativeEngineBridge(
 
     /** AI 模型目录与状态（nc_model_catalog / nc_model_info / nc_model_status）。 */
     @JavascriptInterface
-    @Synchronized
-    fun models(): String = try {
+        fun models(): String = try {
+        synchronized(stateLock) {
         nativeModels(ensure())
-    } catch (e: Throwable) {
+    
+        }} catch (e: Throwable) {
         """{"models":[]}"""
     }
 
@@ -510,7 +541,7 @@ class NativeEngineBridge(
                 pendingRasterizerRegister = true
                 return
             }
-            synchronized(inst) {
+            synchronized(stateLock) {
                 try {
                     inst.nativeRegisterTextRasterizer(AndroidTextRasterizer)
                 } catch (e: Throwable) {
@@ -520,9 +551,9 @@ class NativeEngineBridge(
         }
 
         fun unregisterTextRasterizer() {
-            pendingRasterizerRegister = false
-            val inst = instanceForSurface ?: return
-            synchronized(inst) {
+            synchronized(stateLock) {
+                pendingRasterizerRegister = false
+                val inst = instanceForSurface ?: return
                 try {
                     inst.nativeRegisterTextRasterizer(null)
                 } catch (e: Throwable) {
@@ -538,6 +569,12 @@ class NativeEngineBridge(
         /* Fix 1：跨线程可见性。读写都不再依赖 Companion 监视器
            （Companion 监视器与实例监视器是**两把不同的锁**，
             这正是上一版修复无效的根因）。 */
+        /* S1-1 · F-3：**唯一**的 Engine 生命周期监视器。
+           所有访问 engine 的路径（实例方法与 companion 方法）都必须持有它。
+           不再使用 @Synchronized —— 它在实例方法上锁 this、在 companion 方法上
+           锁 Companion，是两把不同的锁，正是此前同步失效的根因。 */
+        private val stateLock = Any()
+
         @Volatile
         private var instanceForSurface: NativeEngineBridge? = null
 
@@ -553,11 +590,11 @@ class NativeEngineBridge(
          *
          * 由实例的 release() 调用：本实例销毁后，companion 的 Surface /
          * 内存回调不得再把调用转发到它。在实例监视器内完成，与
-         * release() 的 @Synchronized 及各回调的 synchronized(inst) 同一把锁
+         * release() 的 @Synchronized 及各回调的 synchronized(stateLock) 同一把锁
          * （Java 监视器可重入，故在 release() 内调用不会自死锁）。
          */
         fun unbindIfCurrent(inst: NativeEngineBridge) {
-            synchronized(inst) {
+            synchronized(stateLock) {
                 if (instanceForSurface === inst) {
                     instanceForSurface = null
                 }
@@ -565,10 +602,8 @@ class NativeEngineBridge(
         }
 
         fun attachSurface(surface: android.view.Surface?, width: Int, height: Int): Boolean {
-            val inst = instanceForSurface ?: return false
-            /* 锁"拥有 engine 的那个实例"，与 release() 的 @Synchronized 同一监视器。
-               不再用 Companion 监视器 —— 它与实例监视器互不相干。 */
-            return synchronized(inst) {
+            return synchronized(stateLock) {
+                val inst = instanceForSurface ?: return false
                 try {
                     inst.nativeAttachSurface(surface, width, height)
                 } catch (e: Throwable) {
@@ -578,8 +613,8 @@ class NativeEngineBridge(
         }
 
         fun detachSurface() {
-            val inst = instanceForSurface ?: return
-            synchronized(inst) {
+            synchronized(stateLock) {
+                val inst = instanceForSurface ?: return
                 try {
                     inst.nativeDetachSurface()
                 } catch (e: Throwable) {
@@ -588,8 +623,8 @@ class NativeEngineBridge(
         }
 
         fun blitFrame(handle: Long, timeUs: Long): Boolean {
-            val inst = instanceForSurface ?: return false
-            return synchronized(inst) {
+            return synchronized(stateLock) {
+                val inst = instanceForSurface ?: return false
                 try {
                     inst.nativeBlitFrame(handle, timeUs)
                 } catch (e: Throwable) {
@@ -600,8 +635,8 @@ class NativeEngineBridge(
 
         /** 安装崩溃处理器（§8.1）。用单例实例转发。 */
         fun installCrashHandler(dir: String): Boolean {
-            val inst = instanceForSurface ?: return false
-            return synchronized(inst) {
+            return synchronized(stateLock) {
+                val inst = instanceForSurface ?: return false
                 try {
                     inst.nativeInstallCrashHandler(dir)
                 } catch (e: Throwable) {
@@ -621,8 +656,8 @@ class NativeEngineBridge(
          * 分开的好处是预算算法可以单测，不必起引擎。
          */
         fun setPreviewCacheBudget(bytes: Long): Boolean {
-            val inst = instanceForSurface ?: return false
-            return synchronized(inst) {
+            return synchronized(stateLock) {
+                val inst = instanceForSurface ?: return false
                 try {
                     inst.nativePreviewSetCacheBudget(bytes) == 0
                 } catch (e: Throwable) {
@@ -633,8 +668,8 @@ class NativeEngineBridge(
 
         /** 读取引擎当前的帧缓存预算（字节；引擎未就绪返回 -1）。 */
         fun previewCacheBudget(): Long {
-            val inst = instanceForSurface ?: return -1L
-            return synchronized(inst) {
+            return synchronized(stateLock) {
+                val inst = instanceForSurface ?: return -1L
                 try {
                     inst.nativePreviewGetCacheBudget()
                 } catch (e: Throwable) {
@@ -645,8 +680,8 @@ class NativeEngineBridge(
 
         /** 释放内存（§8.2 第 11 条）。返回估算释放字节数。 */
         fun releaseMemory(level: Int): Long {
-            val inst = instanceForSurface ?: return 0L
-            return synchronized(inst) {
+            return synchronized(stateLock) {
+                val inst = instanceForSurface ?: return 0L
                 try {
                     inst.nativeReleaseMemory(level)
                 } catch (e: Throwable) {
@@ -656,8 +691,8 @@ class NativeEngineBridge(
         }
 
         fun surfaceReady(): Boolean {
-            val inst = instanceForSurface ?: return false
-            return synchronized(inst) {
+            return synchronized(stateLock) {
+                val inst = instanceForSurface ?: return false
                 try {
                     inst.nativeSurfaceReady()
                 } catch (e: Throwable) {
@@ -683,7 +718,14 @@ class NativeEngineBridge(
             /* Fix 1：绑定本身也必须在实例监视器内完成，
                否则 release() 可能正好在"已绑定但预算未设"的窗口执行，
                留下"绑定了已销毁实例"的状态。 */
-            synchronized(inst) {
+            synchronized(stateLock) {
+                /* F-1：只接受"确实持有 Engine"的实例。创建被拒绝的实例
+                   （editor == 0）不得成为全局绑定对象，否则 Surface / 内存
+                   回调会打到没有引擎的实例上。 */
+                if (inst.editor == 0L) {
+                    android.util.Log.w("NcEngine", "bindInstance 拒绝：该实例未持有 Engine")
+                    return
+                }
                 instanceForSurface = inst
             /* 引擎就绪 —— 补注册启动阶段排队的文本栅格化器。 */
             if (pendingRasterizerRegister) {

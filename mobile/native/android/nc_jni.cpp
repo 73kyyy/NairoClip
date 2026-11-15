@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/editor_lifetime.h"
 #include "nairoclip/core/json_args.h"
 #include "nairoclip/core/xform.h"
 
@@ -1917,16 +1918,18 @@ jbyteArray PngToJByteArray(JNIEnv* env, uint8_t* data, int32_t len) {
 
 }  // namespace
 
-static std::atomic<NcEditor*> g_currentEditor{nullptr};
-static std::recursive_mutex g_editorLifecycleMutex;
+/* S1-1：生命周期仲裁改由 core 的 EditorLifetime 承担 ——
+   它是纯 C++（无 JNI 依赖），因此主机端单元测试可直接复用同一实现，
+   测试验证的是生产代码本身，而不是另写一份等价逻辑。 */
+static nairoclip::core::EditorLifetime g_editorLifetime;
 
 namespace {
 /// 在生命周期锁内取得当前 Editor 并执行 fn；无 Editor 时不执行。
 /// 所有需要"判空 + 使用"原子化的入口都必须走这里。
 template <typename Fn>
 auto withCurrentEditor(Fn&& fn) -> decltype(fn(std::declval<NcEditor*>())) {
-    std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
-    NcEditor* ed = g_currentEditor.load(std::memory_order_acquire);
+    std::lock_guard<std::recursive_mutex> lock(g_editorLifetime.mutex());
+    NcEditor* ed = static_cast<NcEditor*>(g_editorLifetime.current());
     return fn(ed);
 }
 
@@ -1949,8 +1952,8 @@ auto withCurrentEditor(Fn&& fn) -> decltype(fn(std::declval<NcEditor*>())) {
 /// 不会自死锁。
 class EditorHandleGuard {
 public:
-    explicit EditorHandleGuard(jlong h) : lock_(g_editorLifecycleMutex) {
-        NcEditor* cur = g_currentEditor.load(std::memory_order_acquire);
+    explicit EditorHandleGuard(jlong h) : lock_(g_editorLifetime.mutex()) {
+        NcEditor* cur = static_cast<NcEditor*>(g_editorLifetime.current());
         NcEditor* given = reinterpret_cast<NcEditor*>(h);
         if (cur != nullptr && given == cur) {
             editor_ = cur;
@@ -2006,29 +2009,28 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeCreate(JNIEnv*, jobject) {
     if (created == nullptr) {
         return 0;   /* 创建失败：明确返回 0（无效句柄），不写全局状态 */
     }
-    {
-        std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
-        NcEditor* expected = nullptr;
-        /* Fix 2：单实例约束在代码层强制，而不是只靠"架构约定"。
-           CAS 失败说明已有实例 —— 此时：
-             · 不覆盖（否则旧实例泄漏且全局句柄指向新实例，旧句柄悬垂）
-             · 销毁刚创建的 created，避免泄漏
-             · 返回既有实例句柄，调用方仍得到有效句柄 */
-        if (!g_currentEditor.compare_exchange_strong(
-                expected, created,
-                std::memory_order_acq_rel, std::memory_order_acquire)) {
-            nc_editor_destroy(created);
-            return reinterpret_cast<jlong>(expected);   /* 既有有效实例 */
-        }
+    /* F-1：严格单所有者。
+       已有 Engine 时**不得**把它的句柄交给第二个所有者 ——
+       否则两个 Kotlin 实例持有同一句柄，任一 release() 都会销毁
+       另一个仍在使用的 Engine。
+       因此第二次创建**明确失败**（返回 0），并释放刚创建的对象。
+       既有 Engine 完全不受影响。 */
+    switch (g_editorLifetime.tryAdopt(created)) {
+        case nairoclip::core::EditorLifetime::AdoptResult::kAdopted:
+            return reinterpret_cast<jlong>(created);
+        case nairoclip::core::EditorLifetime::AdoptResult::kAlreadyExists:
+        case nairoclip::core::EditorLifetime::AdoptResult::kInvalidArgument:
+        default:
+            nc_editor_destroy(created);   /* 未被接纳：释放，避免泄漏 */
+            return 0;                     /* 明确失败，不交出他人句柄 */
     }
-    return reinterpret_cast<jlong>(created);
 }
 
 JNIEXPORT void JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeDestroy(JNIEnv*, jobject, jlong h) {
     if (h == 0) return;
     NcEditor* ed = reinterpret_cast<NcEditor*>(h);
-    std::lock_guard<std::recursive_mutex> lock(g_editorLifecycleMutex);
+    std::lock_guard<std::recursive_mutex> lock(g_editorLifetime.mutex());
     /* Fix 3：单次销毁语义。
        只有"该句柄确实是当前实例"时 CAS 才会成功，此时：
            CAS 成功 → 全局句柄已置空（其它线程此后一律看到"引擎不可用"）
@@ -2036,11 +2038,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeDestroy(JNIEnv*, jobject, jlong 
            CAS 失败 → 句柄过期/已被销毁/不属于当前实例
                     → **绝不销毁**（否则就是 double free）
        原实现忽略 CAS 返回值后无条件 destroy，重复销毁即 double free。 */
-    NcEditor* expected = ed;
-    if (!g_currentEditor.compare_exchange_strong(
-            expected, nullptr,
-            std::memory_order_acq_rel, std::memory_order_acquire)) {
-        return;   /* 过期句柄或重复销毁：安全忽略 */
+    if (!g_editorLifetime.beginRelease(ed)) {
+        return;   /* 过期句柄或重复销毁：安全忽略，绝不 double free */
     }
     nc_editor_destroy(ed);
 }
@@ -2812,7 +2811,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewSetCacheBudget(
     JNIEnv*, jobject, jlong bytes) {
     /* 帧缓存预算分级（§8.2 第 9 条）。
        由 MainActivity 在引擎创建后调用一次。
-       注意：不检查 g_currentEditor 是否为空 —— 与 nativeReleaseMemory 同理，
+       注意：经 withCurrentEditor 在生命周期锁内取当前实例 —— 与 nativeReleaseMemory 同理，
        拿不到引擎时返回失败码即可，不需要额外状态。 */
     return withCurrentEditor([bytes](NcEditor* ed) -> jint {
         if (ed == nullptr) return -1;
