@@ -139,50 +139,150 @@ NC_TEST(S1EditorLifetime, ConcurrentCreateSingleOwner) {
 }
 
 NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
-    // 场景 3：同一句柄被多线程同时访问 + 销毁。
-    for (int round = 0; round < 200; ++round) {
+    // 场景 3：同一句柄被多线程同时访问 + 销毁（确定性版本）。
+    //
+    // 两阶段设计，避免"销毁线程偶然先拿到锁"被误判为覆盖了竞争：
+    //   阶段一：一个线程持有临界区不放手 → 其余线程的 withHandle 与
+    //           beginRelease **全部**必须被阻塞（显式确认已尝试但未完成）；
+    //   阶段二：放行 → 恰好一个 beginRelease 成功，其余失败；
+    //           最终 current() 归零，后续访问被拒。
+    for (int round = 0; round < 100; ++round) {
         EditorLifetime lt;
         FakeEngine e{1};
         NC_CHECK(lt.tryAdopt(&e) == EditorLifetime::AdoptResult::kAdopted);
-        std::atomic<int> releases{0};
-        constexpr int kThreads = 4;
-        Gate gate(kThreads);
-        std::vector<std::thread> ts;
-        for (int t = 0; t < kThreads; ++t) {
-            ts.emplace_back([&] {
-                gate.wait();
-                // 访问与释放交错
-                (void)lt.withHandle(&e, [](void*) { std::this_thread::yield(); });
-                if (lt.beginRelease(&e)) releases.fetch_add(1);
+
+        std::atomic<bool> holderEntered{false};
+        std::atomic<bool> allowFinish{false};
+        std::atomic<int>  contendersStarted{0};
+        std::atomic<int>  contendersDone{0};
+        std::atomic<int>  releases{0};
+        std::atomic<int>  accesses{0};
+
+        constexpr int kContenders = 3;
+
+        // 持有临界区的线程
+        std::thread holder([&] {
+            (void)lt.withHandle(&e, [&](void*) {
+                holderEntered.store(true, std::memory_order_release);
+                while (!allowFinish.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+            });
+        });
+        while (!holderEntered.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
+        // 竞争者：尝试访问 + 尝试销毁
+        std::vector<std::thread> cs;
+        for (int t = 0; t < kContenders; ++t) {
+            cs.emplace_back([&] {
+                contendersStarted.fetch_add(1, std::memory_order_acq_rel);
+                if (lt.withHandle(&e, [](void*) {})) {
+                    accesses.fetch_add(1, std::memory_order_acq_rel);
+                }
+                if (lt.beginRelease(&e)) {
+                    releases.fetch_add(1, std::memory_order_acq_rel);
+                }
+                contendersDone.fetch_add(1, std::memory_order_acq_rel);
             });
         }
-        for (auto& th : ts) th.join();
-        NC_CHECK_EQ(releases.load(), 1);   // 最多销毁一次
+
+        // 确认所有竞争者都已开始，并自旋确认它们**都还没完成**（被阻塞）
+        while (contendersStarted.load(std::memory_order_acquire) < kContenders) {
+            std::this_thread::yield();
+        }
+        for (int spin = 0; spin < 20000 && contendersDone.load() < kContenders; ++spin) {
+            std::this_thread::yield();
+        }
+        NC_CHECK_EQ(contendersDone.load(), 0);   // 全部被临界区阻塞
+        NC_CHECK_EQ(releases.load(), 0);
+        NC_CHECK_EQ(accesses.load(), 0);
+
+        // 放行
+        allowFinish.store(true, std::memory_order_release);
+        holder.join();
+        for (auto& c : cs) c.join();
+
+        // 阶段二：竞争完成 —— 销毁恰好成功一次
+        NC_CHECK_EQ(contendersDone.load(), kContenders);
+        NC_CHECK_EQ(releases.load(), 1);
         NC_CHECK_EQ(lt.current(), static_cast<void*>(nullptr));
+        // 销毁后再访问必须被拒
+        bool reached = false;
+        NC_CHECK(!lt.withHandle(&e, [&](void*) { reached = true; }));
+        NC_CHECK(!reached);
     }
 }
 
 NC_TEST(S1EditorLifetime, ReleaseWhileInFlight) {
-    // 场景 7：销毁与"正在执行"的调用交错。
-    // 仲裁器保证：持锁的调用先完成；之后到达的调用一律被拒。
-    for (int round = 0; round < 200; ++round) {
+    // 场景 7：销毁与"正在执行"的调用交错 —— **确定性时序**，不用 sleep。
+    //
+    // 时序（每一步都有显式信号，不依赖调度运气）：
+    //   ① 调用线程进入 withHandle() 临界区 → 置 entered
+    //   ② 主线程等到 entered（确定已进入临界区）
+    //   ③ 启动销毁线程 → 置 releaserStarted 后尝试 beginRelease（会被阻塞）
+    //   ④ 主线程等到 releaserStarted，再自旋一段确认 releaseDone **仍为 false**
+    //      → 证明"销毁不能插进执行中的调用"
+    //   ⑤ 放行 allowFinish，调用线程离开临界区
+    //   ⑥ join 调用线程；join 销毁线程 → 销毁随即成功
+    //   ⑦ 销毁后再调用必须被拒绝
+    for (int round = 0; round < 100; ++round) {
         EditorLifetime lt;
         FakeEngine e{1};
         NC_CHECK(lt.tryAdopt(&e) == EditorLifetime::AdoptResult::kAdopted);
-        std::atomic<bool> released{false};
-        Gate gate(2);
+
+        std::atomic<bool> entered{false};
+        std::atomic<bool> allowFinish{false};
+        std::atomic<bool> releaserStarted{false};
+        std::atomic<bool> releaseDone{false};
+        std::atomic<bool> releaseResult{false};
+
         std::thread caller([&] {
-            gate.wait();
-            (void)lt.withHandle(&e, [](void*) { std::this_thread::yield(); });
+            (void)lt.withHandle(&e, [&](void*) {
+                entered.store(true, std::memory_order_release);
+                // 在临界区内等待放行 —— 此时锁被持有，销毁无法进行
+                while (!allowFinish.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+            });
         });
+
+        // ② 确定性确认调用线程已在临界区内
+        while (!entered.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
         std::thread releaser([&] {
-            gate.wait();
-            released.store(lt.beginRelease(&e));
+            releaserStarted.store(true, std::memory_order_release);
+            releaseResult.store(lt.beginRelease(&e));
+            releaseDone.store(true, std::memory_order_release);
         });
-        caller.join();
+
+        // ④ 确认销毁线程已在尝试，且**尚未**完成
+        while (!releaserStarted.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        for (int spin = 0; spin < 20000 && !releaseDone.load(std::memory_order_acquire);
+             ++spin) {
+            std::this_thread::yield();
+        }
+        NC_CHECK(!releaseDone.load());   // 关键断言：销毁被临界区阻塞
+
+        // ⑤ 放行调用线程
+        allowFinish.store(true, std::memory_order_release);
+        caller.join();                   // ⑥ 调用完成
         releaser.join();
-        NC_CHECK(released.load());                              // 释放必须成功
-        NC_CHECK_EQ(lt.current(), static_cast<void*>(nullptr)); // 句柄已摘除
+
+        // ⑦ 销毁随后成功
+        NC_CHECK(releaseDone.load());
+        NC_CHECK(releaseResult.load());
+        NC_CHECK_EQ(lt.current(), static_cast<void*>(nullptr));
+
+        // 销毁后新调用必须被拒绝
+        bool reached = false;
+        NC_CHECK(!lt.withHandle(&e, [&](void*) { reached = true; }));
+        NC_CHECK(!reached);
     }
 }
 

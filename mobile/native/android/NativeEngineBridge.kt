@@ -67,10 +67,23 @@ class NativeEngineBridge(
         }
 
     init {
-        editor = nativeCreate()
+        /* M-1：构造函数阶段对象尚未发布给其它线程，因此**严格来说**
+           这里的写入不需要加锁（JMM：构造函数内的动作 happens-before
+           任何"正确发布后"读取该对象的动作）。
+           但下面 scheduleWithFixedDelay 会把 `this` 逃逸到看门狗线程，
+           而看门狗随后会读写 editor —— 为了让"初始写入"与"看门狗读取"
+           由**同一监视器**排序（而不是依赖执行器内部的 happens-before
+           细节），这里也在 stateLock 内完成创建。
+           这是一次非嵌套、构造期无竞争的单次加锁，不构成多余嵌套。 */
+        synchronized(stateLock) {
+            editor = nativeCreate()
+        }
         taskWatchdog.scheduleWithFixedDelay({
             try {
-                synchronized(this) {
+                /* M-1：看门狗必须与其它路径使用**同一把** stateLock。
+                   此前用 synchronized(this) —— 那是实例监视器，
+                   与 stateLock 不是同一把锁，无法与 release() 互斥。 */
+                synchronized(stateLock) {
                     if (editor != 0L) {
                         nativeTaskTick(editor, System.currentTimeMillis())
                     }
@@ -290,12 +303,8 @@ class NativeEngineBridge(
     @JavascriptInterface
         fun waveform(assetId: Long): String = try {
         synchronized(stateLock) {
-        synchronized(stateLock) {
-        synchronized(stateLock) {
         nativeWaveform(ensure(), assetId)
     
-        }
-        }
         }} catch (e: Throwable) {
         """{"buckets":[]}"""
     }
@@ -536,12 +545,15 @@ class NativeEngineBridge(
                此时 instanceForSurface 还是 null。直接 return 会让
                文本栅格化器永远注册不上（文本片段静默不渲染）。
                因此这里记一个待注册标记，由 bindInstance() 补注册。 */
-            val inst = instanceForSurface
-            if (inst == null) {
-                pendingRasterizerRegister = true
-                return
-            }
+            /* M-1：instanceForSurface 的读取与 pendingRasterizerRegister
+               的读写必须在 stateLock 内完成 —— 否则"读实例→写标记"之间
+               可能插入 bindInstance()，导致标记被覆盖或重复注册。 */
             synchronized(stateLock) {
+                val inst = instanceForSurface
+                if (inst == null) {
+                    pendingRasterizerRegister = true
+                    return
+                }
                 try {
                     inst.nativeRegisterTextRasterizer(AndroidTextRasterizer)
                 } catch (e: Throwable) {
@@ -581,9 +593,11 @@ class NativeEngineBridge(
         /** 引擎实例尚未创建时收到的「注册文本栅格化器」请求。 */
         private var pendingRasterizerRegister = false
 
-        /** 当前绑定实例（MainActivity 在内存回调里要用）。 */
+        /** 当前绑定实例（MainActivity 在内存回调里要用）。
+            M-1：读取也走 stateLock，与所有写入点使用同一监视器，
+            避免"读到正在被替换的绑定"。 */
         val instance: NativeEngineBridge?
-            get() = instanceForSurface
+            get() = synchronized(stateLock) { instanceForSurface }
 
         /**
          * 解除全局绑定（S1-1 Fix 1）。
