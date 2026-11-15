@@ -22,33 +22,40 @@ namespace core {
 
 namespace detail {
 
-/// 可观测的递归互斥量（S1-1 M-2 修正版）。
+/// 可观测的递归互斥量（S1-1 M-2 语义收尾版）。
 ///
 /// 为什么不用 std::recursive_mutex：
-///   测试必须能**直接观测**"某线程已尝试获取锁且失败、正在等待"，
-///   而 started 标记 + 有限次 yield() 无法区分"尚未被调度"与"已被阻塞"。
+///   测试需要可观测的"获取尝试"信号，以便区分
+///     · 线程还没被调度到；
+///     · 线程已经实际尝试获取锁；
+///   而 started 标记 + 有限次 yield() 无法区分这两者。
 ///
-/// 与上一版的关键差异（修正）：
-///   上一版在调用 inner_.lock() **之前无条件** fetch_add —— 无竞争的正常
-///   获取也会短暂增加计数，因此计数并不代表"竞争等待者"，也无法建立
-///   "计数增加 ⇔ 获取失败" 的因果关系。
-///   本版改为：**先用 try_lock() 探测**，
-///     · try_lock 成功 → 无竞争获取，计数**不变**；
-///     · try_lock 失败 → 才记录一次竞争，然后阻塞在 lock() 上；
-///       拿到锁后撤销记录。
-///   因此 `contendedCount() > 0` 的**精确含义**是：
-///     "有线程在此锁上 try_lock 失败过、且尚未完成获取"。
+/// 实现要点：`lock()` 先用 `try_lock()` 探测，仅在**失败**时记录一次，
+/// 然后阻塞在 `lock()` 上；拿到锁后撤销记录。
 ///
-/// ⚠️ 语义边界（不得夸大）：
-///   contendedCount() > 0 **不表示**操作系统已把该线程挂起。
-///   它表示"该线程已观测到获取失败并进入等待"；由于此时锁由他人持有，
-///   它不可能继续推进 —— 这就是测试所需的全部强度。
+/// ⚠️ 关于 `std::mutex::try_lock()` 的标准语义（必须如实反映）：
+///   C++ 标准允许 `try_lock()` **偶发虚假失败**（spurious failure）——
+///   即使没有其他线程持有该锁，它也可能返回 false。
+///   因此**每一次失败都不能被断言为"已确认真实竞争"**。
+///   本类只如实记录"发生过失败"，不推断失败的原因。
 ///
-/// 四种状态：
-///   ① 正常无竞争获取：try_lock 成功，contended 不变
-///   ② 同线程递归获取：owner == self，直接 ++recursion_，contended 不变
-///   ③ 真实竞争：try_lock 失败 → contended++ → lock() 阻塞
-///   ④ 竞争者最终获得：lock() 返回 → contended--
+/// `failedTryLockCount()` 的**精确含义**：
+///   "try_lock() 返回过失败、且对应线程尚未完成其后续 lock() 获取的线程数"。
+///   它**不证明**失败一定由其他线程持锁造成；
+///   它**不证明**线程已被操作系统挂起（挂起是调度器行为，本类型无法观测）。
+///
+/// 何时可作为竞争证据：
+///   在测试**另行确认 holder 确实持锁**的前提下（例如外部 try_lock 失败、
+///   ownerId() 指向 holder 线程），此时本计数 > 0 才可用于证明
+///   "竞争者已经实际尝试获取锁，且因锁被持有而无法推进"。
+///
+/// 四种状态（文字定义）：
+///   ① 正常无竞争获取：owner != self 且 try_lock 成功 → 计数**不变**
+///   ② 同线程递归获取：owner == self → 直接 ++recursion_，计数**不变**
+///   ③ 尝试获取失败：try_lock 返回 false → 计数 **+1**，随后阻塞在 lock()
+///      （注意：该失败可能由他人持锁造成，也可能是标准允许的虚假失败）
+///   ④ 竞争者最终获得：lock() 返回 → 计数 **−1**
+///
 class RecursiveMutex {
 public:
     void lock() {
@@ -62,17 +69,18 @@ public:
             recursion_ = 1;
             return;
         }
-        /* ③ 真实竞争：try_lock 失败后才记录 */
-        contended_.fetch_add(1, std::memory_order_acq_rel);
+        /* ③ try_lock 失败：记录一次（原因不作断言，可能是他人持锁，
+           也可能是标准允许的虚假失败） */
+        failedTryLock_.fetch_add(1, std::memory_order_acq_rel);
         try {
             inner_.lock();
         } catch (...) {
             /* 异常路径：撤销记录，避免计数泄漏 */
-            contended_.fetch_sub(1, std::memory_order_acq_rel);
+            failedTryLock_.fetch_sub(1, std::memory_order_acq_rel);
             throw;
         }
         /* ④ 竞争者最终获得 */
-        contended_.fetch_sub(1, std::memory_order_acq_rel);
+        failedTryLock_.fetch_sub(1, std::memory_order_acq_rel);
         owner_.store(me, std::memory_order_release);
         recursion_ = 1;
     }
@@ -98,11 +106,18 @@ public:
         return true;
     }
 
-    /// 已观测到真实竞争、尚未完成获取的线程数（仅供测试观测）。
-    /// 语义：try_lock 失败后自增，取得锁后自减。
-    /// **不代表**操作系统已挂起该线程。
-    int contendedCount() const {
-        return contended_.load(std::memory_order_acquire);
+    /// try_lock() 返回过失败、且尚未完成后续 lock() 获取的线程数。
+    ///
+    /// 语义边界（不得夸大）：
+    ///   · **不证明**失败由其他线程持锁造成 —— C++ 标准允许 try_lock
+    ///     偶发虚假失败；
+    ///   · **不证明**对应线程已被操作系统挂起；
+    ///   · 只有在调用方**另行确认锁被他人持有**时，本计数 > 0 才能作为
+    ///     "竞争者已实际尝试获取且无法推进"的证据。
+    ///
+    /// 仅供测试观测；生产代码不依赖本值做任何判断。
+    int failedTryLockCount() const {
+        return failedTryLock_.load(std::memory_order_acquire);
     }
 
     /// 当前持有者线程 id（0 = 未持有）。仅供测试断言。
@@ -120,7 +135,7 @@ private:
 
     std::mutex inner_;
     std::atomic<std::uint64_t> owner_{0};
-    std::atomic<int> contended_{0};
+    std::atomic<int> failedTryLock_{0};
     int recursion_ = 0;   // 仅由持有者线程读写
 };
 
@@ -196,8 +211,11 @@ public:
     }
 
     /// 生命周期互斥量类型（可观测的递归互斥量）。
-    /// 对外语义等同 std::recursive_mutex，额外提供 waiterCount() 供测试
-    /// 确定性观测锁竞争，不改变任何加锁/解锁行为。
+    ///
+    /// 加锁/解锁/try_lock 的行为与 std::recursive_mutex 完全一致；
+    /// 额外提供 failedTryLockCount() 与 ownerId() 两个**只读观测**接口，
+    /// 供主机端测试判断"是否发生过获取尝试"，不参与任何生产决策。
+    /// 这两个接口不改变锁语义，也不引入新的同步路径。
     using Mutex = detail::RecursiveMutex;
 
     /// 生命周期互斥量。调用方持有它可把「校验 + 使用」变成原子区。

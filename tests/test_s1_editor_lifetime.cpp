@@ -23,6 +23,7 @@
 #include "test_framework.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <thread>
 #include <vector>
@@ -39,6 +40,25 @@ using Mutex = EditorLifetime::Mutex;
 struct FakeEngine {
     int id = 0;
 };
+
+/// 有界等待：条件成立返回 true；超时返回 false。
+///
+/// 用途：**防止异常情况下 CI 无限期卡住**。
+/// 注意：本函数**不是**并发正确性的证明手段 —— 正确性仍由被等待的
+/// 条件本身（failedTryLockCount / ownerId / holderEntered）承担。
+/// 超时只用于把"条件永远不会成立"这种情况转成一次明确的测试失败。
+template <typename Pred>
+bool waitUntil(Pred pred, int timeoutMs = 15000) {
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    while (!pred()) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::yield();
+    }
+    return true;
+}
 
 /// 确定性闸门：让 N 个线程尽量同时抵达竞争点。
 /// 不用 sleep —— 用自旋计数等待，避免把"运气"当作正确性证明。
@@ -61,9 +81,9 @@ private:
 NC_TEST(S1EditorLifetime, RepeatedCreateRejected) {
     EditorLifetime lt;
     FakeEngine a{1}, b{2};
-    /* 反证：无竞争时竞争计数必须为 0 —— 否则"contendedCount>0 即存在
-       真实竞争"这条判据就恒真、失去意义。 */
-    NC_CHECK_EQ(lt.mutex().contendedCount(), 0);
+    /* 反证：无竞争时失败计数必须为 0 —— 否则"failedTryLockCount>0
+       说明发生过获取尝试"这条判据就恒真、失去意义。 */
+    NC_CHECK_EQ(lt.mutex().failedTryLockCount(), 0);
     NC_CHECK_EQ(lt.mutex().ownerId(), 0);
     NC_CHECK(lt.tryAdopt(&a) == EditorLifetime::AdoptResult::kAdopted);
     // 第二次创建必须被拒绝，且不改变既有所有者
@@ -147,13 +167,16 @@ NC_TEST(S1EditorLifetime, ConcurrentCreateSingleOwner) {
 NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
     // 场景 3：同一句柄被多线程同时访问 + 销毁。
     //
-    // 确定性依据（不使用 sleep，也不用"有限次 yield + done==0"这种弱证明）：
+    // 确定性依据（不使用 sleep；等待循环带超时保护，仅防 CI 卡死，
+    // 不作为并发正确性证明）：
     //   1) 持锁线程进入临界区后，从**外部** try_lock() 必须失败
-    //      → 证明锁确实被持有；
-    //   2) 竞争者启动后，等待 mutex().contendedCount() 达到 kContenders
-    //      → contendedCount 只在 try_lock() **失败后**自增，因此 >0 表示
-    //        该线程已实际尝试获取并失败、正在等待；此时锁由他人持有，
-    //        它不可能继续推进。这排除了"线程还没被调度到"的假象。
+    //      → 证明锁确实被持有（ownerId() 亦指向 holder）；
+    //   2) 竞争者启动后等待 failedTryLockCount() 达到 kContenders
+    //      → 该计数只在 try_lock() 返回失败后自增，因此 >0 表示这些线程
+    //        已**实际尝试获取**（排除"还没被调度到"）。
+    //      注意：try_lock 的失败本身可能来自他人持锁，也可能是标准允许的
+    //      虚假失败；本测试之所以能据此断言"无法推进"，是因为第 1 步
+    //      已独立确认锁被 holder 持有 —— 两者结合才构成竞争证据。
     //   3) 放行后竞争者继续，恰好一次 beginRelease 成功。
     for (int round = 0; round < 100; ++round) {
         EditorLifetime lt;
@@ -176,8 +199,11 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
                 }
             });
         });
-        while (!holderEntered.load(std::memory_order_acquire)) {
-            std::this_thread::yield();
+        if (!waitUntil([&] { return holderEntered.load(std::memory_order_acquire); })) {
+            allowFinish.store(true, std::memory_order_release);   // 放行以免永久阻塞
+            holder.join();
+            NC_CHECK(false);   // 超时：holder 未进入临界区
+            return;
         }
 
         // (1) 证明锁被持有：外部 try_lock 必须失败
@@ -203,20 +229,23 @@ NC_TEST(S1EditorLifetime, SameHandleMultiThread) {
             });
         }
 
-        // (2) 确定性等待：所有竞争者都已进入锁获取路径并阻塞
-        while (lt.mutex().contendedCount() < kContenders) {
-            std::this_thread::yield();
+        // (2) 等待竞争者实际尝试获取（有界，超时则记为失败而非卡死）
+        const bool sawContention = waitUntil(
+            [&] { return lt.mutex().failedTryLockCount() >= kContenders; });
+        NC_CHECK(sawContention);
+        NC_CHECK(lt.mutex().failedTryLockCount() >= kContenders);
+        if (sawContention) {
+            NC_CHECK_EQ(contendersDone.load(), 0);   // 无一完成
+            NC_CHECK_EQ(releases.load(), 0);         // 无一释放成功
+            NC_CHECK_EQ(accesses.load(), 0);         // 无一访问成功
+            NC_CHECK_EQ(lt.current(), static_cast<void*>(&e));  // Engine 仍存活
         }
-        NC_CHECK(lt.mutex().contendedCount() >= kContenders);
-        NC_CHECK_EQ(contendersDone.load(), 0);   // 无一完成
-        NC_CHECK_EQ(releases.load(), 0);         // 无一释放成功
-        NC_CHECK_EQ(accesses.load(), 0);         // 无一访问成功
-        NC_CHECK_EQ(lt.current(), static_cast<void*>(&e));  // Engine 仍存活
 
-        // (3) 放行 → 竞争者继续
+        // (3) 放行 → 竞争者继续（无论是否超时都必须放行并 join）
         allowFinish.store(true, std::memory_order_release);
         holder.join();
         for (auto& c : cs) c.join();
+        if (!sawContention) return;   // 已记录失败
 
         NC_CHECK_EQ(contendersDone.load(), kContenders);
         NC_CHECK_EQ(releases.load(), 1);         // 同一 Engine 最多一次有效释放
@@ -232,9 +261,11 @@ NC_TEST(S1EditorLifetime, ReleaseWhileInFlight) {
     // 场景 7：in-flight 调用完成之前，Engine 不能被释放。
     //
     // 与 SameHandleMultiThread 相同的确定性依据：
-    //   · 外部 try_lock 失败 → 锁确实被持有；
-    //   · contendedCount() 达到 1 → 销毁线程 try_lock 已失败、正在等待，
-    //     且锁由 holder 持有 → 它不可能推进；
+    //   · 外部 try_lock 失败 + ownerId() 指向 holder → 锁确实被持有；
+    //   · failedTryLockCount() 达到 1 → 销毁线程已实际尝试获取并失败；
+    //     结合上一行（锁被持有）→ 它不可能推进。
+    //     （try_lock 允许虚假失败，故单看计数不足以断定竞争，
+    //       必须与"锁被持有"这一独立事实结合。）
     //   · 此时断言 current() 仍指向 e、releaseDone 仍为 false
     //     → 证明"释放不能越过正在持有的临界区"；
     //   · 放行后释放成功；随后旧句柄访问被拒。
@@ -256,8 +287,11 @@ NC_TEST(S1EditorLifetime, ReleaseWhileInFlight) {
                 }
             });
         });
-        while (!holderEntered.load(std::memory_order_acquire)) {
-            std::this_thread::yield();
+        if (!waitUntil([&] { return holderEntered.load(std::memory_order_acquire); })) {
+            allowFinish.store(true, std::memory_order_release);
+            holder.join();
+            NC_CHECK(false);   // 超时：holder 未进入临界区
+            return;
         }
 
         // 证明锁被持有
@@ -274,18 +308,21 @@ NC_TEST(S1EditorLifetime, ReleaseWhileInFlight) {
             releaseDone.store(true, std::memory_order_release);
         });
 
-        // 确定性：销毁线程已进入锁获取路径（必然阻塞，因为锁被 holder 持有）
-        while (lt.mutex().contendedCount() == 0) {
-            std::this_thread::yield();
+        // 确定性：销毁线程已实际尝试获取（有界等待，超时记为失败）
+        const bool sawAttempt = waitUntil(
+            [&] { return lt.mutex().failedTryLockCount() >= 1; });
+        NC_CHECK(sawAttempt);
+        NC_CHECK(lt.mutex().failedTryLockCount() >= 1);
+        if (sawAttempt) {
+            NC_CHECK(!releaseDone.load());                      // 释放尚未完成
+            NC_CHECK_EQ(lt.current(), static_cast<void*>(&e));  // Engine 仍存活
         }
-        NC_CHECK(lt.mutex().contendedCount() >= 1);
-        NC_CHECK(!releaseDone.load());                          // 释放尚未完成
-        NC_CHECK_EQ(lt.current(), static_cast<void*>(&e));      // Engine 仍存活
 
-        // 放行
+        // 放行（无论是否超时都必须放行并 join，避免永久阻塞）
         allowFinish.store(true, std::memory_order_release);
         holder.join();
         releaser.join();
+        if (!sawAttempt) return;   // 已记录失败
 
         NC_CHECK(releaseDone.load());
         NC_CHECK(releaseResult.load());
@@ -327,28 +364,28 @@ NC_TEST(S1EditorLifetime, CreateAccessDestroyShared) {
 
 // ---------------------------------------------------------------------------
 // S1RecursiveMutex：锁状态语义的定点测试
-// 对应要求：无竞争 / 递归 / 真实竞争 / 竞争者最终获得 / 多线程+递归不死锁
+// 对应要求：无竞争 / 递归 / 尝试获取失败（记录）/ 竞争者最终获得 / 多线程+递归不死锁
 // ---------------------------------------------------------------------------
 
 NC_TEST(S1RecursiveMutex, UncontendedLockKeepsContendedZero) {
     // ① 正常无竞争获取：竞争计数必须保持 0
     Mutex m;
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
     NC_CHECK_EQ(m.ownerId(), 0);
 
     m.lock();
-    NC_CHECK_EQ(m.contendedCount(), 0);   // 无竞争不计数
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);   // 无竞争不计数
     NC_CHECK(m.ownerId() != 0);
 
     m.unlock();
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
     NC_CHECK_EQ(m.ownerId(), 0);
 
     // 无竞争的 try_lock 同样不计数
     NC_CHECK(m.try_lock());
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
     m.unlock();
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
 }
 
 NC_TEST(S1RecursiveMutex, RecursiveLockNotCountedAsContention) {
@@ -357,27 +394,31 @@ NC_TEST(S1RecursiveMutex, RecursiveLockNotCountedAsContention) {
     m.lock();
     m.lock();
     m.lock();
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
     NC_CHECK(m.ownerId() != 0);
 
     m.unlock();
     m.unlock();
     m.unlock();
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
     NC_CHECK_EQ(m.ownerId(), 0);
 
     // 递归 try_lock 也不计竞争
     m.lock();
     NC_CHECK(m.try_lock());
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
     m.unlock();
     m.unlock();
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
 }
 
 NC_TEST(S1RecursiveMutex, ContentionObservedWhenHolderHolds) {
-    // ③ holder 持锁时，其他线程 try_lock 失败 → 竞争记录准确增加
-    // ④ holder 释放后竞争者取得锁 → 计数最终归零
+    // ③ 主线程持锁期间，竞争者实际尝试获取 → 失败记录准确增加
+    // ④ 主线程释放后竞争者取得并释放 → 计数归零
+    //
+    // 语义说明：try_lock() 允许偶发虚假失败，因此"计数 > 0"单独不足以
+    // 断定竞争；本测试之所以能作为竞争证据，是因为**同时**断言了
+    // ownerId() 仍指向主线程（锁确实被持有）。
     for (int round = 0; round < 100; ++round) {
         Mutex m;
         m.lock();                       // 主线程持有
@@ -387,25 +428,28 @@ NC_TEST(S1RecursiveMutex, ContentionObservedWhenHolderHolds) {
         std::atomic<bool> started{false};
         std::thread contender([&] {
             started.store(true, std::memory_order_release);
-            m.lock();                   // try_lock 必失败 → contended++ → 阻塞
+            m.lock();                   // try_lock 失败 → 记录 → 阻塞
             m.unlock();
         });
 
-        while (!started.load(std::memory_order_acquire)) {
-            std::this_thread::yield();
-        }
-        // 观测到真实竞争（try_lock 失败已被记录）
-        while (m.contendedCount() == 0) {
-            std::this_thread::yield();
-        }
-        NC_CHECK(m.contendedCount() >= 1);
-        NC_CHECK_EQ(m.ownerId(), holder);   // 仍由主线程持有
+        // 有界等待（防 CI 卡死；正确性由后续断言承担）
+        const bool began = waitUntil([&] { return started.load(std::memory_order_acquire); });
+        const bool sawAttempt =
+            began && waitUntil([&] { return m.failedTryLockCount() >= 1; });
 
-        m.unlock();                          // 放行
+        NC_CHECK(began);
+        NC_CHECK(sawAttempt);
+        if (sawAttempt) {
+            NC_CHECK(m.failedTryLockCount() >= 1);
+            NC_CHECK_EQ(m.ownerId(), holder);   // 锁仍由主线程持有
+        }
+
+        m.unlock();                          // 放行（无论是否超时都要放行）
         contender.join();
+        if (!sawAttempt) return;             // 已记录失败
 
         // ④ 竞争者取得并释放后，计数归零
-        NC_CHECK_EQ(m.contendedCount(), 0);
+        NC_CHECK_EQ(m.failedTryLockCount(), 0);
         NC_CHECK_EQ(m.ownerId(), 0);
     }
 }
@@ -432,6 +476,6 @@ NC_TEST(S1RecursiveMutex, MultiThreadContentionWithRecursionNoDeadlock) {
     for (auto& th : ts) th.join();
 
     NC_CHECK_EQ(done.load(), static_cast<long long>(kThreads) * kRounds);
-    NC_CHECK_EQ(m.contendedCount(), 0);
+    NC_CHECK_EQ(m.failedTryLockCount(), 0);
     NC_CHECK_EQ(m.ownerId(), 0);
 }
