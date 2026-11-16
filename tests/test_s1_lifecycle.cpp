@@ -212,19 +212,19 @@ NC_TEST(S1Lifecycle, DispatcherRevisionTracksLiveEditor) {
 }
 
 NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
-    // S1-1 回归：工程替换后必须作废预览渲染器。
+    // S1-1 回归：工程替换后必须作废预览渲染器（NF-1）。
     //
-    // 缺陷背景（本轮主动排查发现）：
-    //   previewSignatureOf() = editRevision*A + loadCount*B + directEditCount*C + canvas
-    //   —— 不含素材路径与工程身份。重建后的新 editor 其 editRevision 归 0，
-    //   若画布尺寸相同，签名可能与替换前完全一致 ⇒ 不会 clearFrameCache()；
-    //   而 clearFrameCache() 本身也不清 readers_（按 AssetId 缓存的解码器）
-    //   ⇒ 预览可能继续用旧工程的解码器渲染新工程内容。
+    // 缺陷：previewSignatureOf() 不含素材路径/工程身份；新 editor 的
+    //   editRevision 归 0，画布相同时签名可能与替换前一致 ⇒ 不 clearFrameCache；
+    //   而 clearFrameCache() 也不清 readers_（按 AssetId 缓存的解码器）
+    //   ⇒ 换工程后可能用旧解码器渲染上一个工程的内容。
     //
-    // 本用例可验证的不变量（不依赖 FFmpeg）：
-    //   连续两次 nc_project_load 后，editor 仍可用、revision 语义正确、
-    //   且再次序列化内容一致 —— 覆盖"替换后状态被正确重置"这一路径。
-    //   （FFmpeg 构建下额外的 cached_frames==0 断言见下方条件分支。）
+    // 确定性判据（不依赖 FFmpeg、不依赖素材）：
+    //   `nc_preview_set_cache_budget` 把预算写进 **PreviewRenderer 对象本身**；
+    //   `nc_preview_get_cache_budget` 直接读该对象（renderer 为 nullptr 时返回 -1）。
+    //   因此「load 之后预算读回 -1」即可证明**渲染器已被销毁并置空** ——
+    //   若旧渲染器存活，读回的仍是旧预算值。这比"cached_frames==0"更强：
+    //   后者在空工程下预热渲染 0 帧，未修复时同样是 0，无法区分。
     NcEditor* editor = nc_editor_create();
     NC_CHECK(editor != nullptr);
     if (editor == nullptr) {
@@ -233,28 +233,43 @@ NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
     const std::string nclip = savedProjectText(editor);
     NC_CHECK(!nclip.empty());
 
-    for (int i = 0; i < 3; ++i) {
-        char* detail = nullptr;
-        const int32_t rc = nc_project_load(editor, nclip.c_str(), &detail);
-        if (detail != nullptr) {
-            nc_free_string(detail);
-        }
-        NC_CHECK_EQ(rc, static_cast<int32_t>(NC_OK));
-        // 替换后工程内容必须与载入文本一致（id 已恢复为 ProjectId{1}）
-        NC_CHECK_EQ(savedProjectText(editor), nclip);
+    // ① 建立"可识别的旧渲染器状态"（仅 FFmpeg 构建下 previewFactory 非空）
+    constexpr int32_t kProbeBudget = 12345678;
+    const bool previewAvailable =
+        nc_preview_set_cache_budget(editor, kProbeBudget) == NC_OK;
+    if (previewAvailable) {
+        NC_CHECK_EQ(nc_preview_get_cache_budget(editor),
+                    static_cast<int64_t>(kProbeBudget));
     }
 
-    // 预览状态：有 FFmpeg 时渲染器可重建且帧缓存为空（已作废）；
-    // 无 FFmpeg 时 previewFactory 为空，nc_preview_cache_stats 返回错误码，
-    // 属预期降级 —— 此时不断言 cached_frames，只断言"不崩溃"。
-    int64_t hits = 0, misses = 0, opens = 0;
-    int32_t cached = -1, capacity = 0;
-    const int32_t statsRc = nc_preview_cache_stats(
-        editor, &hits, &misses, &opens, &cached, &capacity);
-    if (statsRc == NC_OK) {
-        // FFmpeg 构建：替换后缓存必须已作废
-        NC_CHECK_EQ(cached, 0);
+    // ② 替换工程
+    char* detail = nullptr;
+    const int32_t rc = nc_project_load(editor, nclip.c_str(), &detail);
+    if (detail != nullptr) {
+        nc_free_string(detail);
+    }
+    NC_CHECK_EQ(rc, static_cast<int32_t>(NC_OK));
+
+    // ③ 核心断言：渲染器必须已被作废（读回 -1），不得残留旧对象
+    if (previewAvailable) {
+        NC_CHECK_EQ(nc_preview_get_cache_budget(editor), static_cast<int64_t>(-1));
+    }
+
+    // ④ 工程内容一致（ProjectId{1} 已恢复、状态被正确重置）
+    NC_CHECK_EQ(savedProjectText(editor), nclip);
+
+    // ⑤ 连续替换仍稳定
+    for (int i = 0; i < 2; ++i) {
+        char* d = nullptr;
+        NC_CHECK_EQ(nc_project_load(editor, nclip.c_str(), &d),
+                    static_cast<int32_t>(NC_OK));
+        if (d) nc_free_string(d);
+        if (previewAvailable) {
+            NC_CHECK_EQ(nc_preview_get_cache_budget(editor),
+                        static_cast<int64_t>(-1));
+        }
     }
 
     nc_editor_destroy(editor);
 }
+
