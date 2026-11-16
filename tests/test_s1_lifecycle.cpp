@@ -219,12 +219,18 @@ NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
     //   而 clearFrameCache() 也不清 readers_（按 AssetId 缓存的解码器）
     //   ⇒ 换工程后可能用旧解码器渲染上一个工程的内容。
     //
-    // 确定性判据（不依赖 FFmpeg、不依赖素材）：
-    //   `nc_preview_set_cache_budget` 把预算写进 **PreviewRenderer 对象本身**；
-    //   `nc_preview_get_cache_budget` 直接读该对象（renderer 为 nullptr 时返回 -1）。
-    //   因此「load 之后预算读回 -1」即可证明**渲染器已被销毁并置空** ——
-    //   若旧渲染器存活，读回的仍是旧预算值。这比"cached_frames==0"更强：
-    //   后者在空工程下预热渲染 0 帧，未修复时同样是 0，无法区分。
+    // 确定性判据（不依赖素材）：
+    //   `nc_preview_set_cache_budget` 把预算写进 **PreviewRenderer 对象本身**，
+    //   `nc_preview_get_cache_budget` 直接读该对象。
+    //   ⇒ 先设一个"可识别的非默认预算"，load 后再读：
+    //       · 修复生效 → 渲染器被销毁重建（prewarm 重建）→ 读回**默认 96MB**
+    //       · 修复缺失 → 旧渲染器存活 → 读回**我们设的探针值**
+    //
+    // 两个必须注意的实现细节（首版断言曾因此失败，已修正）：
+    //   1) setFrameCacheBudgetBytes 钳制到 [24MB, 256MB]（preview.cpp），
+    //      探针值必须落在该区间内，否则读回的是钳制值；
+    //   2) nc_project_load 末尾会调用 nc_preview_prewarm → ensurePreviewRenderer
+    //      重建渲染器，所以 load 后 renderer **非空**，读回的是默认预算而非 -1。
     NcEditor* editor = nc_editor_create();
     NC_CHECK(editor != nullptr);
     if (editor == nullptr) {
@@ -233,16 +239,17 @@ NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
     const std::string nclip = savedProjectText(editor);
     NC_CHECK(!nclip.empty());
 
-    // ① 建立"可识别的旧渲染器状态"（仅 FFmpeg 构建下 previewFactory 非空）
-    constexpr int32_t kProbeBudget = 12345678;
+    constexpr int32_t kProbeBudget = 64 * 1024 * 1024;    // 64MB：在钳制区间内且 ≠ 默认
+    constexpr int64_t kDefaultBudget = 96LL * 1024 * 1024; // preview.h kFrameCacheBudgetBytes
+
     const bool previewAvailable =
         nc_preview_set_cache_budget(editor, kProbeBudget) == NC_OK;
     if (previewAvailable) {
+        // 探针必须真的被写入（若被钳制说明探针值选错，直接失败提醒）
         NC_CHECK_EQ(nc_preview_get_cache_budget(editor),
                     static_cast<int64_t>(kProbeBudget));
     }
 
-    // ② 替换工程
     char* detail = nullptr;
     const int32_t rc = nc_project_load(editor, nclip.c_str(), &detail);
     if (detail != nullptr) {
@@ -250,23 +257,22 @@ NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
     }
     NC_CHECK_EQ(rc, static_cast<int32_t>(NC_OK));
 
-    // ③ 核心断言：渲染器必须已被作废（读回 -1），不得残留旧对象
+    // 核心断言：渲染器已被销毁重建 → 预算回到默认值（不再是探针值）
     if (previewAvailable) {
-        NC_CHECK_EQ(nc_preview_get_cache_budget(editor), static_cast<int64_t>(-1));
+        NC_CHECK_EQ(nc_preview_get_cache_budget(editor), kDefaultBudget);
     }
 
-    // ④ 工程内容一致（ProjectId{1} 已恢复、状态被正确重置）
+    // 工程内容一致（ProjectId{1} 已恢复、状态被正确重置）
     NC_CHECK_EQ(savedProjectText(editor), nclip);
 
-    // ⑤ 连续替换仍稳定
+    // 连续替换仍稳定
     for (int i = 0; i < 2; ++i) {
         char* d = nullptr;
         NC_CHECK_EQ(nc_project_load(editor, nclip.c_str(), &d),
                     static_cast<int32_t>(NC_OK));
         if (d) nc_free_string(d);
         if (previewAvailable) {
-            NC_CHECK_EQ(nc_preview_get_cache_budget(editor),
-                        static_cast<int64_t>(-1));
+            NC_CHECK_EQ(nc_preview_get_cache_budget(editor), kDefaultBudget);
         }
     }
 
