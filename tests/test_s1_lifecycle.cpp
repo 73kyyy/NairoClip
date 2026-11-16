@@ -212,25 +212,24 @@ NC_TEST(S1Lifecycle, DispatcherRevisionTracksLiveEditor) {
 }
 
 NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
-    // S1-1 回归：工程替换后必须作废预览渲染器（NF-1）。
+    // S1-1 回归：工程替换后必须作废预览渲染器，**且**保留平台配置。
     //
-    // 缺陷：previewSignatureOf() 不含素材路径/工程身份；新 editor 的
+    // NF-1：previewSignatureOf() 不含素材路径/工程身份；新 editor 的
     //   editRevision 归 0，画布相同时签名可能与替换前一致 ⇒ 不 clearFrameCache；
     //   而 clearFrameCache() 也不清 readers_（按 AssetId 缓存的解码器）
     //   ⇒ 换工程后可能用旧解码器渲染上一个工程的内容。
+    //   修复：nc_project_load 内 previewRenderer.reset()，由 prewarm 重建。
     //
-    // 确定性判据（不依赖素材）：
-    //   `nc_preview_set_cache_budget` 把预算写进 **PreviewRenderer 对象本身**，
-    //   `nc_preview_get_cache_budget` 直接读该对象。
-    //   ⇒ 先设一个"可识别的非默认预算"，load 后再读：
-    //       · 修复生效 → 渲染器被销毁重建（prewarm 重建）→ 读回**默认 96MB**
-    //       · 修复缺失 → 旧渲染器存活 → 读回**我们设的探针值**
+    // NF-1b（修复引入的回归，同步修复）：预算/缩放原本只存在渲染器对象上，
+    //   渲染器一重建就退回默认 96MB / 1.0，丢掉 Android 按设备内存算好的值。
+    //   修复：在 NcEditor 上持久化，ensurePreviewRenderer 重建时重新应用。
     //
-    // 两个必须注意的实现细节（首版断言曾因此失败，已修正）：
-    //   1) setFrameCacheBudgetBytes 钳制到 [24MB, 256MB]（preview.cpp），
-    //      探针值必须落在该区间内，否则读回的是钳制值；
-    //   2) nc_project_load 末尾会调用 nc_preview_prewarm → ensurePreviewRenderer
-    //      重建渲染器，所以 load 后 renderer **非空**，读回的是默认预算而非 -1。
+    // 本用例断言的是**用户可见不变量**：切换工程后平台配置仍然生效。
+    //   （渲染器确实被销毁重建，由 nc_project_load 中无条件的 reset() 保证；
+    //     重建路径本身由 prewarm 覆盖，见 LoadKeepsProjectContentIntact。）
+    //
+    // 实现细节（首版断言曾因不知此而失败）：
+    //   setFrameCacheBudgetBytes 把预算钳制到 [24MB, 256MB]，探针须在区间内。
     NcEditor* editor = nc_editor_create();
     NC_CHECK(editor != nullptr);
     if (editor == nullptr) {
@@ -239,15 +238,21 @@ NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
     const std::string nclip = savedProjectText(editor);
     NC_CHECK(!nclip.empty());
 
-    constexpr int32_t kProbeBudget = 64 * 1024 * 1024;    // 64MB：在钳制区间内且 ≠ 默认
-    constexpr int64_t kDefaultBudget = 96LL * 1024 * 1024; // preview.h kFrameCacheBudgetBytes
+    constexpr int32_t kProbeBudget = 64 * 1024 * 1024;  // 64MB：钳制区间内且 ≠ 默认 96MB
+    constexpr int64_t kDefaultBudget = 96LL * 1024 * 1024;
+    constexpr double kProbeScale = 0.5;
 
     const bool previewAvailable =
         nc_preview_set_cache_budget(editor, kProbeBudget) == NC_OK;
     if (previewAvailable) {
-        // 探针必须真的被写入（若被钳制说明探针值选错，直接失败提醒）
         NC_CHECK_EQ(nc_preview_get_cache_budget(editor),
                     static_cast<int64_t>(kProbeBudget));
+        NC_CHECK(previewAvailable);
+        NC_CHECK_EQ(nc_preview_set_cache_scale(editor, kProbeScale),
+                    static_cast<int32_t>(NC_OK));
+        NC_CHECK(nc_preview_get_cache_scale(editor) == kProbeScale);
+        // 探针必须真的区别于默认值，否则断言无意义
+        NC_CHECK(static_cast<int64_t>(kProbeBudget) != kDefaultBudget);
     }
 
     char* detail = nullptr;
@@ -257,22 +262,26 @@ NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
     }
     NC_CHECK_EQ(rc, static_cast<int32_t>(NC_OK));
 
-    // 核心断言：渲染器已被销毁重建 → 预算回到默认值（不再是探针值）
+    // 核心断言：平台配置在工程替换后必须**仍然生效**（NF-1b）
     if (previewAvailable) {
-        NC_CHECK_EQ(nc_preview_get_cache_budget(editor), kDefaultBudget);
+        NC_CHECK_EQ(nc_preview_get_cache_budget(editor),
+                    static_cast<int64_t>(kProbeBudget));
+        NC_CHECK(nc_preview_get_cache_scale(editor) == kProbeScale);
     }
 
     // 工程内容一致（ProjectId{1} 已恢复、状态被正确重置）
     NC_CHECK_EQ(savedProjectText(editor), nclip);
 
-    // 连续替换仍稳定
+    // 连续替换仍稳定且配置不丢
     for (int i = 0; i < 2; ++i) {
         char* d = nullptr;
         NC_CHECK_EQ(nc_project_load(editor, nclip.c_str(), &d),
                     static_cast<int32_t>(NC_OK));
         if (d) nc_free_string(d);
         if (previewAvailable) {
-            NC_CHECK_EQ(nc_preview_get_cache_budget(editor), kDefaultBudget);
+            NC_CHECK_EQ(nc_preview_get_cache_budget(editor),
+                        static_cast<int64_t>(kProbeBudget));
+            NC_CHECK(nc_preview_get_cache_scale(editor) == kProbeScale);
         }
     }
 

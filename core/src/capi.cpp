@@ -129,6 +129,16 @@ struct NcEditor {
     std::unique_ptr<InterpolationEngine> interpolationEngine;
     /// 预览渲染器缓存（nc_preview_render；编辑操作后失效重建）。
     std::unique_ptr<PreviewRenderer> previewRenderer;
+    /* S1-1：平台层配置的预览缓存参数必须**跨渲染器重建**保持有效。
+       背景：nc_project_load 会 previewRenderer.reset() 后由 prewarm 重建渲染器
+       （修复换工程复用旧解码器的缺陷）。而 nc_preview_set_cache_budget /
+       nc_preview_set_cache_scale 原本只把值写进 renderer 对象本身 ——
+       Android 在 bindInstance 时按设备内存算好预算设置一次（MainActivity
+       注释：「运行中不需要改」），渲染器一重建就会退回默认 96MB / 1.0，
+       低端机预算被放大、高端机被缩小。
+       因此把这两项**同时**记在 NcEditor 上，重建时重新应用。 */
+    std::size_t previewCacheBudgetBytes = PreviewRenderer::kFrameCacheBudgetBytes;
+    double previewCacheScale = 1.0;
     /// 预览缓存有效性签名（编辑历史数 + 载入代次 + 直接修改代次 + 画布）。
     /// 说明：所有片段级编辑经编辑栈（undoCount 变化）；画布/轨道标志等
     /// 直接修改经 directEditCount 记账；nc_project_load 递增 loadCount。
@@ -363,6 +373,7 @@ int32_t nc_preview_set_cache_scale(NcEditor* editor, double scale) {
     if (renderer == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
     }
+    editor->previewCacheScale = scale;
     renderer->setCacheScale(scale);
     return NC_OK;
 }
@@ -383,7 +394,10 @@ int32_t nc_preview_set_cache_budget(NcEditor* editor, int32_t bytes) {
     if (renderer == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
     }
+    editor->previewCacheBudgetBytes = static_cast<std::size_t>(bytes);
     renderer->setFrameCacheBudgetBytes(static_cast<std::size_t>(bytes));
+    /* 钳制后的实际值回写，保证重建时应用的是真正生效的值。 */
+    editor->previewCacheBudgetBytes = renderer->frameCacheBudgetBytes();
     return NC_OK;
 }
 
@@ -5027,6 +5041,12 @@ PreviewRenderer* ensurePreviewRenderer(NcEditor* editor) {
         editor->previewRenderer.reset(new (std::nothrow)
                                           PreviewRenderer(editor->project,
                                                           *editor->previewFactory));
+        /* S1-1：重建后重新应用平台配置，避免工程切换丢掉设备调优的预算/缩放。 */
+        if (editor->previewRenderer != nullptr) {
+            editor->previewRenderer->setFrameCacheBudgetBytes(
+                editor->previewCacheBudgetBytes);
+            editor->previewRenderer->setCacheScale(editor->previewCacheScale);
+        }
         editor->previewSignature = signature;
         editor->directEditCount = 0;  // 已并入签名（后续直接修改重新计数）
         editor->loadCount = 0;
