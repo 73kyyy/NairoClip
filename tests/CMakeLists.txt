@@ -132,9 +132,15 @@ add_executable(nairoclip_tests
     test_shake_export.cpp
     test_clip_lut_export.cpp
     test_capi_lut.cpp
+    test_s1_2_contract.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)
+
+# S1-2：JNI 契约测试需要主机侧的 jni.h / android 桩头
+# （test_s1_2_contract.cpp 直接包含 nc_jni.cpp 以调用内部链接的 DispatchEdit）。
+target_include_directories(nairoclip_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/jni_stub)
 
 if(MSVC)
     target_compile_options(nairoclip_tests PRIVATE /W4 /utf-8)

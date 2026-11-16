@@ -101,6 +101,76 @@ bool JVecDouble(const std::string& json, const std::string& key, std::vector<dou
     return nairoclip::core::jsonNumberArray(json, hit.span, out);
 }
 
+/* ============================ S1-2：参数存在性语义 ============================
+   JInt/JNum 用默认值兜底，**无法区分「键不存在」与「键存在且值为 0」**。
+   S1-2 的六个 op（D-1/D-2/SF-1/SF-2/SF-3）必须区分：缺参要报错，合法 0 要接受。
+   因此新增三态读取：Ok（存在且合法）/ Missing（键不存在）/ Invalid（存在但非法）。
+   多别名版本 JIntParamAny/JNumParamAny 依次尝试，任一个 Ok 即返回。            */
+enum class JParamStatus { Ok, Missing, Invalid };
+
+static JParamStatus JNumParam(const std::string& json, const std::string& key, double* out) {
+    if (out == nullptr) return JParamStatus::Invalid;
+    const auto hit = findMember(json, key, nairoclip::core::JsonValueKind::Number);
+    if (hit.status == nairoclip::core::JsonMemberStatus::Missing) return JParamStatus::Missing;
+    if (hit.status != nairoclip::core::JsonMemberStatus::Ok) return JParamStatus::Invalid;
+    *out = nairoclip::core::jsonNumberValue(json, hit.span, 0.0);
+    return JParamStatus::Ok;
+}
+
+static JParamStatus JIntParam(const std::string& json, const std::string& key, int64_t* out) {
+    double d = 0.0;
+    const JParamStatus st = JNumParam(json, key, &d);
+    if (st == JParamStatus::Ok && out != nullptr) *out = static_cast<int64_t>(d);
+    return st;
+}
+
+static JParamStatus JNumParamAny(const std::string& json,
+                                 std::initializer_list<const char*> keys, double* out) {
+    bool invalid = false;
+    for (const char* k : keys) {
+        const JParamStatus st = JNumParam(json, k, out);
+        if (st == JParamStatus::Ok) return JParamStatus::Ok;
+        if (st == JParamStatus::Invalid) invalid = true;
+    }
+    return invalid ? JParamStatus::Invalid : JParamStatus::Missing;
+}
+
+static JParamStatus JIntParamAny(const std::string& json,
+                                 std::initializer_list<const char*> keys, int64_t* out) {
+    bool invalid = false;
+    for (const char* k : keys) {
+        const JParamStatus st = JIntParam(json, k, out);
+        if (st == JParamStatus::Ok) return JParamStatus::Ok;
+        if (st == JParamStatus::Invalid) invalid = true;
+    }
+    return invalid ? JParamStatus::Invalid : JParamStatus::Missing;
+}
+
+/// 读取布尔：接受 JSON 布尔 true/false，以及数值 0/1（含 0.0/1.0）。
+/// 其他类型或取值 → Invalid（**绝不静默当成 false**）。
+static JParamStatus JBoolParam(const std::string& json, const std::string& key, bool* out) {
+    if (out == nullptr) return JParamStatus::Invalid;
+    const auto bh = findMember(json, key, nairoclip::core::JsonValueKind::Bool);
+    if (bh.status == nairoclip::core::JsonMemberStatus::Ok) {
+        const std::string raw = json.substr(bh.span.begin, bh.span.end - bh.span.begin);
+        if (raw == "true")  { *out = true;  return JParamStatus::Ok; }
+        if (raw == "false") { *out = false; return JParamStatus::Ok; }
+        return JParamStatus::Invalid;
+    }
+    const auto nh = findMember(json, key, nairoclip::core::JsonValueKind::Number);
+    if (nh.status == nairoclip::core::JsonMemberStatus::Ok) {
+        const double d = nairoclip::core::jsonNumberValue(json, nh.span, -1.0);
+        if (d == 0.0) { *out = false; return JParamStatus::Ok; }
+        if (d == 1.0) { *out = true;  return JParamStatus::Ok; }
+        return JParamStatus::Invalid;
+    }
+    if (bh.status == nairoclip::core::JsonMemberStatus::Missing &&
+        nh.status == nairoclip::core::JsonMemberStatus::Missing) {
+        return JParamStatus::Missing;
+    }
+    return JParamStatus::Invalid;
+}
+
 /// 读取 uint64 数组（如 "material_ids": [1,2,3]）。只支持扁平整数数组。
 bool JVecU64(const std::string& json, const std::string& key,
              std::vector<uint64_t>* out) {
@@ -381,10 +451,18 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
     const int32_t ti = static_cast<int32_t>(JInt(a, "track", JInt(a, "track_index", 0)));
     const uint64_t cid = static_cast<uint64_t>(JInt(a, "clip_id", JInt(a, "clip", 0)));
 
-    if (op == "split") {
-        // 声明：int32_t nc_split_clip(editor, track_index, clip_id, at_us)
-        // 无 out_new_id 出参；分割后新片段由 nc_clip_info 重新读取。
-        const int64_t at = JInt(a, "time_us", 0);
+    if (op == "split" || op == "nc_split_clip") {
+        /* S1-2 / D-2：前端（P1 短名 与 P2 全名）发的都是 at_us，
+           旧实现读 time_us → 分割点恒为 0。此处按 at_us → time_us 取，
+           并区分「缺参」与「合法 0」。 */
+        int64_t at = 0;
+        const JParamStatus st = JIntParamAny(a, {"at_us", "time_us"}, &at);
+        if (st != JParamStatus::Ok) {
+            *out = Err(st == JParamStatus::Invalid
+                           ? "分割位置类型非法（at_us 须为数值）"
+                           : "缺少分割位置（at_us）");
+            return true;
+        }
         const int32_t rc = nc_split_clip(ed, ti, cid, at);
         *out = rc == NC_OK ? Ok("") : Err("分割失败，错误码 " + std::to_string(rc));
         return true;
@@ -394,9 +472,24 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("删除失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "trim_start" || op == "trim_end") {
-        const int64_t to = JInt(a, "time_us", 0);
-        const int32_t rc = (op == "trim_start")
+    if (op == "trim_start" || op == "trim_end" ||
+        op == "nc_trim_clip_start" || op == "nc_trim_clip_end") {
+        /* S1-2 / D-2：trim_start 前端发 start_us、trim_end 发 end_us；
+           旧实现统一读 time_us → 入点/出点恒为 0。补齐全名分支（P2）。 */
+        const bool isStart = (op == "trim_start" || op == "nc_trim_clip_start");
+        int64_t to = 0;
+        const JParamStatus st = isStart
+            ? JIntParamAny(a, {"start_us", "time_us"}, &to)
+            : JIntParamAny(a, {"end_us", "time_us"}, &to);
+        if (st != JParamStatus::Ok) {
+            *out = Err(st == JParamStatus::Invalid
+                           ? std::string("裁剪位置类型非法（") +
+                                 (isStart ? "start_us" : "end_us") + " 须为数值）"
+                           : std::string("缺少裁剪位置（") +
+                                 (isStart ? "start_us" : "end_us") + "）");
+            return true;
+        }
+        const int32_t rc = isStart
             ? nc_trim_clip_start(ed, ti, cid, to)
             : nc_trim_clip_end(ed, ti, cid, to);
         *out = rc == NC_OK ? Ok("") : Err("裁剪失败，错误码 " + std::to_string(rc));
@@ -543,6 +636,39 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
        实现照抄 design/tools/nc_design_harness.cpp 的成熟写法。 */
 
     // 轨道标志位：左眼 / 喇叭 / 锁 / 独奏。前端用 track_flag 统一下发。
+    if (op == "nc_set_track_hidden" || op == "nc_set_track_muted" ||
+        op == "nc_set_track_locked") {
+        /* S1-2 / SF-10：前端 resolveTrackFlag 把 track_flag 解析成**三个全名**
+           （nc_set_track_hidden / _muted / _locked）直接当 op 发送，
+           而 JNI 只认短名 "track_flag" → 三者全部落到「未开放的操作」。
+           这里为三个全名各建分支，**分别调用对应 ABI**（不得映射到同一标志位）。 */
+        const bool isHidden = (op == "nc_set_track_hidden");
+        const bool isMuted  = (op == "nc_set_track_muted");
+        const char* flagKey = isHidden ? "hidden" : (isMuted ? "muted" : "locked");
+        bool on = false;
+        JParamStatus st = JBoolParam(a, flagKey, &on);
+        if (st == JParamStatus::Missing) {
+            /* 兼容旧口径：value（0/1） */
+            int64_t v = 0;
+            if (JIntParam(a, "value", &v) == JParamStatus::Ok) {
+                on = (v != 0);
+                st = JParamStatus::Ok;
+            }
+        }
+        if (st != JParamStatus::Ok) {
+            *out = Err(st == JParamStatus::Invalid
+                           ? std::string("轨道标志类型非法（") + flagKey + " 须为布尔或 0/1）"
+                           : std::string("缺少轨道标志值（") + flagKey + "）");
+            return true;
+        }
+        if (ti < 0) { *out = Err("缺少目标轨道"); return true; }
+        int32_t rc;
+        if (isHidden)      rc = nc_set_track_hidden(ed, ti, on ? 1 : 0);
+        else if (isMuted)  rc = nc_set_track_muted(ed, ti, on ? 1 : 0);
+        else               rc = nc_set_track_locked(ed, ti, on ? 1 : 0);
+        *out = rc == NC_OK ? Ok("") : Err("设置轨道标志失败，错误码 " + std::to_string(rc));
+        return true;
+    }
     if (op == "track_flag") {
         const std::string flag = JStrField(a, "flag");
         const int32_t value = JInt(a, "value", 0) ? 1 : 0;
@@ -591,9 +717,23 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
     }
     // 删除关键帧（与上面的「插入关键帧」成对）
     if (op == "remove_keyframe") {
+        /* S1-2 / D-1：同 keyframe，补 time_us 并区分缺参/合法 0。 */
         const int32_t prop = static_cast<int32_t>(JInt(a, "prop", JInt(a, "property", 0)));
-        int64_t atUs = static_cast<int64_t>(JInt(a, "at_us", -1));
-        if (atUs < 0) atUs = static_cast<int64_t>(JNum(a, "t", 0.0) * 1e6);
+        int64_t atUs = 0;
+        JParamStatus tst = JIntParamAny(a, {"time_us", "at_us"}, &atUs);
+        if (tst == JParamStatus::Missing) {
+            double tSec = 0.0;
+            if (JNumParam(a, "t", &tSec) == JParamStatus::Ok) {
+                atUs = static_cast<int64_t>(tSec * 1e6);
+                tst = JParamStatus::Ok;
+            }
+        }
+        if (tst != JParamStatus::Ok) {
+            *out = Err(tst == JParamStatus::Invalid
+                           ? "关键帧时间类型非法（time_us/at_us 须为数值）"
+                           : "缺少关键帧时间（time_us / at_us / t）");
+            return true;
+        }
         const int32_t rc = nc_remove_keyframe(ed, ti, cid, prop, atUs);
         *out = rc == NC_OK ? Ok("") : Err("删除关键帧失败，错误码 " + std::to_string(rc));
         return true;
@@ -629,8 +769,24 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("无可重做操作，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "frame_fit") {
-        *out = Ok("");
+    if (op == "frame_fit" || op == "nc_set_frame_fit") {
+        /* S1-2 / SF-11 + SF-12：
+           · SF-11：前端 P1（l3-panel）与 P2（editor.js:5412）发的都是全名
+             "nc_set_frame_fit"，旧实现**没有该分支** → 恒报「未开放的操作」。
+           · SF-12：短名 "frame_fit" 是**无条件 Ok("") 的空操作**（假成功，
+             不调任何 C ABI）。按 docs/DEFECT-frame_fit-noop.md:52
+             「不得删除该 op，只修正行为」→ 保留名称、改为真实调用。
+           两者合并为同一分支：真实调用 nc_set_frame_fit，错误码如实透传。 */
+        int64_t mode = 0;
+        const JParamStatus st = JIntParam(a, "mode", &mode);
+        if (st != JParamStatus::Ok) {
+            *out = Err(st == JParamStatus::Invalid
+                           ? "画面适配模式类型非法（mode 须为数值）"
+                           : "缺少画面适配模式（mode）");
+            return true;
+        }
+        const int32_t rc = nc_set_frame_fit(ed, static_cast<int32_t>(mode));
+        *out = rc == NC_OK ? Ok("") : Err("设置画面适配失败，错误码 " + std::to_string(rc));
         return true;
     }
     // ---- 片段属性（l3-panel 的 16 种 op 缺一不可）----
@@ -773,22 +929,95 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "mask") {
+        /* S1-2 / SF-3：前端发 inverted（布尔），旧实现读 invert（整数）
+           → 反相开关恒为 0。兼容两套口径，并拒绝非法类型（不静默当 false）。 */
+        bool invert = false;
+        int64_t invertInt = 0;
+        const JParamStatus ist = JIntParam(a, "invert", &invertInt);
+        if (ist == JParamStatus::Ok) {
+            if (invertInt != 0 && invertInt != 1) {
+                *out = Err("蒙版 invert 取值须为 0 或 1");
+                return true;
+            }
+            invert = (invertInt != 0);
+        } else if (ist == JParamStatus::Invalid) {
+            *out = Err("蒙版 invert 类型非法（须为数值）");
+            return true;
+        } else {
+            const JParamStatus bst = JBoolParam(a, "inverted", &invert);
+            if (bst == JParamStatus::Invalid) {
+                *out = Err("蒙版 inverted 类型非法（须为布尔或 0/1）");
+                return true;
+            }
+        }
+        const int32_t invertFlag = invert ? 1 : 0;
         const int32_t shape = static_cast<int32_t>(JInt(a, "shape", 4));
         const int32_t rc = nc_set_clip_mask(
             ed, ti, cid, shape,
             JNum(a, "x", 0.5), JNum(a, "y", 0.5), JNum(a, "rotation", 0.0),
             JNum(a, "width", 1.0), JNum(a, "height", 1.0),
             JNum(a, "feather", 0.02), JNum(a, "radius", 0.0),
-            static_cast<int32_t>(JInt(a, "invert", 0)));
+            invertFlag);
         *out = rc == NC_OK ? Ok("") : Err("设置蒙版失败，错误码 " + std::to_string(rc));
         return true;
     }
     if (op == "chroma") {
-        const std::string key = JStrField(a, "key");
+        /* S1-2 / SF-2：前端发 key_r/key_g/key_b + similarity/smoothness；
+           C ABI 要 "#RRGGBB" 字符串 + inner/outer 双阈值。旧实现完全对不上
+           → 键色恒为默认绿、阈值恒为默认。 */
+        std::string keyStr = JStrField(a, "key");
+        if (keyStr.empty()) {
+            /* 三分量合成 #RRGGBB；任一缺失或越界 → 明确报错（不静默用默认色）。 */
+            double r = 0.0, g = 0.0, b = 0.0;
+            const JParamStatus rs = JNumParam(a, "key_r", &r);
+            const JParamStatus gs = JNumParam(a, "key_g", &g);
+            const JParamStatus bs = JNumParam(a, "key_b", &b);
+            const bool anyPresent = (rs != JParamStatus::Missing ||
+                                     gs != JParamStatus::Missing ||
+                                     bs != JParamStatus::Missing);
+            if (anyPresent) {
+                if (rs != JParamStatus::Ok || gs != JParamStatus::Ok || bs != JParamStatus::Ok) {
+                    *out = Err("抠像键色不完整（key_r/key_g/key_b 须同时为数值）");
+                    return true;
+                }
+                auto clamp255 = [](double v) {
+                    if (v < 0.0) return 0;
+                    if (v > 255.0) return 255;
+                    return static_cast<int>(v + 0.5);
+                };
+                char buf[8];
+                std::snprintf(buf, sizeof(buf), "#%02X%02X%02X",
+                              clamp255(r), clamp255(g), clamp255(b));
+                keyStr = buf;
+            }
+        }
+        /* 阈值：similarity → inner，smoothness → outer（契约已核实）。 */
+        double inner = 0.30, outer = 0.75;   // ChromaKey 默认值
+        if (JNumParamAny(a, {"inner", "similarity"}, &inner) == JParamStatus::Invalid) {
+            *out = Err("抠像相似度类型非法（similarity 须为数值）");
+            return true;
+        }
+        if (JNumParamAny(a, {"outer", "smoothness"}, &outer) == JParamStatus::Invalid) {
+            *out = Err("抠像平滑度类型非法（smoothness 须为数值）");
+            return true;
+        }
+        if (inner < 0.0 || inner > 1.0 || outer < 0.0 || outer > 1.0) {
+            *out = Err("抠像阈值须在 0..1");
+            return true;
+        }
+        /* 契约要求 outer > inner。**不自动交换**，直接明确报错。 */
+        if (inner >= outer) {
+            *out = Err("抠像阈值非法：inner_threshold 必须小于 outer_threshold");
+            return true;
+        }
+        double spill = 0.6;                  // ChromaKey 默认值
+        if (JNumParamAny(a, {"spill", "spill_suppression"}, &spill) == JParamStatus::Invalid) {
+            *out = Err("抠像溢色抑制类型非法（spill 须为数值）");
+            return true;
+        }
         const int32_t rc = nc_set_clip_chroma_key(
-            ed, ti, cid, key.empty() ? "#00FF00" : key.c_str(),
-            JNum(a, "inner", 0.35), JNum(a, "outer", 0.55),
-            JNum(a, "spill", 0.3),
+            ed, ti, cid, keyStr.empty() ? nullptr : keyStr.c_str(),
+            inner, outer, spill,
             static_cast<int32_t>(JInt(a, "quality", 1)),
             static_cast<int32_t>(JInt(a, "enabled", 1)));
         *out = rc == NC_OK ? Ok("") : Err("设置抠像失败，错误码 " + std::to_string(rc));
@@ -809,15 +1038,31 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "keyframe") {
-        // l3-panel 传 prop（0..5）与 t（秒）/v；at_us 优先（更精确）
+        /* S1-2 / D-1：前端 P1 发 time_us（OP_TO_ABI 同名字段），P2 发 time_us；
+           旧实现只读 at_us/t，导致 time_us 被忽略 → 关键帧恒落在片头。
+           这里按 time_us → at_us → t(秒) 顺序取，并**区分缺参与合法 0**。 */
         const int32_t prop = static_cast<int32_t>(JInt(a, "prop",
                                        JInt(a, "property", 0)));
-        int64_t atUs = static_cast<int64_t>(JInt(a, "at_us", -1));
-        if (atUs < 0) {
-            atUs = static_cast<int64_t>(JNum(a, "t", 0.0) * 1e6);
+        int64_t atUs = 0;
+        JParamStatus tst = JIntParamAny(a, {"time_us", "at_us"}, &atUs);
+        if (tst == JParamStatus::Missing) {
+            double tSec = 0.0;
+            if (JNumParam(a, "t", &tSec) == JParamStatus::Ok) {
+                atUs = static_cast<int64_t>(tSec * 1e6);
+                tst = JParamStatus::Ok;
+            }
         }
-        const int32_t rc = nc_insert_keyframe(ed, ti, cid, prop, atUs,
-                                              JNum(a, "v", 1.0));
+        if (tst != JParamStatus::Ok) {
+            *out = Err(tst == JParamStatus::Invalid
+                           ? "关键帧时间类型非法（time_us/at_us 须为数值）"
+                           : "缺少关键帧时间（time_us / at_us / t）");
+            return true;
+        }
+        double v = 1.0;
+        if (JNumParam(a, "value", &v) != JParamStatus::Ok) {
+            if (JNumParam(a, "v", &v) != JParamStatus::Ok) v = 1.0;  // 旧口径默认
+        }
+        const int32_t rc = nc_insert_keyframe(ed, ti, cid, prop, atUs, v);
         *out = rc == NC_OK ? Ok("") : Err("插入关键帧失败，错误码 " + std::to_string(rc));
         return true;
     }
@@ -1579,9 +1824,34 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         double xargs[NC_XFORM_ARG_COUNT] = {0.0};
         std::vector<double> raw;
         if (JVecDouble(a, "args", &raw)) {
+            /* 契约优先：显式 args 数组存在时以其为准（逐位拷贝）。 */
             for (std::size_t i = 0;
                  i < static_cast<std::size_t>(NC_XFORM_ARG_COUNT) && i < raw.size(); ++i) {
                 xargs[i] = raw[i];
+            }
+        } else {
+            /* S1-2 / SF-1：前端 P1/P2 发的是**具名参数**，从不发 args 数组
+               → 旧实现下 xargs 恒全 0，几何变换完全不生效。
+               按已核实的 C ABI 契约（capi.h NC_XFORM_ARG_COUNT 注释）逐位映射：
+                 [0]value [1]angle(rad) [2]freq [3]phase(rad) [4]axis
+                 [5]cols [6]rows [7]gap [8]anchor [9]edge [10]period
+                 [11]trajectory [12]seed
+               前端未提供 [9]~[12]（edge/period/trajectory/seed），
+               按冻结契约保持 0（与既有行为一致，不自行猜测）。 */
+            struct NamedArg { const char* key; double def; };
+            static const NamedArg kNamed[9] = {
+                {"value", 0.0}, {"angle", 0.0}, {"freq", 0.0}, {"phase", 0.0},
+                {"axis", 0.0},  {"cols", 1.0},  {"rows", 1.0},  {"gap", 0.0},
+                {"anchor", 4.0},
+            };
+            for (std::size_t i = 0; i < 9; ++i) {
+                double v = kNamed[i].def;
+                if (JNumParam(a, kNamed[i].key, &v) == JParamStatus::Invalid) {
+                    *out = Err(std::string("几何变换参数类型非法（") +
+                               kNamed[i].key + " 须为数值）");
+                    return true;
+                }
+                xargs[i] = v;
             }
         }
         const int32_t rc = nc_set_clip_xform(ed, ti, cid,
