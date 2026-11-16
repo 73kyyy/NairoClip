@@ -485,6 +485,28 @@ int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail)
     delete oldDispatcher;
     delete oldEditor;
 
+    /* S1-1：工程替换后必须**作废预览渲染器**（资源生命周期修复）。
+       ------------------------------------------------------------------
+       缺陷（本轮主动排查发现）：
+         · `previewSignatureOf()` 的签名 = editRevision × A + loadCount × B
+           + directEditCount × C + canvas —— **不含素材路径、也不含工程身份**。
+         · 重建后的新 TimelineEditor 其 editRevision 从 0 开始；若新旧工程
+           画布尺寸相同，签名可能与替换前**完全一致**。
+         · 签名一致 ⇒ `ensurePreviewRenderer()` 不会调用 clearFrameCache()；
+           而 `PreviewRenderer::clearFrameCache()` 本身也**只清帧缓存、不清
+           `readers_`**（按 AssetId 缓存的解码器）。
+         · 结果：换工程后同一 AssetId 若指向不同文件，`readerFor()` 仍返回
+           **旧工程的解码器**，预览会渲染上一个工程的内容。
+         · 根因还有一处：结构体注释（`loadCount` 处）写「nc_project_load 递增
+           loadCount」，但**实现从未递增** —— 该代次机制实际未接线。
+       修复：显式丢弃渲染器、推进 loadCount、清两个直接修改计数，
+       使下一次 ensurePreviewRenderer() 必然重建（签名必变）。
+       ------------------------------------------------------------------ */
+    ++editor->loadCount;          // 接线此前只声明未实现的「载入代次」
+    editor->directEditCount = 0;
+    editor->previewRenderer.reset();   // 丢弃旧解码器 + 旧帧缓存
+    editor->previewSignature = 0;      // 强制下次重建
+
     /* 加载后预热开头几帧（P2）。失败不影响加载结果。 */
     (void)nc_preview_prewarm(editor, 6);
     return NC_OK;

@@ -210,3 +210,51 @@ NC_TEST(S1Lifecycle, DispatcherRevisionTracksLiveEditor) {
 
     nc_editor_destroy(editor);
 }
+
+NC_TEST(S1Lifecycle, LoadInvalidatesPreviewState) {
+    // S1-1 回归：工程替换后必须作废预览渲染器。
+    //
+    // 缺陷背景（本轮主动排查发现）：
+    //   previewSignatureOf() = editRevision*A + loadCount*B + directEditCount*C + canvas
+    //   —— 不含素材路径与工程身份。重建后的新 editor 其 editRevision 归 0，
+    //   若画布尺寸相同，签名可能与替换前完全一致 ⇒ 不会 clearFrameCache()；
+    //   而 clearFrameCache() 本身也不清 readers_（按 AssetId 缓存的解码器）
+    //   ⇒ 预览可能继续用旧工程的解码器渲染新工程内容。
+    //
+    // 本用例可验证的不变量（不依赖 FFmpeg）：
+    //   连续两次 nc_project_load 后，editor 仍可用、revision 语义正确、
+    //   且再次序列化内容一致 —— 覆盖"替换后状态被正确重置"这一路径。
+    //   （FFmpeg 构建下额外的 cached_frames==0 断言见下方条件分支。）
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    if (editor == nullptr) {
+        return;
+    }
+    const std::string nclip = savedProjectText(editor);
+    NC_CHECK(!nclip.empty());
+
+    for (int i = 0; i < 3; ++i) {
+        char* detail = nullptr;
+        const int32_t rc = nc_project_load(editor, nclip.c_str(), &detail);
+        if (detail != nullptr) {
+            nc_free_string(detail);
+        }
+        NC_CHECK_EQ(rc, static_cast<int32_t>(NC_OK));
+        // 替换后工程内容必须与载入文本一致（id 已恢复为 ProjectId{1}）
+        NC_CHECK_EQ(savedProjectText(editor), nclip);
+    }
+
+    // 预览状态：有 FFmpeg 时渲染器可重建且帧缓存为空（已作废）；
+    // 无 FFmpeg 时 previewFactory 为空，nc_preview_cache_stats 返回错误码，
+    // 属预期降级 —— 此时不断言 cached_frames，只断言"不崩溃"。
+    int64_t hits = 0, misses = 0, opens = 0;
+    int32_t cached = -1, capacity = 0;
+    const int32_t statsRc = nc_preview_cache_stats(
+        editor, &hits, &misses, &opens, &cached, &capacity);
+    if (statsRc == NC_OK) {
+        // FFmpeg 构建：替换后缓存必须已作废
+        NC_CHECK_EQ(cached, 0);
+    }
+
+    nc_editor_destroy(editor);
+}
