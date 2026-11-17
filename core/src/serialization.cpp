@@ -116,9 +116,20 @@ bool readAsset(const JsonValue& v, MediaAsset& out, std::string& err) {
     out.id = AssetId{static_cast<std::uint64_t>(v.get("id").asInteger())};
     out.path = v.get("path").asString();
     out.name = v.get("name").asString();
-    if (!parseMediaType(v.get("type").asString(), out.type)) {
-        err = "未知素材类型: " + v.get("type").asString();
-        return false;
+    /* S1-3-D005：区分「缺 type 字段」与「type 值非法」。
+       修复前两种情况都报「未知素材类型: 」（后半为空），
+       让人误以为是枚举不认识，实际是文件缺字段 —— 误导排查方向。 */
+    {
+        const std::string typeText = v.get("type").asString();
+        if (typeText.empty()) {
+            err = "素材缺少 type 字段（id=" + std::to_string(out.id.value) + "）";
+            return false;
+        }
+        if (!parseMediaType(typeText, out.type)) {
+            err = "未知素材类型: " + typeText +
+                  "（id=" + std::to_string(out.id.value) + "）";
+            return false;
+        }
     }
     if (!readRational(v.get("duration"), "duration", out.duration, err)) return false;
     out.frameRate.value = Rational::make(30);
@@ -840,9 +851,18 @@ JsonValue writeTrack(const Track& t) {
 bool readTrack(const JsonValue& v, Track& out, std::string& err) {
     if (!v.isObject()) { err = "轨道项应为对象"; return false; }
     out.id = TrackId{static_cast<std::uint64_t>(v.get("id").asInteger())};
-    if (!parseTrackType(v.get("type").asString(), out.type)) {
-        err = "未知轨道类型: " + v.get("type").asString();
-        return false;
+    /* S1-3-D005：同上，区分缺字段与非法值，并带上 id。 */
+    {
+        const std::string typeText = v.get("type").asString();
+        if (typeText.empty()) {
+            err = "轨道缺少 type 字段（id=" + std::to_string(out.id.value) + "）";
+            return false;
+        }
+        if (!parseTrackType(typeText, out.type)) {
+            err = "未知轨道类型: " + typeText +
+                  "（id=" + std::to_string(out.id.value) + "）";
+            return false;
+        }
     }
     out.name = v.get("name").asString();
     out.locked = v.get("locked").asBool(false);

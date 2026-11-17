@@ -524,7 +524,11 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "rename_track") {
-        const int32_t rc = nc_rename_track(ed, ti, JStrField(a, "name").c_str());
+        /* 遗留治理 SF-7：前端发 new_name，旧实现只读 name
+           → 取到空串 → 轨道名被清空。 */
+        std::string trackName = JStrField(a, "name");
+        if (trackName.empty()) trackName = JStrField(a, "new_name");
+        const int32_t rc = nc_rename_track(ed, ti, trackName.c_str());
         *out = rc == NC_OK ? Ok("") : Err("重命名轨道失败，错误码 " + std::to_string(rc));
         return true;
     }
@@ -533,8 +537,11 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
            而这里历史上只认短名 "add_track"，两边对不上 ——
            结果 NC_API.nc_add_track 永远落到「未知 op」。
            两个名字都接，兼容老调用。 */
+        /* 遗留治理 SF-8（P2 全名路径）：前端发 track_type，
+           旧实现只读 type → 恒为视频轨。 */
         const uint64_t id = nc_add_track(ed, JStrField(a, "name").c_str(),
-                                        static_cast<int32_t>(JInt(a, "type", 0)));
+                                        static_cast<int32_t>(
+                                            JInt(a, "type", JInt(a, "track_type", 0))));
         *out = id ? Ok("{\"track_id\":" + std::to_string(id) + "}") : Err("添加轨道失败");
         return true;
     }
@@ -623,8 +630,11 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "add_track") {
+        /* 遗留治理 SF-8（P1 短名路径）：前端发 track_type，旧实现只读 type
+           → 恒建视频轨；音频轨/字幕轨永远建不出来。 */
         const uint64_t id = nc_add_track(ed, JStrField(a, "name").c_str(),
-                                         static_cast<int32_t>(JInt(a, "type", 0)));
+                                         static_cast<int32_t>(
+                                             JInt(a, "type", JInt(a, "track_type", 0))));
         *out = id ? Ok("{\"track_id\":" + std::to_string(id) + "}")
                   : Err("添加轨道失败");
         return true;
@@ -703,7 +713,12 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const int32_t toTrack = static_cast<int32_t>(JInt(a, "to_track", -1));
         if (toTrack < 0) { *out = Err("缺少目标轨道"); return true; }
         const int64_t at = JInt(a, "start_us", 0);
-        const int32_t rc = nc_move_clip_to_track(ed, ti, toTrack, cid, at);
+        /* 遗留治理 SF-9：前端只发 from_track（没有 track/track_index），
+           而前置 ti 读的是 track/track_index → 源轨恒 0，
+           跨轨移动会从错误轨道取片段。这里按 from_track 回退。 */
+        const int32_t fromTrack = static_cast<int32_t>(
+            JInt(a, "from_track", static_cast<int64_t>(ti)));
+        const int32_t rc = nc_move_clip_to_track(ed, fromTrack, toTrack, cid, at);
         *out = rc == NC_OK ? Ok("") : Err("跨轨移动失败，错误码 " + std::to_string(rc));
         return true;
     }
@@ -741,7 +756,10 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
     // 删除转场
     if (op == "remove_transition") {
         if (ti < 0) { *out = Err("缺少目标轨道"); return true; }
-        const uint64_t tid = static_cast<uint64_t>(JInt(a, "transition", 0));
+        /* 遗留治理 SF-6：前端发 transition_id，旧实现只读 transition
+           → tid 恒 0 → 永远报「缺少转场 id」，转场无法删除。 */
+        const uint64_t tid = static_cast<uint64_t>(
+            JInt(a, "transition", JInt(a, "transition_id", 0)));
         if (tid == 0) { *out = Err("缺少转场 id"); return true; }
         const int32_t rc = nc_remove_transition(ed, ti, tid);
         *out = rc == NC_OK ? Ok("") : Err("删除转场失败，错误码 " + std::to_string(rc));
@@ -862,8 +880,20 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         // 这里用最小 JSON 扫描取出三元组；点少于 2 个视为清除曲线。
         std::vector<double> ts, vs;
         std::vector<int32_t> es;
+        /* 遗留治理 SF-4：前端（OP_TO_ABI.speed_curve）发的是
+           times[] / speeds[] / easing，**不是** points:[{t,v,e}]。
+           旧实现只扫 points → 永远拿不到点 → 报「至少需要 2 个控制点」，
+           速度曲线功能完全不可用。这里先试 points，再回退 times/speeds。 */
+        std::vector<double> fTimes, fSpeeds;
+        if (JVecDouble(a, "times", &fTimes) && JVecDouble(a, "speeds", &fSpeeds) &&
+            fTimes.size() >= 2 && fTimes.size() == fSpeeds.size()) {
+            const int32_t ease = static_cast<int32_t>(JInt(a, "easing", 0));
+            ts = fTimes;
+            vs = fSpeeds;
+            es.assign(fTimes.size(), ease);
+        }
         size_t p = a.find("\"points\"");
-        if (p != std::string::npos) {
+        if (ts.empty() && p != std::string::npos) {
             size_t lb = a.find('[', p);
             size_t rb = a.find(']', lb == std::string::npos ? p : lb);
             if (lb != std::string::npos && rb != std::string::npos && rb > lb) {
@@ -1079,7 +1109,9 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "transition") {
-        const int32_t type = static_cast<int32_t>(JInt(a, "type", 0));
+        /* 遗留治理 SF-5：前端发 transition_type，旧实现只读 type → 转场类型恒 0。 */
+        const int32_t type = static_cast<int32_t>(
+            JInt(a, "type", JInt(a, "transition_type", 0)));
         const int64_t durUs = static_cast<int64_t>(JInt(a, "duration_us", 500000));
         const uint64_t fromId = static_cast<uint64_t>(JInt(a, "from_clip", 0));
         const uint64_t toId = static_cast<uint64_t>(JInt(a, "to_clip", 0));

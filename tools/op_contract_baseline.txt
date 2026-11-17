@@ -1,23 +1,14 @@
-# S1-2 op 契约检查基线
+# S1-2 / 跨批次治理 op 契约检查基线
 #
-# 这里登记的是**已确认存在、但不在 S1-2 八项任务修复范围**的既有参数错位，
-# 已在 S1-2 核验报告中逐项登记（SUPPLEMENTAL-FINDING），等待后续批次授权。
+# 仅登记「已确认存在、但本轮未修复」的既有参数冗余/错位。
+# 已修复项（SF-4 speed_curve、SF-5 transition、SF-6 remove_transition、
+# SF-7 rename_track、SF-8 add_track、SF-9 move_to_track）已从基线移除，
+# 若它们回归，检查会重新变红。
 # 格式：<问题类型> <op名>
-# 新增问题不在本表内 → 检查退出码 1（门禁生效）。
 
-# SF-8：前端发 track_type，JNI 读 type
-参数未读取 add_track
 # SF-13：前端多传 enabled（C ABI 无此形参，无功能失效）
 参数未读取 effect_update
 # SF-14：同上
 参数未读取 denoise
-# SF-6：前端发 transition_id，JNI 读 transition
-参数未读取 remove_transition
-# SF-7：前端发 new_name，JNI 读 name
-参数未读取 rename_track
-# SF-4：前端发 times/speeds/easing，JNI 扫 points 数组
-参数未读取 speed_curve
-# SF-5：前端发 transition_type，JNI 读 type
-参数未读取 transition
-# xform_set：前端多传 enabled（C ABI 写入时自动置 1，无功能失效）
+# xform_set：前端多传 enabled（C API 写入时自动置 1，无功能失效）
 参数未读取 xform_set

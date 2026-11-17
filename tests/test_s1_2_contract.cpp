@@ -417,3 +417,184 @@ NC_TEST(S1_2, Sf11Sf12MissingModeRejected) {
     const std::string c = f.run("frame_fit", "{\"mode\":\"x\"}");
     NC_CHECK(c.find("\"ok\":false") != std::string::npos);
 }
+
+// ===================== 跨批次遗留治理（S1-2 / S1-3 遗留项）=====================
+//
+// 说明：DispatchEdit 位于 nc_jni.cpp 的匿名命名空间（内部链接），一个可执行文件
+// 只能包含该实现文件一次 —— 因此遗留治理用例与 S1-2 用例合并在本 TU 内，
+// 而不是各自 include（否则链接期符号重复）。
+
+namespace {
+
+// 两个片段 + 一条轨道的夹具（transition 需要两个不同片段）
+struct LgFixture {
+    NcEditor* ed = nullptr;
+    uint64_t asset = 0;
+    uint64_t clip = 0;
+    uint64_t clip2 = 0;
+
+    LgFixture() {
+        ed = nc_editor_create();
+        if (ed == nullptr) return;
+        asset = nc_import_asset(ed, "m.mp4", "/v/m.mp4", 0, 60000000);
+        nc_add_track(ed, "V1", 0);
+        clip = nc_insert_clip(ed, 0, asset, 1000000, 2000000);    // [1s,3s)
+        clip2 = nc_insert_clip(ed, 0, asset, 3000000, 2000000);   // [3s,5s)
+    }
+    ~LgFixture() { if (ed != nullptr) nc_editor_destroy(ed); }
+
+    bool ok(const std::string& op, const std::string& args) {
+        std::string o;
+        if (!DispatchEdit(ed, op, args, &o)) return false;
+        return o.find("\"ok\":true") != std::string::npos;
+    }
+    std::string run(const std::string& op, const std::string& args) {
+        std::string o;
+        DispatchEdit(ed, op, args, &o);
+        return o;
+    }
+};
+
+/// 走 C ABI 载入并取 detail 文案（用于 D005 文案断言）
+std::string loadDetailOf(const std::string& json) {
+    NcEditor* e = nc_editor_create();
+    char* detail = nullptr;
+    (void)nc_project_load(e, json.c_str(), &detail);
+    std::string out = detail != nullptr ? detail : "";
+    if (detail != nullptr) nc_free_string(detail);
+    nc_editor_destroy(e);
+    return out;
+}
+
+}  // namespace
+
+
+// ---------- SF-4 speed_curve ----------
+
+NC_TEST(Leftover, Sf4SpeedCurveTimesSpeeds) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    // 前端契约：times[] / speeds[] / easing（旧实现只扫 points → 永远失败）
+    NC_CHECK(f.ok("speed_curve",
+                  j("{\"track\":0,\"clip\":%llu,\"times\":[0,0.5,1.5],"
+                    "\"speeds\":[1,0.5,2],\"easing\":0}",
+                    (unsigned long long)f.clip)));
+    NC_CHECK_EQ(nc_clip_speed_curve_count(f.ed, 0, f.clip), 3);
+}
+
+NC_TEST(Leftover, Sf4SpeedCurvePointsStillWorks) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    // 旧口径 points 仍必须可用（不得回归）
+    NC_CHECK(f.ok("speed_curve",
+                  j("{\"track\":0,\"clip\":%llu,"
+                    "\"points\":[{\"t\":0,\"v\":1,\"e\":0},{\"t\":1,\"v\":2,\"e\":0}]}",
+                    (unsigned long long)f.clip)));
+    NC_CHECK_EQ(nc_clip_speed_curve_count(f.ed, 0, f.clip), 2);
+}
+
+NC_TEST(Leftover, Sf4TooFewPointsRejected) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    const std::string r = f.run("speed_curve",
+        j("{\"track\":0,\"clip\":%llu,\"times\":[0],\"speeds\":[1]}",
+          (unsigned long long)f.clip));
+    NC_CHECK(r.find("\"ok\":false") != std::string::npos);
+}
+
+// ---------- SF-5 transition ----------
+
+NC_TEST(Leftover, Sf5TransitionTypeKey) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    // 前端发 transition_type（旧实现只读 type → 恒 0）
+    NC_CHECK(f.ok("transition",
+                  j("{\"track\":0,\"transition_type\":3,\"duration_us\":500000,"
+                    "\"from_clip\":%llu,\"to_clip\":%llu}",
+                    (unsigned long long)f.clip, (unsigned long long)f.clip2)));
+    NC_CHECK_EQ(nc_transition_count(f.ed, 0), 1);
+}
+
+// ---------- SF-6 remove_transition ----------
+
+NC_TEST(Leftover, Sf6RemoveTransitionIdKey) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    NC_CHECK(f.ok("transition",
+                  j("{\"track\":0,\"transition_type\":1,\"duration_us\":500000,"
+                    "\"from_clip\":%llu,\"to_clip\":%llu}",
+                    (unsigned long long)f.clip, (unsigned long long)f.clip2)));
+    uint64_t tid = 0;
+    NC_CHECK_EQ(nc_transition_get_id(f.ed, 0, 0, &tid), 0);
+    NC_CHECK(tid != 0);
+    // 前端发 transition_id（旧实现只读 transition → 恒报「缺少转场 id」）
+    NC_CHECK(f.ok("remove_transition",
+                  j("{\"track\":0,\"transition_id\":%llu}", (unsigned long long)tid)));
+    NC_CHECK_EQ(nc_transition_count(f.ed, 0), 0);
+}
+
+// ---------- SF-7 rename_track ----------
+
+NC_TEST(Leftover, Sf7RenameTrackNewNameKey) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    NC_CHECK(f.ok("rename_track", "{\"track\":0,\"new_name\":\"Renamed\"}"));
+    char* name = nullptr;
+    NC_CHECK_EQ(nc_track_get(f.ed, 0, nullptr, &name, nullptr, nullptr,
+                             nullptr, nullptr, nullptr, nullptr), 0);
+    NC_CHECK(name != nullptr);
+    if (name != nullptr) {
+        NC_CHECK(std::string(name) == "Renamed");   // 旧实现会清成空串
+        nc_free_string(name);
+    }
+}
+
+// ---------- SF-8 add_track ----------
+
+NC_TEST(Leftover, Sf8AddTrackTypeBothPaths) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    // P1 短名 add_track + track_type=1（音频轨）
+    NC_CHECK(f.ok("add_track", "{\"name\":\"A1\",\"track_type\":1}"));
+    // P2 全名 nc_add_track + track_type=1
+    NC_CHECK(f.ok("nc_add_track", "{\"name\":\"A2\",\"track_type\":1}"));
+    int32_t type = -1;
+    NC_CHECK_EQ(nc_track_get(f.ed, 1, nullptr, nullptr, &type, nullptr,
+                             nullptr, nullptr, nullptr, nullptr), 0);
+    NC_CHECK_EQ(type, 1);   // 旧实现恒为 0（视频轨）
+}
+
+// ---------- SF-9 move_to_track ----------
+
+NC_TEST(Leftover, Sf9MoveToTrackUsesFromTrack) {
+    LgFixture f;
+    NC_CHECK(f.ed != nullptr);
+    nc_add_track(f.ed, "V2", 0);                       // 轨道索引 1
+    // 片段在轨道 0；前端只发 from_track（无 track/track_index）
+    NC_CHECK(f.ok("move_to_track",
+                  j("{\"from_track\":0,\"to_track\":1,\"clip\":%llu,"
+                    "\"start_us\":0}", (unsigned long long)f.clip)));
+    // 源轨 0 的片段数应减为 0（旧实现源轨恒 0 恰好也成立，故再验证目标轨）
+    NC_CHECK_EQ(nc_clip_count(f.ed, 1), 1);
+}
+
+// ---------- D005 载入错误文案 ----------
+
+NC_TEST(Leftover, D005MissingTypeFieldMessage) {
+    // 缺 type 字段：必须明确说「缺少 type 字段」，而不是「未知素材类型: 」
+    const std::string msg = loadDetailOf(
+        R"({"format":"nclip","version":1,"project":{"name":"X"},)"
+        R"("assets":[{"id":5,"name":"a","path":"/a"}],"sequences":[]})");
+    NC_CHECK(msg.find("缺少 type 字段") != std::string::npos);
+    NC_CHECK(msg.find("未知素材类型") == std::string::npos);
+}
+
+NC_TEST(Leftover, D005InvalidTypeValueMessage) {
+    // 非法枚举值：应报「未知素材类型: xxx」并带上 id
+    const std::string msg = loadDetailOf(
+        R"({"format":"nclip","version":1,"project":{"name":"X"},)"
+        R"("assets":[{"id":7,"name":"a","path":"/a","type":"bogus"}],"sequences":[]})");
+    NC_CHECK(msg.find("未知素材类型") != std::string::npos);
+    NC_CHECK(msg.find("bogus") != std::string::npos);
+    NC_CHECK(msg.find("id=7") != std::string::npos);
+}
