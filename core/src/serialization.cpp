@@ -1212,48 +1212,54 @@ bool readSequence(const JsonValue& v, Sequence& out, std::string& err) {
 /// 校验载入后的工程引用完整性（片段引用的素材必须存在；ID 不重复）。
 bool validateReferences(const Project& project, std::string& err) {
     /* S1-3 修复：**ID 唯一性校验此前完全缺失**（注释声称校验，实现没有）。
-       为什么必须全局唯一：所有实体共用一个 `Project::ids` 分配器
-       （asset/track/clip/effect/transition/group/marker/subtitle/sequence
-       都从同一计数器取号，见 maxIdOf 取全局最大值即为此语义）。
-       ID 重复会让 findAsset/findSequence/findTrack 之类的按 ID 查找
-       命中**第一个**匹配项，编辑落到错误对象上，且保存后重复 ID 被固化。
-       实测：重复 sequence id 的工程此前能成功载入（rc=0），
-       而重复 track/clip id 被其它不变量间接挡下 —— 口径不一致。
-       这里统一为：全局 ID 必须两两互异。 */
+       口径说明（重要）：ID 是**分类别命名空间**，不是全局唯一 ——
+         AssetId / SequenceId / TrackId / ClipId / EffectId / TransitionId /
+         TrackGroupId / MarkerId / SubtitleId 各自独立编号，
+       同一个数值在不同类别里同时出现是**合法**的
+       （例如 track id=1 与 clip id=1 并存；EffectId 也各自从 1 起）。
+       因此这里按**类别**分别查重，而不是跨类别查重 ——
+       跨类别查重会误拒大量合法工程（实测 test_spatial_effects 的
+       SerializationRoundtrip 即因此失败）。
+       类别内部重复才是真缺陷：按 ID 查找会命中第一个匹配项，
+       编辑落到错误对象上并被固化为文件。
+       实测：重复 sequence id 的工程此前能成功载入（rc=0）且无任何报错。 */
     {
-        std::set<std::uint64_t> seen;
-        auto claim = [&seen, &err](std::uint64_t id, const char* what) -> bool {
-            if (id == 0) return true;   // 0 = 未分配/无引用，不算冲突
+        std::set<std::uint64_t> assetIds, seqIds, trackIds, clipIds,
+            effectIds, transitionIds, groupIds, markerIds, subtitleIds;
+        auto dup = [&err](std::set<std::uint64_t>& seen, std::uint64_t id,
+                          const char* what) -> bool {
+            if (id == 0) return false;            // 0 = 未分配，不算冲突
             if (!seen.insert(id).second) {
-                err = std::string("对象 ID 重复：") + what + " id=" + std::to_string(id);
-                return false;
+                err = std::string("对象 ID 重复：") + what + " id=" +
+                      std::to_string(id);
+                return true;
             }
-            return true;
+            return false;
         };
         for (const auto& a : project.assets) {
-            if (!claim(a.id.value, "资产")) return false;
+            if (dup(assetIds, a.id.value, "资产")) return false;
         }
         for (const auto& seq : project.sequences) {
-            if (!claim(seq.id.value, "序列")) return false;
+            if (dup(seqIds, seq.id.value, "序列")) return false;
             for (const auto& g : seq.trackGroups) {
-                if (!claim(g.id.value, "轨道组")) return false;
+                if (dup(groupIds, g.id.value, "轨道组")) return false;
             }
             for (const auto& m : seq.markers) {
-                if (!claim(m.id.value, "标记")) return false;
+                if (dup(markerIds, m.id.value, "标记")) return false;
             }
             for (const auto& cue : seq.subtitles.cues()) {
-                if (!claim(cue.id.value, "字幕")) return false;
+                if (dup(subtitleIds, cue.id.value, "字幕")) return false;
             }
             for (const auto& t : seq.tracks) {
-                if (!claim(t.id.value, "轨道")) return false;
+                if (dup(trackIds, t.id.value, "轨道")) return false;
                 for (const auto& c : t.clips) {
-                    if (!claim(c.id.value, "片段")) return false;
+                    if (dup(clipIds, c.id.value, "片段")) return false;
                     for (const auto& e : c.effects.effects()) {
-                        if (!claim(e.id.value, "特效")) return false;
+                        if (dup(effectIds, e.id.value, "特效")) return false;
                     }
                 }
                 for (const auto& tr : t.transitions) {
-                    if (!claim(tr.id.value, "转场")) return false;
+                    if (dup(transitionIds, tr.id.value, "转场")) return false;
                 }
             }
         }
