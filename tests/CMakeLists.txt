@@ -133,6 +133,7 @@ add_executable(nairoclip_tests
     test_clip_lut_export.cpp
     test_capi_lut.cpp
     test_s1_2_contract.cpp
+    test_s1_3_persistence.cpp
 )
 
 target_link_libraries(nairoclip_tests PRIVATE nairoclip_core)

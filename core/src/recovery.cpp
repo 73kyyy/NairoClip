@@ -73,6 +73,8 @@ bool AutoSaveManager::tick(const Time& now, const std::function<std::string()>& 
     if (!r.isOk()) {
         return false;
     }
+    /* S1-3：记录真实写入顺序（同一槽位被覆盖时也要记，恢复时以顺序为准）。 */
+    writeOrder_.push_back(slot);
     ++nextSlot_;
     lastSnapshotAt_ = now;
     return true;
@@ -81,14 +83,17 @@ bool AutoSaveManager::tick(const Time& now, const std::function<std::string()>& 
 bool AutoSaveManager::hasRecoverable() const { return !store_.list().empty(); }
 
 Result AutoSaveManager::recoverLatest(std::string& out) const {
-    const std::vector<std::size_t> slots = store_.list();
-    if (slots.empty()) {
+    /* S1-3 修复：按**真实写入顺序**倒序取最近快照。
+       修复前实现：`store_.list()` 返回按 slot 编号排序的键（std::map 序），
+       却被当作写入顺序逆序遍历 —— 环形槽位回绕后（例如 3 槽写 5 次：
+       0,1,2,0,1）会先读到 slot 2（第 3 次写入的旧快照），
+       把工程恢复到更早的状态，丢失最近编辑。 */
+    if (writeOrder_.empty()) {
         return Result::fail(ErrorCode::NotFound, "没有可恢复的快照");
     }
-    // 最近写入 = nextSlot_ - 1 回退环形（降序尝试）
-    for (std::size_t i = 0; i < slots.size(); ++i) {
-        const std::size_t index = slots.size() - 1 - i;
-        if (store_.read(slots[index], out).isOk()) {
+    // 从最近一次写入往前找第一个仍存在且能读出的槽位
+    for (std::size_t i = writeOrder_.size(); i > 0; --i) {
+        if (store_.read(writeOrder_[i - 1], out).isOk()) {
             return Result::ok();
         }
     }
@@ -99,6 +104,7 @@ void AutoSaveManager::clearSnapshots() {
     for (const std::size_t slot : store_.list()) {
         store_.remove(slot);
     }
+    writeOrder_.clear();   // S1-3：写入顺序与实际快照必须同步清空
 }
 
 std::size_t AutoSaveManager::snapshotCount() const {
