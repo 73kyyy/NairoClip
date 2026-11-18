@@ -200,3 +200,25 @@ NC_TEST(CapiError, NoFailureMeansEmptyOrNull) {
     t.join();
     NC_CHECK(seen.empty());
 }
+
+NC_TEST(CapiErrors, ImportRejectsInvalidArgumentsWithExplicitCodes) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    if (!editor) return;
+
+    const auto emptyPath = nc_import_asset(editor, "sample.mp4", "", 0, 1000000);
+    NC_CHECK_EQ(emptyPath, 0u);
+    NC_CHECK_EQ(nc_last_error_code(), NC_ERROR_INVALID_ARGUMENT);
+
+    const auto invalidType = nc_import_asset(editor, "sample.mp4", "/tmp/sample.mp4", 9, 1000000);
+    NC_CHECK_EQ(invalidType, 0u);
+    NC_CHECK_EQ(nc_last_error_code(), NC_ERROR_UNSUPPORTED);
+
+#if defined(__ANDROID__)
+    const auto missingPath = nc_import_asset(
+        editor, "sample.mp4", "/data/local/tmp/nairoclip-missing-sample.mp4", 0, 1000000);
+    NC_CHECK_EQ(missingPath, 0u);
+    NC_CHECK_EQ(nc_last_error_code(), NC_ERROR_NOT_FOUND);
+#endif
+    nc_editor_destroy(editor);
+}
