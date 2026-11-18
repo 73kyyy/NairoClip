@@ -91,7 +91,8 @@ public:
     bool heartbeat(const std::string& taskId, double progress, const std::string& stageNote,
                    std::int64_t nowMs);
 
-    /// 完成并写入结果。结果超过 kMaxResultBytes 时任务转为 Failed（NC-SERVICE-RESULT_TOO_LARGE）。
+    /// 完成并写入结果。CancelRequested 状态拒绝迟到的成功回调；
+    /// 结果超过 kMaxResultBytes 时任务转为 Failed（NC-SERVICE-RESULT_TOO_LARGE）。
     bool completeWithResult(const std::string& taskId, std::string resultType,
                             std::string payload, std::int64_t nowMs = 0);
 
@@ -102,6 +103,7 @@ public:
     /// 设置进度；越界会被钳制到 [0,1]。
     /// 已进入终态时返回 false（不允许终态回退）。
     bool setProgress(const std::string& taskId, double progress);
+    /// CancelRequested 状态拒绝完成，避免成功回调覆盖先到达的取消请求。
     bool complete(const std::string& taskId);
     bool fail(const std::string& taskId, std::string error, bool retryable = true);
     /// 登记取消请求。**不**直接置为 Cancelled——底层可能仍在运行。
