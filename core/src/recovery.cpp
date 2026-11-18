@@ -101,11 +101,16 @@ std::vector<FileRecoveryStore::Entry> FileRecoveryStore::scanEntries() const {
         } catch (...) {
             continue;
         }
+        const auto fileBytes = it->file_size(ec);
+        if (ec || (fileBytes > maxSnapshotBytes_ && fileBytes - maxSnapshotBytes_ > 64)) {
+            ec.clear();
+            continue;
+        }
         std::ifstream input(it->path(), std::ios::binary);
         std::string line, data;
         std::uint64_t sequence = 0, expectedSize = 0, expectedChecksum = 0;
         if (!std::getline(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum) ||
-            expectedSize == 0 || expectedSize > maxSnapshotBytes_) continue;
+            sequence == 0 || expectedSize == 0 || expectedSize > maxSnapshotBytes_) continue;
         data.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
         if (data.size() != expectedSize || checksum64(data) != expectedChecksum) continue;
         entries.push_back(Entry{slot, sequence});
@@ -187,7 +192,7 @@ Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
     if (!std::getline(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum)) {
         return Result::fail(ErrorCode::Internal, "恢复快照头损坏");
     }
-    if (expectedSize == 0 || expectedSize > maxSnapshotBytes_) {
+    if (sequence == 0 || expectedSize == 0 || expectedSize > maxSnapshotBytes_) {
         return Result::fail(ErrorCode::OutOfRange, "恢复快照正文长度非法");
     }
     std::string data((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
