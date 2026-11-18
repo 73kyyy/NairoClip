@@ -99,6 +99,19 @@ char* nc_project_save(const NcEditor* editor);
 /// - detail：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail);
 
+/// 配置应用私有恢复目录；Android 目录必须由原生平台层提供，不接受 JS 任意路径。
+int32_t nc_recovery_configure(NcEditor* editor, const char* private_directory);
+/// 记录一次真实工程修改，now_ms 使用平台单调时钟。
+int32_t nc_recovery_mark_dirty(NcEditor* editor, int64_t now_ms);
+/// 推进自动恢复快照状态机；返回 1 表示本次写入快照，0 表示未写入。
+int32_t nc_recovery_tick(NcEditor* editor, int64_t now_ms);
+/// 是否存在可恢复快照（1/0）。
+int32_t nc_recovery_has_snapshot(const NcEditor* editor);
+/// 读取最近有效快照；返回文本需 nc_free_string 释放。
+char* nc_recovery_read_latest(const NcEditor* editor);
+/// 正常保存成功后清理恢复快照并重置脏状态。
+int32_t nc_recovery_mark_clean(NcEditor* editor);
+
 // ---- 查询 ----
 
 /// 工程当前时长（微秒）。
