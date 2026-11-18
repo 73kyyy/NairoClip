@@ -237,7 +237,7 @@ private:
 //
 // 职责边界：探测数据由平台层采集（core 不做系统调用），本模块负责：
 //   · 分级判定（阈值化 + 基准耗时校准；确定性、可测）；
-//   · 量化版本推荐（按平台与分级 → FP32/FP16/INT8）；
+//   · 量化版本推荐：所有平台与设备等级统一 FP16；禁止 FP32/INT8 回退；
 //   · 下载请求参数组装（功能 ID + 设备分级 + 量化版本）。
 
 /// 量化精度（文档 3.2：FP32 100% / FP16 约 50% / INT8 约 25% 体积）。
@@ -296,17 +296,16 @@ bool deviceTierFromString(const char* text, DeviceTier& out);
 /// 说明：基准未测（0）时仅按 RAM/加速单元判定（避免"未测即降级"误伤）。
 DeviceTier classifyDeviceTier(const DeviceProfile& profile);
 
-/// 量化版本推荐（文档三端对等原则）：
-/// - 桌面：恒 FP32（文档：桌面默认下发 FP32；用户主动「性能模式」才切 FP16）；
-/// - 移动 High：FP16；移动 Mid：FP16；移动 Low：INT8（文档 3.1 规格表）；
-/// - 注意：量化只影响体积与速度，**不影响功能集合与输出质量上限**（强制原则）。
+/// 量化版本推荐（当前产品策略）：所有平台与设备等级统一 FP16。
+/// 不允许按设备等级回退 FP32/INT8；设备不足以运行 FP16 时应明确报告不支持，
+/// 不得静默下载其他精度版本。
 QuantizationLevel recommendedQuantization(const DeviceProfile& profile, DeviceTier tier);
 
 /// 模型下载请求参数（平台层组装后随请求发送）。
 struct ModelDownloadRequestParams {
     std::string modelId;                ///< 功能/模型 ID（服务端据此定位文件）
     DeviceTier tier = DeviceTier::High; ///< 设备分级（高/中/低）
-    QuantizationLevel quantization = QuantizationLevel::Fp32;  ///< 量化版本
+    QuantizationLevel quantization = QuantizationLevel::Fp16;  ///< 全平台固定 FP16
     /// 用户主动选择的性能模式覆盖（桌面端）：非空时覆盖推荐量化（文档 5.2）。
     bool userPerformanceMode = false;
 
