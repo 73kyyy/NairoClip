@@ -347,14 +347,19 @@ class NativeEngineBridge(
         val out = org.json.JSONArray()
         try {
             val dir = appContext?.filesDir ?: return """{"projects":[]}"""
-            dir.listFiles()?.forEach { f ->
-                if (!f.isFile || !f.name.endsWith(".nclip")) return@forEach
-                out.put(JSONObject().apply {
-                    put("name", f.name.removeSuffix(".nclip"))
-                    put("file", f.name)
-                    put("bytes", f.length())
-                })
-            }
+            dir.listFiles()
+                ?.filter { it.isFile && validProjectFile(it.name) }
+                ?.sortedByDescending { it.lastModified() }
+                ?.forEach { f ->
+                    out.put(JSONObject().apply {
+                        put("name", f.name.removeSuffix(".nclip"))
+                        put("file", f.name)
+                        put("bytes", f.length())
+                        put("updated", java.text.SimpleDateFormat(
+                            "yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.US
+                        ).format(java.util.Date(f.lastModified())))
+                    })
+                }
         } catch (e: Throwable) {
             return """{"projects":[]}"""
         }
@@ -367,7 +372,7 @@ class NativeEngineBridge(
      */
     @JavascriptInterface
     fun saveProjectFile(): String = synchronized(stateLock) {
-        val root = appContext?.filesDir ?: return@synchronized err("应用私有目录不可用")
+        if (appContext?.filesDir == null) return@synchronized err("应用私有目录不可用")
         val handle = ensure()
         if (handle == 0L) return@synchronized err("引擎未初始化")
         val name = activeProjectFile ?: "project-${java.util.UUID.randomUUID()}.nclip"
@@ -382,10 +387,11 @@ class NativeEngineBridge(
         val atomic = AtomicFile(target)
         var stream: java.io.FileOutputStream? = null
         try {
-            stream = atomic.startWrite()
-            stream.write(serialized.toByteArray(Charsets.UTF_8))
-            stream.fd.sync()
-            atomic.finishWrite(stream)
+            val output = atomic.startWrite()
+            stream = output
+            output.write(serialized.toByteArray(Charsets.UTF_8))
+            output.fd.sync()
+            atomic.finishWrite(output)
             stream = null
             activeProjectFile = name
             JSONObject().apply {
@@ -393,7 +399,7 @@ class NativeEngineBridge(
                 put("result", JSONObject().put("file", name).put("bytes", target.length()))
             }.toString()
         } catch (e: Throwable) {
-            if (stream != null) atomic.failWrite(stream)
+            stream?.let { atomic.failWrite(it) }
             err("草稿保存失败：${e.message}")
         }
     }
