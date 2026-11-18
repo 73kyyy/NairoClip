@@ -398,6 +398,7 @@ NC_TEST(Recovery, FileStoreRejectsSymlinkedLockFile) {
     std::filesystem::create_symlink(target, dir / ".nclip-recovery.lock", ec);
     NC_CHECK(!ec);
     FileRecoveryStore store(dir);
+    NC_CHECK(!store.validate().isOk());
     NC_CHECK(!store.write(0, "must-not-follow-symlink").isOk());
     std::filesystem::remove_all(dir, ec);
 #else
