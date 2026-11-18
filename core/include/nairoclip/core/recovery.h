@@ -36,6 +36,8 @@ public:
     virtual void remove(std::size_t slot) = 0;
     /// 列出存在的槽位（升序）。
     virtual std::vector<std::size_t> list() const = 0;
+    /// 最近成功写入优先；持久化实现必须保存并恢复此顺序。
+    virtual std::vector<std::size_t> listNewestFirst() const;
 };
 
 /// 内存恢复存储（测试与预览用）。
@@ -45,9 +47,11 @@ public:
     Result read(std::size_t slot, std::string& out) const override;
     void remove(std::size_t slot) override;
     std::vector<std::size_t> list() const override;
+    std::vector<std::size_t> listNewestFirst() const override;
 
 private:
     std::map<std::size_t, std::string> slots_;
+    std::vector<std::size_t> writeOrder_;
 };
 
 /// 崩溃恢复管理器：负责「脏标记 → 定时快照 → 异常退出后恢复」。
@@ -89,13 +93,6 @@ private:
     Time lastDirtyAt_;
     Time lastSnapshotAt_;
     std::size_t nextSlot_ = 0;
-    /* S1-3：**真实写入顺序**（slot 序列，按写入先后）。
-       为什么必需：RecoveryStore::list() 返回的是「按 slot 编号排序」的键，
-       而不是写入顺序。环形槽位写满后（slot = nextSlot_ % maxSnapshots 回绕），
-       仅凭 list() 的逆序无法判定哪个快照最新 —— 实测会取到**最旧**那份，
-       崩溃恢复因此回滚到更早的工程状态（丢失最近编辑）。
-       有了本向量，recoverLatest 才能按写入先后倒序取到真正的最近快照。 */
-    std::vector<std::size_t> writeOrder_;
 };
 
 }  // namespace core
