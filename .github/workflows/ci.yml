@@ -209,35 +209,11 @@ jobs:
           set +e
           echo "=== 先跑 Capi 靶 ==="
           stdbuf -oL -eL ./build/tests/nairoclip_capi_only_tests 2>&1 | tail -8 || true
-          # ---- 二分设计 ----
-          # 崩溃用例 Capi.WatermarkRealExportEndToEnd 在 test_capi.cpp 里，
-          # 该文件从注册索引 203 开始；该用例在文件内约第 60 个
-          # → 全量里约在索引 263。
-          #
-          # 注意：NC_TEST_SKIP=N 会跳过前 N 个用例，从第 N 个跑到末尾。
-          # 所以 SKIP 必须落在 [0, 263) 区间才有意义 —— 用 1100 会直接
-          # 跳过崩溃用例本身，跑出来的绿是假阴性（上一轮就是这么错的）。
-          # 崩溃用例在索引 267 附近（test_capi.cpp 从 203 起，文件内约第 64 个）
-          run "MAX_200" NC_TEST_MAX=200
-          run "MAX_266" NC_TEST_MAX=266
-          run "SKIP_50" NC_TEST_SKIP=50
-          # 只跑崩溃用例本身（SKIP=267 MAX=268）。
-          # 它能区分两种完全不同的原因：
-          #   崩 → 该用例自成一体地触发问题（与前面用例无关）
-          #   绿 → 必须叠加前面某个用例留下的状态（则继续二分 SKIP）
-          run "ONLY_267" NC_TEST_SKIP=267 NC_TEST_MAX=268
-          # 索引 203..266 的 Capi 段整体（不含崩溃用例）：确认这段是干净的
-          run "CAPISEQ" NC_TEST_SKIP=203 NC_TEST_MAX=267
-          # 只跑崩溃用例，再按阶段切开：
-          #   ONLY_267_EXPORT → 只导出（不碰解码/检测）
-          #   ONLY_267_DETECT → 导出 + 解码 + 检测
-          # 两者一比就知道写坏堆的是「导出」还是「解码/检测」。
-          # 注意 run() 用 env 传参，NC_WM_STAGE 需经 env 显式传入。
-          run "ONLY_267_EXPORT" NC_TEST_SKIP=267 NC_TEST_MAX=268 NC_WM_STAGE=export
-          run "ONLY_267_DETECT" NC_TEST_SKIP=267 NC_TEST_MAX=268 NC_WM_STAGE=detect
-          # MAX=N 只跑前 N 个：若 MAX_266 通过而全量崩，说明崩溃需要
-          # 「索引 266 之后的用例」参与，或需要更长的运行上下文。
-          # SKIP=50 仍包含崩溃用例：崩 → 前 50 个里没有必要的触发条件。
+          # 诊断目标按 suite/test 名称选择，不使用会随新增测试漂移的注册索引。
+          run "WATERMARK_ONLY" NC_TEST_INCLUDE=Capi.WatermarkRealExportEndToEnd
+          run "CAPI_SUITE" NC_TEST_INCLUDE=Capi.
+          run "WATERMARK_EXPORT" NC_TEST_INCLUDE=Capi.WatermarkRealExportEndToEnd NC_WM_STAGE=export
+          run "WATERMARK_DETECT" NC_TEST_INCLUDE=Capi.WatermarkRealExportEndToEnd NC_WM_STAGE=detect
 
       - name: 诊断：mmap 分配器（越界立即 SIGSEGV）
         # MALLOC_MMAP_THRESHOLD_=1 让 glibc 对每个分配单独 mmap 一整页，
@@ -250,18 +226,18 @@ jobs:
         #   而 glibc 报的是 chunk header 被改（= 前一块正越界写到了本块头部），
         #   正是 mmap 模式最擅长抓的形态。
         #
-        # 只跑崩溃用例本身（SKIP=267 MAX=268），避免全量 OOM。
+        # 按用例名称选择诊断范围，避免注册顺序变化导致误跑/漏跑。
         continue-on-error: true
         run: |
           export MALLOC_MMAP_THRESHOLD_=1
           export MALLOC_TRIM_THRESHOLD_=1
           export MALLOC_TOP_PAD_=0
           export MALLOC_PERTURB_=165
-          for scope in "only" "seq"; do
+          for scope in "only" "suite"; do
             if [ "$scope" = "only" ]; then
-              export NC_TEST_SKIP=267 NC_TEST_MAX=268
+              export NC_TEST_INCLUDE=Capi.WatermarkRealExportEndToEnd
             else
-              export NC_TEST_SKIP=203 NC_TEST_MAX=268
+              export NC_TEST_INCLUDE=Capi.
             fi
             echo "=== scope=$scope ==="
             ./build/tests/nairoclip_tests > /tmp/mmap_$scope.txt 2>&1
