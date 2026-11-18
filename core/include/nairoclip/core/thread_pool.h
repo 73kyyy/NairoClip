@@ -50,7 +50,7 @@ public:
     ///   同步执行 fn(0, count)，不等待池内工作线程。
     ///
     /// 段划分：`n = min(threadCount, ceil(count / minPerTask))`，
-    /// 按 n 等分连续区间。等分后余数给最后一段，保证不丢行。
+    /// 将工作项均匀分配到 n 个非空连续区间，余数分配给前面的区间。
     void parallelFor(std::size_t count, std::size_t minPerTask,
                      const std::function<void(std::size_t, std::size_t)>& fn);
 
@@ -74,7 +74,6 @@ private:
     std::function<void(std::size_t, std::size_t)> job_;
     std::size_t jobBegin_ = 0;
     std::size_t jobEnd_ = 0;
-    std::size_t jobChunk_ = 0;
     std::size_t jobTotal_ = 0;      // 本次 parallelFor 的总段数
     std::size_t jobNext_ = 0;       // 下一个待领取的段号（在 mutex_ 保护下递增）
     std::size_t jobRemaining_ = 0;  // 未完成的段数
