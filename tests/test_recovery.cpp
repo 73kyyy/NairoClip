@@ -119,6 +119,22 @@ NC_TEST(Recovery, FileStoreRejectsTruncatedAndCorruptedPayloads) {
     std::filesystem::remove_all(dir, ec);
 }
 
+NC_TEST(Recovery, FileStoreRejectsOverlongHeaderWithoutUnboundedLineRead) {
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-header-bound-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    {
+        std::ofstream file(dir / "0.ncr", std::ios::binary);
+        file << std::string(1024 * 1024, 'A');
+    }
+    FileRecoveryStore store(dir);
+    NC_CHECK(store.list().empty());
+    std::string out;
+    NC_CHECK(!store.read(0, out).isOk());
+    std::filesystem::remove_all(dir, ec);
+}
+
 NC_TEST(Recovery, StoreReadWrite) {
     InMemoryRecoveryStore store;
     NC_CHECK(store.write(0, "abc").isOk());
