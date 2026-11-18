@@ -769,15 +769,6 @@ function saveCurrentProject() {
 }
 function scheduleProjectSave() {
   projectSaveDirty = true;
-  const bridge = window.NCEngine;
-  if (bridge && typeof bridge.markProjectDirty === 'function') {
-    try {
-      const rc = bridge.markProjectDirty();
-      if (rc !== 0) console.warn('[NairoClip] 工程恢复脏标记失败，错误码：', rc);
-    } catch (error) {
-      console.warn('[NairoClip] 工程恢复脏标记异常：', error);
-    }
-  }
   if (projectSaveTimer !== null) clearTimeout(projectSaveTimer);
   projectSaveTimer = setTimeout(() => {
     projectSaveTimer = null;
