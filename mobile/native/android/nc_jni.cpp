@@ -219,8 +219,9 @@ std::string Ok(const std::string& inner) {
     return "{\"ok\":true,\"code\":0,\"message\":\"\",\"result\":"
          + (inner.empty() ? std::string("{}") : inner) + "}";
 }
-std::string Err(const std::string& msg) {
-    return "{\"ok\":false,\"code\":-1,\"message\":\"" + JEsc(msg) + "\",\"result\":{}}";
+std::string Err(const std::string& msg, int32_t code = -1) {
+    return "{\"ok\":false,\"code\":" + std::to_string(code) +
+           ",\"message\":\"" + JEsc(msg) + "\",\"result\":{}}";
 }
 std::string Num(double v) {
     char b[40];
@@ -1787,7 +1788,14 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
             ed, JStrField(a, "name").c_str(), JStrField(a, "path").c_str(),
             static_cast<int32_t>(JInt(a, "type", 0)),
             static_cast<int64_t>(JInt(a, "duration_us", 0)));
-        *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("导入素材失败");
+        if (id) {
+            *out = Ok("{\"value\":" + std::to_string(id) + "}");
+        } else {
+            const char* detail = nc_last_error();
+            const int32_t code = nc_last_error_code();
+            *out = Err((detail && detail[0]) ? detail : "导入素材失败",
+                       code == NC_OK ? NC_ERROR_INTERNAL : code);
+        }
         return true;
     }
     if (op == "nc_insert_clip") {
