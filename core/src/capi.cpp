@@ -8632,6 +8632,10 @@ void nc_free_string(char* text) { delete[] text; }
 
 const char* nc_last_error(void) { return g_lastError.c_str(); }
 int32_t nc_last_error_code(void) { return g_lastErrorCode; }
+void nc_clear_error(void) {
+    g_lastError.clear();
+    g_lastErrorCode = NC_OK;
+}
 
 }  // extern "C"
 
