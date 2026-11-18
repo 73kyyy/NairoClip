@@ -215,6 +215,29 @@ NC_TEST(TaskRegistry2, CancelRequestsButDoesNotDeclareStopped) {
     NC_CHECK(t->state != TaskState::Cancelled);
 }
 
+NC_TEST(TaskRegistry2, CompletionCannotOverrideCancellationRequest) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("ai.depth", fastConfig(), 1000);
+    NC_CHECK(reg.start(id, 1000));
+    NC_CHECK(reg.cancel(id));
+
+    // 取消请求已登记后，迟到的成功回调不得把任务改成 Completed，
+    // 也不得写入结果载荷或以超大结果回调把任务改成 Failed。
+    NC_CHECK(!reg.complete(id));
+    NC_CHECK(!reg.completeWithResult(id, "ai.depth.result", "{\\"ok\\":true}", 1100));
+    NC_CHECK(!reg.completeWithResult(
+        id, "ai.depth.result", std::string(kMaxResultBytes + 1, 'x'), 1100));
+
+    const TaskInfo* task = reg.find(id);
+    NC_CHECK(task != nullptr);
+    NC_CHECK(task->state == TaskState::CancelRequested);
+    NC_CHECK(task->cancelRequested);
+    NC_CHECK(task->resultPayload.empty());
+    NC_CHECK(task->resultType.empty());
+    NC_CHECK(reg.acknowledgeCancel(id));
+    NC_CHECK(reg.find(id)->state == TaskState::Cancelled);
+}
+
 NC_TEST(TaskRegistry2, ExecutorAckMovesToCancelled) {
     TaskRegistry reg;
     const std::string id = reg.createEx("ai.depth", fastConfig(), 0);
