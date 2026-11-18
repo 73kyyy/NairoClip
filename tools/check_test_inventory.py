@@ -57,7 +57,7 @@ def main() -> int:
     if args.summary:
         summary = Path(args.summary).read_text(encoding="utf-8", errors="replace")
         match = re.search(
-            r"^\\[SHARD_STATS\\] shard=0 shards=1 executed=(\\d+) total=(\\d+) failed=(\\d+)$",
+            r"^\[SHARD_STATS\] shard=0 shards=1 executed=(\d+) total=(\d+) failed=(\d+)$",
             summary, re.MULTILINE
         )
         if not match:
