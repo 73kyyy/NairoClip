@@ -323,6 +323,7 @@ class MainActivity : AppCompatActivity() {
                 filePathCallback: ValueCallback<Array<Uri>>?,
                 fileChooserParams: FileChooserParams?
             ): Boolean {
+                mediaImportGeneration.incrementAndGet()
                 pendingFileChooser?.onReceiveValue(null)
                 if (filePathCallback == null) return false
                 pendingFileChooser = filePathCallback
