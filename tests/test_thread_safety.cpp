@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <stdexcept>
 #include <vector>
 
 using namespace nairoclip::core;
@@ -181,4 +182,27 @@ NC_TEST(ThreadPool, ReentrantParallelForFallsBackWithoutDeadlock) {
 
     NC_CHECK(entered.load());
     NC_CHECK_EQ(nestedItems.load(), 7);
+}
+
+
+NC_TEST(ThreadPool, WorkerExceptionIsRethrownAndPoolRemainsUsable) {
+    ThreadPool& pool = ThreadPool::instance();
+    bool caught = false;
+
+    try {
+        pool.parallelFor(64, 1, [](std::size_t, std::size_t) {
+            throw std::runtime_error("worker callback failure");
+        });
+    } catch (const std::runtime_error&) {
+        caught = true;
+    }
+
+    NC_CHECK(caught);
+
+    // 异常批次必须完整收尾并清理状态，线程池随后仍可接受新任务。
+    std::atomic<int> processed{0};
+    pool.parallelFor(4, 1, [&](std::size_t begin, std::size_t end) {
+        processed.fetch_add(static_cast<int>(end - begin));
+    });
+    NC_CHECK_EQ(processed.load(), 4);
 }
