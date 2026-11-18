@@ -1,0 +1,37 @@
+# S1-3 Android Durable Project Store
+
+## Implemented on the remediation branch
+
+### Native serialization boundary
+- Added typed JNI entry points for `nc_project_save()` and `nc_project_load()`.
+- Both entry points use `EditorHandleGuard`, preserving the existing native editor lifetime lock.
+- Native strings and error details are released with `nc_free_string()`.
+
+### Android private storage
+- Added `NativeEngineBridge.saveProjectFile()`, `loadProjectFile()`, and `deleteProject()`.
+- Files are constrained to safe `.nclip` basenames in the application-private `filesDir`; arbitrary paths and traversal components are rejected.
+- Save uses Android `AtomicFile`, writes UTF-8 serialized project text, calls `FileDescriptor.sync()`, and commits with `finishWrite()`; failure calls `failWrite()`.
+- A random project filename is allocated on first save and reused by the active bridge instance.
+- Draft listing now returns modification time and sorts newest first.
+
+### Editor integration
+- Opening a draft calls `loadProjectFile()` before `Engine.boot()` reads the project state.
+- A failed/missing load aborts editor startup with a visible error instead of silently opening a blank project.
+- A new editor session immediately creates its first local draft.
+- Successful mapped edits schedule a debounced local save; page hide and app background transitions flush pending dirty state.
+- Home's existing permanent-delete action now reaches the implemented bridge method and only reports success after the file deletion succeeds.
+
+## Important limitations still open
+
+1. The current autosave dirty hook is attached to the editor's mapped `edit()` path. Direct mutation paths that bypass this function must be audited and connected.
+2. No Android instrumentation tests have yet exercised process death, AtomicFile recovery, disk-full/write failures, or corrupted project files.
+3. No Gradle/NDK build or device runtime verification has been run after these changes.
+4. This implements Android local project durability only; it does not complete cross-platform persistence or durable RecoveryStore integration.
+5. Draft metadata currently reports filename, byte size, and filesystem modification time; duration extraction is not yet implemented.
+
+## Verification status
+
+- JNI, Kotlin bridge, and editor integration were read back from the remediation branch after commits.
+- Static anchor checks confirm the new methods and editor call paths are present.
+- Compilation, instrumentation, crash recovery, and end-to-end save/open/delete tests remain **not run**.
+- S1-3 is **partially implemented, not complete**.
