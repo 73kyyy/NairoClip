@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
+#include <iterator>
+#include <utility>
 #include <limits>
 #include <system_error>
 #if defined(__unix__) || defined(__ANDROID__)
