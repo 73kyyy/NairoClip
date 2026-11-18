@@ -23,6 +23,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
+#include <exception>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -44,7 +45,7 @@ public:
     /// - minPerTask：每段至少处理多少项。低于它就不切分 ——
     ///   小图（< 64K 像素，约 128 行 1080p 以下）走单线程，
     ///   否则任务调度开销反超计算收益；
-    /// - 阻塞直到全部完成；异常不跨线程传播（任务里不要抛）；
+    /// - 阻塞直到全部完成；工作线程回调的首个异常会在所有分段收尾后重新抛给调用线程；
     /// - 若线程池已有活动批次（包括回调内部嵌套调用），本次在调用线程
     ///   同步执行 fn(0, count)，不等待池内工作线程。
     ///
@@ -77,6 +78,7 @@ private:
     std::size_t jobTotal_ = 0;      // 本次 parallelFor 的总段数
     std::size_t jobNext_ = 0;       // 下一个待领取的段号（在 mutex_ 保护下递增）
     std::size_t jobRemaining_ = 0;  // 未完成的段数
+    std::exception_ptr jobException_; // 当前批次首个工作线程异常（由 mutex_ 保护）
     std::atomic<bool> stop_{false};
     bool hasJob_ = false;
 };
