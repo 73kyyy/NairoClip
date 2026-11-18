@@ -181,7 +181,7 @@ class NativeEngineBridge(
             return err("素材必须通过系统文件选择器导入", -1001)
         }
         return try {
-            nativeCall(ensure(), fn, argsJson.ifBlank { "{}" })
+            nativeCall(ensure(), fn, argsJson.ifBlank { "{}" }, android.os.SystemClock.elapsedRealtime())
         } catch (e: Throwable) {
             err("引擎调用失败：${e.message}")
         }
@@ -201,7 +201,7 @@ class NativeEngineBridge(
     @JavascriptInterface
         fun applyCommand(requestJson: String): String = try {
         synchronized(stateLock) {
-        nativeApplyCommand(ensure(), requestJson.ifBlank { "{}" })
+        nativeApplyCommand(ensure(), requestJson.ifBlank { "{}" }, android.os.SystemClock.elapsedRealtime())
             ?: err("引擎返回空结果")
     
         }} catch (e: Throwable) {
@@ -461,7 +461,7 @@ class NativeEngineBridge(
             try {
                 val handle = ensure()
                 if (handle == 0L) return@synchronized err("引擎未初始化", -1007)
-                JSONObject(nativeCall(handle, "nc_import_asset", args.toString())).toString()
+                JSONObject(nativeCall(handle, "nc_import_asset", args.toString(), android.os.SystemClock.elapsedRealtime())).toString()
             } catch (e: Throwable) {
                 err("素材导入失败：${e.message}", -1008)
             }
@@ -750,7 +750,7 @@ class NativeEngineBridge(
 
     private external fun nativeCreate(): Long
     private external fun nativeDestroy(handle: Long)
-    private external fun nativeCall(handle: Long, fn: String, argsJson: String): String
+    private external fun nativeCall(handle: Long, fn: String, argsJson: String, nowMs: Long): String
     private external fun nativeProjectSave(handle: Long): String?
     private external fun nativeProjectLoad(handle: Long, projectText: String): String
     private external fun nativeRecoveryConfigure(handle: Long, directory: String): Int
@@ -759,7 +759,7 @@ class NativeEngineBridge(
     private external fun nativeRecoveryHasSnapshot(handle: Long): Int
     private external fun nativeRecoveryReadLatest(handle: Long): String?
     private external fun nativeRecoveryMarkClean(handle: Long): Int
-    private external fun nativeApplyCommand(handle: Long, requestJson: String): String?
+    private external fun nativeApplyCommand(handle: Long, requestJson: String, nowMs: Long): String?
     private external fun nativeTaskBegin(handle: Long, type: String, targetId: Long, heartbeatTimeoutMs: Int, totalTimeoutMs: Long, nowMs: Long): String
     private external fun nativeTaskHeartbeat(handle: Long, taskId: String, progress: Double, stageNote: String, nowMs: Long): Int
     private external fun nativeTaskComplete(handle: Long, taskId: String, resultType: String, resultJson: String, nowMs: Long): Int
