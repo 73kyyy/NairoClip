@@ -85,7 +85,7 @@ class NativeEngineBridge(
                    与 stateLock 不是同一把锁，无法与 release() 互斥。 */
                 synchronized(stateLock) {
                     if (editor != 0L) {
-                        nativeTaskTick(editor, System.currentTimeMillis())
+                        nativeTaskTick(editor, android.os.SystemClock.elapsedRealtime())
                     }
                 }
             } catch (_: Throwable) {
@@ -185,7 +185,7 @@ class NativeEngineBridge(
         synchronized(stateLock) {
         nativeTaskBegin(
             ensure(), type, targetId, heartbeatTimeoutMs, totalTimeoutMs,
-            System.currentTimeMillis()
+            android.os.SystemClock.elapsedRealtime()
         )
     
         }} catch (e: Throwable) {
@@ -196,7 +196,7 @@ class NativeEngineBridge(
         fun taskHeartbeat(taskId: String, progress: Double, stageNote: String): Int = try {
         synchronized(stateLock) {
         nativeTaskHeartbeat(
-            ensure(), taskId, progress, stageNote, System.currentTimeMillis()
+            ensure(), taskId, progress, stageNote, android.os.SystemClock.elapsedRealtime()
         )
     
         }} catch (e: Throwable) {
@@ -207,7 +207,7 @@ class NativeEngineBridge(
         fun taskComplete(taskId: String, resultType: String, resultJson: String): Int = try {
         synchronized(stateLock) {
         nativeTaskComplete(
-            ensure(), taskId, resultType, resultJson, System.currentTimeMillis()
+            ensure(), taskId, resultType, resultJson, android.os.SystemClock.elapsedRealtime()
         )
     
         }} catch (e: Throwable) {
@@ -265,7 +265,7 @@ class NativeEngineBridge(
     @JavascriptInterface
         fun taskTick(): Int = try {
         synchronized(stateLock) {
-        nativeTaskTick(ensure(), System.currentTimeMillis())
+        nativeTaskTick(ensure(), android.os.SystemClock.elapsedRealtime())
     
         }} catch (e: Throwable) {
         0
@@ -282,7 +282,7 @@ class NativeEngineBridge(
         // 顺带推进任务看门狗：UI 每次刷新都是一次时钟推进，
         // 卡死的任务（长时间无真实进度）会在这里被判超时，
         // 避免用户看到永远 0% 的进度条。
-        nativeTaskTick(ensure(), System.currentTimeMillis())
+        nativeTaskTick(ensure(), android.os.SystemClock.elapsedRealtime())
         nativeState(ensure())
     
         }} catch (e: Throwable) {
@@ -375,7 +375,7 @@ class NativeEngineBridge(
 
         return try {
             nativeInstallModel(ensure(), modelId, bytes, f.absolutePath, sha,
-                               System.currentTimeMillis() / 1000)
+                               android.os.SystemClock.elapsedRealtime() / 1000)
         } catch (e: Throwable) {
             err("安装调用失败：${e.message}")
         }
