@@ -93,8 +93,9 @@ AutoSaveManager::AutoSaveManager(RecoveryStore& store, AutoSavePolicy policy)
     }
     if (newestValid == capacity) return;
 
-    for (std::size_t offset = 1; offset <= capacity; ++offset) {
-        const std::size_t candidate = (newestValid + offset) % capacity;
+    std::size_t candidate = newestValid;
+    for (std::size_t visited = 0; visited < capacity; ++visited) {
+        candidate = (candidate + 1 == capacity) ? 0 : candidate + 1;
         if (!occupied[candidate]) {
             nextSlot_ = candidate;
             return;
