@@ -455,8 +455,8 @@ class NativeEngineBridge(
         }
         val normalizedDisplayName = fileName
             .substringAfterLast('/')
-            .substringAfterLast('\\\\')
-            .replace(Regex("[^\\\\p{L}\\\\p{N}._-]"), "_")
+            .substringAfterLast('\\')
+            .replace(Regex("[^\\p{L}\\p{N}._-]"), "_")
             .trim('.')
             .take(120)
             .ifBlank { "media.bin" }
