@@ -545,6 +545,10 @@ int32_t nc_recovery_configure(NcEditor* editor, const char* directory) {
         editor->recoveryStore.reset();
         editor->recoveryStore = std::make_unique<FileRecoveryStore>(
             std::filesystem::path(directory));
+        if (!editor->recoveryStore->validate().isOk()) {
+            editor->recoveryStore.reset();
+            return failNc(NC_ERROR_INTERNAL, "恢复目录或跨进程锁不可用");
+        }
         editor->autoSave = std::make_unique<AutoSaveManager>(*editor->recoveryStore);
         return NC_OK;
     } catch (const std::exception& e) {
