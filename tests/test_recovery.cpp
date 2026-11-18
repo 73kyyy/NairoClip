@@ -35,6 +35,19 @@ NC_TEST(Recovery, FileStorePersistsOrderingAcrossStoreReconstruction) {
     std::filesystem::remove_all(dir, ec);
 }
 
+NC_TEST(Recovery, FileStoreEnforcesSnapshotSizeLimit) {
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-size-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    FileRecoveryStore store(dir, 8);
+    NC_CHECK(!store.write(0, "123456789").isOk());
+    NC_CHECK(store.write(0, "12345678").isOk());
+    std::string out;
+    NC_CHECK(store.read(0, out).isOk());
+    NC_CHECK_EQ(out, std::string("12345678"));
+    std::filesystem::remove_all(dir, ec);
+}
+
 NC_TEST(Recovery, AutoSaveRecoversLatestFromReopenedFileStore) {
     const auto dir = std::filesystem::temp_directory_path() / "nairoclip-autosave-reopen-test";
     std::error_code ec;
