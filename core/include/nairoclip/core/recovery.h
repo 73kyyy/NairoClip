@@ -65,6 +65,8 @@ class FileRecoveryStore : public RecoveryStore {
 public:
     explicit FileRecoveryStore(std::filesystem::path directory,
                               std::size_t maxSnapshotBytes = 64 * 1024 * 1024);
+    /// 创建并验证私有恢复目录及其 POSIX 跨进程锁文件。
+    Result validate();
     Result write(std::size_t slot, const std::string& data) override;
     Result read(std::size_t slot, std::string& out) const override;
     void remove(std::size_t slot) override;
