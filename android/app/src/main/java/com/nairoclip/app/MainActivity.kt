@@ -317,6 +317,22 @@ class MainActivity : AppCompatActivity() {
                     false
                 }
             }
+
+            override fun onJsConfirm(
+                view: WebView?,
+                url: String?,
+                message: String?,
+                result: android.webkit.JsResult?
+            ): Boolean {
+                if (result == null) return false
+                androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                    .setMessage(message ?: "请确认此操作")
+                    .setPositiveButton("恢复") { _, _ -> result.confirm() }
+                    .setNegativeButton("不恢复") { _, _ -> result.cancel() }
+                    .setOnCancelListener { result.cancel() }
+                    .show()
+                return true
+            }
         }
 
         val eng = NativeEngineBridge(applicationContext, ::updatePanelDepth)
