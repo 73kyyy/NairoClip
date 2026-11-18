@@ -76,6 +76,9 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Throwable) {
                 copiedFiles.forEach { it.delete() }
                 android.util.Log.e("NcImport", "素材复制失败", e)
+                android.widget.Toast.makeText(
+                    this, "素材导入失败：${e.message ?: "未知错误"}", android.widget.Toast.LENGTH_LONG
+                ).show()
                 callback.onReceiveValue(null)
             }
         }
@@ -86,11 +89,19 @@ class MainActivity : AppCompatActivity() {
      * 到 filesDir/imports，JS 不能提交任意磁盘路径。
      */
     private fun copyPickedMedia(source: Uri): Pair<Uri, File> {
+        var declaredSize = -1L
         val displayName = contentResolver.query(
-            source, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+            source, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null
         )?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
+            if (cursor.moveToFirst()) {
+                if (!cursor.isNull(1)) declaredSize = cursor.getLong(1)
+                cursor.getString(0)
+            } else null
         } ?: "media.bin"
+        val initialAvailable = android.os.StatFs(filesDir.absolutePath).availableBytes
+        if (declaredSize > initialAvailable) {
+            throw java.io.IOException("素材大小超过当前应用可用存储空间")
+        }
         val safeName = displayName
             .substringAfterLast('/')
             .substringAfterLast('\\')
@@ -120,6 +131,9 @@ class MainActivity : AppCompatActivity() {
                         val count = src.read(buffer)
                         if (count < 0) break
                         if (count == 0) continue
+                        if (count.toLong() > android.os.StatFs(canonicalRoot.absolutePath).availableBytes) {
+                            throw java.io.IOException("应用存储空间不足，素材导入已中止")
+                        }
                         dst.write(buffer, 0, count)
                     }
                     dst.fd.sync()
