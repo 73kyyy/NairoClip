@@ -54,8 +54,12 @@ void ThreadPool::workerLoop() {
                否则主线程收尾时可能读到半更新的状态。 */
             const std::size_t idx = jobNext_++;
             localJob = job_;
-            begin = jobBegin_ + idx * jobChunk_;
-            end = std::min(jobEnd_, begin + jobChunk_);
+            // 将余数分配给前 rem 段；jobTotal_ <= 工作项数，因此每段都非空。
+            const std::size_t count = jobEnd_ - jobBegin_;
+            const std::size_t base = count / jobTotal_;
+            const std::size_t remainder = count % jobTotal_;
+            begin = jobBegin_ + idx * base + std::min(idx, remainder);
+            end = begin + base + (idx < remainder ? 1u : 0u);
         }
 
         if (localJob && end > begin) {
@@ -86,7 +90,7 @@ void ThreadPool::parallelFor(std::size_t count, std::size_t minPerTask,
     if (minPerTask == 0) minPerTask = 1;
 
     // 够小 → 当前线程直接做完，不进池子
-    const std::size_t wantTasks = (count + minPerTask - 1) / minPerTask;
+    const std::size_t wantTasks = 1u + (count - 1u) / minPerTask;
     const std::size_t nThreads = static_cast<std::size_t>(threadCount());
     if (wantTasks <= 1 || nThreads <= 1) {
         fn(0, count);
@@ -108,7 +112,6 @@ void ThreadPool::parallelFor(std::size_t count, std::size_t minPerTask,
             job_ = fn;
             jobBegin_ = 0;
             jobEnd_ = count;
-            jobChunk_ = chunk;
             jobTotal_ = tasks;
             jobNext_ = 0;
             jobRemaining_ = tasks;
