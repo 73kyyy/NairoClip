@@ -112,3 +112,35 @@ NC_TEST(Recovery, SnapshotIntegratesWithSerialization) {
     NC_CHECK(loadProjectFromNclip(snapshotText, restored).result.isOk());
     NC_CHECK_EQ(restored.name, std::string("崩溃恢复工程"));
 }
+
+NC_TEST(Recovery, LatestOrderingBelongsToStoreNotManagerLifetime) {
+    InMemoryRecoveryStore store;
+    AutoSavePolicy p = smallPolicy();
+    p.maxSnapshots = 3;
+    AutoSaveManager first(store, p);
+    for (int i = 0; i < 5; ++i) {
+        first.markDirty(fromSeconds(i * 10));
+        const int captured = i + 1;
+        NC_CHECK(first.tick(fromSeconds(i * 10 + 2), [captured] {
+            return std::string("{\"v\":") + std::to_string(captured) + "}";
+        }));
+    }
+    AutoSaveManager afterRestart(store, p);
+    std::string out;
+    NC_CHECK(afterRestart.recoverLatest(out).isOk());
+    NC_CHECK(out.find("\"v\":5") != std::string::npos);
+}
+
+NC_TEST(Recovery, StoreOrderingTracksSlotOverwrite) {
+    InMemoryRecoveryStore store;
+    NC_CHECK(store.write(0, "old-zero").isOk());
+    NC_CHECK(store.write(1, "middle").isOk());
+    NC_CHECK(store.write(0, "new-zero").isOk());
+    const auto order = store.listNewestFirst();
+    NC_CHECK_EQ(order.size(), std::size_t(2));
+    NC_CHECK_EQ(order[0], std::size_t(0));
+    NC_CHECK_EQ(order[1], std::size_t(1));
+    std::string latest;
+    NC_CHECK(store.read(order[0], latest).isOk());
+    NC_CHECK_EQ(latest, std::string("new-zero"));
+}
