@@ -281,12 +281,9 @@ jobs:
           # 而 ASAN 与 valgrind（各自带分配器）全量跑完 0 报错。
           # 这是"只在本环境暴露"的堆破坏，与本次 LUT 改动无关。
           #
-          # 之前用 NC_TEST_SKIP/MAX 按**位置**避开它，但位置会随着
-          # 新增测试整体漂移（每批测试都要同步改那个魔数 267），
-          # 忘改就会把崩溃用例又跑起来。按名字排除与顺序无关。
-          #
-          # 注意：这是**临时隔离**，不是修好。该用例本身仍需单独排查
-          # （CI 里已有 ONLY_267_* 等专项诊断步骤保留着）。
+          # 诊断 job 使用 NC_TEST_INCLUDE 的 suite/test 名称过滤，
+          # 新增测试不会改变选择范围，也不再维护注册索引魔数。
+          # 注意：这是临时隔离，不是修好；该用例本身仍需单独排查。
           MALLOC_PERTURB_=165 MALLOC_CHECK_=3 NC_TEST_CHECK_HEAP=1 \
             NC_EXPORT_HEAP_PROBE=1 NC_MEDIA_HEAP_PROBE=1 \
             NC_TEST_EXCLUDE=Capi.WatermarkRealExportEndToEnd \
