@@ -348,6 +348,13 @@ class NativeEngineBridge(
         val out = org.json.JSONArray()
         try {
             val dir = appContext?.filesDir ?: return """{"projects":[]}"""
+            // AtomicFile 在进程中断时可能留下 .bak；openRead() 会恢复原子备份。
+            dir.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".nclip.bak") }
+                ?.forEach { backup ->
+                    val base = java.io.File(dir, backup.name.removeSuffix(".bak"))
+                    try { AtomicFile(base).openRead().close() } catch (_: Throwable) { }
+                }
             dir.listFiles()
                 ?.filter { it.isFile && validProjectFile(it.name) }
                 ?.sortedByDescending { it.lastModified() }
