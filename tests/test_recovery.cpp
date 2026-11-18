@@ -82,7 +82,7 @@ NC_TEST(Recovery, FileStoreIgnoresCorruptAndTemporaryFiles) {
         std::ofstream corrupt(dir / "4.ncr", std::ios::binary);
         corrupt << "not-a-recovery-file";
         std::ofstream temporary(dir / "5.ncr.tmp", std::ios::binary);
-        temporary << "NCR2 99 7 0\\npartial";
+        temporary << "NCR2 99 7 0\npartial";
     }
     FileRecoveryStore store(dir);
     NC_CHECK(store.write(2, "valid-snapshot").isOk());
@@ -103,7 +103,7 @@ NC_TEST(Recovery, FileStoreRejectsTruncatedAndCorruptedPayloads) {
     const auto path = dir / "0.ncr";
     {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
-        file << "NCR2 10 100 123\\nshort";
+        file << "NCR2 10 100 123\nshort";
     }
     std::string out;
     NC_CHECK(!store.read(0, out).isOk());
