@@ -1,6 +1,7 @@
 #include "nairoclip/core/recovery.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <fstream>
 #include <iterator>
@@ -28,6 +29,7 @@ std::vector<std::size_t> RecoveryStore::listNewestFirst() const {
 
 namespace {
 constexpr const char* kRecoveryMagic = "NCR2";
+constexpr std::size_t kMaxHeaderBytes = 128;
 
 std::uint64_t checksum64(const std::string& data) {
     // FNV-1a detects torn/corrupted snapshots; it is not a cryptographic MAC.
@@ -39,12 +41,35 @@ std::uint64_t checksum64(const std::string& data) {
     return hash;
 }
 
+bool readHeaderLine(std::istream& input, std::string& line) {
+    line.clear();
+    char ch = 0;
+    while (input.get(ch)) {
+        if (ch == '\\n') return true;
+        if (line.size() >= kMaxHeaderBytes) return false;
+        line.push_back(ch);
+    }
+    return false;
+}
+
 bool parseHeader(const std::string& line, std::uint64_t& sequence,
                  std::uint64_t& size, std::uint64_t& checksum) {
     std::istringstream header(line);
     std::string magic, extra;
     if (!(header >> magic >> sequence >> size >> checksum) || magic != kRecoveryMagic) return false;
     return !(header >> extra);
+}
+
+std::filesystem::path makeTempPath(const std::filesystem::path& directory, std::size_t slot) {
+    static std::atomic<std::uint64_t> counter{0};
+#if defined(__unix__) || defined(__ANDROID__)
+    const auto process = static_cast<std::uint64_t>(::getpid());
+#else
+    const std::uint64_t process = 0;
+#endif
+    const auto unique = counter.fetch_add(1, std::memory_order_relaxed);
+    return directory / (std::to_string(slot) + ".ncr.tmp." +
+                        std::to_string(process) + "." + std::to_string(unique));
 }
 
 bool syncFilePath(const std::filesystem::path& path) {
@@ -102,14 +127,14 @@ std::vector<FileRecoveryStore::Entry> FileRecoveryStore::scanEntries() const {
             continue;
         }
         const auto fileBytes = it->file_size(ec);
-        if (ec || (fileBytes > maxSnapshotBytes_ && fileBytes - maxSnapshotBytes_ > 64)) {
+        if (ec || (fileBytes > maxSnapshotBytes_ && fileBytes - maxSnapshotBytes_ > kMaxHeaderBytes + 1)) {
             ec.clear();
             continue;
         }
         std::ifstream input(it->path(), std::ios::binary);
         std::string line, data;
         std::uint64_t sequence = 0, expectedSize = 0, expectedChecksum = 0;
-        if (!std::getline(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum) ||
+        if (!readHeaderLine(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum) ||
             sequence == 0 || expectedSize == 0 || expectedSize > maxSnapshotBytes_) continue;
         data.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
         if (data.size() != expectedSize || checksum64(data) != expectedChecksum) continue;
@@ -141,7 +166,7 @@ Result FileRecoveryStore::write(std::size_t slot, const std::string& data) {
     }
 
     const auto destination = slotPath(slot);
-    const auto temp = directory_ / (std::to_string(slot) + ".ncr.tmp");
+    const auto temp = makeTempPath(directory_, slot);
     const auto status = std::filesystem::symlink_status(destination, ec);
     if (!ec && std::filesystem::is_symlink(status)) {
         return Result::fail(ErrorCode::InvalidArgument, "恢复槽位不能是符号链接");
@@ -183,13 +208,13 @@ Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
         return Result::fail(ErrorCode::NotFound, "恢复快照不存在或文件类型非法");
     }
     const auto fileBytes = std::filesystem::file_size(path, ec);
-    if (ec || (fileBytes > maxSnapshotBytes_ && fileBytes - maxSnapshotBytes_ > 64)) {
+    if (ec || (fileBytes > maxSnapshotBytes_ && fileBytes - maxSnapshotBytes_ > kMaxHeaderBytes + 1)) {
         return Result::fail(ErrorCode::OutOfRange, "恢复快照文件超过大小限制或无法读取大小");
     }
     std::ifstream input(path, std::ios::binary);
     std::string line;
     std::uint64_t sequence = 0, expectedSize = 0, expectedChecksum = 0;
-    if (!std::getline(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum)) {
+    if (!readHeaderLine(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum)) {
         return Result::fail(ErrorCode::Internal, "恢复快照头损坏");
     }
     if (sequence == 0 || expectedSize == 0 || expectedSize > maxSnapshotBytes_) {
