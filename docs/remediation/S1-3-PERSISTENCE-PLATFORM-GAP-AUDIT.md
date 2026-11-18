@@ -36,19 +36,18 @@ This is a core storage primitive, not yet an Android recovery feature: `NcEditor
 
 ## Required implementation work
 
-1. Add a platform-owned project repository with safe filename validation and a fixed private storage root.
-2. Implement atomic save: write a temporary file in the same directory, flush/fsync where supported, validate the completed serialization, then atomically rename; preserve the previous valid file on failure.
-3. Implement load-by-ID/file through the platform bridge, with path traversal and symlink protections; do not accept arbitrary absolute paths from JavaScript.
-4. Implement permanent delete with explicit success/failure results and safe handling of missing files.
-5. Make editor startup consume the requested project identifier and load it before state/preview initialization.
-6. Wire `FileRecoveryStore` to a single-writer app-private Android directory through the editor lifecycle and C ABI/JNI; connect mutation dirty tracking, periodic snapshots, startup recovery discovery, and explicit user recovery.
-7. Add crash/process-kill, disk-full, partial-write, corrupted-file, concurrent-save, rename-failure, path-traversal, and migration tests.
-8. Add platform instrumentation tests. Core in-memory tests alone do not prove filesystem durability.
+1. Preserve and independently test the existing Android `AtomicFile` project repository, filename allowlist, project load-before-boot flow, debounced saves, and real disk deletion. Add instrumentation coverage for backup recovery, failed writes, process recreation, and malformed filenames.
+2. Define a single-writer ownership contract for `FileRecoveryStore`. Either enforce one instance/process per recovery directory or add an inter-process locking/unique-temp protocol before allowing concurrent writers. The current per-instance mutex is not sufficient for multiple instances.
+3. Integrate the recovery store and `AutoSaveManager` into `NcEditor`/C ABI/JNI using a fixed app-private directory. Never accept a filesystem path supplied by WebView/JavaScript.
+4. Connect real project mutation events to dirty tracking and periodic snapshot ticks; establish a deterministic shutdown/normal-save policy that clears recovery data only after a successful durable project save.
+5. Add startup recovery discovery and an explicit user-confirmed recovery flow, including validation through the project deserializer before replacing editor state.
+6. Add crash/process-kill, disk-full, partial-write, checksum mismatch, rename-failure, concurrent-writer, path-traversal, and migration tests.
+7. Run core tests and Android instrumentation/build verification on supported environments; record results and platform limitations rather than inferring durability from static inspection.
 
 ## Verification and status
 
 - Read the C ABI save/load implementation, Android bridge draft listing, JNI surface, editor bootstrap references, and recovery implementation.
 - Corrected the misleading in-memory-only draft deletion UI behavior.
-- Added a core `FileRecoveryStore` primitive and reconstruction/order/invalid-file test cases; this is not yet wired to Android or `NcEditor`.
+- Added a core `FileRecoveryStore` primitive with an `NCR2` sequence/length/FNV-1a checksum header, validation during scan/read, bounded scan allocation, and corruption/truncation test cases; this is not yet wired to Android or `NcEditor`.
 - Build and runtime tests have not been run; the new file-store tests are authored but unexecuted.
 - S1-3 remains **incomplete**.
