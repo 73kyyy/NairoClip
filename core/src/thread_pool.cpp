@@ -1,6 +1,7 @@
 #include "nairoclip/core/thread_pool.h"
 
 #include <algorithm>
+#include <exception>
 
 namespace nairoclip {
 namespace core {
@@ -58,7 +59,19 @@ void ThreadPool::workerLoop() {
         }
 
         if (localJob && end > begin) {
-            localJob(begin, end);
+            try {
+                localJob(begin, end);
+            } catch (...) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (!jobException_) {
+                    jobException_ = std::current_exception();
+                }
+                if (jobRemaining_ > 0 && --jobRemaining_ == 0) {
+                    cvDone_.notify_one();
+                }
+                continue;
+            }
+
             std::lock_guard<std::mutex> lock(mutex_);
             if (jobRemaining_ > 0 && --jobRemaining_ == 0) {
                 cvDone_.notify_one();
@@ -99,6 +112,7 @@ void ThreadPool::parallelFor(std::size_t count, std::size_t minPerTask,
             jobTotal_ = tasks;
             jobNext_ = 0;
             jobRemaining_ = tasks;
+            jobException_ = nullptr;
             hasJob_ = true;
         }
     }
@@ -111,8 +125,14 @@ void ThreadPool::parallelFor(std::size_t count, std::size_t minPerTask,
     {
         std::unique_lock<std::mutex> lock(mutex_);
         cvDone_.wait(lock, [this] { return jobRemaining_ == 0; });
+        const std::exception_ptr jobException = jobException_;
+        jobException_ = nullptr;
         hasJob_ = false;
         job_ = nullptr;
+        lock.unlock();
+        if (jobException) {
+            std::rethrow_exception(jobException);
+        }
     }
 }
 
