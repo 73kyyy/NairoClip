@@ -65,3 +65,40 @@ Therefore, subscribing only to `timeline.changed` or polling `directEditCount` i
 - Added a core `FileRecoveryStore` primitive with an `NCR2` sequence/length/FNV-1a checksum header, validation during scan/read, bounded payload allocation and bounded 128-byte header parsing, process-unique temporary names, and corruption/truncation/overlong-header test cases; this is not yet wired to Android or `NcEditor`. Single-writer-per-directory remains a hard constraint.
 - Build and runtime tests have not been run; the new file-store tests are authored but unexecuted.
 - S1-3 remains **incomplete**.
+
+
+## Implementation update · 2026-11-18 (supersedes earlier integration blockers where noted)
+
+The following source changes are now present on `work/v3.3.3-full-remediation`:
+
+1. **Cross-instance recovery-directory serialization**
+   - POSIX/Android `FileRecoveryStore` now uses `.nclip-recovery.lock` with `flock`: exclusive for write/remove, shared for read/list.
+   - The lock file is opened with `O_NOFOLLOW`; failure to acquire the lock fails writes/reads rather than proceeding without serialization.
+   - Directory sequence allocation and atomic slot replacement occur while holding the directory lock. The earlier one-writer-only statement is superseded for POSIX/Android. Non-POSIX builds still have only the in-process mutex and require a platform lock implementation before concurrent processes are supported.
+
+2. **NcEditor/C ABI recovery ownership**
+   - `NcEditor` owns `FileRecoveryStore` and `AutoSaveManager`.
+   - Added `nc_recovery_configure`, `nc_recovery_mark_dirty`, `nc_recovery_tick`, `nc_recovery_has_snapshot`, `nc_recovery_read_latest`, and `nc_recovery_mark_clean`.
+   - Snapshot serialization uses the existing project serializer; restore passes the snapshot through `nc_project_load`, retaining its validate-before-replace behavior.
+
+3. **Android/JNI lifecycle**
+   - Kotlin configures a separate recovery directory under `filesDir/recovery/<project-id>`; JavaScript cannot supply the directory.
+   - Successful `DispatchEdit` operations and accepted/partially-applied typed commands mark recovery dirty in JNI. The mutation timestamp is supplied by `SystemClock.elapsedRealtime()`, the same monotonic clock used by the watchdog tick.
+   - The watchdog advances recovery ticks under the existing `stateLock`.
+   - A successful `AtomicFile.finishWrite()` is followed by recovery clean-up. A recoverable snapshot is offered only after a project file is opened, and restore requires an explicit user confirmation.
+   - Recovery data is retained when the user declines the prompt; a later successful project save clears it.
+
+4. **New tests authored (not executed)**
+   - C ABI autosave lifecycle round-trip.
+   - Two `FileRecoveryStore` instances writing concurrently to one directory, checking distinct persisted sequence numbers.
+   - Symlinked lock-file rejection.
+   - Existing malformed-header and corruption/truncation tests remain.
+
+### Remaining S1-3 gaps
+
+- The `project.changed` event is still not published as a first-class event. Recovery dirty tracking is currently connected at the Android JNI mutation boundary; direct non-JNI C ABI clients must call the recovery dirty API explicitly.
+- Android process-kill/restart, AtomicFile backup restoration, FileProvider-to-WebView file access, recovery restore UI, disk-full and rename-failure behavior have not been exercised on a device.
+- The new C++ tests and Android Gradle/NDK build have not been run in this environment. Source presence and GitHub readback are not test evidence.
+- The current JS project-file debounce is 1.2 seconds and the recovery policy's idle delay is 2 seconds. The durable project file is the primary save path; recovery snapshots are a fallback when dirty state persists, not a zero-loss guarantee for a process killed immediately after an edit.
+
+S1-3 remains **incomplete pending full test and device verification**.
