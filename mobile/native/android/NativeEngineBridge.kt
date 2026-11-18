@@ -522,15 +522,17 @@ class NativeEngineBridge(
                         break
                     }
                 }
-                if (sourceTrack < 0 || sourceFormat == null) {
+                if (sourceTrack < 0) {
                     throw java.io.IOException("所选视频没有可提取的音频轨")
                 }
+                val audioFormat = sourceFormat
+                    ?: throw java.io.IOException("无法读取音频轨格式")
                 extractor.selectTrack(sourceTrack)
                 muxer = android.media.MediaMuxer(
                     output.absolutePath,
                     android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
                 )
-                val outputTrack = muxer.addTrack(sourceFormat)
+                val outputTrack = muxer.addTrack(audioFormat)
                 muxer.start()
                 muxerStarted = true
 
