@@ -2624,6 +2624,8 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeFrame(
     NcEditor* ed = guard.get();
     if (!ed) return nullptr;
 
+    // 每次预览先清除线程旧错误，避免把上一条 JNI 调用的错误误报到当前帧。
+    nc_clear_error();
     // nc_preview_render 输出的是 RGBA8 像素，不是 PNG。
     // 这里原样取出像素并交给 Kotlin 侧编码，避免在 NDK 里塞编码器。
     uint8_t* rgba = nullptr;
@@ -2668,6 +2670,16 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeFrame(
     }
     nc_free_buffer(rgba);
     return arr;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeLastError(
+    JNIEnv* env, jobject, jlong h) {
+    EditorHandleGuard guard(h);
+    if (!guard.get()) return ToJStr(env, Err("引擎未初始化", NC_ERROR_INVALID_ARGUMENT));
+    const char* message = nc_last_error();
+    const int32_t code = nc_last_error_code();
+    return ToJStr(env, Err(message ? message : "", code));
 }
 
 JNIEXPORT jbyteArray JNICALL
