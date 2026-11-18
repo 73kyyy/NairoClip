@@ -2253,6 +2253,8 @@ void nc_free_string(char* text);
 const char* nc_last_error(void);
 /// 最近一次 failNc 失败路径的错误码；与 nc_last_error() 同线程、同生命周期。
 int32_t nc_last_error_code(void);
+/// 清空当前线程的最近错误；用于将预览渲染失败与旧错误隔离。
+void nc_clear_error(void);
 
 // ---- 剪辑模板（B2-1 ~ B2-4）----
 //
