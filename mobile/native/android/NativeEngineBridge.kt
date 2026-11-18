@@ -153,6 +153,9 @@ class NativeEngineBridge(
         if (fn.isEmpty() || !fn.startsWith("nc_")) {
             return err("只接受 nc_ 开头的函数名")
         }
+        if (fn == "nc_import_asset") {
+            return err("素材必须通过系统文件选择器导入", -1001)
+        }
         return try {
             nativeCall(ensure(), fn, argsJson.ifBlank { "{}" })
         } catch (e: Throwable) {
@@ -395,6 +398,52 @@ class NativeEngineBridge(
     }
 
     /**
+     * 只导入由 MainActivity 系统文件选择器复制到 filesDir/imports 的素材。
+     * storageName 是 FileProvider 返回给 WebView 的唯一文件名，不接受路径。
+     */
+    @JavascriptInterface
+    fun importPickedMedia(storageName: String, type: Int, durationUs: Long): String =
+        synchronized(stateLock) {
+            val context = appContext ?: return@synchronized err("应用私有目录不可用", -1002)
+            if (!storageName.matches(Regex("^[0-9a-f]{32}__[\\p{L}\\p{N}._-]{1,120}$"))) {
+                return@synchronized err("素材文件标识非法", -1003)
+            }
+            if (type !in 0..2) {
+                return@synchronized err("素材类型不受支持", -1004)
+            }
+            if (durationUs <= 0L) {
+                return@synchronized err("素材时长非法", -1005)
+            }
+            val root = try {
+                java.io.File(context.filesDir, "imports").canonicalFile
+            } catch (e: Throwable) {
+                return@synchronized err("素材目录不可用：${e.message}", -1002)
+            }
+            val file = try {
+                java.io.File(root, storageName).canonicalFile
+            } catch (e: Throwable) {
+                return@synchronized err("素材路径解析失败：${e.message}", -1003)
+            }
+            if (file.parentFile != root || !file.isFile || file.length() <= 0L) {
+                return@synchronized err("素材文件不存在、为空或路径越界", -1006)
+            }
+            val displayName = storageName.substringAfter("__")
+            val args = JSONObject().apply {
+                put("name", displayName)
+                put("path", file.absolutePath)
+                put("type", type)
+                put("duration_us", durationUs)
+            }
+            try {
+                val handle = ensure()
+                if (handle == 0L) return@synchronized err("引擎未初始化", -1007)
+                JSONObject(nativeCall(handle, "nc_import_asset", args.toString())).toString()
+            } catch (e: Throwable) {
+                err("素材导入失败：${e.message}", -1008)
+            }
+        }
+
+    /**
      * 从应用私有目录原子保存当前工程。空文件名表示当前编辑会话草稿；
      * 首次保存时生成不可预测的文件名，后续复用该文件。
      */
@@ -604,9 +653,9 @@ class NativeEngineBridge(
         ((b[off + 2].toInt() and 0xFF) shl 16) or
         ((b[off + 3].toInt() and 0xFF) shl 24)
 
-    private fun err(msg: String): String =
+    private fun err(msg: String, code: Int = -1): String =
         JSONObject().apply {
-            put("ok", false); put("code", -1); put("message", msg)
+            put("ok", false); put("code", code); put("message", msg)
             put("result", JSONObject())
         }.toString()
 
