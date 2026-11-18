@@ -11,7 +11,9 @@
 #include <system_error>
 #if defined(__unix__) || defined(__ANDROID__)
 #include <fcntl.h>
+#include <sys/file.h>
 #include <unistd.h>
+#include <cerrno>
 #endif
 
 namespace nairoclip {
@@ -71,6 +73,48 @@ std::filesystem::path makeTempPath(const std::filesystem::path& directory, std::
     return directory / (std::to_string(slot) + ".ncr.tmp." +
                         std::to_string(process) + "." + std::to_string(unique));
 }
+
+class RecoveryDirectoryLock {
+public:
+    RecoveryDirectoryLock(const std::filesystem::path& directory, bool exclusive) {
+#if defined(__unix__) || defined(__ANDROID__)
+        const auto lockPath = directory / ".nclip-recovery.lock";
+        fd_ = ::open(lockPath.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd_ < 0) return;
+        const int operation = exclusive ? LOCK_EX : LOCK_SH;
+        while (::flock(fd_, operation) != 0) {
+            if (errno == EINTR) continue;
+            ::close(fd_);
+            fd_ = -1;
+            return;
+        }
+        locked_ = true;
+#else
+        (void)directory;
+        (void)exclusive;
+        locked_ = true;  // 非 POSIX 构建仍由实例内 mutex 串行化。
+#endif
+    }
+
+    ~RecoveryDirectoryLock() {
+#if defined(__unix__) || defined(__ANDROID__)
+        if (fd_ >= 0) {
+            if (locked_) (void)::flock(fd_, LOCK_UN);
+            (void)::close(fd_);
+        }
+#endif
+    }
+
+    RecoveryDirectoryLock(const RecoveryDirectoryLock&) = delete;
+    RecoveryDirectoryLock& operator=(const RecoveryDirectoryLock&) = delete;
+    bool valid() const { return locked_; }
+
+private:
+#if defined(__unix__) || defined(__ANDROID__)
+    int fd_ = -1;
+#endif
+    bool locked_ = false;
+};
 
 bool syncFilePath(const std::filesystem::path& path) {
 #if defined(__unix__) || defined(__ANDROID__)
@@ -155,6 +199,10 @@ Result FileRecoveryStore::write(std::size_t slot, const std::string& data) {
     std::error_code ec;
     std::filesystem::create_directories(directory_, ec);
     if (ec) return Result::fail(ErrorCode::Internal, "无法创建恢复目录: " + ec.message());
+    RecoveryDirectoryLock directoryLock(directory_, true);
+    if (!directoryLock.valid()) {
+        return Result::fail(ErrorCode::Internal, "无法取得恢复目录跨进程写锁");
+    }
 
     std::uint64_t sequence = 1;
     const auto entries = scanEntries();
@@ -201,6 +249,14 @@ Result FileRecoveryStore::write(std::size_t slot, const std::string& data) {
 
 Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code directoryError;
+    if (!std::filesystem::is_directory(directory_, directoryError) || directoryError) {
+        return Result::fail(ErrorCode::NotFound, "恢复目录不存在");
+    }
+    RecoveryDirectoryLock directoryLock(directory_, false);
+    if (!directoryLock.valid()) {
+        return Result::fail(ErrorCode::Internal, "无法取得恢复目录读锁");
+    }
     const auto path = slotPath(slot);
     std::error_code ec;
     const auto status = std::filesystem::symlink_status(path, ec);
@@ -232,6 +288,9 @@ Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
 void FileRecoveryStore::remove(std::size_t slot) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::error_code ec;
+    if (!std::filesystem::is_directory(directory_, ec) || ec) return;
+    RecoveryDirectoryLock directoryLock(directory_, true);
+    if (!directoryLock.valid()) return;
     const auto path = slotPath(slot);
     const auto status = std::filesystem::symlink_status(path, ec);
     if (!ec && std::filesystem::is_regular_file(status) && !std::filesystem::is_symlink(status)) {
@@ -242,6 +301,10 @@ void FileRecoveryStore::remove(std::size_t slot) {
 
 std::vector<std::size_t> FileRecoveryStore::list() const {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code ec;
+    if (!std::filesystem::is_directory(directory_, ec) || ec) return {};
+    RecoveryDirectoryLock directoryLock(directory_, false);
+    if (!directoryLock.valid()) return {};
     auto entries = scanEntries();
     std::vector<std::size_t> slots;
     slots.reserve(entries.size());
@@ -252,6 +315,10 @@ std::vector<std::size_t> FileRecoveryStore::list() const {
 
 std::vector<std::size_t> FileRecoveryStore::listNewestFirst() const {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code ec;
+    if (!std::filesystem::is_directory(directory_, ec) || ec) return {};
+    RecoveryDirectoryLock directoryLock(directory_, false);
+    if (!directoryLock.valid()) return {};
     const auto entries = scanEntries();
     std::vector<std::size_t> slots;
     slots.reserve(entries.size());
