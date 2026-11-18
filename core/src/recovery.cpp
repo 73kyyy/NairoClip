@@ -1,6 +1,14 @@
 #include "nairoclip/core/recovery.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <fstream>
+#include <limits>
+#include <system_error>
+#if defined(__unix__) || defined(__ANDROID__)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace nairoclip {
 namespace core {
@@ -10,6 +18,178 @@ namespace core {
 std::vector<std::size_t> RecoveryStore::listNewestFirst() const {
     auto slots = list();
     std::sort(slots.begin(), slots.end(), std::greater<std::size_t>());
+    return slots;
+}
+
+// ---------------- FileRecoveryStore ----------------
+
+namespace {
+constexpr const char* kRecoveryMagic = "NCR1";
+
+bool syncFilePath(const std::filesystem::path& path) {
+#if defined(__unix__) || defined(__ANDROID__)
+    const int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    const bool ok = (::fsync(fd) == 0);
+    ::close(fd);
+    return ok;
+#else
+    (void)path;
+    return true;
+#endif
+}
+
+bool syncDirectoryPath(const std::filesystem::path& path) {
+#if defined(__unix__) || defined(__ANDROID__)
+    const int fd = ::open(path.c_str(), O_RDONLY | O_DIRECTORY);
+    if (fd < 0) return false;
+    const bool ok = (::fsync(fd) == 0);
+    ::close(fd);
+    return ok;
+#else
+    (void)path;
+    return true;
+#endif
+}
+}  // namespace
+
+FileRecoveryStore::FileRecoveryStore(std::filesystem::path directory)
+    : directory_(std::move(directory)) {}
+
+std::filesystem::path FileRecoveryStore::slotPath(std::size_t slot) const {
+    return directory_ / (std::to_string(slot) + ".ncr");
+}
+
+std::vector<FileRecoveryStore::Entry> FileRecoveryStore::scanEntries() const {
+    std::vector<Entry> entries;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(directory_, ec) || ec) return entries;
+    for (std::filesystem::directory_iterator it(directory_, ec), end; !ec && it != end; it.increment(ec)) {
+        const auto status = it->symlink_status(ec);
+        if (ec || std::filesystem::is_symlink(status) || !std::filesystem::is_regular_file(status)) {
+            ec.clear();
+            continue;
+        }
+        const auto name = it->path().filename().string();
+        if (name.size() < 5 || name.substr(name.size() - 4) != ".ncr") continue;
+        std::size_t slot = 0;
+        try {
+            std::size_t used = 0;
+            slot = static_cast<std::size_t>(std::stoull(name.substr(0, name.size() - 4), &used));
+            if (used != name.size() - 4 || std::to_string(slot) != name.substr(0, name.size() - 4)) continue;
+        } catch (...) {
+            continue;
+        }
+        std::ifstream input(it->path(), std::ios::binary);
+        std::string magic;
+        std::uint64_t sequence = 0;
+        if (!(input >> magic >> sequence) || magic != kRecoveryMagic) continue;
+        entries.push_back(Entry{slot, sequence});
+    }
+    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
+        if (a.sequence != b.sequence) return a.sequence > b.sequence;
+        return a.slot > b.slot;
+    });
+    return entries;
+}
+
+Result FileRecoveryStore::write(std::size_t slot, const std::string& data) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code ec;
+    std::filesystem::create_directories(directory_, ec);
+    if (ec) return Result::fail(ErrorCode::Internal, "无法创建恢复目录: " + ec.message());
+
+    std::uint64_t sequence = 1;
+    const auto entries = scanEntries();
+    if (!entries.empty()) {
+        if (entries.front().sequence == std::numeric_limits<std::uint64_t>::max()) {
+            return Result::fail(ErrorCode::OutOfRange, "恢复快照序号耗尽");
+        }
+        sequence = entries.front().sequence + 1;
+    }
+
+    const auto destination = slotPath(slot);
+    const auto temp = directory_ / (std::to_string(slot) + ".ncr.tmp");
+    const auto status = std::filesystem::symlink_status(destination, ec);
+    if (!ec && std::filesystem::is_symlink(status)) {
+        return Result::fail(ErrorCode::InvalidArgument, "恢复槽位不能是符号链接");
+    }
+    ec.clear();
+    {
+        std::ofstream output(temp, std::ios::binary | std::ios::trunc);
+        if (!output) return Result::fail(ErrorCode::Internal, "无法创建恢复快照临时文件");
+        output << kRecoveryMagic << ' ' << sequence << '\n';
+        output.write(data.data(), static_cast<std::streamsize>(data.size()));
+        output.flush();
+        if (!output) {
+            output.close();
+            std::filesystem::remove(temp, ec);
+            return Result::fail(ErrorCode::Internal, "恢复快照写入失败");
+        }
+    }
+    if (!syncFilePath(temp)) {
+        std::filesystem::remove(temp, ec);
+        return Result::fail(ErrorCode::Internal, "恢复快照 fsync 失败");
+    }
+    std::filesystem::rename(temp, destination, ec);
+    if (ec) {
+        std::filesystem::remove(temp, ec);
+        return Result::fail(ErrorCode::Internal, "恢复快照原子替换失败");
+    }
+    if (!syncDirectoryPath(directory_)) {
+        return Result::fail(ErrorCode::Internal, "恢复目录 fsync 失败");
+    }
+    return Result::ok();
+}
+
+Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto path = slotPath(slot);
+    std::error_code ec;
+    const auto status = std::filesystem::symlink_status(path, ec);
+    if (ec || !std::filesystem::is_regular_file(status) || std::filesystem::is_symlink(status)) {
+        return Result::fail(ErrorCode::NotFound, "恢复快照不存在或文件类型非法");
+    }
+    std::ifstream input(path, std::ios::binary);
+    std::string magic;
+    std::uint64_t sequence = 0;
+    if (!(input >> magic >> sequence) || magic != kRecoveryMagic) {
+        return Result::fail(ErrorCode::Internal, "恢复快照头损坏");
+    }
+    input.get();
+    std::string data((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    if (!input.eof() && input.fail()) return Result::fail(ErrorCode::Internal, "恢复快照读取失败");
+    out = std::move(data);
+    return Result::ok();
+}
+
+void FileRecoveryStore::remove(std::size_t slot) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code ec;
+    const auto path = slotPath(slot);
+    const auto status = std::filesystem::symlink_status(path, ec);
+    if (!ec && std::filesystem::is_regular_file(status) && !std::filesystem::is_symlink(status)) {
+        std::filesystem::remove(path, ec);
+        if (!ec) (void)syncDirectoryPath(directory_);
+    }
+}
+
+std::vector<std::size_t> FileRecoveryStore::list() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto entries = scanEntries();
+    std::vector<std::size_t> slots;
+    slots.reserve(entries.size());
+    for (const auto& entry : entries) slots.push_back(entry.slot);
+    std::sort(slots.begin(), slots.end());
+    return slots;
+}
+
+std::vector<std::size_t> FileRecoveryStore::listNewestFirst() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto entries = scanEntries();
+    std::vector<std::size_t> slots;
+    slots.reserve(entries.size());
+    for (const auto& entry : entries) slots.push_back(entry.slot);
     return slots;
 }
 
