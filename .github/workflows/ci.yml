@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, work/v3.3.3-full-remediation ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -421,43 +421,22 @@ jobs:
           } > /tmp/lutdiag/summary.txt
           grep -E '^\[  OK  \]' /tmp/lut_output.txt > /tmp/lutdiag/ok.txt || true
 
-      - name: 对账用例总数
-        # 踩过的坑：新测试文件没编进主套件，全量仍全绿。
-        # 用例数只增不减，设下限可以抓住「漏编」。
+      - name: 对账用例总数（动态清单）
+        # 先确认完整运行汇总存在，再用运行时注册清单核对实际编译/执行覆盖。
+        # 1458 的历史下限已迁入 tools/test_inventory.json；后续以验证过的
+        # runtime inventory baseline 为准，不在 workflow 内写死魔数。
         run: |
-          SUMMARY=$(grep -E '^=====.*cases' /tmp/test_output.txt || true)
-
-          # 没有汇总行 = 进程中途 abort（既有 glibc 堆破坏，非本次改动引入）。
-          # 这时不能直接判失败：那会把「已通过的部分」和「新增用例是否可用」
-          # 一起埋掉。改为：
-          #   · 明确标注这是**既有**崩溃，并给出已跑到哪个用例
-          #   · 若 LUT 专项（上一步）为绿，则新增功能判定为可用
-          #   · 但整条 CI 仍标红（下面 exit 1），因为堆破坏本身没修好
-          if [ -z "$SUMMARY" ]; then
-            echo "::error title=KNOWN_CRASH::全量测试中途 abort（既有 glibc 堆破坏）"
-            LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1 || true)
+          if ! grep -q '^\\[SHARD_STATS\\] shard=0 shards=1 ' /tmp/test_output.txt; then
+            echo "::error title=KNOWN_CRASH::全量测试未产生完整汇总（中途崩溃或被终止）"
+            LAST=$(grep -E '^\\[ RUN  \\]' /tmp/test_output.txt | tail -1 || true)
             echo "崩溃前最后进入的用例：${LAST:-未知}"
-            if [ -f /tmp/lut_output.txt ] && grep -q '^=====' /tmp/lut_output.txt; then
-              LUTSUM=$(grep -E '^=====' /tmp/lut_output.txt | tail -1)
-              echo "LUT 专项汇总：$LUTSUM"
-              echo "::notice title=LUT_OK::新增 LUT 用例已单独验证通过"
-            fi
-            echo "结论：既有堆破坏仍未修复；本次 LUT 改动由专项步骤独立验证。"
+            tail -40 /tmp/test_output.txt
             exit 1
           fi
-
-          CASES=$(echo "$SUMMARY" | sed -E 's/^===== ([0-9]+) cases.*/\1/')
-          FAILED=$(echo "$SUMMARY" | sed -E 's/.*\| ([0-9]+) failed.*/\1/')
-          echo "用例数=$CASES 失败数=$FAILED"
-          if [ "$CASES" -lt 1458 ]; then
-            echo "ERROR: 用例数 $CASES 低于下限 1458（LUT 接口新增 15 例），可能有测试文件未编入"
-            exit 1
-          fi
-          if [ "$FAILED" -ne 0 ]; then
-            echo "ERROR: $FAILED 个用例失败"
-            exit 1
-          fi
-          echo "全部通过"
+          python3 tools/check_test_inventory.py \
+            --binary ./build/tests/nairoclip_tests \
+            --inventory tools/test_inventory.json \
+            --summary /tmp/test_output.txt
 
       - name: 上传测试输出
         if: always()
