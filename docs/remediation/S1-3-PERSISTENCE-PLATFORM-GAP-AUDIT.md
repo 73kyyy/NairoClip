@@ -12,25 +12,27 @@
 `nc_project_load()` parses supplied text and replaces the in-memory project.
 Neither API accepts a filesystem path or performs disk I/O. They are serialization primitives, not durable project storage.
 
-### 2. Android currently enumerates draft files but does not persist projects
+### 2. Android project-file persistence is implemented; recovery snapshots are separate
 
-`NativeEngineBridge.listProjects()` scans only the top-level `filesDir` for `.nclip` files and returns filename and byte size. It does not expose a save, load-by-filename, or delete operation. The returned records do not include actual duration or modification time.
+The current Android bridge implements app-private project-file operations: `saveProjectFile()`, `loadProjectFile()`, `listProjects()`, and `deleteProject()`. The storage root is derived from the application private `filesDir`; filenames are restricted to a bounded `.nclip` allowlist rather than accepting arbitrary paths from JavaScript. Writes use Android `AtomicFile` and synchronize the file descriptor before finishing the write. Reads enforce a size bound and use the AtomicFile backup recovery path.
 
-### 3. Opening a draft is not connected to project loading
+This is durable project-file storage, not the separate crash-recovery snapshot subsystem. The bridge's project list reports file metadata; it does not establish that `AutoSaveManager` or `FileRecoveryStore` is active.
 
-`home.js` navigates to the editor with a `project=<filename>` query parameter. The inspected editor bootstrap and NativeEngineBridge do not implement a corresponding load-from-disk operation. The parameter alone does not load a project.
+### 3. Opening a draft is connected to project loading
 
-### 4. Draft deletion previously changed only the in-memory list
+The editor bootstrap consumes the `project=<filename>` query parameter and calls the bridge load operation before booting the editing engine. A load failure is surfaced and prevents silently opening an empty project. New projects receive a persistent draft identity and subsequent project mutations trigger debounced project-file saves.
 
-The previous `deletePicked()` filtered `H.projects` and displayed a removal toast without deleting the backing file. This was misleading because the draft reappeared after a reload.
+### 4. Draft deletion removes the backing file
 
-A corrective change now refuses to claim deletion while `NCEngine.deleteProject()` is unavailable. If that API is added later, the UI will require an explicit positive result and then reload the list from disk.
+The current `home.js` deletion flow calls `NCEngine.deleteProject()`, requires an explicit successful result, and then refreshes the list from disk. A list-refresh failure preserves the last known list rather than presenting a false empty state.
+
+These project-file operations correct the earlier draft-list/open/delete gaps. They do not close the remaining S1-3 recovery integration gap described below.
 
 ### 5. RecoveryStore has a core file-backed implementation, but is not integrated
 
-A new C++17 `FileRecoveryStore` now stores each slot in an individual `.ncr` file. Each file carries a monotonically increasing sequence number, so newest-first ordering survives destruction and reconstruction of the store object without a separate ordering manifest. Writes use a same-directory temporary file, flush, POSIX `fsync` where available, and rename; reads and writes enforce a configurable size bound, and directory scans ignore malformed files, temporary files, and symlinks.
+A new C++17 `FileRecoveryStore` stores each slot in an individual `.ncr` file. The current `NCR2` record header carries a monotonically increasing sequence number, payload length, and FNV-1a checksum; both reads and directory scans reject truncated or checksum-mismatched payloads. Writes use a same-directory temporary file, flush, POSIX `fsync` where available, and rename. This checksum detects accidental corruption/torn writes; it is not a cryptographic authenticity mechanism. The store is not yet integrated into the Android editor lifecycle.
 
-This is a core storage primitive, not yet an Android recovery feature: `NcEditor` does not own/configure it, no C ABI/JNI method configures its private directory, and editor mutations do not yet drive `AutoSaveManager::markDirty/tick`. The store mutex protects calls through one instance only; multi-process or multiple-instance writers to the same directory are not coordinated. Crash/disk-fault and Android instrumentation tests have not been run.
+This is a core storage primitive, not yet an Android recovery feature: `NcEditor` does not own/configure it, no C ABI/JNI method configures its private directory, and editor mutations do not yet drive `AutoSaveManager::markDirty/tick`. The store mutex protects calls through one instance only; multi-process or multiple-instance writers to the same directory are not coordinated. Android project files use a separate `AtomicFile` repository and should not be described as proof that the C++ recovery slots are durable or connected. Crash/disk-fault and Android instrumentation tests have not been run.
 
 ## Required implementation work
 
