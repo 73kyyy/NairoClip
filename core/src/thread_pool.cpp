@@ -98,8 +98,6 @@ void ThreadPool::parallelFor(std::size_t count, std::size_t minPerTask,
     }
 
     const std::size_t tasks = std::min(wantTasks, nThreads);
-    const std::size_t chunk = (count + tasks - 1) / tasks;
-
     bool runInline = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
