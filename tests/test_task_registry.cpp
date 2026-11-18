@@ -224,7 +224,7 @@ NC_TEST(TaskRegistry2, CompletionCannotOverrideCancellationRequest) {
     // 取消请求已登记后，迟到的成功回调不得把任务改成 Completed，
     // 也不得写入结果载荷或以超大结果回调把任务改成 Failed。
     NC_CHECK(!reg.complete(id));
-    NC_CHECK(!reg.completeWithResult(id, "ai.depth.result", "{\\"ok\\":true}", 1100));
+    NC_CHECK(!reg.completeWithResult(id, "ai.depth.result", "{\"ok\":true}", 1100));
     NC_CHECK(!reg.completeWithResult(
         id, "ai.depth.result", std::string(kMaxResultBytes + 1, 'x'), 1100));
 
