@@ -141,3 +141,29 @@ NC_TEST(Json, AcceptsConfiguredMaximumNestingDepth) {
     JsonParseError error;
     NC_CHECK(parseJson(text, parsed, error));
 }
+
+NC_TEST(Json, RejectsInputAboveConfiguredByteLimit) {
+    std::string text(64u * 1024u * 1024u + 1u, ' ');
+    JsonValue parsed;
+    JsonParseError error;
+    NC_CHECK(!parseJson(text, parsed, error));
+    NC_CHECK(error.message.find("64 MiB") != std::string::npos);
+}
+
+NC_TEST(Json, RejectsExcessiveTotalValueCount) {
+    std::string text = "[";
+    for (std::size_t group = 0; group < 6u; ++group) {
+        if (group) text += ',';
+        text += '[';
+        for (std::size_t item = 0; item < 83334u; ++item) {
+            if (item) text += ',';
+            text += '0';
+        }
+        text += ']';
+    }
+    text += ']';
+    JsonValue parsed;
+    JsonParseError error;
+    NC_CHECK(!parseJson(text, parsed, error));
+    NC_CHECK(error.message.find("节点") != std::string::npos);
+}
