@@ -33,6 +33,7 @@
 #include "nairoclip/core/model_manager.h"
 #include "nairoclip/core/serialization.h"
 #include "nairoclip/core/preview.h"
+#include "nairoclip/core/recovery.h"
 #include "nairoclip/core/thumbnail.h"
 #include "nairoclip/core/waveform.h"
 #include "nairoclip/core/scene_detect.h"
@@ -108,6 +109,9 @@ struct NcEditor {
     InvisibleWatermarkSpec invisibleWatermark;
     /// 契约层事件总线（P1）：命令成功后发布 timeline.changed。
     contract::EventBus eventBus;
+    /// 工程崩溃恢复：平台层配置应用私有目录，核心只负责快照状态机。
+    std::unique_ptr<FileRecoveryStore> recoveryStore;
+    std::unique_ptr<AutoSaveManager> autoSave;
     /// 契约层命令分发器（P1）：把 CommandRequest 信封翻译成真实编辑调用。
     /// 必须在 editor 之后构造（持有 editor 引用）。
     contract::CommandDispatcher* dispatcher = nullptr;
@@ -523,6 +527,70 @@ int32_t nc_project_load(NcEditor* editor, const char* nclip_text, char** detail)
 
     /* 加载后预热开头几帧（P2）。失败不影响加载结果。 */
     (void)nc_preview_prewarm(editor, 6);
+    return NC_OK;
+}
+
+// ---- 工程崩溃恢复（S1-3）----
+
+int32_t nc_recovery_configure(NcEditor* editor, const char* directory) {
+    if (editor == nullptr || directory == nullptr || directory[0] == '\0') {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复目录参数非法");
+    }
+    try {
+        // AutoSaveManager 持有 RecoveryStore 引用，替换时必须先销毁 manager。
+        editor->autoSave.reset();
+        editor->recoveryStore.reset();
+        editor->recoveryStore = std::make_unique<FileRecoveryStore>(
+            std::filesystem::path(directory));
+        editor->autoSave = std::make_unique<AutoSaveManager>(*editor->recoveryStore);
+        return NC_OK;
+    } catch (const std::exception& e) {
+        editor->autoSave.reset();
+        editor->recoveryStore.reset();
+        return failNc(NC_ERROR_INTERNAL, std::string("恢复系统初始化失败：") + e.what());
+    } catch (...) {
+        editor->autoSave.reset();
+        editor->recoveryStore.reset();
+        return failNc(NC_ERROR_INTERNAL, "恢复系统初始化失败");
+    }
+}
+
+int32_t nc_recovery_mark_dirty(NcEditor* editor, int64_t now_ms) {
+    if (editor == nullptr || now_ms <= 0 || editor->autoSave == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复脏标记参数或状态非法");
+    }
+    editor->autoSave->markDirty(fromMilliseconds(now_ms));
+    return NC_OK;
+}
+
+int32_t nc_recovery_tick(NcEditor* editor, int64_t now_ms) {
+    if (editor == nullptr || now_ms <= 0 || editor->autoSave == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复定时参数或状态非法");
+    }
+    const bool written = editor->autoSave->tick(fromMilliseconds(now_ms), [editor] {
+        return saveProjectToNclip(editor->project);
+    });
+    return written ? 1 : 0;
+}
+
+int32_t nc_recovery_has_snapshot(const NcEditor* editor) {
+    if (editor == nullptr || editor->autoSave == nullptr) return 0;
+    return editor->autoSave->hasRecoverable() ? 1 : 0;
+}
+
+char* nc_recovery_read_latest(const NcEditor* editor) {
+    if (editor == nullptr || editor->autoSave == nullptr) return nullptr;
+    std::string snapshot;
+    const Result result = editor->autoSave->recoverLatest(snapshot);
+    if (!result.isOk()) return nullptr;
+    return dupString(snapshot);
+}
+
+int32_t nc_recovery_mark_clean(NcEditor* editor) {
+    if (editor == nullptr || editor->autoSave == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复系统尚未配置");
+    }
+    editor->autoSave->markClean();
     return NC_OK;
 }
 
