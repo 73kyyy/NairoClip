@@ -540,16 +540,16 @@ int32_t nc_recovery_configure(NcEditor* editor, const char* directory) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复目录参数非法");
     }
     try {
-        // AutoSaveManager 持有 RecoveryStore 引用，替换时必须先销毁 manager。
-        editor->autoSave.reset();
-        editor->recoveryStore.reset();
-        editor->recoveryStore = std::make_unique<FileRecoveryStore>(
-            std::filesystem::path(directory));
-        if (!editor->recoveryStore->validate().isOk()) {
-            editor->recoveryStore.reset();
+        // 先在局部对象中完整验证并构造新 manager；失败时保留旧项目的恢复上下文。
+        auto nextStore = std::make_unique<FileRecoveryStore>(std::filesystem::path(directory));
+        if (!nextStore->validate().isOk()) {
             return failNc(NC_ERROR_INTERNAL, "恢复目录或跨进程锁不可用");
         }
-        editor->autoSave = std::make_unique<AutoSaveManager>(*editor->recoveryStore);
+        auto nextAutoSave = std::make_unique<AutoSaveManager>(*nextStore);
+        // AutoSaveManager 持有 RecoveryStore 引用；提交替换时先销毁旧 manager。
+        editor->autoSave.reset();
+        editor->recoveryStore = std::move(nextStore);
+        editor->autoSave = std::move(nextAutoSave);
         return NC_OK;
     } catch (const std::exception& e) {
         editor->autoSave.reset();
