@@ -68,10 +68,17 @@ AutoSaveManager::AutoSaveManager(RecoveryStore& store, AutoSavePolicy policy)
     }
 
     std::vector<bool> occupied(capacity, false);
-    const auto newestFirst = store_.listNewestFirst();
-    for (const std::size_t slot : newestFirst) {
-        if (slot < capacity) occupied[slot] = true;
+    const auto existing = store_.list();
+    for (const std::size_t slot : existing) {
+        if (slot >= capacity) {
+            // A smaller retention policy must not leave unreachable snapshots
+            // accumulating indefinitely on disk.
+            store_.remove(slot);
+        } else {
+            occupied[slot] = true;
+        }
     }
+    const auto newestFirst = store_.listNewestFirst();
 
     if (newestFirst.empty()) return;
 
