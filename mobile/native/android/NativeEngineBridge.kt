@@ -170,7 +170,7 @@ class NativeEngineBridge(
     /**
      * 通用任务契约（T2.2）。
      *
-     * 时间基准由平台层提供（System.currentTimeMillis），核心层不读系统时钟，
+     * 时间基准由平台层提供（SystemClock.elapsedRealtime 单调时钟），核心层不读系统时钟，
      * 也不起后台线程 —— 超时由 [taskTick] 驱动看门狗判定。
      *
      * 与 applyCommand 一样，这是 typed 入口，不走 call() 的函数名分发。
