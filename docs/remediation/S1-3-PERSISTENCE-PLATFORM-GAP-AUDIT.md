@@ -26,9 +26,11 @@ The previous `deletePicked()` filtered `H.projects` and displayed a removal toas
 
 A corrective change now refuses to claim deletion while `NCEngine.deleteProject()` is unavailable. If that API is added later, the UI will require an explicit positive result and then reload the list from disk.
 
-### 5. RecoveryStore is not a durable platform store
+### 5. RecoveryStore has a core file-backed implementation, but is not integrated
 
-The current concrete implementation inspected in `recovery.cpp` is `InMemoryRecoveryStore`. The `RecoveryStore` interface allows platform implementations, but no Android filesystem implementation or JNI/C ABI integration was found in the repository tree. `AutoSaveManager` therefore cannot survive process death when used with the in-memory implementation.
+A new C++17 `FileRecoveryStore` now stores each slot in an individual `.ncr` file. Each file carries a monotonically increasing sequence number, so newest-first ordering survives destruction and reconstruction of the store object without a separate ordering manifest. Writes use a same-directory temporary file, flush, POSIX `fsync` where available, and rename; reads and writes enforce a configurable size bound, and directory scans ignore malformed files, temporary files, and symlinks.
+
+This is a core storage primitive, not yet an Android recovery feature: `NcEditor` does not own/configure it, no C ABI/JNI method configures its private directory, and editor mutations do not yet drive `AutoSaveManager::markDirty/tick`. The store mutex protects calls through one instance only; multi-process or multiple-instance writers to the same directory are not coordinated. Crash/disk-fault and Android instrumentation tests have not been run.
 
 ## Required implementation work
 
@@ -37,7 +39,7 @@ The current concrete implementation inspected in `recovery.cpp` is `InMemoryReco
 3. Implement load-by-ID/file through the platform bridge, with path traversal and symlink protections; do not accept arbitrary absolute paths from JavaScript.
 4. Implement permanent delete with explicit success/failure results and safe handling of missing files.
 5. Make editor startup consume the requested project identifier and load it before state/preview initialization.
-6. Add durable Android RecoveryStore using app-private files, bounded slots, atomic writes, and startup recovery discovery.
+6. Wire `FileRecoveryStore` to a single-writer app-private Android directory through the editor lifecycle and C ABI/JNI; connect mutation dirty tracking, periodic snapshots, startup recovery discovery, and explicit user recovery.
 7. Add crash/process-kill, disk-full, partial-write, corrupted-file, concurrent-save, rename-failure, path-traversal, and migration tests.
 8. Add platform instrumentation tests. Core in-memory tests alone do not prove filesystem durability.
 
@@ -45,6 +47,6 @@ The current concrete implementation inspected in `recovery.cpp` is `InMemoryReco
 
 - Read the C ABI save/load implementation, Android bridge draft listing, JNI surface, editor bootstrap references, and recovery implementation.
 - Corrected the misleading in-memory-only draft deletion UI behavior.
-- No durable save/load/delete or Android RecoveryStore implementation was added in this audit.
-- Build and runtime tests have not been run.
+- Added a core `FileRecoveryStore` primitive and reconstruction/order/invalid-file test cases; this is not yet wired to Android or `NcEditor`.
+- Build and runtime tests have not been run; the new file-store tests are authored but unexecuted.
 - S1-3 remains **incomplete**.
