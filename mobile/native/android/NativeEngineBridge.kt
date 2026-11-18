@@ -539,6 +539,9 @@ class NativeEngineBridge(
                 } else {
                     4 * 1024 * 1024
                 }
+                if (declaredBuffer > 8 * 1024 * 1024) {
+                    throw java.io.IOException("音频轨声明的样本缓冲区超过 8 MiB 安全上限")
+                }
                 val bufferSize = declaredBuffer.coerceAtLeast(64 * 1024)
                 val buffer = java.nio.ByteBuffer.allocateDirect(bufferSize)
                 val info = android.media.MediaCodec.BufferInfo()
@@ -559,7 +562,6 @@ class NativeEngineBridge(
                 muxerStarted = false
                 muxer.release()
                 muxer = null
-                extractor.release()
 
                 if (!output.isFile || output.length() <= 0L) {
                     throw java.io.IOException("系统封装器未生成有效音频文件")
