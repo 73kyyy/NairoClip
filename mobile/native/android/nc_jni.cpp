@@ -2362,6 +2362,35 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
     return ToJStr(env, Err("未开放的操作：" + name));
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeProjectSave(
+    JNIEnv* env, jobject, jlong h) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return nullptr;
+    char* raw = nc_project_save(ed);
+    if (raw == nullptr) return ToJStr(env, Err("工程序列化失败"));
+    const std::string out(raw);
+    nc_free_string(raw);
+    return ToJStr(env, out);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeProjectLoad(
+    JNIEnv* env, jobject, jlong h, jstring projectText) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return ToJStr(env, Err("引擎句柄已失效"));
+    const std::string text = JStr(env, projectText);
+    if (text.empty()) return ToJStr(env, Err("工程文件为空"));
+    char* detail = nullptr;
+    const int32_t rc = nc_project_load(ed, text.c_str(), &detail);
+    std::string message = detail ? detail : "";
+    if (detail) nc_free_string(detail);
+    if (rc != NC_OK) return ToJStr(env, Err(message.empty() ? "工程载入失败" : message));
+    return ToJStr(env, "{\\"ok\\":true,\\"code\\":0,\\"message\\":\\"工程已载入\\",\\"result\\":{}}");
+}
+
 // 契约层统一命令入口（P1/P2）。
 // 刻意**不**走 nativeCall 的 op 字符串分发：那正是 03 §6 明令禁止的
 // 「仅凭函数名字符串判断业务权限」模式。这里是独立 typed 入口，
