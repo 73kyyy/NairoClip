@@ -743,8 +743,50 @@ function edit(payload) {
   if (!r || !r.ok) throw new Error((r && r.message) || `操作失败（${(r && r.code) ?? '未知'}）`);
   applyState(fetchState());
   renderAll();
+  scheduleProjectSave();
   return r;
 }
+
+/* 本地工程自动保存：仅在成功编辑后标记脏状态，短暂防抖后原子写入。 */
+let projectSaveTimer = null;
+let projectSaveDirty = false;
+function saveCurrentProject() {
+  const bridge = window.NCEngine;
+  if (!bridge || typeof bridge.saveProjectFile !== 'function') return false;
+  try {
+    const raw = bridge.saveProjectFile();
+    const result = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
+    if (!result || result.ok !== true) {
+      console.warn('[NairoClip] 本地草稿保存失败:', result && result.message);
+      return false;
+    }
+    projectSaveDirty = false;
+    return true;
+  } catch (error) {
+    console.warn('[NairoClip] 本地草稿保存异常:', error);
+    return false;
+  }
+}
+function scheduleProjectSave() {
+  projectSaveDirty = true;
+  if (projectSaveTimer !== null) clearTimeout(projectSaveTimer);
+  projectSaveTimer = setTimeout(() => {
+    projectSaveTimer = null;
+    if (projectSaveDirty) saveCurrentProject();
+  }, 1200);
+}
+window.addEventListener('pagehide', () => {
+  if (projectSaveTimer !== null) clearTimeout(projectSaveTimer);
+  projectSaveTimer = null;
+  if (projectSaveDirty) saveCurrentProject();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && projectSaveDirty) {
+    if (projectSaveTimer !== null) clearTimeout(projectSaveTimer);
+    projectSaveTimer = null;
+    saveCurrentProject();
+  }
+});
 
 /* 桥调用统一入口：桥同步返回 JSON 字符串 */
 function engineCall(fn, args) {
@@ -5374,6 +5416,33 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
   try { S.headsOpen = localStorage.getItem('nc.headsOpen') === '1'; } catch (err) {}
   E.app.classList.toggle('heads-open', !!S.headsOpen);
 
+  const query = new URLSearchParams(location.search);
+  const projectFile = query.get('project');
+  if (projectFile) {
+    const bridge = window.NCEngine;
+    if (!bridge || typeof bridge.loadProjectFile !== 'function') {
+      E.hint.hidden = false;
+      const t = E.hint.querySelector('.eh-text');
+      t.textContent = '当前平台不支持从本地载入工程';
+      return;
+    }
+    try {
+      const raw = bridge.loadProjectFile(projectFile);
+      const loaded = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
+      if (!loaded || loaded.ok !== true) {
+        E.hint.hidden = false;
+        const t = E.hint.querySelector('.eh-text');
+        t.textContent = `工程载入失败 · ${(loaded && loaded.message) || '未知错误'}`;
+        return;
+      }
+    } catch (error) {
+      E.hint.hidden = false;
+      const t = E.hint.querySelector('.eh-text');
+      t.textContent = `工程载入失败 · ${error.message || error}`;
+      return;
+    }
+  }
+
   const ok = await Engine.boot();
   if (!ok) {
     E.hint.hidden = false;
@@ -5411,6 +5480,9 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
      表现是「预览一直是默认的 Fit，上下有黑边」。 */
   try { await edit({ op: 'nc_set_frame_fit', mode: 1 }); } catch (err) { /* 老引擎无此接口时保持默认 */ }
   renderAll();
+
+  // 新建工程首次进入即建立本地草稿；已打开的工程沿用原文件名。
+  if (!projectFile) saveCurrentProject();
 
   const q = new URLSearchParams(location.search);
   if (q.get('l1')) {
