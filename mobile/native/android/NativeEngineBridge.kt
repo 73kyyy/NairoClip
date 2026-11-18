@@ -453,9 +453,16 @@ class NativeEngineBridge(
             }
             return@synchronized err("所选素材已不存在", -1006)
         }
+        val normalizedDisplayName = fileName
+            .substringAfterLast('/')
+            .substringAfterLast('\\\\')
+            .replace(Regex("[^\\\\p{L}\\\\p{N}._-]"), "_")
+            .trim('.')
+            .take(120)
+            .ifBlank { "media.bin" }
         val matches = (root.listFiles() ?: emptyArray()).filter { file ->
             file.isFile && exact.matches(file.name) &&
-                file.name.substringAfter("__") == fileName && file.length() > 0L
+                file.name.substringAfter("__") == normalizedDisplayName && file.length() > 0L
         }
         when (matches.size) {
             0 -> err("无法将所选文件名映射到应用私有素材", -1006)
