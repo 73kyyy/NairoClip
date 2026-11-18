@@ -1217,6 +1217,7 @@ async function loadWaveform(assetId) {
 
 /* ---------------- 渲染 ---------------- */
 let frameSeq = 0;
+let lastPreviewErrorShown = '';
 /* HDR 提示（§8.7）：当前时刻若命中 HDR 素材，在预览区显示角标。
    -----------------------------------------------------------------
    为什么必须提示：我们的渲染链只做 SDR 的 BT.601/709 转换。
@@ -1276,6 +1277,7 @@ function syncPreview() {
      失败时**自动回退**到 data:URL 路径（下面那段原样保留）——
      老设备、Web 预览、Surface 重建期间都靠它兜底。 */
   if (Engine.hasSurface() && Engine.blitFrame(us)) {
+    lastPreviewErrorShown = '';
     /* Surface 上已经在显示这一帧了，把 <img> 藏起来，
        否则两层画面会叠影（img 在 WebView 层，Surface 在它下面）。 */
     E.still.style.visibility = 'hidden';
@@ -1286,7 +1288,20 @@ function syncPreview() {
      静止时用全宽，保证松手后画面是清晰的。 */
   const w = S.dragging ? NEED.frameWDrag : NEED.frameW;
   const url = Engine.frameUrl(us, w);
-  if (!url) { E.still.style.visibility = 'hidden'; return; }
+  if (!url) {
+    E.still.style.visibility = 'hidden';
+    const bridge = Engine.bridge;
+    const message = bridge && typeof bridge.previewError === 'function'
+      ? String(bridge.previewError() || '') : '';
+    if (message && message !== lastPreviewErrorShown) {
+      lastPreviewErrorShown = message;
+      toast('预览解码失败：' + message, 4500);
+    } else if (!message) {
+      lastPreviewErrorShown = '';
+    }
+    return;
+  }
+  lastPreviewErrorShown = '';
 
   // 内嵌 dataURL：直接挂载，不依赖 onload（file:// 下可能不触发）
   if (url.slice(0, 5) === 'data:') {
@@ -5120,7 +5135,9 @@ function extractAudioFlow() {
     const audioId = await importToEngine(outPath, outPath, 1, durUs);
     if (audioId) {
       toast('已提取音频');
-      if (typeof load === 'function') await load();
+      applyState(fetchState());
+      renderAll();
+      syncPreview();
     } else {
       toast('音频已提取，但登记素材失败', 3000);
     }
