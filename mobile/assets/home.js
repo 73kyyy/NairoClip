@@ -86,7 +86,15 @@ async function loadProjects() {
   try {
     const raw = br.listProjects();
     const j = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
-    H.projects = (j.projects || []).map((p) => ({
+    if (j.ok === false) {
+      console.warn('[NairoClip] 草稿列表读取失败：', j.message || '未知错误');
+      return; // 保留上一次成功读取的列表，不把 I/O 故障伪装成空草稿目录。
+    }
+    if (!Array.isArray(j.projects)) {
+      console.warn('[NairoClip] 草稿列表响应格式无效');
+      return;
+    }
+    H.projects = j.projects.map((p) => ({
       name: p.name,
       file: p.file,
       bytes: p.bytes,
@@ -94,7 +102,8 @@ async function loadProjects() {
       updated: p.updated || ''
     }));
   } catch (err) {
-    H.projects = [];
+    console.warn('[NairoClip] 草稿列表读取异常：', err);
+    // 读取异常时保留上一次成功结果，避免显示误导性的「没有草稿」。
   }
 }
 
