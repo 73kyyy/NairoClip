@@ -427,6 +427,45 @@ class NativeEngineBridge(
     }
 
     /**
+     * 将 WebView File.name 解析为本次文件选择器复制出的私有素材标识。
+     * 兼容 Chromium 返回 storageName 或 ContentProvider 展示名两种行为；
+     * 展示名命中多个文件时拒绝猜测，避免导入错误素材。
+     */
+    @JavascriptInterface
+    fun resolvePickedMediaName(fileName: String): String = synchronized(stateLock) {
+        val context = appContext ?: return@synchronized err("应用私有目录不可用", -1002)
+        if (fileName.isBlank() || fileName.length > 180 ||
+            fileName.contains('/') || fileName.contains('\\') ||
+            fileName.any { it.isISOControl() }) {
+            return@synchronized err("文件选择器返回的名称非法", -1003)
+        }
+        val root = try {
+            java.io.File(context.filesDir, "imports").canonicalFile
+        } catch (e: Throwable) {
+            return@synchronized err("素材目录不可用：${e.message}", -1002)
+        }
+        val exact = Regex("^[0-9a-f]{32}__[\\p{L}\\p{N}._-]{1,120}$")
+        if (exact.matches(fileName)) {
+            val candidate = java.io.File(root, fileName).canonicalFile
+            if (candidate.parentFile == root && candidate.isFile && candidate.length() > 0L) {
+                return@synchronized JSONObject().put("ok", true)
+                    .put("storageName", fileName).toString()
+            }
+            return@synchronized err("所选素材已不存在", -1006)
+        }
+        val matches = (root.listFiles() ?: emptyArray()).filter { file ->
+            file.isFile && exact.matches(file.name) &&
+                file.name.substringAfter("__") == fileName && file.length() > 0L
+        }
+        when (matches.size) {
+            0 -> err("无法将所选文件名映射到应用私有素材", -1006)
+            1 -> JSONObject().put("ok", true)
+                .put("storageName", matches[0].name).toString()
+            else -> err("存在多个同名素材，无法安全确定所选文件", -1012)
+        }
+    }
+
+    /**
      * 只导入由 MainActivity 系统文件选择器复制到 filesDir/imports 的素材。
      * storageName 是 FileProvider 返回给 WebView 的唯一文件名，不接受路径。
      */
