@@ -5518,8 +5518,6 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
       } catch (error) {
         toast('恢复失败：' + (error.message || error), 4000);
       }
-    } else if (typeof recoveryBridge.discardRecovery === 'function') {
-      recoveryBridge.discardRecovery();
     }
   }
 
