@@ -132,3 +132,12 @@ NC_TEST(Json, RejectsExcessiveArrayItems) {
     NC_CHECK(!parseJson(text, parsed, error));
     NC_CHECK(error.message.find("数组") != std::string::npos);
 }
+
+NC_TEST(Json, AcceptsConfiguredMaximumNestingDepth) {
+    std::string text(64, '[');
+    text += "0";
+    text.append(64, ']');
+    JsonValue parsed;
+    JsonParseError error;
+    NC_CHECK(parseJson(text, parsed, error));
+}
