@@ -5113,10 +5113,9 @@ function openSheet() {
   E.sheet.hidden = false;
 }
 
-/* 从视频提取音频：先导入视频拿到素材 ID，再调 nc_extract_audio 流复制出音频文件，
-   最后把产物当普通音频素材导入。
-   注意：Web 预览没有本地绝对路径（只有文件名），真正能跑通要在平台层
-   （JNI 把 out_path 换成应用沙盒里的真实路径）。失败时如实报错，不假装成功。 */
+/* 从已由 Android 文件选择器复制到私有目录的视频中提取音轨。
+   先将 WebView File.name 解析为受控随机文件标识，再由系统 MediaExtractor /
+   MediaMuxer 流复制；不向 JS 暴露任意本地路径。 */
 function extractAudioFlow() {
   const input = document.createElement('input');
   input.type = 'file';
@@ -5137,7 +5136,14 @@ function extractAudioFlow() {
       return;
     }
     try {
-      const raw = bridge.extractAudioFromPickedMedia(String(file.name || ''), durationUs);
+      const resolvedRaw = bridge.resolvePickedMediaName(String(file.name || ''));
+      const resolved = (resolvedRaw && typeof resolvedRaw === 'object')
+        ? resolvedRaw : JSON.parse(String(resolvedRaw || '{}'));
+      if (!resolved || resolved.ok !== true || !resolved.storageName) {
+        toast('无法安全识别所选视频：' + ((resolved && resolved.message) || '文件名映射失败'), 4000);
+        return;
+      }
+      const raw = bridge.extractAudioFromPickedMedia(String(resolved.storageName), durationUs);
       const result = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
       if (!result || !result.ok || !result.result || !result.result.value) {
         toast('提取音频失败：' + ((result && result.message) || '系统拒绝'), 4000);
@@ -5302,7 +5308,14 @@ async function importToEngine(name, path, type, durationUs) {
   }
   let r;
   try {
-    const raw = bridge.importPickedMedia(String(path || ''), Number(type), Number(durationUs));
+    const resolvedRaw = bridge.resolvePickedMediaName(String(path || name || ''));
+    const resolved = (resolvedRaw && typeof resolvedRaw === 'object')
+      ? resolvedRaw : JSON.parse(String(resolvedRaw || '{}'));
+    if (!resolved || resolved.ok !== true || !resolved.storageName) {
+      toast(`导入失败：${(resolved && resolved.message) || '无法安全识别所选素材'}`, 3500);
+      return 0;
+    }
+    const raw = bridge.importPickedMedia(String(resolved.storageName), Number(type), Number(durationUs));
     r = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
   } catch (error) {
     toast(`导入失败：${error.message || error}`, 3500);
