@@ -344,34 +344,54 @@ class NativeEngineBridge(
      * 扫描应用私有目录下的 .nclip，返回 {"projects":[...]}。
      */
     @JavascriptInterface
-    fun listProjects(): String {
-        val out = org.json.JSONArray()
-        try {
-            val dir = appContext?.filesDir ?: return """{"projects":[]}"""
-            // AtomicFile 在进程中断时可能留下 .bak；openRead() 会恢复原子备份。
-            dir.listFiles()
-                ?.filter { it.isFile && it.name.endsWith(".nclip.bak") }
-                ?.forEach { backup ->
-                    val base = java.io.File(dir, backup.name.removeSuffix(".bak"))
-                    try { AtomicFile(base).openRead().close() } catch (_: Throwable) { }
-                }
-            dir.listFiles()
-                ?.filter { it.isFile && validProjectFile(it.name) }
-                ?.sortedByDescending { it.lastModified() }
-                ?.forEach { f ->
-                    out.put(JSONObject().apply {
-                        put("name", f.name.removeSuffix(".nclip"))
-                        put("file", f.name)
-                        put("bytes", f.length())
-                        put("updated", java.text.SimpleDateFormat(
-                            "yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.US
-                        ).format(java.util.Date(f.lastModified())))
-                    })
-                }
+    fun listProjects(): String = synchronized(stateLock) {
+        val dir = appContext?.filesDir
+            ?: return@synchronized JSONObject().put("ok", false)
+                .put("message", "应用私有目录不可用").put("projects", org.json.JSONArray()).toString()
+        val files = try {
+            dir.listFiles() ?: return@synchronized JSONObject().put("ok", false)
+                .put("message", "无法读取草稿目录").put("projects", org.json.JSONArray()).toString()
         } catch (e: Throwable) {
-            return """{"projects":[]}"""
+            return@synchronized JSONObject().put("ok", false)
+                .put("message", "读取草稿目录失败：${e.message}")
+                .put("projects", org.json.JSONArray()).toString()
         }
-        return JSONObject().put("projects", out).toString()
+
+        // AtomicFile 可能在进程中断时留下 .bak；openRead() 会恢复最后一次完整提交。
+        for (backup in files) {
+            if (!backup.isFile || !backup.name.endsWith(".nclip.bak")) continue
+            val base = java.io.File(dir, backup.name.removeSuffix(".bak"))
+            try {
+                AtomicFile(base).openRead().use { /* 触发备份恢复并关闭文件 */ }
+            } catch (e: Throwable) {
+                return@synchronized JSONObject().put("ok", false)
+                    .put("message", "草稿恢复失败（${backup.name}）：${e.message}")
+                    .put("projects", org.json.JSONArray()).toString()
+            }
+        }
+
+        val refreshed = try {
+            dir.listFiles() ?: return@synchronized JSONObject().put("ok", false)
+                .put("message", "恢复后无法读取草稿目录").put("projects", org.json.JSONArray()).toString()
+        } catch (e: Throwable) {
+            return@synchronized JSONObject().put("ok", false)
+                .put("message", "恢复后读取草稿目录失败：${e.message}")
+                .put("projects", org.json.JSONArray()).toString()
+        }
+        val out = org.json.JSONArray()
+        refreshed.filter { it.isFile && validProjectFile(it.name) }
+            .sortedByDescending { it.lastModified() }
+            .forEach { file ->
+                out.put(JSONObject().apply {
+                    put("name", file.name.removeSuffix(".nclip"))
+                    put("file", file.name)
+                    put("bytes", file.length())
+                    put("updated", java.text.SimpleDateFormat(
+                        "yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.US
+                    ).format(java.util.Date(file.lastModified())))
+                })
+            }
+        JSONObject().put("ok", true).put("projects", out).toString()
     }
 
     /**
@@ -449,12 +469,14 @@ class NativeEngineBridge(
     @JavascriptInterface
     fun deleteProject(fileName: String): String = synchronized(stateLock) {
         val target = projectFile(fileName) ?: return@synchronized err("草稿文件名非法")
-        if (!target.exists()) return@synchronized err("草稿不存在")
+        val backup = java.io.File(target.path + ".bak")
+        val pending = java.io.File(target.path + ".new")
+        if (!target.exists() && !backup.exists() && !pending.exists()) {
+            return@synchronized err("草稿不存在")
+        }
         val deleted = try {
             AtomicFile(target).delete()
-            !target.exists() &&
-                !java.io.File(target.path + ".bak").exists() &&
-                !java.io.File(target.path + ".new").exists()
+            !target.exists() && !backup.exists() && !pending.exists()
         } catch (_: Throwable) { false }
         if (!deleted) return@synchronized err("草稿删除失败")
         if (activeProjectFile == fileName) activeProjectFile = null
