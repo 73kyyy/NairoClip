@@ -178,11 +178,15 @@ bool AiTaskRunner::confirmCancel() {
     return registry_.acknowledgeCancel(taskId_);
 }
 
-void AiTaskRunner::reset() {
-    if (!taskId_.empty()) registry_.remove(taskId_);
+bool AiTaskRunner::reset() {
+    if (!taskId_.empty() && !registry_.remove(taskId_)) {
+        // 运行中/取消中的任务仍可能访问执行资源，不能丢弃其唯一句柄。
+        return false;
+    }
     taskId_.clear();
     feature_ = AiFeatureType::None;
     targetId_ = 0;
+    return true;
 }
 
 AiTask AiTaskRunner::task() const {
