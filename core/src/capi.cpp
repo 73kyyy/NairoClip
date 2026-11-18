@@ -562,39 +562,78 @@ int32_t nc_recovery_mark_dirty(NcEditor* editor, int64_t now_ms) {
     if (editor == nullptr || now_ms <= 0 || editor->autoSave == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复脏标记参数或状态非法");
     }
-    editor->autoSave->markDirty(fromMilliseconds(now_ms));
-    return NC_OK;
+    try {
+        editor->autoSave->markDirty(fromMilliseconds(now_ms));
+        return NC_OK;
+    } catch (const std::exception& e) {
+        return failNc(NC_ERROR_INTERNAL, std::string("恢复脏标记失败：") + e.what());
+    } catch (...) {
+        return failNc(NC_ERROR_INTERNAL, "恢复脏标记失败");
+    }
 }
 
 int32_t nc_recovery_tick(NcEditor* editor, int64_t now_ms) {
     if (editor == nullptr || now_ms <= 0 || editor->autoSave == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复定时参数或状态非法");
     }
-    const bool written = editor->autoSave->tick(fromMilliseconds(now_ms), [editor] {
-        return saveProjectToNclip(editor->project);
-    });
-    return written ? 1 : 0;
+    try {
+        const bool written = editor->autoSave->tick(fromMilliseconds(now_ms), [editor] {
+            return saveProjectToNclip(editor->project);
+        });
+        return written ? 1 : 0;
+    } catch (const std::exception& e) {
+        return failNc(NC_ERROR_INTERNAL, std::string("恢复快照生成失败：") + e.what());
+    } catch (...) {
+        return failNc(NC_ERROR_INTERNAL, "恢复快照生成失败");
+    }
 }
 
 int32_t nc_recovery_has_snapshot(const NcEditor* editor) {
     if (editor == nullptr || editor->autoSave == nullptr) return 0;
-    return editor->autoSave->hasRecoverable() ? 1 : 0;
+    try {
+        return editor->autoSave->hasRecoverable() ? 1 : 0;
+    } catch (const std::exception& e) {
+        failNc(NC_ERROR_INTERNAL, std::string("检查恢复快照失败：") + e.what());
+        return 0;
+    } catch (...) {
+        failNc(NC_ERROR_INTERNAL, "检查恢复快照失败");
+        return 0;
+    }
 }
 
 char* nc_recovery_read_latest(const NcEditor* editor) {
     if (editor == nullptr || editor->autoSave == nullptr) return nullptr;
-    std::string snapshot;
-    const Result result = editor->autoSave->recoverLatest(snapshot);
-    if (!result.isOk()) return nullptr;
-    return dupString(snapshot);
+    try {
+        std::string snapshot;
+        const Result result = editor->autoSave->recoverLatest(snapshot);
+        if (!result.isOk()) {
+            failNc(NC_ERROR_NOT_FOUND, result.message);
+            return nullptr;
+        }
+        char* out = dupString(snapshot);
+        if (out == nullptr) failNc(NC_ERROR_INTERNAL, "恢复快照内存分配失败");
+        return out;
+    } catch (const std::exception& e) {
+        failNc(NC_ERROR_INTERNAL, std::string("读取恢复快照失败：") + e.what());
+        return nullptr;
+    } catch (...) {
+        failNc(NC_ERROR_INTERNAL, "读取恢复快照失败");
+        return nullptr;
+    }
 }
 
 int32_t nc_recovery_mark_clean(NcEditor* editor) {
     if (editor == nullptr || editor->autoSave == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "恢复系统尚未配置");
     }
-    editor->autoSave->markClean();
-    return NC_OK;
+    try {
+        editor->autoSave->markClean();
+        return NC_OK;
+    } catch (const std::exception& e) {
+        return failNc(NC_ERROR_INTERNAL, std::string("清理恢复快照失败：") + e.what());
+    } catch (...) {
+        return failNc(NC_ERROR_INTERNAL, "清理恢复快照失败");
+    }
 }
 
 int64_t nc_project_duration_us(const NcEditor* editor) {
