@@ -7,6 +7,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 # 全量测试由 CI 承担，本地不再跑（本地是 aarch64 手机环境，一次约 9 分钟
 # 且容易过热；CI 是 x64 且免费不限量）。
 #
