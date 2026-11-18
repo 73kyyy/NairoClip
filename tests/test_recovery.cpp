@@ -35,6 +35,31 @@ NC_TEST(Recovery, FileStorePersistsOrderingAcrossStoreReconstruction) {
     std::filesystem::remove_all(dir, ec);
 }
 
+NC_TEST(Recovery, AutoSaveRecoversLatestFromReopenedFileStore) {
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-autosave-reopen-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    AutoSavePolicy policy = smallPolicy();
+    policy.maxSnapshots = 2;
+    {
+        FileRecoveryStore store(dir);
+        AutoSaveManager manager(store, policy);
+        for (int i = 0; i < 3; ++i) {
+            manager.markDirty(fromSeconds(i * 10));
+            const std::string value = "persisted-" + std::to_string(i + 1);
+            NC_CHECK(manager.tick(fromSeconds(i * 10 + 2), [value] { return value; }));
+        }
+    }
+    {
+        FileRecoveryStore reopened(dir);
+        AutoSaveManager manager(reopened, policy);
+        std::string latest;
+        NC_CHECK(manager.recoverLatest(latest).isOk());
+        NC_CHECK_EQ(latest, std::string("persisted-3"));
+    }
+    std::filesystem::remove_all(dir, ec);
+}
+
 NC_TEST(Recovery, FileStoreIgnoresCorruptAndTemporaryFiles) {
     const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-corrupt-test";
     std::error_code ec;
