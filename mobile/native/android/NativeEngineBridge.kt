@@ -41,6 +41,7 @@ class NativeEngineBridge(
     private var editor: Long = 0L
     /** 当前编辑会话对应的本地草稿文件名；只允许应用私有目录内的安全文件名。 */
     private var activeProjectFile: String? = null
+    private val maxProjectFileBytes = 64L * 1024L * 1024L
 
     private fun validProjectFile(name: String): Boolean =
         name.matches(Regex("^[A-Za-z0-9_-]{1,80}\\.nclip$"))
@@ -383,13 +384,17 @@ class NativeEngineBridge(
             return@synchronized err("工程序列化失败：${e.message}")
         }
         if (serialized.isBlank()) return@synchronized err("工程内容为空")
+        val serializedBytes = serialized.toByteArray(Charsets.UTF_8)
+        if (serializedBytes.size.toLong() > maxProjectFileBytes) {
+            return@synchronized err("工程文件超过 64 MiB 安全上限")
+        }
 
         val atomic = AtomicFile(target)
         var stream: java.io.FileOutputStream? = null
         try {
             val output = atomic.startWrite()
             stream = output
-            output.write(serialized.toByteArray(Charsets.UTF_8))
+            output.write(serializedBytes)
             output.fd.sync()
             atomic.finishWrite(output)
             stream = null
@@ -409,6 +414,10 @@ class NativeEngineBridge(
     fun loadProjectFile(fileName: String): String = synchronized(stateLock) {
         val target = projectFile(fileName) ?: return@synchronized err("草稿文件名非法")
         if (!target.isFile) return@synchronized err("草稿文件不存在")
+        if (target.length() <= 0L) return@synchronized err("草稿文件为空")
+        if (target.length() > maxProjectFileBytes) {
+            return@synchronized err("草稿文件超过 64 MiB 安全上限")
+        }
         val text = try {
             AtomicFile(target).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
         } catch (e: Throwable) {
