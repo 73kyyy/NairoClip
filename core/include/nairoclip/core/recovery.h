@@ -57,8 +57,9 @@ private:
     std::vector<std::size_t> writeOrder_;
 };
 
-/// 文件型恢复存储。每个槽位文件包含单调写入序号与快照正文，
-/// 通过同目录临时文件 + rename 原子替换；不依赖进程内顺序状态。
+/// 文件型恢复存储。每个槽位文件包含目录级单调写入序号与快照正文，
+/// 通过同目录临时文件 + rename 原子替换；POSIX/Android 使用目录锁文件
+/// 与 flock 串行化多实例/多进程读写，避免序号竞争和槽位覆盖。
 /// 目录必须是应用私有、仅当前应用可写的目录。
 class FileRecoveryStore : public RecoveryStore {
 public:
