@@ -399,6 +399,13 @@ NC_TEST(Recovery, FileStoreRejectsSymlinkedLockFile) {
     NC_CHECK(!ec);
     FileRecoveryStore store(dir);
     NC_CHECK(!store.validate().isOk());
+    bool listFailed = false;
+    try {
+        (void)store.list();
+    } catch (const std::exception&) {
+        listFailed = true;
+    }
+    NC_CHECK(listFailed);
     NC_CHECK(!store.write(0, "must-not-follow-symlink").isOk());
     std::filesystem::remove_all(dir, ec);
 #else
