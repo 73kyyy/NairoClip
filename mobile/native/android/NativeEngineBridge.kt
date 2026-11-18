@@ -544,11 +544,11 @@ class NativeEngineBridge(
             return@synchronized err("引擎返回了无效载入结果")
         }
         if (result.optBoolean("ok", false)) {
+            activeProjectFile = fileName
             val recoveryRc = configureRecovery(ensure(), fileName)
             if (recoveryRc != 0) {
                 return@synchronized err("工程已载入，但恢复目录初始化失败（$recoveryRc）", recoveryRc)
             }
-            activeProjectFile = fileName
         }
         result.toString()
     }
