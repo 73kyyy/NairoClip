@@ -76,3 +76,22 @@ Commits:
 Read-back checks confirmed that no `System.currentTimeMillis()` remains in the bridge, all seven task clock call sites use `elapsedRealtime()`, and the stale-timestamp guard and regression test are present.
 
 Build and runtime tests remain pending; no test pass is claimed.
+
+## AI task reset could orphan a live task
+
+The follow-up review found `AiTaskRunner::reset()` ignored the return value of `TaskRegistry::remove()` and cleared `taskId_` unconditionally. Since the registry deliberately refuses to remove Running and CancelRequested tasks, reset could discard the runner's only task handle while the task remained live in the registry.
+
+Changes:
+- Change `AiTaskRunner::reset()` to return success/failure.
+- Preserve task ID, feature and target when registry removal fails.
+- Reject reset while Running or CancelRequested.
+- Propagate rejection through `nc_ai_task_reset()` instead of returning false success.
+- Add `ResetCannotOrphanRunningOrCancellingTask` to cover Running, CancelRequested, acknowledged cancellation and final reset.
+
+Commits:
+- API contract: `522b78a63283b94084b3fde92bef8fa8027e6de3`
+- implementation: `47ed050ecf208afb8777938e0f914eb11970b71f`
+- C ABI result: `930c2c1ec25b659fcfd776b63664e7353b9ffe05`
+- regression test: `93aaed146668dae60540f4beff7dc8cf2dd9de7a`
+
+Source and test changes have been written to the remediation branch. Compilation and test execution remain pending.
