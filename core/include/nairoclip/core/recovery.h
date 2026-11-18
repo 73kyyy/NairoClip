@@ -4,6 +4,7 @@
 #include "nairoclip/core/types.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <filesystem>
 #include <mutex>
