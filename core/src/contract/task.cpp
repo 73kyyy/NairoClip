@@ -99,7 +99,8 @@ bool TaskRegistry::start(const std::string& taskId, std::int64_t nowMs) {
 bool TaskRegistry::setProgress(const std::string& taskId, double progress) {
     auto it = tasks_.find(taskId);
     if (it == tasks_.end()) return false;
-    if (isTerminal(it->second.state)) return false;
+    if (isTerminal(it->second.state) || it->second.state == TaskState::CancelRequested)
+        return false;
     if (progress < 0.0) progress = 0.0;
     if (progress > 1.0) progress = 1.0;
     it->second.progress = progress;
@@ -113,7 +114,8 @@ bool TaskRegistry::heartbeat(const std::string& taskId, double progress,
                              const std::string& stageNote, std::int64_t nowMs) {
     auto it = tasks_.find(taskId);
     if (it == tasks_.end()) return false;
-    if (isTerminal(it->second.state)) return false;
+    if (isTerminal(it->second.state) || it->second.state == TaskState::CancelRequested)
+        return false;
     if (progress < 0.0) progress = 0.0;
     if (progress > 1.0) progress = 1.0;
     // 单调不减：进度回跳会让进度条倒退，视为无效上报但不报错。
