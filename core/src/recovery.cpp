@@ -6,6 +6,7 @@
 #include <iterator>
 #include <utility>
 #include <limits>
+#include <sstream>
 #include <system_error>
 #if defined(__unix__) || defined(__ANDROID__)
 #include <fcntl.h>
@@ -26,7 +27,25 @@ std::vector<std::size_t> RecoveryStore::listNewestFirst() const {
 // ---------------- FileRecoveryStore ----------------
 
 namespace {
-constexpr const char* kRecoveryMagic = "NCR1";
+constexpr const char* kRecoveryMagic = "NCR2";
+
+std::uint64_t checksum64(const std::string& data) {
+    // FNV-1a detects torn/corrupted snapshots; it is not a cryptographic MAC.
+    std::uint64_t hash = UINT64_C(14695981039346656037);
+    for (const unsigned char byte : data) {
+        hash ^= byte;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+bool parseHeader(const std::string& line, std::uint64_t& sequence,
+                 std::uint64_t& size, std::uint64_t& checksum) {
+    std::istringstream header(line);
+    std::string magic, extra;
+    if (!(header >> magic >> sequence >> size >> checksum) || magic != kRecoveryMagic) return false;
+    return !(header >> extra);
+}
 
 bool syncFilePath(const std::filesystem::path& path) {
 #if defined(__unix__) || defined(__ANDROID__)
@@ -83,9 +102,12 @@ std::vector<FileRecoveryStore::Entry> FileRecoveryStore::scanEntries() const {
             continue;
         }
         std::ifstream input(it->path(), std::ios::binary);
-        std::string magic;
-        std::uint64_t sequence = 0;
-        if (!(input >> magic >> sequence) || magic != kRecoveryMagic) continue;
+        std::string line, data;
+        std::uint64_t sequence = 0, expectedSize = 0, expectedChecksum = 0;
+        if (!std::getline(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum) ||
+            expectedSize == 0 || expectedSize > 64ULL * 1024 * 1024) continue;
+        data.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        if (data.size() != expectedSize || checksum64(data) != expectedChecksum) continue;
         entries.push_back(Entry{slot, sequence});
     }
     std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
@@ -160,14 +182,19 @@ Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
         return Result::fail(ErrorCode::OutOfRange, "恢复快照文件超过大小限制或无法读取大小");
     }
     std::ifstream input(path, std::ios::binary);
-    std::string magic;
-    std::uint64_t sequence = 0;
-    if (!(input >> magic >> sequence) || magic != kRecoveryMagic) {
+    std::string line;
+    std::uint64_t sequence = 0, expectedSize = 0, expectedChecksum = 0;
+    if (!std::getline(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum)) {
         return Result::fail(ErrorCode::Internal, "恢复快照头损坏");
     }
-    input.get();
+    if (expectedSize == 0 || expectedSize > maxSnapshotBytes_) {
+        return Result::fail(ErrorCode::OutOfRange, "恢复快照正文长度非法");
+    }
     std::string data((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     if (!input.eof() && input.fail()) return Result::fail(ErrorCode::Internal, "恢复快照读取失败");
+    if (data.size() != expectedSize || checksum64(data) != expectedChecksum) {
+        return Result::fail(ErrorCode::Internal, "恢复快照正文长度或校验和不匹配");
+    }
     out = std::move(data);
     return Result::ok();
 }
