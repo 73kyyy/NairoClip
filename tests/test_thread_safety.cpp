@@ -19,7 +19,9 @@
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/project.h"
 #include "nairoclip/core/rational.h"
+#include "nairoclip/core/thread_pool.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -165,6 +167,25 @@ NC_TEST(ThreadSafety, RationalIsSafeForConcurrentReadOnly) {
     NC_CHECK(ok.load() > 0);
 }
 
+
+NC_TEST(ThreadPool, NonDivisibleWorkItemsAreAllProcessedExactlyOnce) {
+    ThreadPool& pool = ThreadPool::instance();
+    std::array<std::atomic<int>, 10> visits{};
+    for (auto& visit : visits) visit.store(0);
+    std::atomic<int> processed{0};
+
+    // 10 项 / 最多 8 个 worker 会形成不能被固定 ceil-chunk 整除的分段。
+    pool.parallelFor(visits.size(), 1, [&](std::size_t begin, std::size_t end) {
+        NC_CHECK(begin < end);
+        for (std::size_t i = begin; i < end; ++i) {
+            visits[i].fetch_add(1);
+            processed.fetch_add(1);
+        }
+    });
+
+    NC_CHECK_EQ(processed.load(), 10);
+    for (const auto& visit : visits) NC_CHECK_EQ(visit.load(), 1);
+}
 
 NC_TEST(ThreadPool, ReentrantParallelForFallsBackWithoutDeadlock) {
     ThreadPool& pool = ThreadPool::instance();
