@@ -53,6 +53,23 @@ class NativeEngineBridge(
         return if (file.canonicalFile.parentFile == root.canonicalFile) file else null
     }
 
+    private fun recoveryProjectDirectory(name: String): java.io.File? {
+        if (!validProjectFile(name)) return null
+        val base = appContext?.filesDir ?: return null
+        val root = java.io.File(base, "recovery").canonicalFile
+        val directory = java.io.File(root, name.removeSuffix(".nclip")).canonicalFile
+        return if (directory.parentFile == root) directory else null
+    }
+
+    private fun configureRecovery(handle: Long, projectName: String): Int {
+        val directory = recoveryProjectDirectory(projectName) ?: return -1003
+        return try {
+            nativeRecoveryConfigure(handle, directory.absolutePath)
+        } catch (_: Throwable) {
+            -1002
+        }
+    }
+
     /**
      * 面板层级。0 = 无面板；>0 = 面板开着。
      * 由 JS 主动推送：evaluateJavascript 是异步的，
@@ -99,7 +116,9 @@ class NativeEngineBridge(
                    与 stateLock 不是同一把锁，无法与 release() 互斥。 */
                 synchronized(stateLock) {
                     if (editor != 0L) {
-                        nativeTaskTick(editor, android.os.SystemClock.elapsedRealtime())
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        nativeTaskTick(editor, now)
+                        if (activeProjectFile != null) nativeRecoveryTick(editor, now)
                     }
                 }
             } catch (_: Throwable) {
@@ -437,7 +456,11 @@ class NativeEngineBridge(
             try {
                 val handle = ensure()
                 if (handle == 0L) return@synchronized err("引擎未初始化", -1007)
-                JSONObject(nativeCall(handle, "nc_import_asset", args.toString())).toString()
+                val result = JSONObject(nativeCall(handle, "nc_import_asset", args.toString()))
+                if (result.optBoolean("ok", false)) {
+                    nativeRecoveryMarkDirty(handle, android.os.SystemClock.elapsedRealtime())
+                }
+                result.toString()
             } catch (e: Throwable) {
                 err("素材导入失败：${e.message}", -1008)
             }
@@ -474,7 +497,17 @@ class NativeEngineBridge(
             output.fd.sync()
             atomic.finishWrite(output)
             stream = null
-            activeProjectFile = name
+            if (activeProjectFile != name) {
+                val recoveryRc = configureRecovery(handle, name)
+                if (recoveryRc != 0) {
+                    return@synchronized err("工程已保存，但恢复目录初始化失败（$recoveryRc）", recoveryRc)
+                }
+                activeProjectFile = name
+            }
+            val cleanRc = nativeRecoveryMarkClean(handle)
+            if (cleanRc != 0) {
+                return@synchronized err("工程已保存，但恢复快照清理失败（$cleanRc）", cleanRc)
+            }
             JSONObject().apply {
                 put("ok", true); put("code", 0); put("message", "草稿已保存")
                 put("result", JSONObject().put("file", name).put("bytes", target.length()))
@@ -510,8 +543,56 @@ class NativeEngineBridge(
         val result = try { JSONObject(raw) } catch (_: Throwable) {
             return@synchronized err("引擎返回了无效载入结果")
         }
-        if (result.optBoolean("ok", false)) activeProjectFile = fileName
+        if (result.optBoolean("ok", false)) {
+            val recoveryRc = configureRecovery(ensure(), fileName)
+            if (recoveryRc != 0) {
+                return@synchronized err("工程已载入，但恢复目录初始化失败（$recoveryRc）", recoveryRc)
+            }
+            activeProjectFile = fileName
+        }
         result.toString()
+    }
+
+    /** 编辑器成功执行工程修改后调用，时间来自 Android 单调时钟。 */
+    @JavascriptInterface
+    fun markProjectDirty(): Int = synchronized(stateLock) {
+        val handle = ensure()
+        if (handle == 0L || activeProjectFile == null) return@synchronized -1007
+        nativeRecoveryMarkDirty(handle, android.os.SystemClock.elapsedRealtime())
+    }
+
+    @JavascriptInterface
+    fun recoveryAvailable(): Boolean = synchronized(stateLock) {
+        val handle = ensure()
+        handle != 0L && activeProjectFile != null && nativeRecoveryHasSnapshot(handle) > 0
+    }
+
+    /** 仅在用户明确确认后调用；恢复成功后重新标脏，等待正常工程保存。 */
+    @JavascriptInterface
+    fun restoreRecovery(): String = synchronized(stateLock) {
+        val handle = ensure()
+        if (handle == 0L || activeProjectFile == null) {
+            return@synchronized err("当前工程尚未就绪", -1007)
+        }
+        val snapshot = nativeRecoveryReadLatest(handle)
+            ?: return@synchronized err("没有可恢复的有效快照", -1009)
+        val loaded = try {
+            JSONObject(nativeProjectLoad(handle, snapshot))
+        } catch (e: Throwable) {
+            return@synchronized err("恢复快照载入失败：${e.message}", -1010)
+        }
+        if (loaded.optBoolean("ok", false)) {
+            nativeRecoveryMarkDirty(handle, android.os.SystemClock.elapsedRealtime())
+        }
+        loaded.toString()
+    }
+
+    /** 用户拒绝恢复时清理该工程的恢复快照。 */
+    @JavascriptInterface
+    fun discardRecovery(): Int = synchronized(stateLock) {
+        val handle = ensure()
+        if (handle == 0L) return@synchronized -1007
+        nativeRecoveryMarkClean(handle)
     }
 
     /** 永久删除指定草稿；只允许删除受控目录内的 .nclip 文件。 */
@@ -528,7 +609,14 @@ class NativeEngineBridge(
             !target.exists() && !backup.exists() && !pending.exists()
         } catch (_: Throwable) { false }
         if (!deleted) return@synchronized err("草稿删除失败")
-        if (activeProjectFile == fileName) activeProjectFile = null
+        if (activeProjectFile == fileName) {
+            val handle = ensure()
+            if (handle != 0L) nativeRecoveryMarkClean(handle)
+            activeProjectFile = null
+        }
+        recoveryProjectDirectory(fileName)?.let { directory ->
+            if (directory.exists()) directory.deleteRecursively()
+        }
         JSONObject().apply {
             put("ok", true); put("code", 0); put("message", "草稿已删除")
             put("result", JSONObject().put("file", fileName))
@@ -664,6 +752,12 @@ class NativeEngineBridge(
     private external fun nativeCall(handle: Long, fn: String, argsJson: String): String
     private external fun nativeProjectSave(handle: Long): String?
     private external fun nativeProjectLoad(handle: Long, projectText: String): String
+    private external fun nativeRecoveryConfigure(handle: Long, directory: String): Int
+    private external fun nativeRecoveryMarkDirty(handle: Long, nowMs: Long): Int
+    private external fun nativeRecoveryTick(handle: Long, nowMs: Long): Int
+    private external fun nativeRecoveryHasSnapshot(handle: Long): Int
+    private external fun nativeRecoveryReadLatest(handle: Long): String?
+    private external fun nativeRecoveryMarkClean(handle: Long): Int
     private external fun nativeApplyCommand(handle: Long, requestJson: String): String?
     private external fun nativeTaskBegin(handle: Long, type: String, targetId: Long, heartbeatTimeoutMs: Int, totalTimeoutMs: Long, nowMs: Long): String
     private external fun nativeTaskHeartbeat(handle: Long, taskId: String, progress: Double, stageNote: String, nowMs: Long): Int
