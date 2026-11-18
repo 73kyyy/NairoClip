@@ -86,7 +86,7 @@ public:
     /// 开始任务并记录 startedAtMs。nowMs = 0 表示调用方不提供时钟（禁用超时判定）。
     bool start(const std::string& taskId, std::int64_t nowMs);
 
-    /// 真实进度上报（心跳）。progress 单调不减；stageNote 为空则保留原值。
+    /// 真实进度上报（心跳）。时间戳不得早于上次心跳；progress 单调不减；stageNote 为空则保留原值。
     /// **禁止用定时器伪造心跳**：调用方必须来自真实进度或阶段切换。
     bool heartbeat(const std::string& taskId, double progress, const std::string& stageNote,
                    std::int64_t nowMs);
@@ -95,6 +95,7 @@ public:
     bool completeWithResult(const std::string& taskId, std::string resultType,
                             std::string payload, std::int64_t nowMs = 0);
 
+    /// 时间戳必须来自单调时钟（Android 使用 SystemClock.elapsedRealtime）。
     /// 看门狗：推进时钟，把心跳超时/总超时的任务判为 Failed。
     /// 返回本次被判超时的任务数。不创建线程——完全由调用方驱动。
     std::size_t tick(std::int64_t nowMs);
