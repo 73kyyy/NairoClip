@@ -22,7 +22,6 @@
 #include "nairoclip/core/crash_handler.h"
 #include "nairoclip/core/simd.h"
 
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -53,16 +52,15 @@ std::string JStr(JNIEnv* env, jstring s) {
     return out;
 }
 
-void markRecoveryDirtyAfterMutation(NcEditor* editor, const std::string& resultJson) {
-    if (editor == nullptr ||
+void markRecoveryDirtyAfterMutation(
+    NcEditor* editor, const std::string& resultJson, std::int64_t nowMs) {
+    if (editor == nullptr || nowMs <= 0 ||
         (resultJson.find("\"ok\":true") == std::string::npos &&
          resultJson.find("\"status\":\"accepted\"") == std::string::npos &&
          resultJson.find("\"status\":\"partially_applied\"") == std::string::npos)) {
         return;
     }
-    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    (void)nc_recovery_mark_dirty(editor, static_cast<std::int64_t>(now));
+    (void)nc_recovery_mark_dirty(editor, nowMs);
 }
 
 jstring ToJStr(JNIEnv* env, const std::string& s) {
@@ -2361,7 +2359,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeDestroy(JNIEnv*, jobject, jlong 
 
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
-    JNIEnv* env, jobject, jlong h, jstring fn, jstring argsJson) {
+    JNIEnv* env, jobject, jlong h, jstring fn, jstring argsJson, jlong nowMs) {
     /* Fix 3：句柄有效性在生命周期锁内校验，并持锁至调用结束。 */
     EditorHandleGuard guard(h);
     NcEditor* ed = guard.get();
@@ -2372,7 +2370,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
 
     std::string out;
     if (DispatchEdit(ed, name, args, &out)) {
-        markRecoveryDirtyAfterMutation(ed, out);
+        markRecoveryDirtyAfterMutation(ed, out, nowMs);
         return ToJStr(env, out);
     }
     return ToJStr(env, Err("未开放的操作：" + name));
@@ -2472,7 +2470,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeRecoveryMarkClean(
 // 参数是一个结构化信封，校验与分发由 C++ 契约层负责。
 JNIEXPORT jstring JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeApplyCommand(
-    JNIEnv* env, jobject, jlong h, jstring requestJson) {
+    JNIEnv* env, jobject, jlong h, jstring requestJson, jlong nowMs) {
     EditorHandleGuard guard(h);
     NcEditor* ed = guard.get();
     if (!ed) return nullptr;
@@ -2481,7 +2479,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeApplyCommand(
     if (raw == nullptr) return nullptr;
     const std::string out(raw);
     nc_free_string(raw);
-    markRecoveryDirtyAfterMutation(ed, out);
+    markRecoveryDirtyAfterMutation(ed, out, nowMs);
     return ToJStr(env, out);
 }
 
