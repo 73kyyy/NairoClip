@@ -83,22 +83,28 @@ void ThreadPool::parallelFor(std::size_t count, std::size_t minPerTask,
     const std::size_t tasks = std::min(wantTasks, nThreads);
     const std::size_t chunk = (count + tasks - 1) / tasks;
 
+    bool runInline = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (hasJob_) {
-            /* 重入会死锁（池子里的线程被占满后等自己）。
-               这里选择「退化为同步执行」而不是卡死 —— 宁可慢，不可挂。 */
-            fn(0, count);
-            return;
+            /* 已有批次时退化为调用线程同步执行。
+               关键：绝不能在持有 mutex_ 时调用用户回调；回调可能再次进入
+               parallelFor，或调用其他需要线程池锁的代码。 */
+            runInline = true;
+        } else {
+            job_ = fn;
+            jobBegin_ = 0;
+            jobEnd_ = count;
+            jobChunk_ = chunk;
+            jobTotal_ = tasks;
+            jobNext_ = 0;
+            jobRemaining_ = tasks;
+            hasJob_ = true;
         }
-        job_ = fn;
-        jobBegin_ = 0;
-        jobEnd_ = count;
-        jobChunk_ = chunk;
-        jobTotal_ = tasks;
-        jobNext_ = 0;
-        jobRemaining_ = tasks;
-        hasJob_ = true;
+    }
+    if (runInline) {
+        fn(0, count);
+        return;
     }
     cvWork_.notify_all();
 
