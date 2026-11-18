@@ -794,7 +794,20 @@ function engineCall(fn, args) {
   try {
     const raw = Engine.bridge.call(fn, JSON.stringify(args || {}));
     if (raw === null || raw === undefined) return { ok: false, code: -1, message: '桥无返回' };
-    return typeof raw === 'object' ? raw : JSON.parse(String(raw));
+    const result = typeof raw === 'object' ? raw : JSON.parse(String(raw));
+    const mutationPrefixes = [
+      'nc_add_', 'nc_remove_', 'nc_split_', 'nc_trim_', 'nc_set_',
+      'nc_move_', 'nc_insert_', 'nc_duplicate_', 'nc_delete_', 'nc_reorder_',
+      'nc_apply_', 'nc_update_', 'nc_keyframe_', 'nc_effect_',
+      'nc_transition_', 'nc_mask_', 'nc_xform_',
+      'nc_track_add', 'nc_track_remove', 'nc_track_set',
+      'nc_clip_add', 'nc_clip_remove', 'nc_clip_set',
+      'nc_asset_add', 'nc_asset_remove', 'nc_project_rename'
+    ];
+    if (result && result.ok && mutationPrefixes.some((prefix) => fn.startsWith(prefix))) {
+      scheduleProjectSave();
+    }
+    return result;
   } catch (err) {
     return { ok: false, code: -1, message: `桥调用失败：${err.message}` };
   }
