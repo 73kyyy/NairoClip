@@ -473,6 +473,127 @@ class NativeEngineBridge(
         }
 
     /**
+     * 使用 Android MediaExtractor + MediaMuxer 从已选择的私有视频中流复制音轨。
+     * 不调用 FFmpeg 软件解码/编码，也不接受 JS 传入任意输出路径。
+     */
+    @JavascriptInterface
+    fun extractAudioFromPickedMedia(storageName: String, durationUs: Long): String =
+        synchronized(stateLock) {
+            val context = appContext ?: return@synchronized err("应用私有目录不可用", -1002)
+            if (!storageName.matches(Regex("^[0-9a-f]{32}__[\\p{L}\\p{N}._-]{1,120}$"))) {
+                return@synchronized err("源素材标识非法", -1003)
+            }
+            if (durationUs <= 0L) return@synchronized err("源素材时长非法", -1005)
+            val root = try {
+                java.io.File(context.filesDir, "imports").canonicalFile
+            } catch (e: Throwable) {
+                return@synchronized err("素材目录不可用：${e.message}", -1002)
+            }
+            val source = try {
+                java.io.File(root, storageName).canonicalFile
+            } catch (e: Throwable) {
+                return@synchronized err("源素材路径解析失败：${e.message}", -1003)
+            }
+            if (source.parentFile != root || !source.isFile || source.length() <= 0L) {
+                return@synchronized err("源素材不存在或路径越界", -1006)
+            }
+            val baseName = storageName.substringAfter("__").substringBeforeLast('.', "audio")
+            val outputName = java.util.UUID.randomUUID().toString().replace("-", "") +
+                "__" + baseName.take(80) + ".m4a"
+            val output = java.io.File(root, outputName)
+            if (output.canonicalFile.parentFile != root) {
+                return@synchronized err("音频输出路径非法", -1003)
+            }
+
+            val extractor = android.media.MediaExtractor()
+            var muxer: android.media.MediaMuxer? = null
+            var muxerStarted = false
+            var sampleCount = 0L
+            try {
+                extractor.setDataSource(source.absolutePath)
+                var sourceTrack = -1
+                var sourceFormat: android.media.MediaFormat? = null
+                for (i in 0 until extractor.trackCount) {
+                    val format = extractor.getTrackFormat(i)
+                    val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
+                    if (mime.startsWith("audio/")) {
+                        sourceTrack = i
+                        sourceFormat = format
+                        break
+                    }
+                }
+                if (sourceTrack < 0 || sourceFormat == null) {
+                    throw java.io.IOException("所选视频没有可提取的音频轨")
+                }
+                extractor.selectTrack(sourceTrack)
+                muxer = android.media.MediaMuxer(
+                    output.absolutePath,
+                    android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
+                )
+                val outputTrack = muxer.addTrack(sourceFormat)
+                muxer.start()
+                muxerStarted = true
+
+                val declaredBuffer = if (sourceFormat.containsKey(android.media.MediaFormat.KEY_MAX_INPUT_SIZE)) {
+                    sourceFormat.getInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE)
+                } else {
+                    4 * 1024 * 1024
+                }
+                val bufferSize = declaredBuffer.coerceAtLeast(64 * 1024)
+                val buffer = java.nio.ByteBuffer.allocateDirect(bufferSize)
+                val info = android.media.MediaCodec.BufferInfo()
+                while (true) {
+                    buffer.clear()
+                    val size = extractor.readSampleData(buffer, 0)
+                    if (size < 0) break
+                    if (size > buffer.capacity()) {
+                        throw java.io.IOException("音频样本超过系统声明的输入缓冲区")
+                    }
+                    info.set(0, size, extractor.sampleTime, extractor.sampleFlags)
+                    muxer.writeSampleData(outputTrack, buffer, info)
+                    sampleCount++
+                    if (!extractor.advance()) break
+                }
+                if (sampleCount == 0L) throw java.io.IOException("音频轨没有可写入的样本")
+                muxer.stop()
+                muxerStarted = false
+                muxer.release()
+                muxer = null
+                extractor.release()
+
+                if (!output.isFile || output.length() <= 0L) {
+                    throw java.io.IOException("系统封装器未生成有效音频文件")
+                }
+                val handle = ensure()
+                if (handle == 0L) throw java.io.IOException("引擎未初始化")
+                val importArgs = JSONObject().apply {
+                    put("name", outputName.substringAfter("__"))
+                    put("path", output.absolutePath)
+                    put("type", 1)
+                    put("duration_us", durationUs)
+                }
+                val imported = JSONObject(nativeCall(
+                    handle, "nc_import_asset", importArgs.toString(),
+                    android.os.SystemClock.elapsedRealtime()
+                ))
+                if (!imported.optBoolean("ok", false)) {
+                    throw java.io.IOException(imported.optString("message", "音频素材登记失败"))
+                }
+                nativeRecoveryMarkDirty(handle, android.os.SystemClock.elapsedRealtime())
+                imported.toString()
+            } catch (e: Throwable) {
+                output.delete()
+                err("音频提取失败：${e.message ?: "系统媒体封装失败"}", -1011)
+            } finally {
+                if (muxerStarted) {
+                    try { muxer?.stop() } catch (_: Throwable) {}
+                }
+                try { muxer?.release() } catch (_: Throwable) {}
+                try { extractor.release() } catch (_: Throwable) {}
+            }
+        }
+
+    /**
      * 从应用私有目录原子保存当前工程。空文件名表示当前编辑会话草稿；
      * 首次保存时生成不可预测的文件名，后续复用该文件。
      */
