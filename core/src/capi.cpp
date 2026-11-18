@@ -552,12 +552,8 @@ int32_t nc_recovery_configure(NcEditor* editor, const char* directory) {
         editor->autoSave = std::move(nextAutoSave);
         return NC_OK;
     } catch (const std::exception& e) {
-        editor->autoSave.reset();
-        editor->recoveryStore.reset();
         return failNc(NC_ERROR_INTERNAL, std::string("恢复系统初始化失败：") + e.what());
     } catch (...) {
-        editor->autoSave.reset();
-        editor->recoveryStore.reset();
         return failNc(NC_ERROR_INTERNAL, "恢复系统初始化失败");
     }
 }
