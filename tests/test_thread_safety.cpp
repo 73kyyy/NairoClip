@@ -173,10 +173,11 @@ NC_TEST(ThreadPool, NonDivisibleWorkItemsAreAllProcessedExactlyOnce) {
     std::array<std::atomic<int>, 10> visits{};
     for (auto& visit : visits) visit.store(0);
     std::atomic<int> processed{0};
+    std::atomic<int> emptyRanges{0};
 
     // 10 项 / 最多 8 个 worker 会形成不能被固定 ceil-chunk 整除的分段。
     pool.parallelFor(visits.size(), 1, [&](std::size_t begin, std::size_t end) {
-        NC_CHECK(begin < end);
+        if (begin >= end) emptyRanges.fetch_add(1);
         for (std::size_t i = begin; i < end; ++i) {
             visits[i].fetch_add(1);
             processed.fetch_add(1);
@@ -184,6 +185,7 @@ NC_TEST(ThreadPool, NonDivisibleWorkItemsAreAllProcessedExactlyOnce) {
     });
 
     NC_CHECK_EQ(processed.load(), 10);
+    NC_CHECK_EQ(emptyRanges.load(), 0);
     for (const auto& visit : visits) NC_CHECK_EQ(visit.load(), 1);
 }
 
