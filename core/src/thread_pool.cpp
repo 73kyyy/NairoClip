@@ -6,6 +6,10 @@
 namespace nairoclip {
 namespace core {
 
+namespace {
+thread_local const ThreadPool* gActiveWorkerPool = nullptr;
+}  // namespace
+
 ThreadPool& ThreadPool::instance() {
     static ThreadPool pool;
     return pool;
@@ -63,9 +67,12 @@ void ThreadPool::workerLoop() {
         }
 
         if (localJob && end > begin) {
+            const ThreadPool* previousPool = gActiveWorkerPool;
+            gActiveWorkerPool = this;
             try {
                 localJob(begin, end);
             } catch (...) {
+                gActiveWorkerPool = previousPool;
                 std::lock_guard<std::mutex> lock(mutex_);
                 if (!jobException_) {
                     jobException_ = std::current_exception();
@@ -75,6 +82,7 @@ void ThreadPool::workerLoop() {
                 }
                 continue;
             }
+            gActiveWorkerPool = previousPool;
 
             std::lock_guard<std::mutex> lock(mutex_);
             if (jobRemaining_ > 0 && --jobRemaining_ == 0) {
@@ -87,6 +95,11 @@ void ThreadPool::workerLoop() {
 void ThreadPool::parallelFor(std::size_t count, std::size_t minPerTask,
                              const std::function<void(std::size_t, std::size_t)>& fn) {
     if (count == 0 || !fn) return;
+    // 同一池的 worker 内禁止再次等待本池任务；内层并行区间退化为当前线程执行。
+    if (gActiveWorkerPool == this) {
+        fn(0, count);
+        return;
+    }
     if (minPerTask == 0) minPerTask = 1;
 
     // 够小 → 当前线程直接做完，不进池子
