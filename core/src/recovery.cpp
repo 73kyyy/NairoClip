@@ -7,6 +7,7 @@
 #include <iterator>
 #include <utility>
 #include <limits>
+#include <stdexcept>
 #include <sstream>
 #include <system_error>
 #if defined(__unix__) || defined(__ANDROID__)
@@ -300,23 +301,39 @@ Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
 void FileRecoveryStore::remove(std::size_t slot) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::error_code ec;
-    if (!std::filesystem::is_directory(directory_, ec) || ec) return;
+    const bool directoryExists = std::filesystem::is_directory(directory_, ec);
+    if (ec) throw std::runtime_error("无法检查恢复目录：" + ec.message());
+    if (!directoryExists) return;
     RecoveryDirectoryLock directoryLock(directory_, true);
-    if (!directoryLock.valid()) return;
+    if (!directoryLock.valid()) {
+        throw std::runtime_error("无法取得恢复目录跨进程写锁，拒绝静默跳过清理");
+    }
     const auto path = slotPath(slot);
     const auto status = std::filesystem::symlink_status(path, ec);
-    if (!ec && std::filesystem::is_regular_file(status) && !std::filesystem::is_symlink(status)) {
-        std::filesystem::remove(path, ec);
-        if (!ec) (void)syncDirectoryPath(directory_);
+    if (ec == std::errc::no_such_file_or_directory) return;
+    if (ec) throw std::runtime_error("无法检查恢复槽位：" + ec.message());
+    if (std::filesystem::is_symlink(status)) {
+        throw std::runtime_error("恢复槽位是符号链接，拒绝删除");
+    }
+    if (!std::filesystem::is_regular_file(status)) return;
+    if (!std::filesystem::remove(path, ec) || ec) {
+        throw std::runtime_error("无法删除恢复槽位：" + ec.message());
+    }
+    if (!syncDirectoryPath(directory_)) {
+        throw std::runtime_error("恢复目录清理后的 fsync 失败");
     }
 }
 
 std::vector<std::size_t> FileRecoveryStore::list() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::error_code ec;
-    if (!std::filesystem::is_directory(directory_, ec) || ec) return {};
+    const bool directoryExists = std::filesystem::is_directory(directory_, ec);
+    if (ec) throw std::runtime_error("无法检查恢复目录：" + ec.message());
+    if (!directoryExists) return {};
     RecoveryDirectoryLock directoryLock(directory_, false);
-    if (!directoryLock.valid()) return {};
+    if (!directoryLock.valid()) {
+        throw std::runtime_error("无法取得恢复目录读锁，不能将锁失败误报为空快照列表");
+    }
     auto entries = scanEntries();
     std::vector<std::size_t> slots;
     slots.reserve(entries.size());
@@ -328,9 +345,13 @@ std::vector<std::size_t> FileRecoveryStore::list() const {
 std::vector<std::size_t> FileRecoveryStore::listNewestFirst() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::error_code ec;
-    if (!std::filesystem::is_directory(directory_, ec) || ec) return {};
+    const bool directoryExists = std::filesystem::is_directory(directory_, ec);
+    if (ec) throw std::runtime_error("无法检查恢复目录：" + ec.message());
+    if (!directoryExists) return {};
     RecoveryDirectoryLock directoryLock(directory_, false);
-    if (!directoryLock.valid()) return {};
+    if (!directoryLock.valid()) {
+        throw std::runtime_error("无法取得恢复目录读锁，不能将锁失败误报为空快照列表");
+    }
     const auto entries = scanEntries();
     std::vector<std::size_t> slots;
     slots.reserve(entries.size());
