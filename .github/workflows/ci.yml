@@ -345,7 +345,7 @@ jobs:
           FAILDETAIL=$(grep -E '\[FAIL\]' /tmp/test_output.txt | tr '\n' '~' | cut -c1-1800)
           echo "::error title=FAIL_COUNT::${FAILS:-0}"
           echo "::error title=FAIL_DETAIL::${FAILDETAIL:-none}"
-          LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1)
+            LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1 || true)
           SUM=$(grep -E '^=====' /tmp/test_output.txt | tail -1)
           echo "::error title=LAST_RUN::${LAST:-none}"
           echo "::error title=SUMMARY::${SUM:-none}"
@@ -426,9 +426,9 @@ jobs:
         # 1458 的历史下限已迁入 tools/test_inventory.json；后续以验证过的
         # runtime inventory baseline 为准，不在 workflow 内写死魔数。
         run: |
-          if ! grep -q '^\\[SHARD_STATS\\] shard=0 shards=1 ' /tmp/test_output.txt; then
+          if ! grep -q '^\[SHARD_STATS\] shard=0 shards=1 ' /tmp/test_output.txt; then
             echo "::error title=KNOWN_CRASH::全量测试未产生完整汇总（中途崩溃或被终止）"
-            LAST=$(grep -E '^\\[ RUN  \\]' /tmp/test_output.txt | tail -1 || true)
+            LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1 || true)
             echo "崩溃前最后进入的用例：${LAST:-未知}"
             tail -40 /tmp/test_output.txt
             exit 1
@@ -546,7 +546,7 @@ jobs:
           echo "---------------- 后 40 行 ----------------"
           tail -40 /tmp/asan_output.txt
           echo "::error title=ASAN_EXIT::exit=$rc"
-          LAST=$(grep -E '^\[ RUN  \]' /tmp/asan_output.txt | tail -1)
+            LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1 || true)
           echo "::error title=ASAN_LAST_RUN::${LAST:-none}"
           ERR=$(grep -m1 -E 'ERROR: AddressSanitizer' /tmp/asan_output.txt)
           echo "::error title=ASAN_ERROR::${ERR:-none}"
