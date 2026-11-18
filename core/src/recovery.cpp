@@ -58,9 +58,47 @@ std::vector<std::size_t> InMemoryRecoveryStore::listNewestFirst() const {
 
 AutoSaveManager::AutoSaveManager(RecoveryStore& store, AutoSavePolicy policy)
     : store_(store), policy_(policy) {
-    const auto existing = store_.list();
-    if (!existing.empty() && policy_.maxSnapshots > 0) {
-        nextSlot_ = (*std::max_element(existing.begin(), existing.end()) + 1) % policy_.maxSnapshots;
+    // Reconcile persisted slots with the current retention policy. Slot IDs may
+    // outlive a policy change, so never derive the next slot from max(slot)+1:
+    // that can overflow and can point outside the configured ring.
+    const std::size_t capacity = policy_.maxSnapshots;
+    if (capacity == 0) {
+        nextSlot_ = 0;
+        return;
+    }
+
+    std::vector<bool> occupied(capacity, false);
+    const auto newestFirst = store_.listNewestFirst();
+    for (const std::size_t slot : newestFirst) {
+        if (slot < capacity) occupied[slot] = true;
+    }
+
+    if (newestFirst.empty()) return;
+
+    // Prefer the first free slot after the newest valid slot. If the ring is
+    // full, overwrite the oldest valid slot (the back of newestFirst).
+    std::size_t newestValid = capacity;
+    for (const std::size_t slot : newestFirst) {
+        if (slot < capacity) {
+            newestValid = slot;
+            break;
+        }
+    }
+    if (newestValid == capacity) return;
+
+    for (std::size_t offset = 1; offset <= capacity; ++offset) {
+        const std::size_t candidate = (newestValid + offset) % capacity;
+        if (!occupied[candidate]) {
+            nextSlot_ = candidate;
+            return;
+        }
+    }
+
+    for (auto it = newestFirst.rbegin(); it != newestFirst.rend(); ++it) {
+        if (*it < capacity) {
+            nextSlot_ = *it;
+            return;
+        }
     }
 }
 
@@ -77,7 +115,7 @@ void AutoSaveManager::markClean() {
 }
 
 bool AutoSaveManager::tick(const Time& now, const std::function<std::string()>& snapshotProvider) {
-    if (!dirty_ || !hasDirtyTime_ || !snapshotProvider) {
+    if (!dirty_ || !hasDirtyTime_ || !snapshotProvider || policy_.maxSnapshots == 0) {
         return false;
     }
     // 条件 A：距上次修改至少 idleDelay（防抖（静止后保存）
@@ -95,12 +133,12 @@ bool AutoSaveManager::tick(const Time& now, const std::function<std::string()>& 
     if (data.size() > policy_.maxSnapshotBytes) {
         return false;  // 防御异常大快照
     }
-    const std::size_t slot = nextSlot_ % (policy_.maxSnapshots == 0 ? 1 : policy_.maxSnapshots);
+    const std::size_t slot = nextSlot_ % policy_.maxSnapshots;
     const Result r = store_.write(slot, data);
     if (!r.isOk()) {
         return false;
     }
-    ++nextSlot_;
+    nextSlot_ = (slot + 1) % policy_.maxSnapshots;
     lastSnapshotAt_ = now;
     return true;
 }
