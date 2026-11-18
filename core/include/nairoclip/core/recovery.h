@@ -5,6 +5,8 @@
 
 #include <cstddef>
 #include <functional>
+#include <filesystem>
+#include <mutex>
 #include <map>
 #include <string>
 #include <vector>
@@ -52,6 +54,29 @@ public:
 private:
     std::map<std::size_t, std::string> slots_;
     std::vector<std::size_t> writeOrder_;
+};
+
+/// 文件型恢复存储。每个槽位文件包含单调写入序号与快照正文，
+/// 通过同目录临时文件 + rename 原子替换；不依赖进程内顺序状态。
+/// 目录必须是应用私有、仅当前应用可写的目录。
+class FileRecoveryStore : public RecoveryStore {
+public:
+    explicit FileRecoveryStore(std::filesystem::path directory);
+    Result write(std::size_t slot, const std::string& data) override;
+    Result read(std::size_t slot, std::string& out) const override;
+    void remove(std::size_t slot) override;
+    std::vector<std::size_t> list() const override;
+    std::vector<std::size_t> listNewestFirst() const override;
+
+private:
+    struct Entry {
+        std::size_t slot;
+        std::uint64_t sequence;
+    };
+    std::vector<Entry> scanEntries() const;
+    std::filesystem::path slotPath(std::size_t slot) const;
+    std::filesystem::path directory_;
+    mutable std::mutex mutex_;
 };
 
 /// 崩溃恢复管理器：负责「脏标记 → 定时快照 → 异常退出后恢复」。
