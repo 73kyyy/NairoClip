@@ -2251,6 +2251,8 @@ void nc_free_string(char* text);
 /// 用法：`int32_t rc = nc_set_project_name(e, name);`
 ///       `if (rc != NC_OK) { const char* why = nc_last_error(); ... }`
 const char* nc_last_error(void);
+/// 最近一次 failNc 失败路径的错误码；与 nc_last_error() 同线程、同生命周期。
+int32_t nc_last_error_code(void);
 
 // ---- 剪辑模板（B2-1 ~ B2-4）----
 //
