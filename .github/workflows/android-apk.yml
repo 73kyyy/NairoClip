@@ -8,7 +8,7 @@ name: Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, work/v3.3.3-full-remediation ]
     paths:
       - 'core/**'
       - 'android/**'
@@ -19,6 +19,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   apk:
@@ -643,6 +647,7 @@ jobs:
           path: android/app/build/outputs/apk/release/*.apk
 
       - name: Publish to release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
