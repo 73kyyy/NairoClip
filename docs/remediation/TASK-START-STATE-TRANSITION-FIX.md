@@ -40,3 +40,18 @@ The implementation guard, both regression tests, and the test source were fetche
 - Confirm all C ABI and Kotlin callers obey the single-engine serialization contract.
 
 This record does not claim that tests passed.
+
+## Additional cancellation-timeout bypass found during follow-up review
+
+A second state-machine defect was found in the same registry:
+
+- `setProgress()` and `heartbeat()` rejected terminal states but still accepted updates in `CancelRequested`.
+- A worker could therefore continue refreshing `lastHeartbeatMs` after cancellation had been requested, indefinitely postponing the cancellation watchdog timeout.
+- Both methods now reject updates while the task is `CancelRequested`. The executor must acknowledge cancellation or the watchdog will fail the stuck task.
+- Added `ProgressCannotRefreshCancellationTimeout`, which verifies progress and heartbeat rejection, unchanged heartbeat clock, and watchdog timeout.
+
+Additional commits:
+- Implementation: `338095277c8fff9e4b9c256be0d31438017a3062`
+- Regression test: `5960a6609983c8f8fb13e2c8d1bb0a5cf48a60a1`
+
+The updated source and test were read back from the remediation branch. Compilation and test execution remain pending.
