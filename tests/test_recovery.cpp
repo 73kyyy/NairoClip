@@ -2,6 +2,7 @@
 #include "nairoclip/core/recovery.h"
 #include "nairoclip/core/serialization.h"
 #include "nairoclip/core/capi.h"
+#include <atomic>
 #include <cstdint>
 #include <fstream>
 #include <thread>
