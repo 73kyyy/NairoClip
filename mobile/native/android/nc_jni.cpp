@@ -2391,6 +2391,65 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeProjectLoad(
     return ToJStr(env, "{\\"ok\\":true,\\"code\\":0,\\"message\\":\\"工程已载入\\",\\"result\\":{}}");
 }
 
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeRecoveryConfigure(
+    JNIEnv* env, jobject, jlong h, jstring directory) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    const std::string path = JStr(env, directory);
+    return nc_recovery_configure(ed, path.c_str());
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeRecoveryMarkDirty(
+    JNIEnv*, jobject, jlong h, jlong nowMs) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    return nc_recovery_mark_dirty(ed, nowMs);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeRecoveryTick(
+    JNIEnv*, jobject, jlong h, jlong nowMs) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    return nc_recovery_tick(ed, nowMs);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeRecoveryHasSnapshot(
+    JNIEnv*, jobject, jlong h) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return 0;
+    return nc_recovery_has_snapshot(ed);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeRecoveryReadLatest(
+    JNIEnv* env, jobject, jlong h) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return nullptr;
+    char* raw = nc_recovery_read_latest(ed);
+    if (!raw) return nullptr;
+    const std::string snapshot(raw);
+    nc_free_string(raw);
+    return ToJStr(env, snapshot);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeRecoveryMarkClean(
+    JNIEnv*, jobject, jlong h) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (!ed) return NC_ERROR_INVALID_ARGUMENT;
+    return nc_recovery_mark_clean(ed);
+}
+
 // 契约层统一命令入口（P1/P2）。
 // 刻意**不**走 nativeCall 的 op 字符串分发：那正是 03 §6 明令禁止的
 // 「仅凭函数名字符串判断业务权限」模式。这里是独立 typed 入口，
