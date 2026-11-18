@@ -186,14 +186,17 @@ char* dupString(const std::string& text) {
 // 仍有少数函数直接 `return NC_ERROR_X;`，它们会保留上一次的原因——因此
 // 每次进入失败路径都会覆写，不会读到更早的陈旧信息（见 failNc 的清空逻辑）。
 thread_local std::string g_lastError;
+thread_local int32_t g_lastErrorCode = NC_OK;
 
 int32_t failNc(int32_t code, const std::string& message) {
     g_lastError = message;
+    g_lastErrorCode = code;
     return code;
 }
 
 int32_t failNc(int32_t code, const char* message) {
     g_lastError = (message != nullptr) ? message : "";
+    g_lastErrorCode = code;
     return code;
 }
 
@@ -834,9 +837,22 @@ int32_t nc_clip_count(const NcEditor* editor, int32_t track_index) {
 
 uint64_t nc_import_asset(NcEditor* editor, const char* name, const char* path, int32_t type,
                          int64_t duration_us) {
-    if (editor == nullptr || name == nullptr || path == nullptr || duration_us < 0) {
+    if (editor == nullptr || name == nullptr || name[0] == '\0' ||
+        path == nullptr || path[0] == '\0' || duration_us < 0) {
+        failNc(NC_ERROR_INVALID_ARGUMENT, "素材名称、路径或时长参数非法");
         return 0;
     }
+    if (type < 0 || type > 2) {
+        failNc(NC_ERROR_UNSUPPORTED, "素材类型不受支持");
+        return 0;
+    }
+#if defined(__ANDROID__)
+    std::error_code pathError;
+    if (!std::filesystem::is_regular_file(std::filesystem::path(path), pathError) || pathError) {
+        failNc(NC_ERROR_NOT_FOUND, "素材路径不是可读取的常规文件");
+        return 0;
+    }
+#endif
     MediaAsset asset;
     asset.name = name;
     asset.path = path;
@@ -844,10 +860,15 @@ uint64_t nc_import_asset(NcEditor* editor, const char* name, const char* path, i
         case 0: asset.type = MediaType::Video; break;
         case 1: asset.type = MediaType::Audio; break;
         case 2: asset.type = MediaType::Image; break;
-        default: asset.type = MediaType::Unknown; break;
     }
     asset.duration = fromMicroseconds(duration_us);
     const AssetId id = editor->editor->importAsset(std::move(asset));
+    if (id.value == 0) {
+        failNc(NC_ERROR_INTERNAL, "引擎拒绝导入素材");
+        return 0;
+    }
+    g_lastError.clear();
+    g_lastErrorCode = NC_OK;
     return id.value;
 }
 
@@ -8610,6 +8631,7 @@ void nc_free_string_array(char** items, int32_t count) {
 void nc_free_string(char* text) { delete[] text; }
 
 const char* nc_last_error(void) { return g_lastError.c_str(); }
+int32_t nc_last_error_code(void) { return g_lastErrorCode; }
 
 }  // extern "C"
 
