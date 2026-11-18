@@ -769,6 +769,17 @@ function saveCurrentProject() {
 }
 function scheduleProjectSave() {
   projectSaveDirty = true;
+  // 持久化恢复状态必须在 JS debounce 保存之前标脏；
+  // native autosave 独立于工程文件保存，避免进程被杀时只剩未落盘编辑。
+  const recoveryBridge = window.NCEngine;
+  if (recoveryBridge && typeof recoveryBridge.markProjectDirty === 'function') {
+    try {
+      const rc = recoveryBridge.markProjectDirty();
+      if (rc !== 0) console.warn('[NairoClip] 恢复脏标记失败，错误码：', rc);
+    } catch (error) {
+      console.warn('[NairoClip] 恢复脏标记异常：', error);
+    }
+  }
   if (projectSaveTimer !== null) clearTimeout(projectSaveTimer);
   projectSaveTimer = setTimeout(() => {
     projectSaveTimer = null;
