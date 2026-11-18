@@ -6587,7 +6587,9 @@ int32_t nc_ai_task_reset(NcEditor* editor) {
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-    editor->aiTask.reset();
+    if (!editor->aiTask.reset()) {
+        return failNc(NC_ERROR_UNSUPPORTED, "任务仍在运行或等待取消确认，不能复位");
+    }
     return NC_OK;
 }
 
