@@ -594,7 +594,7 @@ int32_t nc_recovery_has_snapshot(const NcEditor* editor) {
         return editor->autoSave->hasRecoverable() ? 1 : 0;
     } catch (const std::exception& e) {
         failNc(NC_ERROR_INTERNAL, std::string("检查恢复快照失败：") + e.what());
-        return 0;
+        return -1;
     } catch (...) {
         failNc(NC_ERROR_INTERNAL, "检查恢复快照失败");
         return 0;
