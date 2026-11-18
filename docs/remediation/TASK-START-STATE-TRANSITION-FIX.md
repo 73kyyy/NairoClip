@@ -55,3 +55,24 @@ Additional commits:
 - Regression test: `5960a6609983c8f8fb13e2c8d1bb0a5cf48a60a1`
 
 The updated source and test were read back from the remediation branch. Compilation and test execution remain pending.
+
+## Monotonic clock hardening
+
+A further cross-layer review found that Android supplied `System.currentTimeMillis()` to the task watchdog. Wall-clock corrections can move this clock forward or backward and make elapsed-time deadlines unreliable.
+
+Changes:
+- Replaced all seven task/watchdog timestamp calls in `NativeEngineBridge.kt` with `SystemClock.elapsedRealtime()`.
+- Updated the bridge and TaskRegistry API comments to state the monotonic-clock contract.
+- `TaskRegistry::heartbeat()` now rejects timestamps older than the previous heartbeat without mutating progress, stage note, or heartbeat time.
+- Added `StaleHeartbeatTimestampIsRejectedWithoutMutation` to cover stale callback rejection and subsequent watchdog timeout.
+
+Commits:
+- Android monotonic clock: `8bf379c73011ec4c8a6e3b62c9ff8e3d3d77e9e3`
+- stale heartbeat guard: `b94b6111aa54e849e404f44784580794e2202b31`
+- regression test: `cd01e7110254ec8dd0d393719d3a008fe688abc8`
+- bridge clock documentation: `e6ab792c3677ed559805d7a24f201eacca6612ec`
+- TaskRegistry clock contract: `6bea89788c1110151e73e65e24eb6d7c4f4ad16b`
+
+Read-back checks confirmed that no `System.currentTimeMillis()` remains in the bridge, all seven task clock call sites use `elapsedRealtime()`, and the stale-timestamp guard and regression test are present.
+
+Build and runtime tests remain pending; no test pass is claimed.
