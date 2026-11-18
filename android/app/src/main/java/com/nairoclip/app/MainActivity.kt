@@ -37,6 +37,9 @@ class MainActivity : AppCompatActivity() {
     private var cacheBudgetBase: Long = 0L
     private var engine: NativeEngineBridge? = null
 
+    private class MediaImportException(val code: String, message: String) :
+        java.io.IOException(message)
+
     private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
 
     private val filePickerLauncher =
@@ -76,8 +79,10 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Throwable) {
                 copiedFiles.forEach { it.delete() }
                 android.util.Log.e("NcImport", "素材复制失败", e)
+                val code = (e as? MediaImportException)?.code ?: "NC_IMPORT_IO_ERROR"
                 android.widget.Toast.makeText(
-                    this, "素材导入失败：${e.message ?: "未知错误"}", android.widget.Toast.LENGTH_LONG
+                    this, "素材导入失败 [$code]：${e.message ?: "未知错误"}",
+                    android.widget.Toast.LENGTH_LONG
                 ).show()
                 callback.onReceiveValue(null)
             }
@@ -100,7 +105,7 @@ class MainActivity : AppCompatActivity() {
         } ?: "media.bin"
         val initialAvailable = android.os.StatFs(filesDir.absolutePath).availableBytes
         if (declaredSize > initialAvailable) {
-            throw java.io.IOException("素材大小超过当前应用可用存储空间")
+            throw MediaImportException("NC_IMPORT_STORAGE_LIMIT", "素材大小超过当前应用可用存储空间")
         }
         val safeName = displayName
             .substringAfterLast('/')
@@ -118,12 +123,12 @@ class MainActivity : AppCompatActivity() {
         val storageName = java.util.UUID.randomUUID().toString().replace("-", "") + "__" + safeName
         val target = File(canonicalRoot, storageName)
         if (target.canonicalFile.parentFile != canonicalRoot) {
-            throw SecurityException("素材目标路径非法")
+            throw MediaImportException("NC_IMPORT_INVALID_PATH", "素材目标路径非法")
         }
         val temporary = File(canonicalRoot, ".$storageName.tmp")
         try {
             val input = contentResolver.openInputStream(source)
-                ?: throw java.io.IOException("无法读取所选素材")
+                ?: throw MediaImportException("NC_IMPORT_READ_FAILED", "无法读取所选素材")
             input.use { src ->
                 FileOutputStream(temporary).use { dst ->
                     val buffer = ByteArray(64 * 1024)
@@ -132,7 +137,7 @@ class MainActivity : AppCompatActivity() {
                         if (count < 0) break
                         if (count == 0) continue
                         if (count.toLong() > android.os.StatFs(canonicalRoot.absolutePath).availableBytes) {
-                            throw java.io.IOException("应用存储空间不足，素材导入已中止")
+                            throw MediaImportException("NC_IMPORT_STORAGE_LIMIT", "应用存储空间不足，素材导入已中止")
                         }
                         dst.write(buffer, 0, count)
                     }
@@ -140,10 +145,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             if (temporary.length() <= 0L) {
-                throw java.io.IOException("所选素材为空")
+                throw MediaImportException("NC_IMPORT_EMPTY_FILE", "所选素材为空")
             }
             if (!temporary.renameTo(target)) {
-                throw java.io.IOException("无法提交素材文件")
+                throw MediaImportException("NC_IMPORT_COMMIT_FAILED", "无法提交素材文件")
             }
             val uri = FileProvider.getUriForFile(
                 this, "$packageName.fileprovider", target
