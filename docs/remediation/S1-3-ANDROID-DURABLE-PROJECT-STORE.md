@@ -16,6 +16,9 @@
 - Permanent deletion uses `AtomicFile.delete()` and verifies the base, `.bak`, and `.new` sidecars are absent.
 - A random project filename is allocated on first save and reused by the active bridge instance.
 - Draft listing now returns modification time and sorts newest first.
+- Listing is serialized with save/load/delete under the same bridge lock; directory I/O and backup-recovery failures return explicit `ok:false` responses instead of masquerading as an empty folder.
+- The home screen preserves its last successfully loaded draft list when a refresh fails, rather than replacing it with an empty list.
+- Deletion also handles interrupted-write sidecars when the base `.nclip` file is absent.
 
 ### Editor integration
 - Opening a draft calls `loadProjectFile()` before `Engine.boot()` reads the project state.
