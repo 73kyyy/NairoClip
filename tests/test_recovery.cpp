@@ -131,6 +131,42 @@ NC_TEST(Recovery, LatestOrderingBelongsToStoreNotManagerLifetime) {
     NC_CHECK(out.find("\"v\":5") != std::string::npos);
 }
 
+NC_TEST(Recovery, ZeroSnapshotCapacityDisablesWrites) {
+    InMemoryRecoveryStore store;
+    AutoSavePolicy p = smallPolicy();
+    p.maxSnapshots = 0;
+    AutoSaveManager mgr(store, p);
+    mgr.markDirty(fromSeconds(0));
+    NC_CHECK(!mgr.tick(fromSeconds(2), [] { return snapshot(); }));
+    NC_CHECK_EQ(mgr.snapshotCount(), std::size_t(0));
+}
+
+NC_TEST(Recovery, RestartReconcilesSlotsAfterRetentionPolicyShrinks) {
+    InMemoryRecoveryStore store;
+    AutoSavePolicy original = smallPolicy();
+    original.maxSnapshots = 5;
+    {
+        AutoSaveManager mgr(store, original);
+        for (int i = 0; i < 4; ++i) {
+            mgr.markDirty(fromSeconds(i * 10));
+            const int captured = i + 1;
+            NC_CHECK(mgr.tick(fromSeconds(i * 10 + 2), [captured] {
+                return std::string("snapshot-") + std::to_string(captured);
+            }));
+        }
+    }
+
+    AutoSavePolicy reduced = smallPolicy();
+    reduced.maxSnapshots = 2;
+    AutoSaveManager restarted(store, reduced);
+    restarted.markDirty(fromSeconds(100));
+    NC_CHECK(restarted.tick(fromSeconds(102), [] { return std::string("snapshot-5"); }));
+    NC_CHECK_EQ(restarted.snapshotCount(), std::size_t(5));
+    std::string latest;
+    NC_CHECK(restarted.recoverLatest(latest).isOk());
+    NC_CHECK_EQ(latest, std::string("snapshot-5"));
+}
+
 NC_TEST(Recovery, StoreOrderingTracksSlotOverwrite) {
     InMemoryRecoveryStore store;
     NC_CHECK(store.write(0, "old-zero").isOk());
