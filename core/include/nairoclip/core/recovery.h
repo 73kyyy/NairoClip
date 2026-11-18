@@ -62,7 +62,7 @@ private:
 /// 目录必须是应用私有、仅当前应用可写的目录。
 class FileRecoveryStore : public RecoveryStore {
 public:
-    explicit FileRecoveryStore(std::filesystem::path directory);
+    explicit FileRecoveryStore(std::filesystem::path directory,\n                              std::size_t maxSnapshotBytes = 64 * 1024 * 1024);
     Result write(std::size_t slot, const std::string& data) override;
     Result read(std::size_t slot, std::string& out) const override;
     void remove(std::size_t slot) override;
