@@ -11,6 +11,9 @@
 - Added `NativeEngineBridge.saveProjectFile()`, `loadProjectFile()`, and `deleteProject()`.
 - Files are constrained to safe `.nclip` basenames in the application-private `filesDir`; arbitrary paths and traversal components are rejected.
 - Save uses Android `AtomicFile`, writes UTF-8 serialized project text, calls `FileDescriptor.sync()`, and commits with `finishWrite()`; failure calls `failWrite()`.
+- Reads and writes are bounded to 64 MiB. Oversized or empty files are rejected before parsing.
+- Draft listing attempts `AtomicFile.openRead()` for orphaned `.bak` sidecars so an interrupted replacement can restore its last committed version.
+- Permanent deletion uses `AtomicFile.delete()` and verifies the base, `.bak`, and `.new` sidecars are absent.
 - A random project filename is allocated on first save and reused by the active bridge instance.
 - Draft listing now returns modification time and sorts newest first.
 
@@ -23,7 +26,7 @@
 
 ## Important limitations still open
 
-1. The current autosave dirty hook is attached to the editor's mapped `edit()` path. Direct mutation paths that bypass this function must be audited and connected.
+1. Autosave is attached to the mapped `edit()` path and a mutation-prefix allowlist in the generic `engineCall()` path. Any future mutation API must be added to that allowlist or explicitly schedule a save.
 2. No Android instrumentation tests have yet exercised process death, AtomicFile recovery, disk-full/write failures, or corrupted project files.
 3. No Gradle/NDK build or device runtime verification has been run after these changes.
 4. This implements Android local project durability only; it does not complete cross-platform persistence or durable RecoveryStore integration.
