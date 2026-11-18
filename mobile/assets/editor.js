@@ -5268,13 +5268,24 @@ async function importToEngine(name, path, type, durationUs) {
     toast('未连接引擎，无法导入素材', 3000);
     return 0;
   }
-  const r = await NC_API.call('nc_import_asset', {
-    name, path, type, duration_us: durationUs
-  });
-  if (!r || !r.ok || !r.result || !r.result.value) {
-    toast(`导入失败：${(r && r.message) || '引擎拒绝'}`, 3000);
+  const bridge = window.NCEngine;
+  if (!bridge || typeof bridge.importPickedMedia !== 'function') {
+    toast('当前平台未提供受控本地素材导入能力', 3500);
     return 0;
   }
+  let r;
+  try {
+    const raw = bridge.importPickedMedia(String(path || ''), Number(type), Number(durationUs));
+    r = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
+  } catch (error) {
+    toast(`导入失败：${error.message || error}`, 3500);
+    return 0;
+  }
+  if (!r || !r.ok || !r.result || !r.result.value) {
+    toast(`导入失败：${(r && r.message) || '引擎拒绝'}（${(r && r.code) ?? '未知错误码'}）`, 3500);
+    return 0;
+  }
+  scheduleProjectSave();
   return Number(r.result.value);
 }
 
