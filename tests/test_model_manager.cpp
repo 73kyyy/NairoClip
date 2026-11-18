@@ -744,20 +744,21 @@ NC_TEST(DeviceTier, ClassificationRules) {
 }
 
 NC_TEST(DeviceTier, QuantizationRecommendation) {
-    // 桌面：恒 FP32
+    // 全平台、全部设备等级统一 FP16；不得回退到 FP32 或 INT8。
     DeviceProfile desktop;
     desktop.platform = DevicePlatform::Desktop;
     NC_CHECK(recommendedQuantization(desktop, DeviceTier::High) ==
-             QuantizationLevel::Fp32);
-    // 移动 High/Mid：FP16
+             QuantizationLevel::Fp16);
     DeviceProfile mobile;
     NC_CHECK(recommendedQuantization(mobile, DeviceTier::High) ==
              QuantizationLevel::Fp16);
     NC_CHECK(recommendedQuantization(mobile, DeviceTier::Mid) ==
              QuantizationLevel::Fp16);
-    // 移动 Low：INT8
     NC_CHECK(recommendedQuantization(mobile, DeviceTier::Low) ==
-             QuantizationLevel::Int8);
+             QuantizationLevel::Fp16);
+    DeviceProfile unknown;
+    NC_CHECK(recommendedQuantization(unknown, DeviceTier::Low) ==
+             QuantizationLevel::Fp16);
     // 体积比例（文档 3.2）
     NC_CHECK(std::fabs(quantizationSizeRatio(QuantizationLevel::Fp32) - 1.0) < 1e-9);
     NC_CHECK(std::fabs(quantizationSizeRatio(QuantizationLevel::Fp16) - 0.5) < 1e-9);
@@ -795,10 +796,10 @@ NC_TEST(DeviceTier, DownloadRequestAssembly) {
     NC_CHECK(params.quantization == QuantizationLevel::Fp16);
     NC_CHECK(params.summary().find("matting_basic") != std::string::npos);
     NC_CHECK(params.summary().find("fp16") != std::string::npos);
-    // 桌面：FP32
+    // 桌面同样必须 FP16
     DeviceProfile desktop;
     desktop.platform = DevicePlatform::Desktop;
     const auto desktopParams = buildModelDownloadRequest("esrgan", desktop);
-    NC_CHECK(desktopParams.quantization == QuantizationLevel::Fp32);
+    NC_CHECK(desktopParams.quantization == QuantizationLevel::Fp16);
     NC_CHECK_EQ(desktopParams.tier, DeviceTier::High);
 }
