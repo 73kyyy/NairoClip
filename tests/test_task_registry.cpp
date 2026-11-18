@@ -60,6 +60,21 @@ NC_TEST(TaskRegistry2, StartCannotReviveCancelRequestedTask) {
     NC_CHECK(reg.find(id)->cancelRequested);
 }
 
+NC_TEST(TaskRegistry2, ProgressCannotRefreshCancellationTimeout) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("export", fastConfig(), 1000);
+    NC_CHECK(reg.start(id, 1000));
+    NC_CHECK(reg.cancel(id));
+    NC_CHECK(!reg.setProgress(id, 0.8));
+    NC_CHECK(!reg.heartbeat(id, 0.9, "伪造继续运行", 1900));
+    const TaskInfo* pending = reg.find(id);
+    NC_CHECK(pending->state == TaskState::CancelRequested);
+    NC_CHECK_EQ(pending->lastHeartbeatMs, std::int64_t(1000));
+    NC_CHECK_EQ(reg.tick(2101), std::size_t(1));
+    NC_CHECK(reg.find(id)->state == TaskState::Failed);
+    NC_CHECK(reg.find(id)->timedOut);
+}
+
 NC_TEST(TaskRegistry2, InvalidHeartbeatFallsBackToDefault) {
     TaskRegistry reg;
     TaskConfig c;
