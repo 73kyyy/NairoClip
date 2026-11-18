@@ -470,13 +470,12 @@ DeviceTier classifyDeviceTier(const DeviceProfile& profile) {
 }
 
 QuantizationLevel recommendedQuantization(const DeviceProfile& profile, DeviceTier tier) {
-    // 桌面：恒 FP32（文档 5.2；用户主动性能模式才切 FP16——由
-    // buildModelDownloadRequest 按 userPerformanceMode 处理）
-    if (profile.platform == DevicePlatform::Desktop) {
-        return QuantizationLevel::Fp32;
-    }
-    // 移动：High/Mid → FP16；Low → INT8（文档 3.1 规格表）
-    return tier == DeviceTier::Low ? QuantizationLevel::Int8 : QuantizationLevel::Fp16;
+    // 产品策略：所有平台、所有设备等级统一使用 FP16。
+    // 不因设备性能降级到 INT8，也不向桌面请求 FP32 完整精度版本。
+    // 设备分级仍用于能力/性能调度，但不得改变模型权重精度。
+    (void)profile;
+    (void)tier;
+    return QuantizationLevel::Fp16;
 }
 
 std::string ModelDownloadRequestParams::summary() const {
