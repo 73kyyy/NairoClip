@@ -116,6 +116,10 @@ bool TaskRegistry::heartbeat(const std::string& taskId, double progress,
     if (it == tasks_.end()) return false;
     if (isTerminal(it->second.state) || it->second.state == TaskState::CancelRequested)
         return false;
+    // 平台层使用单调时钟；拒绝倒退的时间戳，避免旧回调回写进度并
+    // 把 lastHeartbeatMs 改小，导致超时计算失真。
+    if (nowMs > 0 && it->second.hasClock &&
+        nowMs < it->second.lastHeartbeatMs) return false;
     if (progress < 0.0) progress = 0.0;
     if (progress > 1.0) progress = 1.0;
     // 单调不减：进度回跳会让进度条倒退，视为无效上报但不报错。
