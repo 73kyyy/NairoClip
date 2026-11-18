@@ -121,6 +121,24 @@ NC_TEST(AiTask, Lifecycle) {
     NC_CHECK_EQ(static_cast<int>(runner.task().state), 0);
 }
 
+NC_TEST(AiTask, ResetCannotOrphanRunningOrCancellingTask) {
+    AiTaskRunner runner;
+    NC_CHECK(runner.begin(AiFeatureType::Matting, 77));
+    const std::string runningId = runner.taskId();
+    NC_CHECK(!runner.reset());
+    NC_CHECK_EQ(runner.taskId(), runningId);
+    NC_CHECK(runner.task().state == AiTaskState::Running);
+    NC_CHECK(!runner.begin(AiFeatureType::DepthMap, 0));
+
+    NC_CHECK(runner.cancel());
+    NC_CHECK(!runner.reset());
+    NC_CHECK_EQ(runner.taskId(), runningId);
+    NC_CHECK(runner.confirmCancel());
+    NC_CHECK(runner.reset());
+    NC_CHECK(runner.taskId().empty());
+    NC_CHECK(runner.task().state == AiTaskState::Idle);
+}
+
 NC_TEST(AiTask, SingleActiveTaskConstraint) {
     // 文档 Part 4 自查规则第 4 项：处理期间其他参数置灰禁用
     AiTaskRunner runner;
