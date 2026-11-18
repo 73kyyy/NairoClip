@@ -95,3 +95,16 @@ Commits:
 - regression test: `93aaed146668dae60540f4beff7dc8cf2dd9de7a`
 
 Source and test changes have been written to the remediation branch. Compilation and test execution remain pending.
+
+## Completion callback racing with cancellation
+
+A further state-transition defect was found: both `complete()` and `completeWithResult()` accepted `CancelRequested`. A late success callback could therefore overwrite a cancellation request with `Completed`; the result-size failure path could also turn that cancellation into `Failed`.
+
+Changes:
+- Reject both completion APIs while the task is `CancelRequested`, before result-size handling or result mutation.
+- Keep the cancellation request authoritative once it has been registered. The executor must acknowledge cancellation; successful completion must have been committed before cancellation is registered.
+- Add `CompletionCannotOverrideCancellationRequest`, covering both completion APIs, oversized late results, unchanged result fields, and explicit cancellation acknowledgement.
+
+Verification:
+- Source and regression test were written and will be read back from the remediation branch.
+- Build and runtime tests have not been executed; no test pass is claimed.
