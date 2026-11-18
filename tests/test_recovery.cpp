@@ -161,7 +161,7 @@ NC_TEST(Recovery, RestartReconcilesSlotsAfterRetentionPolicyShrinks) {
     AutoSaveManager restarted(store, reduced);
     restarted.markDirty(fromSeconds(100));
     NC_CHECK(restarted.tick(fromSeconds(102), [] { return std::string("snapshot-5"); }));
-    NC_CHECK_EQ(restarted.snapshotCount(), std::size_t(5));
+    NC_CHECK_EQ(restarted.snapshotCount(), std::size_t(2));
     std::string latest;
     NC_CHECK(restarted.recoverLatest(latest).isOk());
     NC_CHECK_EQ(latest, std::string("snapshot-5"));
