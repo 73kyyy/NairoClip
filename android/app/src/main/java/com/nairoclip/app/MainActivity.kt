@@ -41,6 +41,10 @@ class MainActivity : AppCompatActivity() {
         java.io.IOException(message)
 
     private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
+    private val mediaImportGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private val mediaImportExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+        Thread(task, "nc-media-import").apply { isDaemon = true }
+    }
 
     private val filePickerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -67,24 +71,40 @@ class MainActivity : AppCompatActivity() {
                 return@registerForActivityResult
             }
 
-            val copiedFiles = ArrayList<File>()
-            val resultUris = ArrayList<Uri>()
-            try {
-                selected.forEach { source ->
-                    val copied = copyPickedMedia(source)
-                    copiedFiles.add(copied.second)
-                    resultUris.add(copied.first)
+            val generation = mediaImportGeneration.incrementAndGet()
+            android.widget.Toast.makeText(this, "正在复制所选素材到应用私有空间…", android.widget.Toast.LENGTH_SHORT).show()
+            mediaImportExecutor.execute {
+                val copiedFiles = ArrayList<File>()
+                val resultUris = ArrayList<Uri>()
+                var failure: Throwable? = null
+                try {
+                    selected.forEach { source ->
+                        val copied = copyPickedMedia(source)
+                        copiedFiles.add(copied.second)
+                        resultUris.add(copied.first)
+                    }
+                } catch (e: Throwable) {
+                    failure = e
+                    copiedFiles.forEach { it.delete() }
                 }
-                callback.onReceiveValue(resultUris.toTypedArray())
-            } catch (e: Throwable) {
-                copiedFiles.forEach { it.delete() }
-                android.util.Log.e("NcImport", "素材复制失败", e)
-                val code = (e as? MediaImportException)?.code ?: "NC_IMPORT_IO_ERROR"
-                android.widget.Toast.makeText(
-                    this, "素材导入失败 [$code]：${e.message ?: "未知错误"}",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-                callback.onReceiveValue(null)
+                runOnUiThread {
+                    if (isDestroyed || generation != mediaImportGeneration.get()) {
+                        copiedFiles.forEach { it.delete() }
+                        return@runOnUiThread
+                    }
+                    if (failure == null) {
+                        callback.onReceiveValue(resultUris.toTypedArray())
+                    } else {
+                        val error = failure!!
+                        android.util.Log.e("NcImport", "素材复制失败", error)
+                        val code = (error as? MediaImportException)?.code ?: "NC_IMPORT_IO_ERROR"
+                        android.widget.Toast.makeText(
+                            this, "素材导入失败 [$code]：${error.message ?: "未知错误"}",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        callback.onReceiveValue(null)
+                    }
+                }
             }
         }
 
@@ -451,6 +471,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        mediaImportGeneration.incrementAndGet()
+        mediaImportExecutor.shutdownNow()
         pendingFileChooser?.onReceiveValue(null)
         pendingFileChooser = null
         memoryGuard?.let { unregisterComponentCallbacks(it) }
