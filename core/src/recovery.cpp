@@ -154,7 +154,7 @@ Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
         return Result::fail(ErrorCode::NotFound, "恢复快照不存在或文件类型非法");
     }
     const auto fileBytes = std::filesystem::file_size(path, ec);
-    if (ec || fileBytes > maxSnapshotBytes_ + 64) {
+    if (ec || (fileBytes > maxSnapshotBytes_ && fileBytes - maxSnapshotBytes_ > 64)) {
         return Result::fail(ErrorCode::OutOfRange, "恢复快照文件超过大小限制或无法读取大小");
     }
     std::ifstream input(path, std::ios::binary);
