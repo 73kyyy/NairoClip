@@ -1,6 +1,15 @@
 package com.nairoclip.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import android.provider.OpenableColumns
+import java.io.File
+import java.io.FileOutputStream
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -27,6 +36,113 @@ class MainActivity : AppCompatActivity() {
     /** 正常状态下的帧缓存预算（字节）；压力兜底时按比例下调。 */
     private var cacheBudgetBase: Long = 0L
     private var engine: NativeEngineBridge? = null
+
+    private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
+
+    private val filePickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = pendingFileChooser
+            pendingFileChooser = null
+            if (callback == null) return@registerForActivityResult
+            if (result.resultCode != RESULT_OK || result.data == null) {
+                callback.onReceiveValue(null)
+                return@registerForActivityResult
+            }
+
+            val data = result.data!!
+            val selected = ArrayList<Uri>()
+            val clipData = data.clipData
+            if (clipData != null) {
+                for (i in 0 until clipData.itemCount) {
+                    clipData.getItemAt(i).uri?.let { selected.add(it) }
+                }
+            } else {
+                data.data?.let { selected.add(it) }
+            }
+            if (selected.isEmpty()) {
+                callback.onReceiveValue(null)
+                return@registerForActivityResult
+            }
+
+            val copiedFiles = ArrayList<File>()
+            val resultUris = ArrayList<Uri>()
+            try {
+                selected.forEach { source ->
+                    val copied = copyPickedMedia(source)
+                    copiedFiles.add(copied.second)
+                    resultUris.add(copied.first)
+                }
+                callback.onReceiveValue(resultUris.toTypedArray())
+            } catch (e: Throwable) {
+                copiedFiles.forEach { it.delete() }
+                android.util.Log.e("NcImport", "素材复制失败", e)
+                callback.onReceiveValue(null)
+            }
+        }
+
+    /**
+     * 将用户明确选择的 content:// URI 复制到应用私有目录。
+     * WebView 只拿到 FileProvider URI；引擎导入时再由桥按受控文件名解析
+     * 到 filesDir/imports，JS 不能提交任意磁盘路径。
+     */
+    private fun copyPickedMedia(source: Uri): Pair<Uri, File> {
+        val displayName = contentResolver.query(
+            source, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: "media.bin"
+        val safeName = displayName
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .replace(Regex("[^\\p{L}\\p{N}._-]"), "_")
+            .trim('.')
+            .take(120)
+            .ifBlank { "media.bin" }
+
+        val root = File(filesDir, "imports")
+        if (!root.exists() && !root.mkdirs()) {
+            throw java.io.IOException("无法创建应用私有素材目录")
+        }
+        val canonicalRoot = root.canonicalFile
+        val storageName = java.util.UUID.randomUUID().toString().replace("-", "") + "__" + safeName
+        val target = File(canonicalRoot, storageName)
+        if (target.canonicalFile.parentFile != canonicalRoot) {
+            throw SecurityException("素材目标路径非法")
+        }
+        val temporary = File(canonicalRoot, ".$storageName.tmp")
+        try {
+            val input = contentResolver.openInputStream(source)
+                ?: throw java.io.IOException("无法读取所选素材")
+            input.use { src ->
+                FileOutputStream(temporary).use { dst ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = src.read(buffer)
+                        if (count < 0) break
+                        if (count == 0) continue
+                        dst.write(buffer, 0, count)
+                    }
+                    dst.fd.sync()
+                }
+            }
+            if (temporary.length() <= 0L) {
+                throw java.io.IOException("所选素材为空")
+            }
+            if (!temporary.renameTo(target)) {
+                throw java.io.IOException("无法提交素材文件")
+            }
+            val uri = FileProvider.getUriForFile(
+                this, "$packageName.fileprovider", target
+            )
+            grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            return Pair(uri, target)
+        } catch (e: Throwable) {
+            temporary.delete()
+            target.delete()
+            throw e
+        }
+    }
+
 
     /**
      * 面板层级（由 JS 通过 NCEngine.setPanelDepth 推送）。
@@ -162,6 +278,33 @@ class MainActivity : AppCompatActivity() {
             ) = assetLoader.shouldInterceptRequest(request.url)
         }
 
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                pendingFileChooser?.onReceiveValue(null)
+                if (filePathCallback == null) return false
+                pendingFileChooser = filePathCallback
+                return try {
+                    val intent = fileChooserParams?.createIntent()
+                        ?: Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                        }
+                    filePickerLauncher.launch(intent)
+                    true
+                } catch (e: Throwable) {
+                    pendingFileChooser = null
+                    filePathCallback.onReceiveValue(null)
+                    android.util.Log.e("NcImport", "无法启动系统素材选择器", e)
+                    false
+                }
+            }
+        }
+
         val eng = NativeEngineBridge(applicationContext, ::updatePanelDepth)
         engine = eng
         webView.addJavascriptInterface(eng, "NCEngine")
@@ -273,6 +416,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        pendingFileChooser?.onReceiveValue(null)
+        pendingFileChooser = null
         memoryGuard?.let { unregisterComponentCallbacks(it) }
         memoryGuard = null
         engine?.release()
