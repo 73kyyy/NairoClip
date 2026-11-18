@@ -82,7 +82,7 @@ NC_TEST(Recovery, FileStoreIgnoresCorruptAndTemporaryFiles) {
         std::ofstream corrupt(dir / "4.ncr", std::ios::binary);
         corrupt << "not-a-recovery-file";
         std::ofstream temporary(dir / "5.ncr.tmp", std::ios::binary);
-        temporary << "NCR1 99\\npartial";
+        temporary << "NCR2 99 7 0\\npartial";
     }
     FileRecoveryStore store(dir);
     NC_CHECK(store.write(2, "valid-snapshot").isOk());
@@ -91,6 +91,31 @@ NC_TEST(Recovery, FileStoreIgnoresCorruptAndTemporaryFiles) {
     NC_CHECK_EQ(slots[0], std::size_t(2));
     std::string out;
     NC_CHECK(!store.read(4, out).isOk());
+    std::filesystem::remove_all(dir, ec);
+}
+
+NC_TEST(Recovery, FileStoreRejectsTruncatedAndCorruptedPayloads) {
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-integrity-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    FileRecoveryStore store(dir);
+    NC_CHECK(store.write(0, "complete-payload").isOk());
+    const auto path = dir / "0.ncr";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "NCR2 10 100 123\\nshort";
+    }
+    std::string out;
+    NC_CHECK(!store.read(0, out).isOk());
+    NC_CHECK(store.list().empty());
+    NC_CHECK(store.write(0, "complete-payload").isOk());
+    {
+        std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+        file.seekp(-1, std::ios::end);
+        file.put('X');
+    }
+    NC_CHECK(!store.read(0, out).isOk());
+    NC_CHECK(store.list().empty());
     std::filesystem::remove_all(dir, ec);
 }
 
