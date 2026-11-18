@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "baseline_total": 1458,
+  "baseline_source": "Legacy CI lower bound in .github/workflows/ci.yml; replace with the first verified runtime count on this branch.",
+  "excluded_tests": [
+    {
+      "name": "Capi.WatermarkRealExportEndToEnd",
+      "reason": "Existing known glibc heap-corruption diagnostic exclusion in the full-suite CI invocation; this exception is counted explicitly and does not reduce the registered inventory."
+    }
+  ]
+}
