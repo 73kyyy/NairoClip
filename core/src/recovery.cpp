@@ -53,8 +53,8 @@ bool syncDirectoryPath(const std::filesystem::path& path) {
 }
 }  // namespace
 
-FileRecoveryStore::FileRecoveryStore(std::filesystem::path directory)
-    : directory_(std::move(directory)) {}
+FileRecoveryStore::FileRecoveryStore(std::filesystem::path directory, std::size_t maxSnapshotBytes)
+    : directory_(std::move(directory)), maxSnapshotBytes_(maxSnapshotBytes) {}
 
 std::filesystem::path FileRecoveryStore::slotPath(std::size_t slot) const {
     return directory_ / (std::to_string(slot) + ".ncr");
@@ -95,6 +95,9 @@ std::vector<FileRecoveryStore::Entry> FileRecoveryStore::scanEntries() const {
 
 Result FileRecoveryStore::write(std::size_t slot, const std::string& data) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (data.empty() || data.size() > maxSnapshotBytes_) {
+        return Result::fail(ErrorCode::OutOfRange, "恢复快照为空或超过大小限制");
+    }
     std::error_code ec;
     std::filesystem::create_directories(directory_, ec);
     if (ec) return Result::fail(ErrorCode::Internal, "无法创建恢复目录: " + ec.message());
@@ -149,6 +152,10 @@ Result FileRecoveryStore::read(std::size_t slot, std::string& out) const {
     const auto status = std::filesystem::symlink_status(path, ec);
     if (ec || !std::filesystem::is_regular_file(status) || std::filesystem::is_symlink(status)) {
         return Result::fail(ErrorCode::NotFound, "恢复快照不存在或文件类型非法");
+    }
+    const auto fileBytes = std::filesystem::file_size(path, ec);
+    if (ec || fileBytes > maxSnapshotBytes_ + 64) {
+        return Result::fail(ErrorCode::OutOfRange, "恢复快照文件超过大小限制或无法读取大小");
     }
     std::ifstream input(path, std::ios::binary);
     std::string magic;
