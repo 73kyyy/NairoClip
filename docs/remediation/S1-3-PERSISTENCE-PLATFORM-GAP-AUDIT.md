@@ -44,6 +44,8 @@ The current event path is not yet a complete persistence dirty signal:
 - `nc_project_load()` replaces the project and rebuilds the editor/dispatcher; recovery integration must explicitly distinguish loading/replacing a project from user edits and must not mark a freshly loaded project dirty by accident.
 - The JNI bridge serializes editor calls with `stateLock`; recovery configure/tick/recover calls must use that same lock and must not add a second concurrent route into the non-thread-safe `NcEditor`.
 
+The current C ABI inventory also found project-state writes outside the editor command path in proxy metadata operations: `nc_proxy_set_record()`, `nc_proxy_generate()`, and `nc_proxy_clear_records()` mutate `editor->project.proxies` directly. Those paths must emit the same project-mutation notification after a successful state change. By contrast, `nc_preview_invalidate()` and the memory-release path increment `directEditCount` for preview-cache invalidation only; they must never mark a project dirty. Other inspected direct `editor->project` occurrences are reads or the controlled `nc_project_load()` replacement path.
+
 Therefore, subscribing only to `timeline.changed` or polling `directEditCount` is insufficient. Before enabling autosave, every project-mutating C ABI path that bypasses `TimelineEditor::commit()` must be inventoried and routed through a shared mutation notification/revision mechanism, or those operations must be migrated to the command/editor boundary. The recovery dirty flag must be driven only by confirmed project-content changes.
 
 ## Required implementation work
