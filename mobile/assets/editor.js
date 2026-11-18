@@ -769,6 +769,15 @@ function saveCurrentProject() {
 }
 function scheduleProjectSave() {
   projectSaveDirty = true;
+  const bridge = window.NCEngine;
+  if (bridge && typeof bridge.markProjectDirty === 'function') {
+    try {
+      const rc = bridge.markProjectDirty();
+      if (rc !== 0) console.warn('[NairoClip] 工程恢复脏标记失败，错误码：', rc);
+    } catch (error) {
+      console.warn('[NairoClip] 工程恢复脏标记异常：', error);
+    }
+  }
   if (projectSaveTimer !== null) clearTimeout(projectSaveTimer);
   projectSaveTimer = setTimeout(() => {
     projectSaveTimer = null;
@@ -802,7 +811,7 @@ function engineCall(fn, args) {
       'nc_transition_', 'nc_mask_', 'nc_xform_',
       'nc_track_add', 'nc_track_remove', 'nc_track_set',
       'nc_clip_add', 'nc_clip_remove', 'nc_clip_set',
-      'nc_asset_add', 'nc_asset_remove', 'nc_project_rename'
+      'nc_asset_add', 'nc_asset_remove', 'nc_project_rename', 'nc_proxy_'
     ];
     if (result && result.ok && mutationPrefixes.some((prefix) => fn.startsWith(prefix))) {
       scheduleProjectSave();
@@ -5487,6 +5496,33 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
     return;
   }
   applyState(Engine.state);
+
+  // 仅对当前草稿检查崩溃恢复；恢复前必须由用户明确确认。
+  const recoveryBridge = window.NCEngine;
+  if (projectFile && recoveryBridge &&
+      typeof recoveryBridge.recoveryAvailable === 'function' &&
+      recoveryBridge.recoveryAvailable()) {
+    const restore = window.confirm('检测到该工程上次异常退出前的恢复快照。是否恢复最近一次未保存的编辑？');
+    if (restore) {
+      try {
+        const raw = recoveryBridge.restoreRecovery();
+        const recovered = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
+        if (recovered && recovered.ok === true) {
+          applyState(fetchState());
+          renderAll();
+          scheduleProjectSave();
+          toast('已恢复未保存的编辑');
+        } else {
+          toast('恢复失败：' + ((recovered && recovered.message) || '快照不可用'), 4000);
+        }
+      } catch (error) {
+        toast('恢复失败：' + (error.message || error), 4000);
+      }
+    } else if (typeof recoveryBridge.discardRecovery === 'function') {
+      recoveryBridge.discardRecovery();
+    }
+  }
+
   /* 时间密度按工程恢复（G6）：必须在 applyState 之后 ——
      zoomStorageKey() 依赖 S.project.name。 */
   loadZoomDensity();
