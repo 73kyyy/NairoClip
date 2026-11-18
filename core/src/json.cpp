@@ -110,6 +110,8 @@ void writeValue(const JsonValue& v, std::string& out, bool pretty, int depth) {
 
 class Parser {
 public:
+    // 防止递归栈与单节点失控的临时硬上限；最终发布值仍须按真实 .nclip
+    // 工程样本、目标设备内存预算与压力测试校准（S1-8B/8C），不可据此宣告验收。
     static constexpr std::size_t kMaxInputBytes = 64u * 1024u * 1024u;
     static constexpr std::size_t kMaxDepth = 64u;
     static constexpr std::size_t kMaxStringBytes = 4u * 1024u * 1024u;
