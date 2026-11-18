@@ -145,7 +145,7 @@ Result FileRecoveryStore::write(std::size_t slot, const std::string& data) {
     {
         std::ofstream output(temp, std::ios::binary | std::ios::trunc);
         if (!output) return Result::fail(ErrorCode::Internal, "无法创建恢复快照临时文件");
-        output << kRecoveryMagic << ' ' << sequence << '\n';
+        output << kRecoveryMagic << ' ' << sequence << ' ' << data.size() << ' ' << checksum64(data) << '\n';
         output.write(data.data(), static_cast<std::streamsize>(data.size()));
         output.flush();
         if (!output) {
