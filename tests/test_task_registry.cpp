@@ -38,6 +38,28 @@ NC_TEST(TaskRegistry2, CreateExAssignsIdAndConfig) {
     NC_CHECK_EQ(t->config.totalTimeoutMs, std::int64_t(5000));
 }
 
+NC_TEST(TaskRegistry2, RepeatedStartCannotResetTimeoutClocks) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("export", fastConfig(), 1000);
+    NC_CHECK(reg.start(id, 1000));
+    NC_CHECK(!reg.start(id, 1900));
+    const TaskInfo* running = reg.find(id);
+    NC_CHECK_EQ(running->startedAtMs, std::int64_t(1000));
+    NC_CHECK_EQ(running->lastHeartbeatMs, std::int64_t(1000));
+    NC_CHECK_EQ(reg.tick(2101), std::size_t(1));
+    NC_CHECK(reg.find(id)->state == TaskState::Failed);
+}
+
+NC_TEST(TaskRegistry2, StartCannotReviveCancelRequestedTask) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("export", fastConfig(), 1000);
+    NC_CHECK(reg.start(id, 1000));
+    NC_CHECK(reg.cancel(id));
+    NC_CHECK(!reg.start(id, 1200));
+    NC_CHECK(reg.find(id)->state == TaskState::CancelRequested);
+    NC_CHECK(reg.find(id)->cancelRequested);
+}
+
 NC_TEST(TaskRegistry2, InvalidHeartbeatFallsBackToDefault) {
     TaskRegistry reg;
     TaskConfig c;
