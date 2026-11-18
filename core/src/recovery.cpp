@@ -146,6 +146,18 @@ bool syncDirectoryPath(const std::filesystem::path& path) {
 FileRecoveryStore::FileRecoveryStore(std::filesystem::path directory, std::size_t maxSnapshotBytes)
     : directory_(std::move(directory)), maxSnapshotBytes_(maxSnapshotBytes) {}
 
+Result FileRecoveryStore::validate() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code ec;
+    std::filesystem::create_directories(directory_, ec);
+    if (ec) return Result::fail(ErrorCode::Internal, "无法创建恢复目录: " + ec.message());
+    RecoveryDirectoryLock directoryLock(directory_, true);
+    if (!directoryLock.valid()) {
+        return Result::fail(ErrorCode::Internal, "无法初始化恢复目录跨进程锁");
+    }
+    return Result::ok();
+}
+
 std::filesystem::path FileRecoveryStore::slotPath(std::size_t slot) const {
     return directory_ / (std::to_string(slot) + ".ncr");
 }
