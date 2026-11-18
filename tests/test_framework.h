@@ -88,6 +88,15 @@ inline HeapProbe& heapProbe() {
     return p;
 }
 
+/// 输出当前可执行文件实际注册的用例清单，供 CI 建立动态门禁。
+inline int listAll() {
+    for (const auto& tc : registry()) {
+        std::printf("[TEST] %s.%s\n", tc.suite.c_str(), tc.name.c_str());
+    }
+    std::printf("[TEST_INVENTORY] total=%zu\n", registry().size());
+    return 0;
+}
+
 /// 分段执行支持（NC_TEST_SHARD / NC_TEST_SHARDS 环境变量）。
 ///
 /// 为什么需要：全量套件单次运行约 9 分钟，在有回合预算限制的环境里
