@@ -99,3 +99,36 @@ NC_TEST(Json, PrettyPrintContainsNewlines) {
     NC_CHECK(parseJson(pretty, parsed, err));
     NC_CHECK_EQ(parsed.get("a").asInteger(), std::int64_t(1));
 }
+
+NC_TEST(Json, RejectsExcessiveNestingDepth) {
+    std::string text(65, '[');
+    text += "0";
+    text.append(65, ']');
+    JsonValue parsed;
+    JsonParseError error;
+    NC_CHECK(!parseJson(text, parsed, error));
+    NC_CHECK(error.message.find("深度") != std::string::npos);
+}
+
+NC_TEST(Json, RejectsOversizedString) {
+    std::string text = "{\"value\":\"";
+    text.append(4u * 1024u * 1024u + 1u, 'x');
+    text += "\"}";
+    JsonValue parsed;
+    JsonParseError error;
+    NC_CHECK(!parseJson(text, parsed, error));
+    NC_CHECK(error.message.find("字符串") != std::string::npos);
+}
+
+NC_TEST(Json, RejectsExcessiveArrayItems) {
+    std::string text = "[";
+    for (std::size_t i = 0; i < 100001u; ++i) {
+        if (i) text += ',';
+        text += '0';
+    }
+    text += ']';
+    JsonValue parsed;
+    JsonParseError error;
+    NC_CHECK(!parseJson(text, parsed, error));
+    NC_CHECK(error.message.find("数组") != std::string::npos);
+}
