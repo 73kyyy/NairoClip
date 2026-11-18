@@ -382,3 +382,25 @@ NC_TEST(Recovery, FileStoreSerializesSequenceAcrossInstances) {
     NC_CHECK(true);  // 非 POSIX 平台由其平台锁实现单独验证。
 #endif
 }
+
+NC_TEST(Recovery, FileStoreRejectsSymlinkedLockFile) {
+#if defined(__unix__) || defined(__ANDROID__)
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-lock-symlink-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    NC_CHECK(!ec);
+    const auto target = dir / "external-lock-target";
+    {
+        std::ofstream out(target);
+        out << "not a lock";
+    }
+    std::filesystem::create_symlink(target, dir / ".nclip-recovery.lock", ec);
+    NC_CHECK(!ec);
+    FileRecoveryStore store(dir);
+    NC_CHECK(!store.write(0, "must-not-follow-symlink").isOk());
+    std::filesystem::remove_all(dir, ec);
+#else
+    NC_CHECK(true);
+#endif
+}
