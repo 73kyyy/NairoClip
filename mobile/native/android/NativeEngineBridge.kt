@@ -461,11 +461,7 @@ class NativeEngineBridge(
             try {
                 val handle = ensure()
                 if (handle == 0L) return@synchronized err("引擎未初始化", -1007)
-                val result = JSONObject(nativeCall(handle, "nc_import_asset", args.toString()))
-                if (result.optBoolean("ok", false)) {
-                    nativeRecoveryMarkDirty(handle, android.os.SystemClock.elapsedRealtime())
-                }
-                result.toString()
+                JSONObject(nativeCall(handle, "nc_import_asset", args.toString())).toString()
             } catch (e: Throwable) {
                 err("素材导入失败：${e.message}", -1008)
             }
