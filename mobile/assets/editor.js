@@ -5122,35 +5122,34 @@ function extractAudioFlow() {
   input.type = 'file';
   input.accept = 'video/*';
   input.addEventListener('change', async () => {
-    const f = input.files[0];
+    const file = input.files && input.files[0];
     closeSheet();
-    if (!f) return;
-    toast(`正在读取「${f.name}」…`, 3000);
-    const durUs = await probeDuration(f, false);
-    if (!durUs) {
-      toast(`「${f.name}」无法读取时长`, 3000);
+    if (!file) return;
+    toast(`正在读取「${file.name}」…`, 3000);
+    const durationUs = await probeDuration(file, false);
+    if (!durationUs) {
+      toast(`「${file.name}」无法读取时长`, 3000);
       return;
     }
-    const videoId = await importToEngine(f.name, f.name, 0, durUs);
-    if (!videoId) {
-      toast('导入视频失败', 3000);
+    const bridge = window.NCEngine;
+    if (!bridge || typeof bridge.extractAudioFromPickedMedia !== 'function') {
+      toast('当前平台不支持系统音轨提取', 3500);
       return;
     }
-    // 产物与源同目录同名，扩展名换成 .m4a
-    const outPath = f.name.replace(/\.[^.]+$/, '') + '.m4a';
-    const r = engineCall('nc_extract_audio', { asset_id: videoId, out_path: outPath });
-    if (!r || !r.ok) {
-      toast('提取音频失败：' + ((r && r.message) || '未知错误'), 4000);
-      return;
-    }
-    const audioId = await importToEngine(outPath, outPath, 1, durUs);
-    if (audioId) {
-      toast('已提取音频');
+    try {
+      const raw = bridge.extractAudioFromPickedMedia(String(file.name || ''), durationUs);
+      const result = (raw && typeof raw === 'object') ? raw : JSON.parse(String(raw || '{}'));
+      if (!result || !result.ok || !result.result || !result.result.value) {
+        toast('提取音频失败：' + ((result && result.message) || '系统拒绝'), 4000);
+        return;
+      }
+      scheduleProjectSave();
       applyState(fetchState());
       renderAll();
       syncPreview();
-    } else {
-      toast('音频已提取，但登记素材失败', 3000);
+      toast('已提取音频并添加到工程');
+    } catch (error) {
+      toast('提取音频失败：' + (error.message || error), 4000);
     }
   });
   input.click();
