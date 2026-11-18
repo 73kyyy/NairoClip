@@ -127,22 +127,27 @@ class NativeEngineBridge(
         }, 1000L, 1000L, java.util.concurrent.TimeUnit.MILLISECONDS)
     }
 
-    /** 由 Activity.onDestroy 调用。 */
-        fun release() {
-        synchronized(stateLock) {
+    /** 由 Activity.onDestroy 调用：先停止并等待看门狗退出，再销毁引擎。 */
+    fun release() {
         taskWatchdog.shutdownNow()
-        if (editor != 0L) {
-            nativeDestroy(editor)
-            editor = 0L
+        try {
+            if (!taskWatchdog.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                android.util.Log.e("NcEngine", "任务/恢复看门狗未在 5 秒内退出")
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
         }
-        /* Fix 1（Activity 重建）：本实例销毁后必须解除全局绑定，
-           否则 companion 的 Surface / 内存回调仍会把调用转发到
-           已销毁的旧实例上。
-           经 companion 的 unbindIfCurrent() 完成 —— 该变量是 companion
-           的 private 成员，只能由 companion 内部访问。 */
-        unbindIfCurrent(this)
-    
-        }}
+
+        synchronized(stateLock) {
+            if (editor != 0L) {
+                nativeDestroy(editor)
+                editor = 0L
+            }
+            /* Fix 1（Activity 重建）：本实例销毁后必须解除全局绑定，
+               否则 Surface / 内存回调不得再访问已销毁实例。 */
+            unbindIfCurrent(this)
+        }
+    }
 
         private fun ensure(): Long {
             synchronized(stateLock) {
