@@ -81,7 +81,11 @@ bool TaskRegistry::start(const std::string& taskId) { return start(taskId, 0); }
 bool TaskRegistry::start(const std::string& taskId, std::int64_t nowMs) {
     auto it = tasks_.find(taskId);
     if (it == tasks_.end()) return false;
-    if (isTerminal(it->second.state)) return false;
+    // start 只能完成 Queued → Running 的单向迁移。
+    // 允许 Running 重复 start 会重置 startedAtMs/lastHeartbeatMs，
+    // 调用方可借重复调用无限延后总超时和心跳超时；也可能把
+    // CancelRequested 任务错误地恢复为 Running。
+    if (it->second.state != TaskState::Queued) return false;
     it->second.state = TaskState::Running;
     if (nowMs > 0) {
         it->second.startedAtMs = nowMs;
