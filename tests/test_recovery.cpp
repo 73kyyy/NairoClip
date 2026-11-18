@@ -2,6 +2,9 @@
 #include "nairoclip/core/recovery.h"
 #include "nairoclip/core/serialization.h"
 #include "nairoclip/core/capi.h"
+#include <cstdint>
+#include <fstream>
+#include <thread>
 using namespace nairoclip::core;
 namespace {
 std::string snapshot() { return "{\"format\":\"nclip\",\"version\":1}"; }
@@ -331,4 +334,50 @@ NC_TEST(Recovery, CapiEditorAutosaveLifecycleRoundTrip) {
     NC_CHECK_EQ(nc_recovery_has_snapshot(editor), 0);
     nc_editor_destroy(editor);
     std::filesystem::remove_all(dir, ec);
+}
+
+NC_TEST(Recovery, FileStoreSerializesSequenceAcrossInstances) {
+#if defined(__unix__) || defined(__ANDROID__)
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-multi-instance-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    FileRecoveryStore first(dir);
+    FileRecoveryStore second(dir);
+    std::atomic<int> failures{0};
+
+    std::thread a([&] {
+        for (int i = 0; i < 80; ++i) {
+            if (!first.write(0, "writer-a-" + std::to_string(i)).isOk()) ++failures;
+        }
+    });
+    std::thread b([&] {
+        for (int i = 0; i < 80; ++i) {
+            if (!second.write(1, "writer-b-" + std::to_string(i)).isOk()) ++failures;
+        }
+    });
+    a.join();
+    b.join();
+
+    std::uint64_t sequence0 = 0, sequence1 = 0;
+    std::uint64_t size = 0, checksum = 0;
+    std::string magic;
+    {
+        std::ifstream input(dir / "0.ncr", std::ios::binary);
+        input >> magic >> sequence0 >> size >> checksum;
+        NC_CHECK(input.good() || input.eof());
+    }
+    magic.clear();
+    size = 0;
+    checksum = 0;
+    {
+        std::ifstream input(dir / "1.ncr", std::ios::binary);
+        input >> magic >> sequence1 >> size >> checksum;
+        NC_CHECK(input.good() || input.eof());
+    }
+    NC_CHECK_EQ(failures.load(), 0);
+    NC_CHECK(sequence0 > 0 && sequence1 > 0 && sequence0 != sequence1);
+    std::filesystem::remove_all(dir, ec);
+#else
+    NC_CHECK(true);  // 非 POSIX 平台由其平台锁实现单独验证。
+#endif
 }
