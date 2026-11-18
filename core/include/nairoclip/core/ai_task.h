@@ -150,7 +150,8 @@ public:
     bool confirmCancel();
 
     /// 复位到空闲（清空全部字段；UI 关闭提示后调用）。
-    void reset();
+    /// 活动任务（Running/CancelRequested）不可复位；返回 false 并保留任务句柄。
+    bool reset();
 
     /// 当前任务视图（由 TaskRegistry 现算，保证单一事实源）。
     AiTask task() const;
