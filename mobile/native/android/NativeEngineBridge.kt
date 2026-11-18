@@ -39,6 +39,7 @@ class NativeEngineBridge(
 
     /** C ABI 句柄。0 表示尚未创建。 */
     private var editor: Long = 0L
+    @Volatile private var lastPreviewError: String = ""
     /** 当前编辑会话对应的本地草稿文件名；只允许应用私有目录内的安全文件名。 */
     private var activeProjectFile: String? = null
     private val maxProjectFileBytes = 64L * 1024L * 1024L
@@ -334,6 +335,10 @@ class NativeEngineBridge(
     @JavascriptInterface
         fun frameDataUrl(timeUs: Long, width: Int): String =
         renderDataUrl(timeUs, width, isThumb = false, thumbIndex = 0)
+
+    /** 最近一次主预览解码/渲染失败原因；没有可预览片段时为空。 */
+    @JavascriptInterface
+    fun previewError(): String = lastPreviewError
 
     /** 素材缩略图。 */
     @JavascriptInterface
@@ -680,11 +685,25 @@ class NativeEngineBridge(
     private fun renderDataUrl(
         a: Long, width: Int, isThumb: Boolean, thumbIndex: Int
     ): String {
+        val handle = ensure()
         val raw: ByteArray = try {
-            if (isThumb) nativeThumb(ensure(), a, thumbIndex, width.coerceIn(16, 1024))
-            else nativeFrame(ensure(), a, width.coerceIn(16, 2048))
+            if (isThumb) nativeThumb(handle, a, thumbIndex, width.coerceIn(16, 1024))
+            else nativeFrame(handle, a, width.coerceIn(16, 2048))
         } catch (e: Throwable) {
+            if (!isThumb) lastPreviewError = "预览调用失败：${e.message ?: e.javaClass.simpleName}"
             ByteArray(0)
+        }
+        if (!isThumb) {
+            if (raw.size < 12) {
+                val error = try { JSONObject(nativeLastError(handle)) } catch (_: Throwable) { JSONObject() }
+                val code = error.optInt("code", 0)
+                val message = error.optString("message", "")
+                // NC_ERROR_NOT_FOUND(2) 表示当前时间点没有活动片段，不应误报为解码故障。
+                lastPreviewError = if (code == 2) "" else
+                    message.ifBlank { "媒体解码或预览渲染失败（错误码 $code）" }
+            } else {
+                lastPreviewError = ""
+            }
         }
         return rgbaToDataUrl(raw)
     }
@@ -771,6 +790,7 @@ class NativeEngineBridge(
     private external fun nativeTaskTick(handle: Long, nowMs: Long): Int
     private external fun nativeState(handle: Long): String
     private external fun nativeFrame(handle: Long, timeUs: Long, width: Int): ByteArray
+    private external fun nativeLastError(handle: Long): String
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
     private external fun nativeWaveform(handle: Long, assetId: Long): String
     private external fun nativeModels(handle: Long): String
