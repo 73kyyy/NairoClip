@@ -140,7 +140,10 @@ bool TaskRegistry::completeWithResult(const std::string& taskId, std::string res
                                       std::string payload, std::int64_t nowMs) {
     auto it = tasks_.find(taskId);
     if (it == tasks_.end()) return false;
-    if (isTerminal(it->second.state)) return false;
+    // 取消请求先于完成回调到达时，完成回调不得覆盖取消状态。
+    // 执行器停止后应确认取消；若任务确已先完成，应由完成路径先提交终态。
+    if (isTerminal(it->second.state) ||
+        it->second.state == TaskState::CancelRequested) return false;
     if (payload.size() > kMaxResultBytes) {
         it->second.state = TaskState::Failed;
         it->second.error = "NC-SERVICE-RESULT_TOO_LARGE: 结果超过 1MB 上限（" +
@@ -199,7 +202,9 @@ std::size_t TaskRegistry::tick(std::int64_t nowMs) {
 bool TaskRegistry::complete(const std::string& taskId) {
     auto it = tasks_.find(taskId);
     if (it == tasks_.end()) return false;
-    if (isTerminal(it->second.state)) return false;
+    // 与 completeWithResult 保持一致：取消请求登记后不能再提交成功终态。
+    if (isTerminal(it->second.state) ||
+        it->second.state == TaskState::CancelRequested) return false;
     it->second.state = TaskState::Completed;
     it->second.progress = 1.0;
     return true;
