@@ -201,15 +201,41 @@ function renderManageBar() {
 
 async function deletePicked() {
   if (!H.picked.size) return toast('请先选择草稿');
-  const n = H.picked.size;
-  // 静态版与只读服务版都无法真正落盘删除，这里如实说明
-  H.projects = H.projects.filter((_, i) => !H.picked.has(i));
+  const br = window.NCEngine;
+  // 当前原生桥尚未提供磁盘删除 API；禁止仅从内存列表移除后提示成功，
+  // 否则草稿重进首页仍会出现，用户会误以为工程已被永久删除。
+  if (!br || typeof br.deleteProject !== 'function') {
+    return toast('当前版本暂不支持永久删除草稿，文件未被修改', 3000);
+  }
+
+  const selected = [...H.picked]
+    .map((i) => H.projects[i])
+    .filter((p) => p && typeof p.file === 'string' && p.file.length > 0);
+  if (selected.length !== H.picked.size) {
+    return toast('选中的草稿信息不完整，未执行删除', 3000);
+  }
+
+  const failed = [];
+  for (const p of selected) {
+    try {
+      const raw = br.deleteProject(p.file);
+      const result = (raw && typeof raw === 'object')
+        ? raw : JSON.parse(String(raw || '{}'));
+      if (!result || result.ok !== true) failed.push(p.file);
+    } catch (_) {
+      failed.push(p.file);
+    }
+  }
+
   H.picked.clear();
   H.managing = false;
+  await loadProjects();
   render();
-  toast(window.NC_STATIC_PROJECTS
-    ? `已从列表移除 ${n} 个（静态版不落盘）`
-    : `已从列表移除 ${n} 个`);
+  if (failed.length) {
+    toast(`删除失败 ${failed.length} 个，未能确认删除的草稿已保留在列表`, 3000);
+  } else {
+    toast(`已永久删除 ${selected.length} 个草稿`, 2500);
+  }
 }
 
 function openProject(p) {
