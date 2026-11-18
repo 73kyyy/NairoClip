@@ -96,6 +96,20 @@ NC_TEST(TaskRegistry2, HeartbeatIsMonotonicAndUpdatesStage) {
     NC_CHECK_EQ(t->lastHeartbeatMs, std::int64_t(400));
 }
 
+NC_TEST(TaskRegistry2, StaleHeartbeatTimestampIsRejectedWithoutMutation) {
+    TaskRegistry reg;
+    const std::string id = reg.createEx("export", fastConfig(), 1000);
+    NC_CHECK(reg.start(id, 1000));
+    NC_CHECK(reg.heartbeat(id, 0.4, "当前阶段", 1500));
+    NC_CHECK(!reg.heartbeat(id, 0.9, "过期回调", 1400));
+    const TaskInfo* task = reg.find(id);
+    NC_CHECK_EQ(task->progress, 0.4);
+    NC_CHECK_EQ(task->stageNote, std::string("当前阶段"));
+    NC_CHECK_EQ(task->lastHeartbeatMs, std::int64_t(1500));
+    NC_CHECK_EQ(reg.tick(2601), std::size_t(1));
+    NC_CHECK(task->state == TaskState::Failed);
+}
+
 NC_TEST(TaskRegistry2, HeartbeatAutoStartsQueuedTask) {
     TaskRegistry reg;
     const std::string id = reg.createEx("ai.matting", fastConfig(), 50);
