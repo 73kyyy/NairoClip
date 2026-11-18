@@ -12,6 +12,50 @@ AutoSavePolicy smallPolicy() {
     return p;
 }
 }  // namespace
+NC_TEST(Recovery, FileStorePersistsOrderingAcrossStoreReconstruction) {
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-persistence-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    {
+        FileRecoveryStore store(dir);
+        NC_CHECK(store.write(0, "snapshot-1").isOk());
+        NC_CHECK(store.write(1, "snapshot-2").isOk());
+        NC_CHECK(store.write(0, "snapshot-3").isOk());
+    }
+    {
+        FileRecoveryStore reopened(dir);
+        const auto order = reopened.listNewestFirst();
+        NC_CHECK_EQ(order.size(), std::size_t(2));
+        NC_CHECK_EQ(order[0], std::size_t(0));
+        NC_CHECK_EQ(order[1], std::size_t(1));
+        std::string latest;
+        NC_CHECK(reopened.read(order[0], latest).isOk());
+        NC_CHECK_EQ(latest, std::string("snapshot-3"));
+    }
+    std::filesystem::remove_all(dir, ec);
+}
+
+NC_TEST(Recovery, FileStoreIgnoresCorruptAndTemporaryFiles) {
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-recovery-corrupt-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    {
+        std::ofstream corrupt(dir / "4.ncr", std::ios::binary);
+        corrupt << "not-a-recovery-file";
+        std::ofstream temporary(dir / "5.ncr.tmp", std::ios::binary);
+        temporary << "NCR1 99\\npartial";
+    }
+    FileRecoveryStore store(dir);
+    NC_CHECK(store.write(2, "valid-snapshot").isOk());
+    const auto slots = store.list();
+    NC_CHECK_EQ(slots.size(), std::size_t(1));
+    NC_CHECK_EQ(slots[0], std::size_t(2));
+    std::string out;
+    NC_CHECK(!store.read(4, out).isOk());
+    std::filesystem::remove_all(dir, ec);
+}
+
 NC_TEST(Recovery, StoreReadWrite) {
     InMemoryRecoveryStore store;
     NC_CHECK(store.write(0, "abc").isOk());
