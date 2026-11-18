@@ -163,3 +163,22 @@ NC_TEST(ThreadSafety, RationalIsSafeForConcurrentReadOnly) {
     for (auto& w : workers) w.join();
     NC_CHECK(ok.load() > 0);
 }
+
+
+NC_TEST(ThreadPool, ReentrantParallelForFallsBackWithoutDeadlock) {
+    ThreadPool& pool = ThreadPool::instance();
+    std::atomic<bool> entered{false};
+    std::atomic<int> nestedItems{0};
+
+    pool.parallelFor(128, 1, [&](std::size_t, std::size_t) {
+        if (!entered.exchange(true)) {
+            // 外层批次仍在运行时重入；应在当前线程同步执行，而不是持锁回调。
+            pool.parallelFor(7, 1, [&](std::size_t begin, std::size_t end) {
+                nestedItems.fetch_add(static_cast<int>(end - begin));
+            });
+        }
+    });
+
+    NC_CHECK(entered.load());
+    NC_CHECK_EQ(nestedItems.load(), 7);
+}
