@@ -413,9 +413,11 @@ class NativeEngineBridge(
     @JavascriptInterface
     fun loadProjectFile(fileName: String): String = synchronized(stateLock) {
         val target = projectFile(fileName) ?: return@synchronized err("草稿文件名非法")
-        if (!target.isFile) return@synchronized err("草稿文件不存在")
-        if (target.length() <= 0L) return@synchronized err("草稿文件为空")
-        if (target.length() > maxProjectFileBytes) {
+        val backup = java.io.File(target.path + ".bak")
+        if (!target.isFile && !backup.isFile) return@synchronized err("草稿文件不存在")
+        val storedLength = if (target.isFile) target.length() else backup.length()
+        if (storedLength <= 0L) return@synchronized err("草稿文件为空")
+        if (storedLength > maxProjectFileBytes) {
             return@synchronized err("草稿文件超过 64 MiB 安全上限")
         }
         val text = try {
@@ -441,7 +443,12 @@ class NativeEngineBridge(
     fun deleteProject(fileName: String): String = synchronized(stateLock) {
         val target = projectFile(fileName) ?: return@synchronized err("草稿文件名非法")
         if (!target.exists()) return@synchronized err("草稿不存在")
-        val deleted = try { target.delete() } catch (_: Throwable) { false }
+        val deleted = try {
+            AtomicFile(target).delete()
+            !target.exists() &&
+                !java.io.File(target.path + ".bak").exists() &&
+                !java.io.File(target.path + ".new").exists()
+        } catch (_: Throwable) { false }
         if (!deleted) return@synchronized err("草稿删除失败")
         if (activeProjectFile == fileName) activeProjectFile = null
         JSONObject().apply {
