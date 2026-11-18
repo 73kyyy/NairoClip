@@ -697,7 +697,22 @@ class NativeEngineBridge(
     @JavascriptInterface
     fun recoveryAvailable(): Boolean = synchronized(stateLock) {
         val handle = ensure()
-        handle != 0L && activeProjectFile != null && nativeRecoveryHasSnapshot(handle) > 0
+        if (handle == 0L || activeProjectFile == null) return@synchronized false
+        val state = nativeRecoveryHasSnapshot(handle)
+        if (state < 0) {
+            val message = nativeLastError(handle).ifBlank { "未知错误" }
+            val context = appContext
+            if (context != null) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(
+                        context, "检查崩溃恢复状态失败：$message",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            return@synchronized false
+        }
+        state > 0
     }
 
     /** 仅在用户明确确认后调用；恢复成功后重新标脏，等待正常工程保存。 */
@@ -708,7 +723,9 @@ class NativeEngineBridge(
             return@synchronized err("当前工程尚未就绪", -1007)
         }
         val snapshot = nativeRecoveryReadLatest(handle)
-            ?: return@synchronized err("没有可恢复的有效快照", -1009)
+            ?: return@synchronized err(
+                nativeLastError(handle).ifBlank { "没有可恢复的有效快照" }, -1009
+            )
         val loaded = try {
             JSONObject(nativeProjectLoad(handle, snapshot))
         } catch (e: Throwable) {
