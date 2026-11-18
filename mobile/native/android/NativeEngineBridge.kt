@@ -2,6 +2,7 @@ package com.nairoclip.app
 
 import android.graphics.Bitmap
 import android.util.Base64
+import android.util.AtomicFile
 import android.webkit.JavascriptInterface
 import org.json.JSONObject
 
@@ -38,6 +39,18 @@ class NativeEngineBridge(
 
     /** C ABI 句柄。0 表示尚未创建。 */
     private var editor: Long = 0L
+    /** 当前编辑会话对应的本地草稿文件名；只允许应用私有目录内的安全文件名。 */
+    private var activeProjectFile: String? = null
+
+    private fun validProjectFile(name: String): Boolean =
+        name.matches(Regex("^[A-Za-z0-9_-]{1,80}\\.nclip$"))
+
+    private fun projectFile(name: String): java.io.File? {
+        if (!validProjectFile(name)) return null
+        val root = appContext?.filesDir ?: return null
+        val file = java.io.File(root, name)
+        return if (file.canonicalFile.parentFile == root.canonicalFile) file else null
+    }
 
     /**
      * 面板层级。0 = 无面板；>0 = 面板开着。
@@ -349,6 +362,80 @@ class NativeEngineBridge(
     }
 
     /**
+     * 从应用私有目录原子保存当前工程。空文件名表示当前编辑会话草稿；
+     * 首次保存时生成不可预测的文件名，后续复用该文件。
+     */
+    @JavascriptInterface
+    fun saveProjectFile(): String = synchronized(stateLock) {
+        val root = appContext?.filesDir ?: return@synchronized err("应用私有目录不可用")
+        val handle = ensure()
+        if (handle == 0L) return@synchronized err("引擎未初始化")
+        val name = activeProjectFile ?: "project-${java.util.UUID.randomUUID()}.nclip"
+        val target = projectFile(name) ?: return@synchronized err("草稿文件名非法")
+        val serialized = try {
+            nativeProjectSave(handle) ?: return@synchronized err("工程序列化失败")
+        } catch (e: Throwable) {
+            return@synchronized err("工程序列化失败：${e.message}")
+        }
+        if (serialized.isBlank()) return@synchronized err("工程内容为空")
+
+        val atomic = AtomicFile(target)
+        var stream: java.io.FileOutputStream? = null
+        try {
+            stream = atomic.startWrite()
+            stream.write(serialized.toByteArray(Charsets.UTF_8))
+            stream.fd.sync()
+            atomic.finishWrite(stream)
+            stream = null
+            activeProjectFile = name
+            JSONObject().apply {
+                put("ok", true); put("code", 0); put("message", "草稿已保存")
+                put("result", JSONObject().put("file", name).put("bytes", target.length()))
+            }.toString()
+        } catch (e: Throwable) {
+            if (stream != null) atomic.failWrite(stream)
+            err("草稿保存失败：${e.message}")
+        }
+    }
+
+    /** 载入指定草稿；路径只能是 filesDir 根目录中的安全 .nclip 文件名。 */
+    @JavascriptInterface
+    fun loadProjectFile(fileName: String): String = synchronized(stateLock) {
+        val target = projectFile(fileName) ?: return@synchronized err("草稿文件名非法")
+        if (!target.isFile) return@synchronized err("草稿文件不存在")
+        val text = try {
+            AtomicFile(target).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (e: Throwable) {
+            return@synchronized err("读取草稿失败：${e.message}")
+        }
+        if (text.isBlank()) return@synchronized err("草稿文件为空")
+        val raw = try {
+            nativeProjectLoad(ensure(), text)
+        } catch (e: Throwable) {
+            return@synchronized err("工程载入失败：${e.message}")
+        }
+        val result = try { JSONObject(raw) } catch (_: Throwable) {
+            return@synchronized err("引擎返回了无效载入结果")
+        }
+        if (result.optBoolean("ok", false)) activeProjectFile = fileName
+        result.toString()
+    }
+
+    /** 永久删除指定草稿；只允许删除受控目录内的 .nclip 文件。 */
+    @JavascriptInterface
+    fun deleteProject(fileName: String): String = synchronized(stateLock) {
+        val target = projectFile(fileName) ?: return@synchronized err("草稿文件名非法")
+        if (!target.exists()) return@synchronized err("草稿不存在")
+        val deleted = try { target.delete() } catch (_: Throwable) { false }
+        if (!deleted) return@synchronized err("草稿删除失败")
+        if (activeProjectFile == fileName) activeProjectFile = null
+        JSONObject().apply {
+            put("ok", true); put("code", 0); put("message", "草稿已删除")
+            put("result", JSONObject().put("file", fileName))
+        }.toString()
+    }
+
+    /**
      * 安装模型：读入文件字节 → 算 SHA-256 → 交给 core 校验并记录。
      * core 不碰文件系统，读写都由平台层完成。
      * 返回 {"installed":1|0,"message":"…"}。
@@ -475,6 +562,8 @@ class NativeEngineBridge(
     private external fun nativeCreate(): Long
     private external fun nativeDestroy(handle: Long)
     private external fun nativeCall(handle: Long, fn: String, argsJson: String): String
+    private external fun nativeProjectSave(handle: Long): String?
+    private external fun nativeProjectLoad(handle: Long, projectText: String): String
     private external fun nativeApplyCommand(handle: Long, requestJson: String): String?
     private external fun nativeTaskBegin(handle: Long, type: String, targetId: Long, heartbeatTimeoutMs: Int, totalTimeoutMs: Long, nowMs: Long): String
     private external fun nativeTaskHeartbeat(handle: Long, taskId: String, progress: Double, stageNote: String, nowMs: Long): Int
