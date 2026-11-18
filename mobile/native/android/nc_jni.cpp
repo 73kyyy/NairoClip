@@ -54,7 +54,12 @@ std::string JStr(JNIEnv* env, jstring s) {
 }
 
 void markRecoveryDirtyAfterMutation(NcEditor* editor, const std::string& resultJson) {
-    if (editor == nullptr || resultJson.find("\"ok\":true") == std::string::npos) return;
+    if (editor == nullptr ||
+        (resultJson.find("\"ok\":true") == std::string::npos &&
+         resultJson.find("\"status\":\"accepted\"") == std::string::npos &&
+         resultJson.find("\"status\":\"partially_applied\"") == std::string::npos)) {
+        return;
+    }
     const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
     (void)nc_recovery_mark_dirty(editor, static_cast<std::int64_t>(now));
