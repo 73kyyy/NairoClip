@@ -113,8 +113,12 @@ public:
     Parser(const std::string& text) : text_(text) {}
 
     bool parse(JsonValue& out) {
+        if (text_.size() > kMaxInputBytes) {
+            setError("JSON 输入超过大小限制");
+            return false;
+        }
         skipWhitespace();
-        if (!parseValue(out)) return false;
+        if (!parseValue(out, 0)) return false;
         skipWhitespace();
         if (pos_ != text_.size()) {
             setError("尾部存在多余字符");
@@ -126,8 +130,16 @@ public:
     const JsonParseError& error() const { return error_; }
 
 private:
+    // 工程 JSON 的统一资源上限。64 MiB 与 Android 工程文件上限一致。
+    static constexpr std::size_t kMaxInputBytes = 64u * 1024u * 1024u;
+    static constexpr std::size_t kMaxStringBytes = 16u * 1024u * 1024u;
+    static constexpr std::size_t kMaxContainerItems = 100000u;
+    static constexpr std::size_t kMaxValueNodes = 1000000u;
+    static constexpr std::size_t kMaxNestingDepth = 128u;
+
     const std::string& text_;
     std::size_t pos_ = 0;
+    std::size_t valueNodes_ = 0;
     JsonParseError error_;
 
     void setError(const std::string& msg) {
@@ -152,14 +164,22 @@ private:
         }
     }
 
-    bool parseValue(JsonValue& out) {
+    bool parseValue(JsonValue& out, std::size_t depth) {
+        if (depth > kMaxNestingDepth) {
+            setError("JSON 嵌套深度超过限制");
+            return false;
+        }
+        if (++valueNodes_ > kMaxValueNodes) {
+            setError("JSON 节点总数超过限制");
+            return false;
+        }
         if (atEnd()) {
             setError("意外的结尾");
             return false;
         }
         switch (peek()) {
-            case '{': return parseObject(out);
-            case '[': return parseArray(out);
+            case '{': return parseObject(out, depth);
+            case '[': return parseArray(out, depth);
             case '"': {
                 std::string s;
                 if (!parseString(s)) return false;
@@ -184,7 +204,7 @@ private:
         return true;
     }
 
-    bool parseObject(JsonValue& out) {
+    bool parseObject(JsonValue& out, std::size_t depth) {
         ++pos_;  // '{'
         out = JsonValue::object();
         skipWhitespace();
@@ -194,6 +214,10 @@ private:
         }
         while (true) {
             skipWhitespace();
+            if (out.members().size() >= kMaxContainerItems) {
+                setError("JSON 对象成员数超过限制");
+                return false;
+            }
             if (peek() != '"') {
                 setError("对象的键必须是字符串");
                 return false;
@@ -207,7 +231,7 @@ private:
             }
             skipWhitespace();
             JsonValue value;
-            if (!parseValue(value)) return false;
+            if (!parseValue(value, depth + 1)) return false;
             out.set(key, std::move(value));
             skipWhitespace();
             const char c = advance();
@@ -218,7 +242,7 @@ private:
         }
     }
 
-    bool parseArray(JsonValue& out) {
+    bool parseArray(JsonValue& out, std::size_t depth) {
         ++pos_;  // '['
         out = JsonValue::array();
         skipWhitespace();
@@ -228,8 +252,12 @@ private:
         }
         while (true) {
             skipWhitespace();
+            if (out.size() >= kMaxContainerItems) {
+                setError("JSON 数组元素数超过限制");
+                return false;
+            }
             JsonValue value;
-            if (!parseValue(value)) return false;
+            if (!parseValue(value, depth + 1)) return false;
             out.push(std::move(value));
             skipWhitespace();
             const char c = advance();
@@ -276,6 +304,10 @@ private:
                 }
             } else {
                 out.push_back(c);
+            }
+            if (out.size() > kMaxStringBytes) {
+                setError("JSON 字符串长度超过限制");
+                return false;
             }
         }
     }
@@ -340,6 +372,10 @@ private:
                 return false;
             }
             while (!atEnd() && peek() >= '0' && peek() <= '9') ++pos_;
+        }
+        if (pos_ - start > 128u) {
+            setError("JSON 数字字面量长度超过限制");
+            return false;
         }
         const std::string token = text_.substr(start, pos_ - start);
         if (isInt) {
