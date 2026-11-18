@@ -105,7 +105,7 @@ int32_t nc_recovery_configure(NcEditor* editor, const char* private_directory);
 int32_t nc_recovery_mark_dirty(NcEditor* editor, int64_t now_ms);
 /// 推进自动恢复快照状态机；返回 1 表示本次写入快照，0 表示未写入。
 int32_t nc_recovery_tick(NcEditor* editor, int64_t now_ms);
-/// 是否存在可恢复快照（1/0）。
+/// 是否存在可恢复快照（1=有，0=无，-1=检查失败；错误见 nc_last_error）。
 int32_t nc_recovery_has_snapshot(const NcEditor* editor);
 /// 读取最近有效快照；返回文本需 nc_free_string 释放。
 char* nc_recovery_read_latest(const NcEditor* editor);
