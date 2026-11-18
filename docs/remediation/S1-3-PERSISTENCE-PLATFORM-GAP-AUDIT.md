@@ -86,7 +86,7 @@ The following source changes are now present on `work/v3.3.3-full-remediation`:
    - Successful `DispatchEdit` operations and accepted/partially-applied typed commands mark recovery dirty in JNI. The mutation timestamp is supplied by `SystemClock.elapsedRealtime()`, the same monotonic clock used by the watchdog tick.
    - The watchdog advances recovery ticks under the existing `stateLock`.
    - A successful `AtomicFile.finishWrite()` is followed by recovery clean-up. A recoverable snapshot is offered only after a project file is opened, and restore requires an explicit user confirmation.
-   - Recovery data is retained when the user declines the prompt; a later successful project save clears it.
+   - If the user declines, `discardRecovery()` clears that project's recovery snapshots; a successful project save also clears them.
 
 4. **New tests authored (not executed)**
    - C ABI autosave lifecycle round-trip.
