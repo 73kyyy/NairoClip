@@ -22,6 +22,7 @@
 #include "nairoclip/core/crash_handler.h"
 #include "nairoclip/core/simd.h"
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -50,6 +51,13 @@ std::string JStr(JNIEnv* env, jstring s) {
     std::string out(utf);
     env->ReleaseStringUTFChars(s, utf);
     return out;
+}
+
+void markRecoveryDirtyAfterMutation(NcEditor* editor, const std::string& resultJson) {
+    if (editor == nullptr || resultJson.find("\"ok\":true") == std::string::npos) return;
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    (void)nc_recovery_mark_dirty(editor, static_cast<std::int64_t>(now));
 }
 
 jstring ToJStr(JNIEnv* env, const std::string& s) {
@@ -2358,7 +2366,10 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeCall(
     const std::string args = JStr(env, argsJson);
 
     std::string out;
-    if (DispatchEdit(ed, name, args, &out)) return ToJStr(env, out);
+    if (DispatchEdit(ed, name, args, &out)) {
+        markRecoveryDirtyAfterMutation(ed, out);
+        return ToJStr(env, out);
+    }
     return ToJStr(env, Err("未开放的操作：" + name));
 }
 
@@ -2465,6 +2476,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeApplyCommand(
     if (raw == nullptr) return nullptr;
     const std::string out(raw);
     nc_free_string(raw);
+    markRecoveryDirtyAfterMutation(ed, out);
     return ToJStr(env, out);
 }
 
