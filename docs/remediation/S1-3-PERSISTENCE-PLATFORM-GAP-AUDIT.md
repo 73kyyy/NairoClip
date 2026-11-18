@@ -34,6 +34,18 @@ A new C++17 `FileRecoveryStore` stores each slot in an individual `.ncr` file. T
 
 This is a core storage primitive, not yet an Android recovery feature: `NcEditor` does not own/configure it, no C ABI/JNI method configures its private directory, and editor mutations do not yet drive `AutoSaveManager::markDirty/tick`. The store mutex protects calls through one instance only; multi-process or multiple-instance writers to the same directory are not coordinated. Temporary filenames now include the process ID (on POSIX/Android) and a process-local atomic counter to prevent ordinary same-process instances from truncating the same temporary file, but this does not provide inter-process serialization or a globally ordered sequence. The supported contract remains exactly one writer instance per recovery directory until an OS-level lock protocol is implemented. The record header reader is bounded to 128 bytes before parsing, so a malformed multi-megabyte header cannot force an unbounded line allocation. Android project files use a separate `AtomicFile` repository and should not be described as proof that the C++ recovery slots are durable or connected. Crash/disk-fault and Android instrumentation tests have not been run.
 
+## Dirty-tracking integration blocker confirmed
+
+The current event path is not yet a complete persistence dirty signal:
+
+- `TimelineEditor::commit()` publishes `timeline.changed` only when the undo-stack edit revision changes.
+- The event bus declares `project.changed`, but the current C ABI implementation does not publish that event.
+- `NcEditor::directEditCount` is not a project mutation counter. In the inspected C ABI it is incremented by preview invalidation and preview-memory release paths, so using it as the recovery dirty signal would create false positives and still miss edits.
+- `nc_project_load()` replaces the project and rebuilds the editor/dispatcher; recovery integration must explicitly distinguish loading/replacing a project from user edits and must not mark a freshly loaded project dirty by accident.
+- The JNI bridge serializes editor calls with `stateLock`; recovery configure/tick/recover calls must use that same lock and must not add a second concurrent route into the non-thread-safe `NcEditor`.
+
+Therefore, subscribing only to `timeline.changed` or polling `directEditCount` is insufficient. Before enabling autosave, every project-mutating C ABI path that bypasses `TimelineEditor::commit()` must be inventoried and routed through a shared mutation notification/revision mechanism, or those operations must be migrated to the command/editor boundary. The recovery dirty flag must be driven only by confirmed project-content changes.
+
 ## Required implementation work
 
 1. Preserve and independently test the existing Android `AtomicFile` project repository, filename allowlist, project load-before-boot flow, debounced saves, and real disk deletion. Add instrumentation coverage for backup recovery, failed writes, process recreation, and malformed filenames.
