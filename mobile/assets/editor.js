@@ -5322,8 +5322,9 @@ function pickFile(kind) {
         continue;
       }
       const mediaType = isImage ? 2 : (isAudio ? 1 : 0);
-      // Web 端拿不到本地文件的绝对路径：把文件名作为 path 交给引擎，
-      // 平台层（JNI/Swift）接入时会换成真实路径。
+      // Android WebChromeClient 已把所选 URI 复制到 filesDir/imports；
+      // FileProvider 暴露唯一 storageName，NativeEngineBridge 只接受该受控标识，
+      // 并在原生侧解析为应用私有绝对路径，JS 不传任意磁盘路径。
       const id = await importToEngine(f.name, f.name, mediaType, durUs);
       if (id) imported += 1;
     }
