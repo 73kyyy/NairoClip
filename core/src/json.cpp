@@ -110,11 +110,21 @@ void writeValue(const JsonValue& v, std::string& out, bool pretty, int depth) {
 
 class Parser {
 public:
+    static constexpr std::size_t kMaxInputBytes = 64u * 1024u * 1024u;
+    static constexpr std::size_t kMaxDepth = 64u;
+    static constexpr std::size_t kMaxStringBytes = 4u * 1024u * 1024u;
+    static constexpr std::size_t kMaxContainerItems = 100000u;
+    static constexpr std::size_t kMaxTotalValues = 500000u;
+
     Parser(const std::string& text) : text_(text) {}
 
     bool parse(JsonValue& out) {
+        if (text_.size() > kMaxInputBytes) {
+            setError("JSON 输入超过 64 MiB 限制");
+            return false;
+        }
         skipWhitespace();
-        if (!parseValue(out)) return false;
+        if (!parseValue(out, 0)) return false;
         skipWhitespace();
         if (pos_ != text_.size()) {
             setError("尾部存在多余字符");
@@ -129,6 +139,7 @@ private:
     const std::string& text_;
     std::size_t pos_ = 0;
     JsonParseError error_;
+    std::size_t totalValues_ = 0;
 
     void setError(const std::string& msg) {
         if (error_.message.empty()) {
@@ -152,14 +163,22 @@ private:
         }
     }
 
-    bool parseValue(JsonValue& out) {
+    bool parseValue(JsonValue& out, std::size_t depth) {
+        if (depth > kMaxDepth) {
+            setError("JSON 嵌套深度超过 64 层限制");
+            return false;
+        }
+        if (++totalValues_ > kMaxTotalValues) {
+            setError("JSON 节点数量超过安全限制");
+            return false;
+        }
         if (atEnd()) {
             setError("意外的结尾");
             return false;
         }
         switch (peek()) {
-            case '{': return parseObject(out);
-            case '[': return parseArray(out);
+            case '{': return parseObject(out, depth);
+            case '[': return parseArray(out, depth);
             case '"': {
                 std::string s;
                 if (!parseString(s)) return false;
@@ -184,7 +203,7 @@ private:
         return true;
     }
 
-    bool parseObject(JsonValue& out) {
+    bool parseObject(JsonValue& out, std::size_t depth) {
         ++pos_;  // '{'
         out = JsonValue::object();
         skipWhitespace();
@@ -200,6 +219,14 @@ private:
             }
             std::string key;
             if (!parseString(key)) return false;
+            if (key.size() > kMaxStringBytes) {
+                setError("JSON 对象键超过 4 MiB 限制");
+                return false;
+            }
+            if (out.size() >= kMaxContainerItems) {
+                setError("JSON 对象成员数量超过安全限制");
+                return false;
+            }
             skipWhitespace();
             if (advance() != ':') {
                 setError("键后缺少冒号");
@@ -207,7 +234,7 @@ private:
             }
             skipWhitespace();
             JsonValue value;
-            if (!parseValue(value)) return false;
+            if (!parseValue(value, depth + 1)) return false;
             out.set(key, std::move(value));
             skipWhitespace();
             const char c = advance();
@@ -218,7 +245,7 @@ private:
         }
     }
 
-    bool parseArray(JsonValue& out) {
+    bool parseArray(JsonValue& out, std::size_t depth) {
         ++pos_;  // '['
         out = JsonValue::array();
         skipWhitespace();
@@ -228,8 +255,12 @@ private:
         }
         while (true) {
             skipWhitespace();
+            if (out.size() >= kMaxContainerItems) {
+                setError("JSON 数组元素数量超过安全限制");
+                return false;
+            }
             JsonValue value;
-            if (!parseValue(value)) return false;
+            if (!parseValue(value, depth + 1)) return false;
             out.push(std::move(value));
             skipWhitespace();
             const char c = advance();
@@ -249,6 +280,10 @@ private:
             }
             const char c = advance();
             if (c == '"') return true;
+            if (out.size() > kMaxStringBytes) {
+                setError("JSON 字符串超过 4 MiB 限制");
+                return false;
+            }
             if (c == '\\') {
                 if (atEnd()) {
                     setError("转义未完成");
