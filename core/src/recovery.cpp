@@ -105,7 +105,7 @@ std::vector<FileRecoveryStore::Entry> FileRecoveryStore::scanEntries() const {
         std::string line, data;
         std::uint64_t sequence = 0, expectedSize = 0, expectedChecksum = 0;
         if (!std::getline(input, line) || !parseHeader(line, sequence, expectedSize, expectedChecksum) ||
-            expectedSize == 0 || expectedSize > 64ULL * 1024 * 1024) continue;
+            expectedSize == 0 || expectedSize > maxSnapshotBytes_) continue;
         data.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
         if (data.size() != expectedSize || checksum64(data) != expectedChecksum) continue;
         entries.push_back(Entry{slot, sequence});
