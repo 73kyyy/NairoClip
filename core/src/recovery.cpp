@@ -45,7 +45,7 @@ bool readHeaderLine(std::istream& input, std::string& line) {
     line.clear();
     char ch = 0;
     while (input.get(ch)) {
-        if (ch == '\\n') return true;
+        if (ch == '\n') return true;
         if (line.size() >= kMaxHeaderBytes) return false;
         line.push_back(ch);
     }
