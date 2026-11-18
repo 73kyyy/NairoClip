@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "nairoclip/core/recovery.h"
 #include "nairoclip/core/serialization.h"
+#include "nairoclip/core/capi.h"
 using namespace nairoclip::core;
 namespace {
 std::string snapshot() { return "{\"format\":\"nclip\",\"version\":1}"; }
@@ -302,4 +303,32 @@ NC_TEST(Recovery, StoreOrderingTracksSlotOverwrite) {
     std::string latest;
     NC_CHECK(store.read(order[0], latest).isOk());
     NC_CHECK_EQ(latest, std::string("new-zero"));
+}
+
+NC_TEST(Recovery, CapiEditorAutosaveLifecycleRoundTrip) {
+    const auto dir = std::filesystem::temp_directory_path() / "nairoclip-capi-recovery-lifecycle-test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    if (!editor) return;
+
+    NC_CHECK_EQ(nc_recovery_configure(editor, dir.string().c_str()), NC_OK);
+    NC_CHECK_EQ(nc_recovery_mark_dirty(editor, 1000), NC_OK);
+    NC_CHECK_EQ(nc_recovery_tick(editor, 3000), 1);
+    NC_CHECK_EQ(nc_recovery_has_snapshot(editor), 1);
+
+    char* recovered = nc_recovery_read_latest(editor);
+    char* current = nc_project_save(editor);
+    NC_CHECK(recovered != nullptr);
+    NC_CHECK(current != nullptr);
+    if (recovered && current) NC_CHECK_EQ(std::string(recovered), std::string(current));
+    if (recovered) nc_free_string(recovered);
+    if (current) nc_free_string(current);
+
+    NC_CHECK_EQ(nc_recovery_mark_clean(editor), NC_OK);
+    NC_CHECK_EQ(nc_recovery_has_snapshot(editor), 0);
+    nc_editor_destroy(editor);
+    std::filesystem::remove_all(dir, ec);
 }
