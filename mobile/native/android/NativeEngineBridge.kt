@@ -629,11 +629,13 @@ class NativeEngineBridge(
             atomic.finishWrite(output)
             stream = null
             if (activeProjectFile != name) {
+                // 工程文件已完成 AtomicFile 提交；即使恢复子系统初始化失败，
+                // 也必须保留当前草稿身份，避免下一次保存生成第二份孤儿草稿。
+                activeProjectFile = name
                 val recoveryRc = configureRecovery(handle, name)
                 if (recoveryRc != 0) {
                     return@synchronized err("工程已保存，但恢复目录初始化失败（$recoveryRc）", recoveryRc)
                 }
-                activeProjectFile = name
             }
             val cleanRc = nativeRecoveryMarkClean(handle)
             if (cleanRc != 0) {
