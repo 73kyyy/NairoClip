@@ -138,6 +138,11 @@ class NativeTimelineView(context: Context) : View(context) {
         invalidate()
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
@@ -184,9 +189,10 @@ class NativeTimelineView(context: Context) : View(context) {
 
             if (!track.visible) return@forEachIndexed
             track.clips.forEach clipLoop@{ clip ->
-                if (clip.startUs < 0L || clip.durationUs <= 0L) return@clipLoop
+                if (clip.startUs < 0L || clip.durationUs <= 0L || clip.startUs >= durationUs) return@clipLoop
+                val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
                 val left = labelWidth + clip.startUs / 1_000_000f * pixelsPerSecond - scrollOffset
-                val right = left + max(clip.durationUs / 1_000_000f * pixelsPerSecond, 5f * density)
+                val right = left + max(visibleDurationUs / 1_000_000f * pixelsPerSecond, 5f * density)
                 if (right < labelWidth || left > width) return@clipLoop
                 val rect = RectF(
                     max(left, labelWidth),
@@ -206,7 +212,8 @@ class NativeTimelineView(context: Context) : View(context) {
         val text = formatTime(playheadUs / 1_000_000L)
         val width = readoutPaint.measureText(text) + 8f * density
         val top = 2f * density
-        val rect = RectF(centerX - width / 2f, top, centerX + width / 2f, top + 13f * density)
+        val left = (centerX - width / 2f).coerceIn(0f, (this.width - width).coerceAtLeast(0f))
+        val rect = RectF(left, top, left + width, top + 13f * density)
         canvas.drawRoundRect(rect, 2f * density, 2f * density, playheadCapPaint)
         canvas.drawText(text, rect.left + 4f * density, rect.bottom - 3f * density, readoutPaint)
     }
