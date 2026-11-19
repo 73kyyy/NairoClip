@@ -28,7 +28,13 @@ bool readRational(const JsonValue& v, const char* field, Rational& out, std::str
         err = std::string("字段 ") + field + " 应为 [分子, 分母] 数组";
         return false;
     }
-    out = Rational::make(v.at(0).asInteger(), v.at(1).asInteger());
+    const std::int64_t numerator = v.at(0).asInteger();
+    const std::int64_t denominator = v.at(1).asInteger();
+    if (denominator <= 0) {
+        err = std::string("字段 ") + field + " 的分母必须为正整数";
+        return false;
+    }
+    out = Rational::make(numerator, denominator);
     return true;
 }
 
@@ -39,6 +45,10 @@ JsonValue writeFrameRate(const FrameRate& fps) {
 bool readFrameRate(const JsonValue& v, FrameRate& out, std::string& err) {
     Rational r;
     if (!readRational(v, "frameRate", r, err)) return false;
+    if (!r.isPositive()) {
+        err = "字段 frameRate 必须为正数";
+        return false;
+    }
     out.value = r;
     return true;
 }
