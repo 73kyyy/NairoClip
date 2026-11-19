@@ -1,6 +1,12 @@
 package com.nairoclip.app
 
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Owns the lifecycle bridge between [PreviewSurfaceView] and the existing
@@ -18,7 +24,28 @@ class NativePreviewSurfaceController(
     private var bufferWidth: Int = 0
     private var bufferHeight: Int = 0
     private var attached: Boolean = false
+    @Volatile
     private var disposed: Boolean = false
+
+    private data class RenderRequest(
+        val sequence: Long,
+        val timeUs: Long,
+        val onComplete: ((Long, Boolean) -> Unit)?
+    )
+
+    /*
+     * Surface rendering is synchronous inside JNI and holds NativeEngineBridge's
+     * serialization lock. Never run it from a Compose/UI callback. A single
+     * worker plus a one-slot latest-request mailbox bounds queued work while a
+     * user scrubs rapidly through the timeline.
+     */
+    private val renderExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "nc-preview-render").apply { isDaemon = true }
+    }
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val pendingRender = AtomicReference<RenderRequest?>(null)
+    private val renderSequence = AtomicLong(0L)
+    private val renderWorkerScheduled = AtomicBoolean(false)
 
     init {
         previewView.onSurfaceAvailable = { surface ->
@@ -78,10 +105,80 @@ class NativePreviewSurfaceController(
         return NativeEngineBridge.renderPreviewFrame(timeUs)
     }
 
+    /**
+     * Queue a scrub/seek preview render without blocking the caller.
+     *
+     * Requests that have not started are coalesced: only the newest timestamp
+     * is rendered. Completion is posted to the main thread and is omitted when
+     * a newer request superseded it. This is deliberately not a playback clock.
+     *
+     * @return false when the request is invalid or the controller is unavailable;
+     *         true when the request was accepted for asynchronous processing.
+     */
+    fun requestRenderFrame(
+        timeUs: Long,
+        onComplete: ((timeUs: Long, rendered: Boolean) -> Unit)? = null
+    ): Boolean {
+        if (disposed || !attached || currentSurface?.isValid != true || timeUs < 0L) {
+            return false
+        }
+
+        val request = RenderRequest(
+            sequence = renderSequence.incrementAndGet(),
+            timeUs = timeUs,
+            onComplete = onComplete
+        )
+        pendingRender.set(request)
+        if (renderWorkerScheduled.compareAndSet(false, true)) {
+            try {
+                renderExecutor.execute { drainRenderRequests() }
+            } catch (_: RuntimeException) {
+                renderWorkerScheduled.set(false)
+                pendingRender.compareAndSet(request, null)
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun drainRenderRequests() {
+        while (!disposed) {
+            val request = pendingRender.getAndSet(null)
+            if (request == null) {
+                renderWorkerScheduled.set(false)
+                // Close the race where a producer publishes just as the worker
+                // clears the scheduled flag.
+                if (pendingRender.get() != null &&
+                    renderWorkerScheduled.compareAndSet(false, true)
+                ) {
+                    continue
+                }
+                return
+            }
+
+            val rendered = NativeEngineBridge.renderPreviewFrame(request.timeUs)
+            if (!disposed &&
+                request.sequence == renderSequence.get() &&
+                pendingRender.get() == null
+            ) {
+                request.onComplete?.let { callback ->
+                    mainHandler.post {
+                        if (!disposed && request.sequence == renderSequence.get()) {
+                            callback(request.timeUs, rendered)
+                        }
+                    }
+                }
+            }
+        }
+        renderWorkerScheduled.set(false)
+    }
+
     /** Detaches native rendering and releases all View listener references. */
     fun dispose() {
         if (disposed) return
         disposed = true
+        pendingRender.set(null)
+        renderExecutor.shutdownNow()
         previewView.onSurfaceAvailable = null
         previewView.onSurfaceSizeChanged = null
         previewView.onSurfaceDestroyed = null
