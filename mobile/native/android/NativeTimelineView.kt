@@ -31,16 +31,20 @@ data class NativeTimelineClip(
 data class NativeTimelineTrack(
     val id: Long,
     val name: String,
-    val clips: List<NativeTimelineClip> = emptyList()
+    val clips: List<NativeTimelineClip> = emptyList(),
+    val visible: Boolean = true,
+    val muted: Boolean = false
 )
 
 class NativeTimelineView(context: Context) : View(context) {
 
     var onPlayheadChanged: ((Long) -> Unit)? = null
+    var onTrackVisibilityChanged: ((Long, Boolean) -> Unit)? = null
+    var onTrackMuteChanged: ((Long, Boolean) -> Unit)? = null
 
     private val density = resources.displayMetrics.density
     private val rulerHeight = 27f * density
-    private val labelWidth = 46f * density
+    private val labelWidth = 94f * density
     private val rowHeight = 47f * density
     private val rowGap = 4f * density
 
@@ -122,7 +126,7 @@ class NativeTimelineView(context: Context) : View(context) {
         totalDurationUs: Long,
         currentPlayheadUs: Long
     ) {
-        tracks = newTracks
+        tracks = newTracks.map { it.copy(clips = it.clips.toList()) }
         durationUs = totalDurationUs.coerceAtLeast(1L)
         playheadUs = currentPlayheadUs.coerceIn(0L, durationUs)
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
@@ -173,8 +177,12 @@ class NativeTimelineView(context: Context) : View(context) {
 
             val lane = if (index % 2 == 0) alternateLanePaint else lanePaint
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
-            canvas.drawText(track.name.take(5), 8f * density, top + rowHeight * 0.58f, labelPaint)
+            canvas.drawText(track.name.take(5), 7f * density, top + rowHeight * 0.58f, labelPaint)
+            val controlPaint = if (track.visible) labelPaint else tickPaint
+            canvas.drawText(if (track.visible) "◉" else "○", 48f * density, top + rowHeight * 0.58f, controlPaint)
+            canvas.drawText(if (track.muted) "×" else "♪", 70f * density, top + rowHeight * 0.58f, if (track.muted) tickPaint else labelPaint)
 
+            if (!track.visible) return@forEachIndexed
             track.clips.forEach clipLoop@{ clip ->
                 if (clip.startUs < 0L || clip.durationUs <= 0L) return@clipLoop
                 val left = labelWidth + clip.startUs / 1_000_000f * pixelsPerSecond - scrollOffset
@@ -224,7 +232,9 @@ class NativeTimelineView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP -> {
                 if (!moved && !scaleDetector.isInProgress) {
-                    updatePlayheadFromTouch(event.x)
+                    if (!handleTrackControlTap(event.x, event.y)) {
+                        updatePlayheadFromTouch(event.x)
+                    }
                     performClick()
                 }
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -240,6 +250,28 @@ class NativeTimelineView(context: Context) : View(context) {
 
     override fun performClick(): Boolean {
         super.performClick()
+        return true
+    }
+
+    private fun handleTrackControlTap(x: Float, y: Float): Boolean {
+        if (x >= labelWidth || y < rulerHeight) return false
+        val row = ((y - rulerHeight) / (rowHeight + rowGap)).toInt()
+        if (row !in tracks.indices) return false
+        val track = tracks[row]
+        when {
+            x in (40f * density)..(62f * density) -> {
+                val updated = track.copy(visible = !track.visible)
+                tracks = tracks.toMutableList().also { it[row] = updated }
+                onTrackVisibilityChanged?.invoke(updated.id, updated.visible)
+            }
+            x in (64f * density)..(86f * density) -> {
+                val updated = track.copy(muted = !track.muted)
+                tracks = tracks.toMutableList().also { it[row] = updated }
+                onTrackMuteChanged?.invoke(updated.id, updated.muted)
+            }
+            else -> return false
+        }
+        invalidate()
         return true
     }
 
