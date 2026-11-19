@@ -78,6 +78,44 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         Result(false, error = error.message ?: "变换写入失败")
     }
 
+    data class ClipAnimationState(
+        val transform: NativeTransform,
+        val transformEnabled: Boolean,
+        val anchor: Int,
+        val keyframes: Map<NativeParameter, List<Keyframe>>,
+        val keyedParameters: Set<NativeParameter>
+    )
+
+    /**
+     * Loads a consistent UI-facing snapshot for the selected clip.
+     * The caller should invoke this on selection/project refresh, not on every
+     * slider frame; writes remain separate commands to preserve undo semantics.
+     */
+    fun readAnimationState(target: ClipTarget): Result<ClipAnimationState> {
+        val transformResult = getTransform(target)
+        if (!transformResult.ok) {
+            return Result(false, error = transformResult.error)
+        }
+        val transform = transformResult.value
+            ?: return Result(false, error = "片段变换数据缺失")
+        val channels = LinkedHashMap<NativeParameter, List<Keyframe>>()
+        for (parameter in NativeParameter.values()) {
+            val result = keyframes(target, parameter)
+            if (!result.ok) return Result(false, error = result.error)
+            channels[parameter] = result.value ?: return Result(false, error = "关键帧通道数据缺失")
+        }
+        return Result(
+            true,
+            ClipAnimationState(
+                transform = transform.transform,
+                transformEnabled = transform.enabled,
+                anchor = transform.anchor,
+                keyframes = channels,
+                keyedParameters = channels.filterValues { it.isNotEmpty() }.keys
+            )
+        )
+    }
+
     fun insertKeyframe(target: ClipTarget, property: Int, timeUs: Long, value: Double): Result<Unit> {
         if (property !in 0..5 || timeUs < 0L || !value.isFinite()) {
             return Result(false, error = "关键帧参数非法")
