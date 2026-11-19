@@ -141,7 +141,6 @@ class NativeTimelineView(context: Context) : View(context) {
                 track.id == selectedClip!!.first && track.clips.any { it.id == selectedClip!!.second }
             }) {
             selectedClip = null
-            onClipSelectionCleared?.invoke()
         }
         durationUs = totalDurationUs.coerceAtLeast(1L)
         playheadUs = currentPlayheadUs.coerceIn(0L, durationUs)
