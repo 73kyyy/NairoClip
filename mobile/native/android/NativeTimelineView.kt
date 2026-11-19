@@ -162,9 +162,13 @@ class NativeTimelineView(context: Context) : View(context) {
         super.onDraw(canvas)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
 
-        val contentWidth = (width - labelWidth).coerceAtLeast(1f)
-        val playheadX = (labelWidth + playheadUs / 1_000_000f * pixelsPerSecond - scrollOffset)
-            .coerceIn(labelWidth, width.toFloat())
+        // Keep timeline-time arithmetic in Double: Float loses microsecond
+        // precision quickly on long projects and can visibly drift the playhead.
+        val playheadX = (
+            labelWidth.toDouble() +
+                (playheadUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
+                scrollOffset.toDouble()
+            ).toFloat().coerceIn(labelWidth, width.toFloat())
         drawRuler(canvas, playheadX)
         drawTracks(canvas)
 
@@ -176,11 +180,22 @@ class NativeTimelineView(context: Context) : View(context) {
     private fun drawRuler(canvas: Canvas, playheadX: Float) {
         canvas.drawRect(labelWidth, 0f, width.toFloat(), rulerHeight, rulerPaint)
         val secondsPerTick = 5f
-        val first = floor(scrollOffset / pixelsPerSecond / secondsPerTick).toInt()
-        val last = ceil((scrollOffset + width - labelWidth) / pixelsPerSecond / secondsPerTick).toInt()
-        for (tick in first..last) {
-            val seconds = tick * secondsPerTick
-            val x = labelWidth + seconds * pixelsPerSecond - scrollOffset
+        val first = floor(
+            scrollOffset.toDouble() / pixelsPerSecond.toDouble() / secondsPerTick.toDouble()
+        ).toLong().coerceAtLeast(0L)
+        val last = ceil(
+            (scrollOffset.toDouble() + width.toDouble() - labelWidth.toDouble()) /
+                pixelsPerSecond.toDouble() / secondsPerTick.toDouble()
+        ).toLong().coerceAtLeast(first)
+        // A corrupted or extreme viewport must never create an unbounded draw loop.
+        val tickCount = (last - first).coerceAtMost(MAX_VISIBLE_RULER_TICKS.toLong())
+        for (offset in 0L..tickCount) {
+            val tick = first + offset
+            val seconds = tick.toDouble() * secondsPerTick.toDouble()
+            val x = (
+                labelWidth.toDouble() + seconds * pixelsPerSecond.toDouble() -
+                    scrollOffset.toDouble()
+                ).toFloat()
             if (x < labelWidth || x > width) continue
             canvas.drawLine(x, rulerHeight - 7f * density, x, rulerHeight, tickPaint)
             canvas.drawText(formatTime(seconds.toLong()), x + 3f * density, 11f * density, rulerTextPaint)
@@ -206,8 +221,15 @@ class NativeTimelineView(context: Context) : View(context) {
             track.clips.forEach clipLoop@{ clip ->
                 if (!clip.enabled || clip.startUs < 0L || clip.durationUs <= 0L || clip.startUs >= durationUs) return@clipLoop
                 val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
-                val left = labelWidth + clip.startUs / 1_000_000f * pixelsPerSecond - scrollOffset
-                val right = left + max(visibleDurationUs / 1_000_000f * pixelsPerSecond, 5f * density)
+                val left = (
+                    labelWidth.toDouble() +
+                        (clip.startUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
+                        scrollOffset.toDouble()
+                    ).toFloat()
+                val clipWidth = (
+                    visibleDurationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+                    ).toFloat()
+                val right = left + max(clipWidth, 5f * density)
                 if (right < labelWidth || left > width) return@clipLoop
                 val rect = RectF(
                     max(left, labelWidth),
@@ -290,9 +312,10 @@ class NativeTimelineView(context: Context) : View(context) {
         if (row !in tracks.indices) return false
         val track = tracks[row]
         if (!track.visible) return false
-        val timeUs = ((scrollOffset + x - labelWidth) / pixelsPerSecond * 1_000_000f)
-            .toLong()
-            .coerceAtLeast(0L)
+        val timeUs = (
+            (scrollOffset.toDouble() + x.toDouble() - labelWidth.toDouble()) /
+                pixelsPerSecond.toDouble() * 1_000_000.0
+            ).toLong().coerceAtLeast(0L)
         val clip = track.clips.firstOrNull { candidate ->
             candidate.enabled && candidate.startUs >= 0L && candidate.durationUs > 0L &&
                 timeUs >= candidate.startUs && timeUs - candidate.startUs < candidate.durationUs
@@ -332,16 +355,23 @@ class NativeTimelineView(context: Context) : View(context) {
     }
 
     private fun maxScrollOffset(): Float {
-        val contentSeconds = durationUs / 1_000_000f
-        val viewport = (width - labelWidth).coerceAtLeast(1f)
-        return (contentSeconds * pixelsPerSecond - viewport).coerceAtLeast(0f)
+        val contentWidth = durationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+        val viewport = (width - labelWidth).coerceAtLeast(1f).toDouble()
+        return (contentWidth - viewport).coerceIn(0.0, Float.MAX_VALUE.toDouble()).toFloat()
     }
 
     private fun updatePlayheadFromTouch(x: Float) {
-        val seconds = (scrollOffset + x - labelWidth).coerceAtLeast(0f) / pixelsPerSecond
-        playheadUs = (seconds * 1_000_000L).toLong().coerceIn(0L, durationUs)
+        val seconds = (
+            scrollOffset.toDouble() + x.toDouble() - labelWidth.toDouble()
+            ).coerceAtLeast(0.0) / pixelsPerSecond.toDouble()
+        val requestedUs = (seconds * 1_000_000.0).coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
+        playheadUs = requestedUs.coerceIn(0L, durationUs)
         onPlayheadChanged?.invoke(playheadUs)
         invalidate()
+    }
+
+    private companion object {
+        const val MAX_VISIBLE_RULER_TICKS = 256
     }
 
     private fun formatTime(seconds: Long): String {
