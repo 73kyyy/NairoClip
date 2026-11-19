@@ -283,6 +283,12 @@ jobs:
             > /tmp/s1_lifecycle_regression.txt 2>&1
           rc=$?
           cat /tmp/s1_lifecycle_regression.txt
+          run_count=$(grep -c '^\\[ RUN  \\]' /tmp/s1_lifecycle_regression.txt || true)
+          echo "s1_lifecycle_run_count=$run_count"
+          if [ "$run_count" -lt 23 ]; then
+            echo "::error title=S1_TEST_SELECTION::Expected at least 23 S1 lifecycle cases, got $run_count"
+            rc=1
+          fi
           echo "s1_lifecycle_exit=$rc"
           exit "$rc"
 
@@ -583,6 +589,12 @@ jobs:
           NC_TEST_INCLUDE=S1Lifecycle.,S1Concurrency.,S1EditorLifetime.,S1RecursiveMutex. \
             ./build_asan/tests/nairoclip_tests > /tmp/s1_lifecycle_asan.txt 2>&1
           rc=$?
+          run_count=$(grep -c '^\\[ RUN  \\]' /tmp/s1_lifecycle_asan.txt || true)
+          echo "s1_lifecycle_asan_run_count=$run_count"
+          if [ "$run_count" -lt 23 ]; then
+            echo "::error title=S1_ASAN_TEST_SELECTION::Expected at least 23 S1 lifecycle cases, got $run_count"
+            rc=1
+          fi
           cat /tmp/s1_lifecycle_asan.txt
           echo "s1_lifecycle_asan_exit=$rc"
           echo "::error title=S1_ASAN_ERROR::$(grep -m1 -E 'ERROR: AddressSanitizer|SUMMARY: AddressSanitizer' /tmp/s1_lifecycle_asan.txt || echo none)"
