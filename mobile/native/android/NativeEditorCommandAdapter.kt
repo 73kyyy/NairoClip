@@ -88,6 +88,27 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         Result(false, error = error.message ?: "变换写入失败")
     }
 
+    /**
+     * Track visibility and mute are native editor commands already dispatched
+     * by nc_jni.cpp. The UI passes the desired state, never a toggle opcode,
+     * so retries and delayed snapshot refreshes remain idempotent.
+     */
+    fun setTrackVisibility(trackIndex: Int, visible: Boolean): Result<Unit> {
+        if (trackIndex < 0) return Result(false, error = "轨道索引不能为负数")
+        return invoke(
+            "nc_set_track_hidden",
+            JSONObject().put("track_index", trackIndex).put("hidden", !visible)
+        ) { Unit }
+    }
+
+    fun setTrackMuted(trackIndex: Int, muted: Boolean): Result<Unit> {
+        if (trackIndex < 0) return Result(false, error = "轨道索引不能为负数")
+        return invoke(
+            "nc_set_track_muted",
+            JSONObject().put("track_index", trackIndex).put("muted", muted)
+        ) { Unit }
+    }
+
     data class HistoryState(val canUndo: Boolean, val canRedo: Boolean)
 
     /** Reads the history capability flags emitted by the existing engine state snapshot. */
