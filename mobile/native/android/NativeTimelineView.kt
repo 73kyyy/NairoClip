@@ -104,11 +104,10 @@ class NativeTimelineView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
     }
 
-    private var tracks: List<NativeTimelineTrack> = listOf(
-        NativeTimelineTrack(1L, "V1"),
-        NativeTimelineTrack(2L, "A1"),
-        NativeTimelineTrack(3L, "T1")
-    )
+    // Never fabricate placeholder lanes before an engine snapshot arrives.
+    // The empty-state renderer explains the blank project without implying
+    // that video/audio/text tracks already exist in the user's project.
+    private var tracks: List<NativeTimelineTrack> = emptyList()
     // Keep a detached source snapshot rather than the caller's list identity.
     // Some hosts reuse and mutate a list in place; identity-only invalidation
     // would then leave stale clips on screen. Track-control gestures only emit
