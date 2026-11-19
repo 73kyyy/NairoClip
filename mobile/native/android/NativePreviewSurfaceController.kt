@@ -49,10 +49,18 @@ class NativePreviewSurfaceController(
 
     init {
         previewView.onSurfaceAvailable = { surface ->
-            if (!disposed) currentSurface = surface
+            if (!disposed) {
+                if (currentSurface !== surface) invalidatePendingRender()
+                currentSurface = surface
+            }
         }
         previewView.onSurfaceSizeChanged = { surface, _, width, height ->
             if (!disposed) {
+                if (currentSurface !== surface ||
+                    bufferWidth != width || bufferHeight != height
+                ) {
+                    invalidatePendingRender()
+                }
                 currentSurface = surface
                 bufferWidth = width
                 bufferHeight = height
@@ -61,6 +69,7 @@ class NativePreviewSurfaceController(
         }
         previewView.onSurfaceDestroyed = {
             if (!disposed) {
+                invalidatePendingRender()
                 currentSurface = null
                 bufferWidth = 0
                 bufferHeight = 0
@@ -141,6 +150,16 @@ class NativePreviewSurfaceController(
         return true
     }
 
+    /**
+     * Invalidates queued/in-flight completions when the Surface generation
+     * changes. A worker that has dequeued but not started a frame also checks
+     * the sequence immediately before entering JNI.
+     */
+    private fun invalidatePendingRender() {
+        renderSequence.incrementAndGet()
+        pendingRender.set(null)
+    }
+
     private fun drainRenderRequests() {
         while (!disposed) {
             val request = pendingRender.getAndSet(null)
@@ -154,6 +173,10 @@ class NativePreviewSurfaceController(
                     continue
                 }
                 return
+            }
+
+            if (disposed || request.sequence != renderSequence.get()) {
+                continue
             }
 
             val rendered = NativeEngineBridge.renderPreviewFrame(request.timeUs)
@@ -177,7 +200,7 @@ class NativePreviewSurfaceController(
     fun dispose() {
         if (disposed) return
         disposed = true
-        pendingRender.set(null)
+        invalidatePendingRender()
         renderExecutor.shutdownNow()
         previewView.onSurfaceAvailable = null
         previewView.onSurfaceSizeChanged = null
