@@ -51,6 +51,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 fun NativeEditorScreen(
     previewView: View? = null,
     projectName: String = "未命名工程",
+    timelineTracks: List<NativeTimelineTrack> = emptyList(),
+    timelineDurationUs: Long = 30_000_000L,
+    playheadUs: Long = 0L,
+    onPlayheadChanged: (Long) -> Unit = {},
+    onTrackVisibilityChanged: (Long, Boolean) -> Unit = { _, _ -> },
+    onTrackMuteChanged: (Long, Boolean) -> Unit = { _, _ -> },
     onOpenLegacy: () -> Unit
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
@@ -71,6 +77,12 @@ fun NativeEditorScreen(
             QuickActionStrip(onAction = onOpenLegacy)
 
             NativeTimelinePanel(
+                tracks = timelineTracks,
+                durationUs = timelineDurationUs,
+                playheadUs = playheadUs,
+                onPlayheadChanged = onPlayheadChanged,
+                onTrackVisibilityChanged = onTrackVisibilityChanged,
+                onTrackMuteChanged = onTrackMuteChanged,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(218.dp)
@@ -230,9 +242,28 @@ private fun QuickActionStrip(onAction: () -> Unit) {
 }
 
 @Composable
-private fun NativeTimelinePanel(modifier: Modifier = Modifier) {
+private fun NativeTimelinePanel(
+    tracks: List<NativeTimelineTrack>,
+    durationUs: Long,
+    playheadUs: Long,
+    onPlayheadChanged: (Long) -> Unit,
+    onTrackVisibilityChanged: (Long, Boolean) -> Unit,
+    onTrackMuteChanged: (Long, Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val initialTracks = remember { tracks.toList() }
     AndroidView(
-        factory = { context -> NativeTimelineView(context) },
+        factory = { context ->
+            NativeTimelineView(context).apply {
+                setTimeline(initialTracks, durationUs, playheadUs)
+            }
+        },
+        update = { view ->
+            view.onPlayheadChanged = onPlayheadChanged
+            view.onTrackVisibilityChanged = onTrackVisibilityChanged
+            view.onTrackMuteChanged = onTrackMuteChanged
+            view.setTimeline(tracks, durationUs, playheadUs)
+        },
         modifier = modifier
     )
 }
