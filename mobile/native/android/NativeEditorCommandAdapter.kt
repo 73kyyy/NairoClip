@@ -105,6 +105,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                 c2y = payload.optDouble("c2y", 1.0)
             )
         }
+    }
 
     private fun targetArgs(target: ClipTarget) =
         JSONObject().put("track_index", target.trackIndex).put("clip_id", target.clipId)
