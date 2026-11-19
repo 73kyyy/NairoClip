@@ -523,7 +523,7 @@ jobs:
     name: ASAN 诊断
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    continue-on-error: true
+    continue-on-error: false
 
     steps:
       - name: Checkout
@@ -575,7 +575,7 @@ jobs:
       - name: S1 生命周期定向回归 (ASAN)
         # S1-1 验收：在 AddressSanitizer 下单独执行 100 次 load→有效 dispatch，
         # 并覆盖并发句柄/仲裁器用例；独立于全量套件的其他既有失败。
-        continue-on-error: true
+        continue-on-error: false
         run: |
           export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/ort/lib:$LD_LIBRARY_PATH"
           export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:symbolize=1:print_stacktrace=1:verify_asan_link_order=0
