@@ -24,8 +24,14 @@ std::string savedText(NcEditor* ed) {
 }
 
 bool dispatchTouchesEditor(NcEditor* ed) {
-    char* result = nc_apply_command(
-        ed, R"({"type":"clip.remove","payload":{}})");
+    static std::atomic<std::uint64_t> nextProbeId{0};
+    const std::string commandId =
+        "s1-lifecycle-probe-" + std::to_string(nextProbeId.fetch_add(1));
+    const std::string request =
+        R"({"schemaVersion":1,"commandId":")" + commandId +
+        R"(","projectId":1,"expectedRevision":0,"commandType":"clip.remove",)"
+        R"("payload":{"sequenceId":1,"trackId":1,"clipId":1},"origin":"user"})";
+    char* result = nc_apply_command(ed, request.c_str());
     if (result == nullptr) return false;
     nc_free_string(result);
     return true;
