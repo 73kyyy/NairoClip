@@ -166,25 +166,35 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     }
 
     data class HistoryState(val canUndo: Boolean, val canRedo: Boolean)
+    data class EditorStateSnapshot(
+        val timeline: NativeTimelineSnapshot,
+        val history: HistoryState
+    )
 
-    /** Reads the history capability flags emitted by the existing engine state snapshot. */
-    fun historyState(): Result<HistoryState> =
-        bridge.withEditorStateLock { readHistoryStateLocked() }
+    /** Reads timeline and history capability flags from one engine revision. */
+    fun editorStateSnapshot(): Result<EditorStateSnapshot> =
+        bridge.withEditorStateLock { readEditorStateSnapshotLocked() }
+
+    fun historyState(): Result<HistoryState> = bridge.withEditorStateLock {
+        val snapshot = readEditorStateSnapshotLocked()
+        if (!snapshot.ok) Result(false, error = snapshot.error)
+        else Result(true, snapshot.value?.history)
+    }
 
     /**
-     * Executes undo/redo and reads the resulting capability flags under the
-     * same bridge monitor. Hosts can publish the returned state atomically,
-     * avoiding a stale enabled/disabled state between the command and refresh.
+     * Executes undo/redo and reads timeline + history from the resulting
+     * engine revision under one bridge monitor. The host can publish both
+     * models together instead of briefly showing stale clips/history controls.
      */
-    fun undoAndReadHistoryState(): Result<HistoryState> =
-        mutateAndReadHistoryState { undo() }
+    fun undoAndReadEditorState(): Result<EditorStateSnapshot> =
+        mutateAndReadEditorState { undo() }
 
-    fun redoAndReadHistoryState(): Result<HistoryState> =
-        mutateAndReadHistoryState { redo() }
+    fun redoAndReadEditorState(): Result<EditorStateSnapshot> =
+        mutateAndReadEditorState { redo() }
 
-    private fun mutateAndReadHistoryState(
+    private fun mutateAndReadEditorState(
         mutation: () -> Result<Unit>
-    ): Result<HistoryState> = bridge.withEditorStateLock {
+    ): Result<EditorStateSnapshot> = bridge.withEditorStateLock {
         val changed = try {
             mutation()
         } catch (error: Exception) {
@@ -193,32 +203,40 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         if (!changed.ok) {
             return@withEditorStateLock Result(false, error = changed.error ?: "历史命令执行失败")
         }
-        readHistoryStateLocked()
+        readEditorStateSnapshotLocked()
     }
 
-    private fun readHistoryStateLocked(): Result<HistoryState> {
+    private fun readEditorStateSnapshotLocked(): Result<EditorStateSnapshot> {
         return try {
-            val envelope = JSONObject(bridge.state())
+            val stateJson = bridge.state()
+            val envelope = JSONObject(stateJson)
             if (!envelope.optBoolean("ok", false)) {
-                Result(false, error = envelope.optString("message", "读取撤销状态失败"))
+                Result(false, error = envelope.optString("message", "读取工程状态失败"))
             } else {
+                val timeline = NativeTimelineSnapshot.tryFromEngineState(stateJson)
                 val state = envelope.optJSONObject("result")
                 val undoRaw = state?.opt("can_undo") as? Number
                 val redoRaw = state?.opt("can_redo") as? Number
                 val undoValue = undoRaw?.toDouble()
                 val redoValue = redoRaw?.toDouble()
-                if (undoValue == null || redoValue == null ||
+                if (timeline == null || undoValue == null || redoValue == null ||
                     !undoValue.isFinite() || !redoValue.isFinite() ||
                     undoValue % 1.0 != 0.0 || redoValue % 1.0 != 0.0 ||
                     undoValue !in 0.0..1.0 || redoValue !in 0.0..1.0
                 ) {
-                    Result(false, error = "工程历史状态字段缺失或无效")
+                    Result(false, error = "工程快照或历史状态字段缺失/无效")
                 } else {
-                    Result(true, HistoryState(undoValue == 1.0, redoValue == 1.0))
+                    Result(
+                        true,
+                        EditorStateSnapshot(
+                            timeline = timeline,
+                            history = HistoryState(undoValue == 1.0, redoValue == 1.0)
+                        )
+                    )
                 }
             }
         } catch (error: Exception) {
-            Result(false, error = error.message ?: "读取撤销状态失败")
+            Result(false, error = error.message ?: "读取工程状态失败")
         }
     }
 
