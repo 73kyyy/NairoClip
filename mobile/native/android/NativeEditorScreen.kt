@@ -96,6 +96,7 @@ fun NativeEditorScreen(
                     selectedClip = trackIndex to clipId
                     onClipSelected(trackIndex, clipId)
                 },
+                onClipSelectionCleared = { selectedClip = null },
                 onTrackVisibilityChanged = onTrackVisibilityChanged,
                 onTrackMuteChanged = onTrackMuteChanged,
                 modifier = Modifier
@@ -324,6 +325,7 @@ private fun NativeTimelinePanel(
     playheadUs: Long,
     onPlayheadChanged: (Long) -> Unit,
     onClipSelected: (Int, Long) -> Unit,
+    onClipSelectionCleared: () -> Unit,
     onTrackVisibilityChanged: (Int, Boolean) -> Unit,
     onTrackMuteChanged: (Int, Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -338,6 +340,7 @@ private fun NativeTimelinePanel(
         update = { view ->
             view.onPlayheadChanged = onPlayheadChanged
             view.onClipSelected = onClipSelected
+            view.onClipSelectionCleared = onClipSelectionCleared
             view.onTrackVisibilityChanged = onTrackVisibilityChanged
             view.onTrackMuteChanged = onTrackMuteChanged
             view.setTimeline(tracks, durationUs, playheadUs)
