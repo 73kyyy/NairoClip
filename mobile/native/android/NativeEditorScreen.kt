@@ -189,8 +189,15 @@ fun NativeEditorScreen(
                     }
                 },
                 onSubToolSelected = { tool, subTool ->
-                    activeTool = tool
-                    activeSubTool = subTool
+                    // Only canvas transform subtools have a native command-backed
+                    // panel today. Route every other subtool to the complete legacy
+                    // editor instead of leaving a visually selectable no-op.
+                    if (tool == "画面" && subTool in setOf("位置", "缩放", "旋转")) {
+                        activeTool = tool
+                        activeSubTool = subTool
+                    } else {
+                        onOpenLegacy()
+                    }
                 }
             )
         }
