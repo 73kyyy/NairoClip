@@ -109,6 +109,60 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         ) { Unit }
     }
 
+    /**
+     * Reads the authoritative timeline snapshot while holding the same bridge
+     * lock used by editor mutations. This prevents a concurrent command from
+     * interleaving with the state JSON read.
+     */
+    fun readTimelineSnapshot(): Result<NativeTimelineSnapshot> =
+        bridge.withEditorStateLock { readTimelineSnapshotLocked() }
+
+    /**
+     * Executes a track flag mutation and obtains the resulting timeline
+     * snapshot as one serialized operation. The caller can publish the returned
+     * snapshot directly instead of guessing the engine's accepted state.
+     */
+    fun setTrackVisibilityAndReadSnapshot(
+        trackIndex: Int,
+        visible: Boolean
+    ): Result<NativeTimelineSnapshot> =
+        mutateAndReadTimelineSnapshot { setTrackVisibility(trackIndex, visible) }
+
+    fun setTrackMutedAndReadSnapshot(
+        trackIndex: Int,
+        muted: Boolean
+    ): Result<NativeTimelineSnapshot> =
+        mutateAndReadTimelineSnapshot { setTrackMuted(trackIndex, muted) }
+
+    private fun mutateAndReadTimelineSnapshot(
+        mutation: () -> Result<Unit>
+    ): Result<NativeTimelineSnapshot> = bridge.withEditorStateLock {
+        val changed = try {
+            mutation()
+        } catch (error: Exception) {
+            Result(false, error = error.message ?: "轨道命令执行失败")
+        }
+        if (!changed.ok) {
+            return@withEditorStateLock Result(
+                false,
+                error = changed.error ?: "轨道命令执行失败"
+            )
+        }
+        readTimelineSnapshotLocked()
+    }
+
+    private fun readTimelineSnapshotLocked(): Result<NativeTimelineSnapshot> = try {
+        val stateJson = bridge.state()
+        val envelope = JSONObject(stateJson)
+        if (!envelope.optBoolean("ok", false)) {
+            Result(false, error = envelope.optString("message", "读取工程快照失败"))
+        } else {
+            Result(true, NativeTimelineSnapshot.fromEngineState(stateJson))
+        }
+    } catch (error: Exception) {
+        Result(false, error = error.message ?: "工程快照解析失败")
+    }
+
     data class HistoryState(val canUndo: Boolean, val canRedo: Boolean)
 
     /** Reads the history capability flags emitted by the existing engine state snapshot. */
