@@ -317,8 +317,14 @@ class NativeTimelineView(context: Context) : View(context) {
                         kotlin.math.abs(dy) > touchSlop &&
                         kotlin.math.abs(dy) > kotlin.math.abs(dx)
                     ) {
+                        // Consume the threshold-crossing delta as well. Without
+                        // this, the first vertical movement is discarded and the
+                        // timeline visibly lags behind the user's finger.
                         draggingTimelineVertically = true
                         moved = true
+                        verticalScrollOffset = (verticalScrollOffset - dy)
+                            .coerceIn(0f, maxVerticalScrollOffset())
+                        invalidate()
                     } else if (draggingTimelineVertically) {
                         verticalScrollOffset = (verticalScrollOffset - dy)
                             .coerceIn(0f, maxVerticalScrollOffset())
