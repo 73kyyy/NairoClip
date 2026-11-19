@@ -196,21 +196,30 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         readHistoryStateLocked()
     }
 
-    private fun readHistoryStateLocked(): Result<HistoryState> = try {
-        val envelope = JSONObject(bridge.state())
-        if (!envelope.optBoolean("ok", false)) {
-            Result(false, error = envelope.optString("message", "读取撤销状态失败"))
-        } else {
-            val state = envelope.optJSONObject("result")
-                ?: return Result(false, error = "工程历史状态缺失")
-            val canUndo = state.opt("can_undo") as? Number
-                ?: return Result(false, error = "撤销状态字段无效")
-            val canRedo = state.opt("can_redo") as? Number
-                ?: return Result(false, error = "重做状态字段无效")
-            Result(true, HistoryState(canUndo.toInt() != 0, canRedo.toInt() != 0))
+    private fun readHistoryStateLocked(): Result<HistoryState> {
+        return try {
+            val envelope = JSONObject(bridge.state())
+            if (!envelope.optBoolean("ok", false)) {
+                Result(false, error = envelope.optString("message", "读取撤销状态失败"))
+            } else {
+                val state = envelope.optJSONObject("result")
+                val undoRaw = state?.opt("can_undo") as? Number
+                val redoRaw = state?.opt("can_redo") as? Number
+                val undoValue = undoRaw?.toDouble()
+                val redoValue = redoRaw?.toDouble()
+                if (undoValue == null || redoValue == null ||
+                    !undoValue.isFinite() || !redoValue.isFinite() ||
+                    undoValue % 1.0 != 0.0 || redoValue % 1.0 != 0.0 ||
+                    undoValue !in 0.0..1.0 || redoValue !in 0.0..1.0
+                ) {
+                    Result(false, error = "工程历史状态字段缺失或无效")
+                } else {
+                    Result(true, HistoryState(undoValue == 1.0, redoValue == 1.0))
+                }
+            }
+        } catch (error: Exception) {
+            Result(false, error = error.message ?: "读取撤销状态失败")
         }
-    } catch (error: Exception) {
-        Result(false, error = error.message ?: "读取撤销状态失败")
     }
 
     /** Native history operations use the JNI DispatchEdit short-name routes. */
