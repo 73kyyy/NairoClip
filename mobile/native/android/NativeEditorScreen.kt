@@ -406,6 +406,33 @@ private fun NativeParameterPanel(
         }
     }
     val selectedFrame = activeFrames.firstOrNull { it.timeUs == selectedFrameTimeUs }
+    // Keep slider motion local while the finger is down. Commit one engine
+    // transform command when the gesture ends instead of dispatching a command
+    // for every pointer sample (which would flood the undo history).
+    var draftTransform by remember(targetTrackIndex, targetClipId) {
+        mutableStateOf(transform)
+    }
+    var draggingParameter by remember(targetTrackIndex, targetClipId) {
+        mutableStateOf<NativeParameter?>(null)
+    }
+    LaunchedEffect(targetTrackIndex, targetClipId, transform) {
+        if (draggingParameter == null) draftTransform = transform
+    }
+    fun updateDraft(parameter: NativeParameter, value: Float) {
+        draggingParameter = parameter
+        draftTransform = when (parameter) {
+            NativeParameter.X -> draftTransform.copy(x = value)
+            NativeParameter.Y -> draftTransform.copy(y = value)
+            NativeParameter.SCALE -> draftTransform.copy(scale = value)
+            NativeParameter.ROTATION -> draftTransform.copy(rotation = value)
+        }
+    }
+    fun commitDraft() {
+        if (draggingParameter != null) {
+            draggingParameter = null
+            onTransformChanged(draftTransform)
+        }
+    }
     Column(
         modifier = modifier.background(NcColors.panel).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
@@ -415,10 +442,10 @@ private fun NativeParameterPanel(
             Spacer(Modifier.weight(1f))
             Text("关键帧 ${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
         }
-        ParameterSlider("X", transform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(x = it)) }
-        ParameterSlider("Y", transform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(y = it)) }
-        ParameterSlider("缩放", transform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%") { onTransformChanged(transform.copy(scale = it)) }
-        ParameterSlider("旋转", transform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°") { onTransformChanged(transform.copy(rotation = it)) }
+        ParameterSlider("X", draftTransform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.X, it) }, onValueChangeFinished = ::commitDraft)
+        ParameterSlider("Y", draftTransform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.Y, it) }, onValueChangeFinished = ::commitDraft)
+        ParameterSlider("缩放", draftTransform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", onValueChange = { updateDraft(NativeParameter.SCALE, it) }, onValueChangeFinished = ::commitDraft)
+        ParameterSlider("旋转", draftTransform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", onValueChange = { updateDraft(NativeParameter.ROTATION, it) }, onValueChangeFinished = ::commitDraft)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             NativeParameter.values().forEach { parameter ->
                 val selected = activeParameter == parameter
@@ -484,11 +511,19 @@ private fun easingLabel(easing: Int): String = when (easing) {
 private fun ParameterSlider(
     label: String, value: Float, low: Float, high: Float, parameter: NativeParameter,
     keyedParameters: Set<NativeParameter>, onInsertKeyframe: (NativeParameter) -> Unit,
-    suffix: String = "", onValueChange: (Float) -> Unit
+    suffix: String = "",
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(30.dp)) {
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
-        Slider(value = value.coerceIn(low, high), onValueChange = onValueChange, valueRange = low..high, modifier = Modifier.weight(1f))
+        Slider(
+            value = value.coerceIn(low, high),
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = low..high,
+            modifier = Modifier.weight(1f)
+        )
         Text("%.1f".format(value) + suffix, color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
         Text(if (parameter in keyedParameters) "◆" else "◇",
             color = if (parameter in keyedParameters) Color.White else NcColors.secondary,
