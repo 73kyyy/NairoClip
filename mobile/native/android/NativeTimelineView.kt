@@ -42,7 +42,6 @@ class NativeTimelineView(context: Context) : View(context) {
 
     var onPlayheadChanged: ((Long) -> Unit)? = null
     var onClipSelected: ((Int, Long) -> Unit)? = null
-    var onClipSelectionCleared: (() -> Unit)? = null
     var onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null
     var onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null
 
