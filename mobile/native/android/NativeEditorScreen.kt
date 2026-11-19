@@ -35,6 +35,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -576,8 +578,12 @@ private fun ParameterSlider(
     // Compose control resilient to malformed/stale host values as well.
     val safeValue = value.takeIf { it.isFinite() }?.coerceIn(low, high) ?: low
     val focusManager = LocalFocusManager.current
+    val valueFocusRequester = remember { FocusRequester() }
     var editingValue by remember(parameter, safeValue) { mutableStateOf(false) }
     var numericText by remember(parameter, safeValue) { mutableStateOf("%.1f".format(safeValue)) }
+    LaunchedEffect(editingValue) {
+        if (editingValue) valueFocusRequester.requestFocus()
+    }
 
     fun commitNumericValue() {
         val parsed = numericText.trim().toFloatOrNull()
@@ -603,6 +609,7 @@ private fun ParameterSlider(
         Box(
             modifier = Modifier.width(58.dp).clip(RoundedCornerShape(5.dp))
                 .background(if (editingValue) NcColors.lane else Color.Transparent)
+                .border(1.dp, NcColors.line, RoundedCornerShape(5.dp))
                 .clickable { editingValue = true }
                 .padding(horizontal = 3.dp, vertical = 5.dp),
             contentAlignment = Alignment.CenterEnd
@@ -618,6 +625,7 @@ private fun ParameterSlider(
                         ) numericText = candidate
                     },
                     singleLine = true,
+                    modifier = Modifier.focusRequester(valueFocusRequester),
                     textStyle = TextStyle(
                         color = NcColors.text,
                         fontSize = 10.sp,
