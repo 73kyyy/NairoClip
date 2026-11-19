@@ -9,6 +9,7 @@
 // 本文件覆盖：工程加载、Dispatcher 重建、命令分发、失败回滚、对象释放。
 #include "test_framework.h"
 
+#include <atomic>
 #include <cstring>
 #include <string>
 
@@ -33,7 +34,14 @@ std::string savedProjectText(NcEditor* editor) {
 /// apply() 内部会调用 editor_.setCorrelationId() / editor_.removeClip()。
 /// 若 dispatcher 仍指向已释放的 editor，这里就是 UAF 的触发点。
 bool dispatchTouchesEditor(NcEditor* editor) {
-    char* result = nc_apply_command(editor, "{\"type\":\"clip.remove\",\"payload\":{}}");
+    static std::atomic<std::uint64_t> nextProbeId{0};
+    const std::string commandId =
+        "s1-lifecycle-probe-" + std::to_string(nextProbeId.fetch_add(1));
+    const std::string request =
+        R"({"schemaVersion":1,"commandId":")" + commandId +
+        R"(","projectId":1,"expectedRevision":0,"commandType":"clip.remove",)"
+        R"("payload":{"sequenceId":1,"trackId":1,"clipId":1},"origin":"user"})";
+    char* result = nc_apply_command(editor, request.c_str());
     if (result == nullptr) {
         return false;
     }
