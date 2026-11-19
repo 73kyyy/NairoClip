@@ -147,7 +147,7 @@ fun NativeEditorScreen(
                         track.clips.any { it.id == selection.second && it.enabled }
                 }
             }
-            if ((activeTool == "画面" || activeTool == "调节") && selectedTarget != null) {
+            if (activeTool == "画面" && selectedTarget != null) {
                 NativeParameterPanel(
                     targetTrackIndex = selectedTarget.first,
                     targetClipId = selectedTarget.second,
