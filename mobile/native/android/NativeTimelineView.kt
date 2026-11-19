@@ -108,6 +108,7 @@ class NativeTimelineView(context: Context) : View(context) {
     private var moved = false
     private var draggingPlayhead = false
     private var draggingTimelineVertically = false
+    private var touchStartedInTimelineLane = false
     private var verticalScrollOffset = 0f
     // Once a gesture becomes multi-touch, lifting one finger must not turn the
     // remaining finger-up into a tap, seek, scrub, or one-finger pan.
@@ -293,6 +294,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 lastTouchY = event.y
                 moved = false
                 draggingTimelineVertically = false
+                touchStartedInTimelineLane = event.y >= rulerHeight
                 gestureHadMultiplePointers = false
                 // The draggable handle is in the fixed ruler, not every point
                 // along the playhead line; this keeps vertical lane scrolling usable.
@@ -312,7 +314,7 @@ class NativeTimelineView(context: Context) : View(context) {
                         if (kotlin.math.abs(dx) > touchSlop) moved = true
                         if (moved) updatePlayheadFromTouch(event.x)
                     } else if (
-                        event.y >= rulerHeight &&
+                        touchStartedInTimelineLane &&
                         !draggingTimelineVertically &&
                         kotlin.math.abs(dy) > touchSlop &&
                         kotlin.math.abs(dy) > kotlin.math.abs(dx)
@@ -366,7 +368,12 @@ class NativeTimelineView(context: Context) : View(context) {
                                 onClipSelectionCleared?.invoke()
                                 invalidate()
                             }
-                            updatePlayheadFromTouch(event.x)
+                            // Track labels and the fixed left gutter are not
+                            // part of the time ruler; tapping them must not seek
+                            // to time zero through the x-to-time clamp.
+                            if (event.x >= labelWidth) {
+                                updatePlayheadFromTouch(event.x)
+                            }
                         }
                     }
                     performClick()
