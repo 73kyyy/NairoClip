@@ -496,7 +496,7 @@ jobs:
             exit 1
           fi
 
-          CASES=$(echo "$SUMMARY" | sed -E 's/^===== ([0-9]+) cases.*/\1/')
+          CASES=$(echo "$SUMMARY" | sed -E 's/^===== 执行 ([0-9]+)\/[0-9]+ cases.*/\1/')
           FAILED=$(echo "$SUMMARY" | sed -E 's/.*\| ([0-9]+) failed.*/\1/')
           TEST_EXIT=$(cat /tmp/test_exit_code 2>/dev/null || echo 1)
           echo "用例数=$CASES 失败数=$FAILED 测试进程退出码=$TEST_EXIT"
