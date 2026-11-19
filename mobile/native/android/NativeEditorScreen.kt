@@ -382,10 +382,14 @@ private fun NativeParameterPanel(
 ) {
     var activeParameter by remember { mutableStateOf(NativeParameter.SCALE) }
     val activeFrames = keyframes[activeParameter].orEmpty()
-    var selectedFrameIndex by remember(activeParameter, activeFrames.size) {
-        mutableStateOf(if (activeFrames.isEmpty()) -1 else 0)
+    // Track the selected keyframe by its project timestamp rather than list
+    // index. Engine refreshes can reorder or replace a channel without changing
+    // its size; an index-based selection could then delete/edit a different key.
+    var selectedFrameTimeUs by remember(activeParameter) {
+        mutableStateOf(activeFrames.firstOrNull()?.timeUs)
     }
-    val selectedFrame = activeFrames.getOrNull(selectedFrameIndex)
+    val selectedFrame = activeFrames.firstOrNull { it.timeUs == selectedFrameTimeUs }
+        ?: activeFrames.firstOrNull()
     Column(
         modifier = modifier.background(NcColors.panel).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
@@ -413,7 +417,7 @@ private fun NativeParameterPanel(
                     fontSize = 9.sp,
                     modifier = Modifier.clip(RoundedCornerShape(5.dp))
                         .background(if (selected) Color(0xFF3A3D40) else Color.Transparent)
-                        .clickable { activeParameter = parameter; selectedFrameIndex = 0 }
+                        .clickable { activeParameter = parameter }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
@@ -427,14 +431,14 @@ private fun NativeParameterPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 activeFrames.forEachIndexed { index, frame ->
-                    val selected = index == selectedFrameIndex
+                    val selected = frame.timeUs == selectedFrame?.timeUs
                     Text(
                         text = "%.2fs · %.2f".format(frame.timeUs / 1_000_000.0, frame.value),
                         color = if (selected) NcColors.text else NcColors.secondary,
                         fontSize = 9.sp,
                         modifier = Modifier.clip(RoundedCornerShape(5.dp))
                             .background(if (selected) Color(0xFF414549) else NcColors.lane)
-                            .clickable { selectedFrameIndex = index }
+                            .clickable { selectedFrameTimeUs = frame.timeUs }
                             .padding(horizontal = 7.dp, vertical = 5.dp)
                     )
                 }
