@@ -62,8 +62,8 @@ fun NativeEditorScreen(
     onTrackMuteChanged: (Int, Boolean) -> Unit = { _, _ -> },
     transform: NativeTransform = NativeTransform(),
     keyedParameters: Set<NativeParameter> = emptySet(),
-    onTransformChanged: (NativeTransform) -> Unit = {},
-    onInsertKeyframe: (NativeParameter) -> Unit = {},
+    onTransformChanged: (Int, Long, NativeTransform) -> Unit = { _, _, _ -> },
+    onInsertKeyframe: (Int, Long, NativeParameter) -> Unit = { _, _, _ -> },
     onOpenLegacy: () -> Unit
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
@@ -114,12 +114,22 @@ fun NativeEditorScreen(
                 }
             }
 
-            if ((activeTool == "画面" || activeTool == "调节") && selectedClip != null) {
+            val selectedTarget = selectedClip?.takeIf { selection ->
+                timelineTracks.any { track ->
+                    (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
+                        track.clips.any { it.id == selection.second }
+                }
+            }
+            if ((activeTool == "画面" || activeTool == "调节") && selectedTarget != null) {
                 NativeParameterPanel(
                     transform = transform,
                     keyedParameters = keyedParameters,
-                    onTransformChanged = onTransformChanged,
-                    onInsertKeyframe = onInsertKeyframe,
+                    onTransformChanged = { value ->
+                        onTransformChanged(selectedTarget.first, selectedTarget.second, value)
+                    },
+                    onInsertKeyframe = { parameter ->
+                        onInsertKeyframe(selectedTarget.first, selectedTarget.second, parameter)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
