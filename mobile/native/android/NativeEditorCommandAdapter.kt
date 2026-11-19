@@ -43,15 +43,25 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             val x = payload.getDouble("pos_x")
             val y = payload.getDouble("pos_y")
             val rotation = payload.getDouble("rotation")
-            require(scale.isFinite() && scale > 0.0)
+            val scalePercent = scale * 100.0
+            // The engine reports Double values, while Compose sliders and the
+            // native transform model use Float. Finite Doubles can still
+            // overflow to Float infinity; reject them before exposing UI state.
+            require(scale.isFinite() && scale > 0.0 && scalePercent.isFinite())
             require(x.isFinite() && y.isFinite() && rotation.isFinite())
+            require(
+                scalePercent.toFloat().isFinite() &&
+                    x.toFloat().isFinite() &&
+                    y.toFloat().isFinite() &&
+                    rotation.toFloat().isFinite()
+            )
             Result(
                 true,
                 TransformState(
                     transform = NativeTransform(
                         x = x.toFloat(),
                         y = y.toFloat(),
-                        scale = (scale * 100.0).toFloat(),
+                        scale = scalePercent.toFloat(),
                         rotation = rotation.toFloat()
                     ),
                     enabled = payload.optInt("enabled", 1) != 0,
