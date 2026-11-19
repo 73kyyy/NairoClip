@@ -73,7 +73,8 @@ data class NativeTimelineSnapshot(
                                 .ifBlank { "轨道 $trackId" },
                             clips = clips,
                             visible = sourceTrack.optInt("hidden", 0) == 0,
-                            muted = sourceTrack.optInt("muted", 0) != 0
+                            muted = sourceTrack.optInt("muted", 0) != 0,
+                            engineIndex = trackIndex
                         )
                     }
                 }
