@@ -288,7 +288,7 @@ jobs:
           rc=$?
           echo "isolated_exit=$rc"
           tail -30 /tmp/audio_denoise_isolated.txt
-          echo "::error title=AUDIO_DENOISE_ISOLATED::exit=$rc $(grep -E '^\\[FAIL\\]' /tmp/audio_denoise_isolated.txt | tr '\\n' '~' | cut -c1-1200)"
+          echo "::error title=AUDIO_DENOISE_ISOLATED::exit=$rc $(grep -E '^\[FAIL\]' /tmp/audio_denoise_isolated.txt | tr '\n' '~' | cut -c1-1200)"
           exit 0
 
       - name: 运行全量测试
