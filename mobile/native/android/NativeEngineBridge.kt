@@ -148,6 +148,14 @@ class NativeEngineBridge(
         }}
 
     /**
+     * Executes a multi-call editor read as one serialized snapshot. The monitor
+     * is reentrant, so bridge calls made inside the block keep their normal
+     * validation while no competing JNI mutation can interleave between them.
+     */
+    internal fun <T> withEditorStateLock(block: () -> T): T =
+        synchronized(stateLock) { block() }
+
+    /**
      * 专用原生变换读取入口。仅开放 JNI 已实现的 transform_get，
      * 不放宽 call() 的 nc_* 函数名前缀限制。
      */
