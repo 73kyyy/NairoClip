@@ -48,7 +48,7 @@ class NativeTimelineView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rulerHeight = 27f * density
-    private val labelWidth = 94f * density
+    private val labelWidth = 120f * density
     private val rowHeight = 47f * density
     private val rowGap = 4f * density
 
@@ -272,8 +272,8 @@ class NativeTimelineView(context: Context) : View(context) {
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
             canvas.drawText(track.name.take(5), 7f * density, top + rowHeight * 0.58f, labelPaint)
             val controlPaint = if (track.visible) labelPaint else tickPaint
-            canvas.drawText(if (track.visible) "◉" else "○", 48f * density, top + rowHeight * 0.58f, controlPaint)
-            canvas.drawText(if (track.muted) "×" else "♪", 70f * density, top + rowHeight * 0.58f, if (track.muted) tickPaint else labelPaint)
+            canvas.drawText(if (track.visible) "◉" else "○", 54f * density, top + rowHeight * 0.58f, controlPaint)
+            canvas.drawText(if (track.muted) "×" else "♪", 98f * density, top + rowHeight * 0.58f, if (track.muted) tickPaint else labelPaint)
 
             if (!track.visible) return@forEachIndexed
             track.clips.forEach clipLoop@{ clip ->
@@ -527,7 +527,7 @@ class NativeTimelineView(context: Context) : View(context) {
         if (row !in tracks.indices || withinRow < 0f || withinRow >= rowHeight) return false
         val track = tracks[row]
         when {
-            x in (40f * density)..(62f * density) -> {
+            x in (34f * density)..(74f * density) -> {
                 // The engine snapshot is authoritative. Do not permanently
                 // mutate the rendered track here: a rejected command or a
                 // delayed host refresh would otherwise leave a false eye state.
@@ -536,7 +536,7 @@ class NativeTimelineView(context: Context) : View(context) {
                     !track.visible
                 )
             }
-            x in (64f * density)..(86f * density) -> {
+            x in (78f * density)..(118f * density) -> {
                 onTrackMuteChanged?.invoke(
                     track.engineIndex.takeIf { it >= 0 } ?: row,
                     !track.muted
