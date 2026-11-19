@@ -136,6 +136,11 @@ class NativeTimelineView(context: Context) : View(context) {
         currentPlayheadUs: Long
     ) {
         tracks = newTracks.map { it.copy(clips = it.clips.toList()) }
+        if (selectedClip != null && tracks.none { track ->
+                track.id == selectedClip!!.first && track.clips.any { it.id == selectedClip!!.second }
+            }) {
+            selectedClip = null
+        }
         durationUs = totalDurationUs.coerceAtLeast(1L)
         playheadUs = currentPlayheadUs.coerceIn(0L, durationUs)
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
