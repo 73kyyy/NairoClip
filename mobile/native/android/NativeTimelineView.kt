@@ -105,6 +105,8 @@ class NativeTimelineView(context: Context) : View(context) {
     private var scrollOffset = 0f
     private var lastTouchX = 0f
     private var moved = false
+    private var draggingPlayhead = false
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private var selectedClip: Pair<Long, Long>? = null
 
     private val scaleDetector = ScaleGestureDetector(
@@ -164,11 +166,7 @@ class NativeTimelineView(context: Context) : View(context) {
 
         // Keep timeline-time arithmetic in Double: Float loses microsecond
         // precision quickly on long projects and can visibly drift the playhead.
-        val playheadX = (
-            labelWidth.toDouble() +
-                (playheadUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
-                scrollOffset.toDouble()
-            ).toFloat().coerceIn(labelWidth, width.toFloat())
+        val playheadX = playheadXPosition()
         drawRuler(canvas, playheadX)
         drawTracks(canvas)
 
@@ -264,36 +262,49 @@ class NativeTimelineView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 lastTouchX = event.x
                 moved = false
+                draggingPlayhead = kotlin.math.abs(event.x - playheadXPosition()) <= 18f * density
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (!scaleDetector.isInProgress && event.pointerCount == 1) {
                     val dx = event.x - lastTouchX
-                    if (kotlin.math.abs(dx) > 1.5f * density) moved = true
-                    scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
+                    if (draggingPlayhead) {
+                        if (kotlin.math.abs(dx) > touchSlop) moved = true
+                        if (moved) updatePlayheadFromTouch(event.x)
+                    } else if (kotlin.math.abs(dx) > touchSlop) {
+                        moved = true
+                        scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
+                        invalidate()
+                    }
                     lastTouchX = event.x
-                    invalidate()
                 }
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 if (!moved && !scaleDetector.isInProgress) {
-                    val clipHandled = handleClipTap(event.x, event.y)
-                    if (!clipHandled && !handleTrackControlTap(event.x, event.y)) {
-                        if (isTimelineLaneTap(event.x, event.y)) {
-                            selectedClip = null
-                            onClipSelectionCleared?.invoke()
-                            invalidate()
-                        }
+                    if (draggingPlayhead) {
                         updatePlayheadFromTouch(event.x)
+                    } else {
+                        val clipHandled = handleClipTap(event.x, event.y)
+                        if (!clipHandled && !handleTrackControlTap(event.x, event.y)) {
+                            if (isTimelineLaneTap(event.x, event.y)) {
+                                selectedClip = null
+                                onClipSelectionCleared?.invoke()
+                                invalidate()
+                            }
+                            updatePlayheadFromTouch(event.x)
+                        }
                     }
                     performClick()
                 }
+                draggingPlayhead = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
+                draggingPlayhead = false
+                moved = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
@@ -353,6 +364,12 @@ class NativeTimelineView(context: Context) : View(context) {
         invalidate()
         return true
     }
+
+    private fun playheadXPosition(): Float = (
+        labelWidth.toDouble() +
+            (playheadUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
+            scrollOffset.toDouble()
+        ).toFloat().coerceIn(labelWidth, width.toFloat())
 
     private fun maxScrollOffset(): Float {
         val contentWidth = durationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
