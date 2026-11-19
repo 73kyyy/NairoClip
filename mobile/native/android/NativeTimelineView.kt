@@ -286,7 +286,20 @@ class NativeTimelineView(context: Context) : View(context) {
                     canvas.drawRoundRect(rect, 3f * density, 3f * density, selectedClipPaint)
                 }
                 if (rect.width() > 34f * density) {
-                    canvas.drawText(clip.label, rect.left + 5f * density, rect.centerY() + 3f * density, clipTextPaint)
+                    canvas.save()
+                    canvas.clipRect(
+                        rect.left + 5f * density,
+                        rect.top,
+                        (rect.right - 3f * density).coerceAtLeast(rect.left),
+                        rect.bottom
+                    )
+                    canvas.drawText(
+                        clip.label,
+                        rect.left + 5f * density,
+                        rect.centerY() + 3f * density,
+                        clipTextPaint
+                    )
+                    canvas.restore()
                 }
             }
         }
