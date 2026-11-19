@@ -272,9 +272,10 @@ class NativeTimelineView(context: Context) : View(context) {
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
             val trackLabel = if (track.name.length > 4) "${track.name.take(3)}…" else track.name
             canvas.drawText(trackLabel, 7f * density, top + rowHeight * 0.58f, labelPaint)
-            val controlPaint = if (track.visible) labelPaint else tickPaint
-            canvas.drawText(if (track.visible) "◉" else "○", 54f * density, top + rowHeight * 0.58f, controlPaint)
-            canvas.drawText(if (track.muted) "×" else "♪", 98f * density, top + rowHeight * 0.58f, if (track.muted) tickPaint else labelPaint)
+            val visibilityPaint = if (onTrackVisibilityChanged == null || !track.visible) tickPaint else labelPaint
+            val mutePaint = if (onTrackMuteChanged == null || track.muted) tickPaint else labelPaint
+            canvas.drawText(if (track.visible) "◉" else "○", 54f * density, top + rowHeight * 0.58f, visibilityPaint)
+            canvas.drawText(if (track.muted) "×" else "♪", 98f * density, top + rowHeight * 0.58f, mutePaint)
 
             if (!track.visible) return@forEachIndexed
             track.clips.forEach clipLoop@{ clip ->
@@ -529,19 +530,14 @@ class NativeTimelineView(context: Context) : View(context) {
         val track = tracks[row]
         when {
             x in (34f * density)..(74f * density) -> {
-                // The engine snapshot is authoritative. Do not permanently
-                // mutate the rendered track here: a rejected command or a
-                // delayed host refresh would otherwise leave a false eye state.
-                onTrackVisibilityChanged?.invoke(
-                    track.engineIndex.takeIf { it >= 0 } ?: row,
-                    !track.visible
-                )
+                // Missing host wiring is an unavailable control, not a successful no-op.
+                val callback = onTrackVisibilityChanged ?: return false
+                // The engine snapshot is authoritative; only a refreshed snapshot changes the icon.
+                callback(track.engineIndex.takeIf { it >= 0 } ?: row, !track.visible)
             }
             x in (78f * density)..(118f * density) -> {
-                onTrackMuteChanged?.invoke(
-                    track.engineIndex.takeIf { it >= 0 } ?: row,
-                    !track.muted
-                )
+                val callback = onTrackMuteChanged ?: return false
+                callback(track.engineIndex.takeIf { it >= 0 } ?: row, !track.muted)
             }
             else -> return false
         }
