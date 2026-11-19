@@ -106,21 +106,40 @@ class NativeTimelineView(context: Context) : View(context) {
     private var lastTouchX = 0f
     private var moved = false
     private var draggingPlayhead = false
+    // Once a gesture becomes multi-touch, lifting one finger must not turn the
+    // remaining finger-up into a tap, seek, scrub, or one-finger pan.
+    private var gestureHadMultiplePointers = false
     private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private var selectedClip: Pair<Long, Long>? = null
 
     private val scaleDetector = ScaleGestureDetector(
         context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                gestureHadMultiplePointers = true
+                draggingPlayhead = false
+                moved = true
+                return true
+            }
+
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 val old = pixelsPerSecond
-                pixelsPerSecond = (pixelsPerSecond * detector.scaleFactor).coerceIn(
+                val factor = detector.scaleFactor
+                if (!old.isFinite() || old <= 0f || !factor.isFinite() || factor <= 0f) {
+                    return false
+                }
+                val focusOffset = detector.focusX.toDouble() - labelWidth.toDouble()
+                val focusTimeSeconds = (
+                    scrollOffset.toDouble() + focusOffset
+                    ).coerceAtLeast(0.0) / old.toDouble()
+                pixelsPerSecond = (old * factor).coerceIn(
                     12f * density,
                     180f * density
                 )
-                val focusTime = (scrollOffset + detector.focusX - labelWidth).coerceAtLeast(0f) / old
-                scrollOffset = (focusTime * pixelsPerSecond - (detector.focusX - labelWidth))
-                    .coerceIn(0f, maxScrollOffset())
+                // Preserve the timeline time under the pinch focus, subject to
+                // the legal scroll range at the new zoom level.
+                val requestedOffset = focusTimeSeconds * pixelsPerSecond.toDouble() - focusOffset
+                scrollOffset = requestedOffset.coerceIn(0.0, maxScrollOffset().toDouble()).toFloat()
                 invalidate()
                 return true
             }
@@ -262,12 +281,16 @@ class NativeTimelineView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 lastTouchX = event.x
                 moved = false
+                gestureHadMultiplePointers = false
                 draggingPlayhead = kotlin.math.abs(event.x - playheadXPosition()) <= 18f * density
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (!scaleDetector.isInProgress && event.pointerCount == 1) {
+                if (!scaleDetector.isInProgress &&
+                    !gestureHadMultiplePointers &&
+                    event.pointerCount == 1
+                ) {
                     val dx = event.x - lastTouchX
                     if (draggingPlayhead) {
                         if (kotlin.math.abs(dx) > touchSlop) moved = true
@@ -281,8 +304,23 @@ class NativeTimelineView(context: Context) : View(context) {
                 }
                 return true
             }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // Explicitly cancel a pending playhead drag as soon as a second
+                // pointer joins; ScaleGestureDetector may not begin scaling yet.
+                gestureHadMultiplePointers = true
+                draggingPlayhead = false
+                moved = true
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // Keep the gesture classified as a pinch until the final UP.
+                gestureHadMultiplePointers = true
+                draggingPlayhead = false
+                moved = true
+                return true
+            }
             MotionEvent.ACTION_UP -> {
-                if (!moved && !scaleDetector.isInProgress) {
+                if (!moved && !gestureHadMultiplePointers && !scaleDetector.isInProgress) {
                     if (draggingPlayhead) {
                         updatePlayheadFromTouch(event.x)
                     } else {
@@ -299,12 +337,14 @@ class NativeTimelineView(context: Context) : View(context) {
                     performClick()
                 }
                 draggingPlayhead = false
+                gestureHadMultiplePointers = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
                 draggingPlayhead = false
                 moved = false
+                gestureHadMultiplePointers = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
@@ -352,6 +392,10 @@ class NativeTimelineView(context: Context) : View(context) {
             x in (40f * density)..(62f * density) -> {
                 val updated = track.copy(visible = !track.visible)
                 tracks = tracks.toMutableList().also { it[row] = updated }
+                if (!updated.visible && selectedClip?.first == track.id) {
+                    selectedClip = null
+                    onClipSelectionCleared?.invoke()
+                }
                 onTrackVisibilityChanged?.invoke(updated.engineIndex.takeIf { it >= 0 } ?: row, updated.visible)
             }
             x in (64f * density)..(86f * density) -> {
