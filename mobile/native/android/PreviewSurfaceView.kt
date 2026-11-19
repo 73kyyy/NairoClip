@@ -116,7 +116,13 @@ class PreviewSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder
             layout(left, top, left, top)
             return
         }
-        layout(left, top, left + width, top + height)
+        // View.layout takes Int coordinates; saturate the far edge rather than
+        // allowing hostile/stale bridge dimensions to wrap into a negative size.
+        val right = (left.toLong() + width.toLong())
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
+        val bottom = (top.toLong() + height.toLong())
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
+        layout(left, top, right, bottom)
     }
 
     /** Current surface is valid and can be passed to the native renderer. */
