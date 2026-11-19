@@ -125,6 +125,7 @@ class NativeTimelineView(context: Context) : View(context) {
         tracks = newTracks
         durationUs = totalDurationUs.coerceAtLeast(1L)
         playheadUs = currentPlayheadUs.coerceIn(0L, durationUs)
+        scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
         invalidate()
     }
 
@@ -138,13 +139,14 @@ class NativeTimelineView(context: Context) : View(context) {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
 
         val contentWidth = (width - labelWidth).coerceAtLeast(1f)
-        val centerX = labelWidth + contentWidth * 0.46f
-        drawRuler(canvas, centerX)
+        val playheadX = (labelWidth + playheadUs / 1_000_000f * pixelsPerSecond - scrollOffset)
+            .coerceIn(labelWidth, width.toFloat())
+        drawRuler(canvas, playheadX)
         drawTracks(canvas)
 
-        canvas.drawLine(centerX, 0f, centerX, height.toFloat(), playheadPaint)
-        canvas.drawCircle(centerX, 4f * density, 3f * density, playheadCapPaint)
-        drawTimeReadout(canvas, centerX)
+        canvas.drawLine(playheadX, 0f, playheadX, height.toFloat(), playheadPaint)
+        canvas.drawCircle(playheadX, 4f * density, 3f * density, playheadCapPaint)
+        drawTimeReadout(canvas, playheadX)
     }
 
     private fun drawRuler(canvas: Canvas, playheadX: Float) {
@@ -173,10 +175,11 @@ class NativeTimelineView(context: Context) : View(context) {
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
             canvas.drawText(track.name.take(5), 8f * density, top + rowHeight * 0.58f, labelPaint)
 
-            track.clips.forEach { clip ->
+            track.clips.forEach clipLoop@{ clip ->
+                if (clip.startUs < 0L || clip.durationUs <= 0L) return@clipLoop
                 val left = labelWidth + clip.startUs / 1_000_000f * pixelsPerSecond - scrollOffset
                 val right = left + max(clip.durationUs / 1_000_000f * pixelsPerSecond, 5f * density)
-                if (right < labelWidth || left > width) return@forEach
+                if (right < labelWidth || left > width) return@clipLoop
                 val rect = RectF(
                     max(left, labelWidth),
                     top + 5f * density,
@@ -215,7 +218,6 @@ class NativeTimelineView(context: Context) : View(context) {
                     if (kotlin.math.abs(dx) > 1.5f * density) moved = true
                     scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
                     lastTouchX = event.x
-                    updatePlayheadFromCenter()
                     invalidate()
                 }
                 return true
@@ -245,13 +247,6 @@ class NativeTimelineView(context: Context) : View(context) {
         val contentSeconds = durationUs / 1_000_000f
         val viewport = (width - labelWidth).coerceAtLeast(1f)
         return (contentSeconds * pixelsPerSecond - viewport).coerceAtLeast(0f)
-    }
-
-    private fun updatePlayheadFromCenter() {
-        val centerX = labelWidth + (width - labelWidth).coerceAtLeast(1f) * 0.46f
-        playheadUs = (((scrollOffset + centerX - labelWidth) / pixelsPerSecond) * 1_000_000L)
-            .toLong().coerceIn(0L, durationUs)
-        onPlayheadChanged?.invoke(playheadUs)
     }
 
     private fun updatePlayheadFromTouch(x: Float) {
