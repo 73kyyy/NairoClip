@@ -15,6 +15,24 @@ data class NativeTimelineSnapshot(
     val tracks: List<NativeTimelineTrack>
 ) {
     companion object {
+        /**
+         * BuildState emits integral JSON numbers for IDs, timestamps and flags.
+         * JSONObject.optLong/optInt also coerce numeric strings, which can hide
+         * a broken bridge contract. Accept only actual integral JSON numbers.
+         */
+        private fun JSONObject.longField(name: String): Long? {
+            val raw = opt(name) as? Number ?: return null
+            val value = raw.toDouble()
+            if (!value.isFinite() || value % 1.0 != 0.0) return null
+            if (raw is Long || raw is Int || raw is Short || raw is Byte) {
+                return raw.toLong()
+            }
+            if (value < Long.MIN_VALUE.toDouble() || value >= 9.223372036854776E18) {
+                return null
+            }
+            return value.toLong()
+        }
+
         fun fromEngineState(stateJson: String): NativeTimelineSnapshot {
             val empty = NativeTimelineSnapshot("未命名工程", 1L, emptyList())
             return try {
@@ -22,7 +40,7 @@ data class NativeTimelineSnapshot(
                 if (envelope.optBoolean("ok", true).not()) return empty
                 val state = envelope.optJSONObject("result") ?: envelope
                 val project = state.optJSONObject("project") ?: JSONObject()
-                val duration = project.optLong("duration_us", 1L).coerceAtLeast(1L)
+                val duration = project.longField("duration_us")?.takeIf { it > 0L } ?: 1L
                 val projectName = project.optString("name", "未命名工程")
                     .ifBlank { "未命名工程" }
 
@@ -31,7 +49,7 @@ data class NativeTimelineSnapshot(
                 if (assets != null) {
                     for (index in 0 until assets.length()) {
                         val asset = assets.optJSONObject(index) ?: continue
-                        val id = asset.optLong("id", 0L)
+                        val id = asset.longField("id") ?: 0L
                         if (id > 0L) {
                             assetNames[id] = asset.optString("name", "").ifBlank { "素材 $id" }
                         }
@@ -43,7 +61,7 @@ data class NativeTimelineSnapshot(
                 if (sourceTracks != null) {
                     for (trackIndex in 0 until sourceTracks.length()) {
                         val sourceTrack = sourceTracks.optJSONObject(trackIndex) ?: continue
-                        val trackId = sourceTrack.optLong("id", 0L)
+                        val trackId = sourceTrack.longField("id") ?: 0L
                         if (trackId <= 0L) continue
 
                         val clips = ArrayList<NativeTimelineClip>()
@@ -51,12 +69,12 @@ data class NativeTimelineSnapshot(
                         if (sourceClips != null) {
                             for (clipIndex in 0 until sourceClips.length()) {
                                 val sourceClip = sourceClips.optJSONObject(clipIndex) ?: continue
-                                val clipId = sourceClip.optLong("id", 0L)
-                                val assetId = sourceClip.optLong("asset_id", 0L)
-                                val startUs = sourceClip.optLong("start_us", -1L)
-                                val clipDurationUs = sourceClip.optLong("duration_us", 0L)
+                                val clipId = sourceClip.longField("id") ?: 0L
+                                val assetId = sourceClip.longField("asset_id") ?: 0L
+                                val startUs = sourceClip.longField("start_us") ?: -1L
+                                val clipDurationUs = sourceClip.longField("duration_us") ?: 0L
                                 if (clipId <= 0L || startUs < 0L || clipDurationUs <= 0L) continue
-                                val enabled = sourceClip.optInt("enabled", 1) != 0
+                                val enabled = sourceClip.longField("enabled")?.let { it != 0L } ?: true
                                 clips += NativeTimelineClip(
                                     id = clipId,
                                     startUs = startUs,
@@ -72,8 +90,8 @@ data class NativeTimelineSnapshot(
                             name = sourceTrack.optString("name", "轨道 $trackId")
                                 .ifBlank { "轨道 $trackId" },
                             clips = clips,
-                            visible = sourceTrack.optInt("hidden", 0) == 0,
-                            muted = sourceTrack.optInt("muted", 0) != 0,
+                            visible = sourceTrack.longField("hidden")?.let { it == 0L } ?: true,
+                            muted = sourceTrack.longField("muted")?.let { it != 0L } ?: false,
                             engineIndex = trackIndex
                         )
                     }
