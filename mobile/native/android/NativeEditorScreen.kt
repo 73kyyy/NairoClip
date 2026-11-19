@@ -68,6 +68,8 @@ fun NativeEditorScreen(
     onInsertKeyframe: (Int, Long, NativeParameter) -> Unit = { _, _, _ -> },
     onRemoveKeyframe: (Int, Long, NativeParameter, Long) -> Unit = { _, _, _, _ -> },
     onSetKeyframeEasing: (Int, Long, NativeParameter, Long, Int, Double, Double, Double, Double) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    canUndo: Boolean = false,
+    canRedo: Boolean = false,
     onUndo: () -> Unit = {},
     onRedo: () -> Unit = {},
     onOpenLegacy: () -> Unit
@@ -100,6 +102,8 @@ fun NativeEditorScreen(
             )
 
             QuickActionStrip(
+                canUndo = canUndo,
+                canRedo = canRedo,
                 onUndo = onUndo,
                 onRedo = onRedo,
                 onOpenLegacy = onOpenLegacy
@@ -301,6 +305,8 @@ private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
 
 @Composable
 private fun QuickActionStrip(
+    canUndo: Boolean,
+    canRedo: Boolean,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onOpenLegacy: () -> Unit
@@ -323,16 +329,27 @@ private fun QuickActionStrip(
                     .clip(CircleShape)
                     .background(NcColors.panel)
                     .border(1.dp, NcColors.line, CircleShape)
-                    .clickable(onClick = when (label) {
-                        "↶" -> onUndo
-                        "↷" -> onRedo
-                        else -> onOpenLegacy
-                    }),
+                    .clickable(
+                        enabled = when (label) {
+                            "↶" -> canUndo
+                            "↷" -> canRedo
+                            else -> true
+                        },
+                        onClick = when (label) {
+                            "↶" -> onUndo
+                            "↷" -> onRedo
+                            else -> onOpenLegacy
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = label,
-                    color = NcColors.text,
+                    color = when (label) {
+                        "↶" -> if (canUndo) NcColors.text else NcColors.muted
+                        "↷" -> if (canRedo) NcColors.text else NcColors.muted
+                        else -> NcColors.text
+                    },
                     fontSize = if (label == "渲染") 9.sp else 14.sp,
                     fontWeight = FontWeight.Medium
                 )
