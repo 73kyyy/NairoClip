@@ -182,6 +182,10 @@ fun NativeEditorScreen(
                 onToolSelected = { tool ->
                     if (expandedTool == tool) {
                         expandedTool = null
+                        // Collapsing the active level-2 row also closes its
+                        // parameter context; do not leave a hidden tool's
+                        // controls occupying the native editor layout.
+                        activeSubTool = null
                     } else {
                         expandedTool = tool
                         activeTool = tool
