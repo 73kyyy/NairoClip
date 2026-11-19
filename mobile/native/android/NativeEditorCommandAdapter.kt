@@ -201,6 +201,14 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                     require(frame.easing in 0..5)
                     require(frame.c1x.isFinite() && frame.c1y.isFinite())
                     require(frame.c2x.isFinite() && frame.c2y.isFinite())
+                    // The curve preview is drawn by Compose Canvas using
+                    // Float coordinates; reject finite Doubles that overflow.
+                    require(
+                        frame.c1x.toFloat().isFinite() &&
+                            frame.c1y.toFloat().isFinite() &&
+                            frame.c2x.toFloat().isFinite() &&
+                            frame.c2y.toFloat().isFinite()
+                    )
                 }
             }
             if (!result.ok) return Result(false, error = result.error)
@@ -234,7 +242,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         c2y: Double = 1.0
     ): Result<Unit> {
         if (timeUs < 0L || easing !in 0..5 ||
-            !c1x.isFinite() || !c1y.isFinite() || !c2x.isFinite() || !c2y.isFinite()
+            !c1x.isFinite() || !c1y.isFinite() || !c2x.isFinite() || !c2y.isFinite() ||
+            !c1x.toFloat().isFinite() || !c1y.toFloat().isFinite() ||
+            !c2x.toFloat().isFinite() || !c2y.toFloat().isFinite()
         ) {
             return Result(false, error = "关键帧曲线参数非法")
         }
