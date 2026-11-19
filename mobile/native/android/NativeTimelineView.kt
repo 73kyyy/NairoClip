@@ -99,9 +99,11 @@ class NativeTimelineView(context: Context) : View(context) {
         NativeTimelineTrack(2L, "A1"),
         NativeTimelineTrack(3L, "T1")
     )
-    // The screen supplies immutable project snapshots. Retain their identity
-    // so unrelated Compose recompositions do not copy every track/clip again.
-    private var sourceTracks: List<NativeTimelineTrack>? = null
+    // Keep a detached source snapshot rather than the caller's list identity.
+    // Some hosts reuse and mutate a list in place; identity-only invalidation
+    // would then leave stale clips on screen. This copy is separate from
+    // [tracks], which may be optimistically updated by track-control gestures.
+    private var sourceTracksSnapshot: List<NativeTimelineTrack>? = null
     private var durationUs: Long = 30_000_000L
     private var playheadUs: Long = 0L
     private var pixelsPerSecond = 42f * density
@@ -166,9 +168,10 @@ class NativeTimelineView(context: Context) : View(context) {
         currentPlayheadUs: Long
     ) {
         var tracksChanged = false
-        if (sourceTracks !== newTracks) {
-            sourceTracks = newTracks
-            tracks = newTracks.map { it.copy(clips = it.clips.toList()) }
+        if (sourceTracksSnapshot != newTracks) {
+            val detachedTracks = newTracks.map { it.copy(clips = it.clips.toList()) }
+            sourceTracksSnapshot = detachedTracks
+            tracks = detachedTracks
             tracksChanged = true
             if (selectedClip != null && tracks.none { track ->
                     track.id == selectedClip!!.first &&
