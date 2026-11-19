@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +72,14 @@ fun NativeEditorScreen(
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
+    LaunchedEffect(timelineTracks, selectedClip) {
+        val selection = selectedClip ?: return@LaunchedEffect
+        val stillExists = timelineTracks.any { track ->
+            (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
+                track.clips.any { it.id == selection.second }
+        }
+        if (!stillExists) selectedClip = null
+    }
 
     MaterialTheme {
         Column(
