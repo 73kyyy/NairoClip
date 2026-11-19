@@ -155,6 +155,23 @@ class NativeEngineBridge(
     internal fun <T> withEditorStateLock(block: () -> T): T =
         synchronized(stateLock) { block() }
 
+    /** Uses the exact short operation names implemented by DispatchEdit. */
+    fun editorUndo(): String = synchronized(stateLock) {
+        try {
+            nativeCall(ensure(), "undo", "{}")
+        } catch (error: Throwable) {
+            err("撤销失败：${error.message}")
+        }
+    }
+
+    fun editorRedo(): String = synchronized(stateLock) {
+        try {
+            nativeCall(ensure(), "redo", "{}")
+        } catch (error: Throwable) {
+            err("重做失败：${error.message}")
+        }
+    }
+
     /**
      * 专用原生变换读取入口。仅开放 JNI 已实现的 transform_get，
      * 不放宽 call() 的 nc_* 函数名前缀限制。
