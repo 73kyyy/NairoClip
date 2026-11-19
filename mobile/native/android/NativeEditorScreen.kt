@@ -339,7 +339,7 @@ private fun QuickActionStrip(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(42.dp)
+            .height(50.dp)
             .background(NcColors.stage)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 5.dp),
@@ -349,7 +349,7 @@ private fun QuickActionStrip(
         actions.forEachIndexed { index, label ->
             Box(
                 modifier = Modifier
-                    .size(if (index == 4) 36.dp else 32.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
                     .background(NcColors.panel)
                     .border(1.dp, NcColors.line, CircleShape)
@@ -776,16 +776,16 @@ private fun TransportBar(onAction: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(52.dp)
             .background(NcColors.timeline),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         TransportButton("✂", onAction)
-        Spacer(Modifier.width(38.dp))
+        Spacer(Modifier.width(28.dp))
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(44.dp)
                 .clip(CircleShape)
                 .background(Color(0xFF292C2E))
                 .clickable(onClick = onAction),
@@ -802,7 +802,7 @@ private fun TransportBar(onAction: () -> Unit) {
 private fun TransportButton(label: String, onAction: () -> Unit, tint: Color = NcColors.text) {
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(44.dp)
             .clip(CircleShape)
             .clickable(onClick = onAction),
         contentAlignment = Alignment.Center
