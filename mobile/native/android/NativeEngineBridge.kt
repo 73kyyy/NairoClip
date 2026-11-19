@@ -148,6 +148,61 @@ class NativeEngineBridge(
         }}
 
     /**
+     * 专用原生变换读取入口。仅开放 JNI 已实现的 transform_get，
+     * 不放宽 call() 的 nc_* 函数名前缀限制。
+     */
+    fun editorTransformGet(trackIndex: Int, clipId: Long): String =
+        synchronized(stateLock) {
+            if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
+            try {
+                nativeCall(
+                    ensure(),
+                    "transform_get",
+                    JSONObject().put("track_index", trackIndex).put("clip_id", clipId).toString()
+                )
+            } catch (error: Throwable) {
+                err("读取片段变换失败：${error.message}")
+            }
+        }
+
+    /**
+     * 专用原生变换写入入口。仅开放 JNI 已实现的 transform_set，
+     * 所有数值在进入 C ABI 前进行有限值和范围校验。
+     */
+    fun editorTransformSet(
+        trackIndex: Int,
+        clipId: Long,
+        transform: NativeTransform,
+        enabled: Boolean = true,
+        anchor: Int = 4
+    ): String = synchronized(stateLock) {
+        if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
+        val scale = transform.scale / 100.0f
+        if (!scale.isFinite() || scale <= 0f ||
+            !transform.x.isFinite() || !transform.y.isFinite() ||
+            !transform.rotation.isFinite() || anchor !in 0..8
+        ) return@synchronized err("变换参数超出有效范围")
+        try {
+            nativeCall(
+                ensure(),
+                "transform_set",
+                JSONObject()
+                    .put("track_index", trackIndex)
+                    .put("clip_id", clipId)
+                    .put("enabled", if (enabled) 1 else 0)
+                    .put("scale", scale.toDouble())
+                    .put("pos_x", transform.x.toDouble())
+                    .put("pos_y", transform.y.toDouble())
+                    .put("rotation", transform.rotation.toDouble())
+                    .put("anchor", anchor)
+                    .toString()
+            )
+        } catch (error: Throwable) {
+            err("写入片段变换失败：${error.message}")
+        }
+    }
+
+    /**
      * 契约层统一命令入口（P1/P2）。
      * 入参是 CommandRequest 的 JSON（schemaVersion/commandId/projectId/
      * expectedRevision/commandType/payload/origin/transactionId），
