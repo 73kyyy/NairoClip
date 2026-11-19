@@ -33,8 +33,9 @@ bool dispatchTouchesEditor(NcEditor* ed) {
         R"("payload":{"sequenceId":1,"trackId":1,"clipId":1},"origin":"user"})";
     char* result = nc_apply_command(ed, request.c_str());
     if (result == nullptr) return false;
+    const bool dispatched = std::string(result).find(commandId) != std::string::npos;
     nc_free_string(result);
-    return true;
+    return dispatched;
 }
 
 /// 双线程闸门，仅用于让两个独立句柄的操作同时起跑。
