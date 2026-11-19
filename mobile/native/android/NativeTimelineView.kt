@@ -42,6 +42,7 @@ class NativeTimelineView(context: Context) : View(context) {
 
     var onPlayheadChanged: ((Long) -> Unit)? = null
     var onClipSelected: ((Int, Long) -> Unit)? = null
+    var onClipSelectionCleared: (() -> Unit)? = null
     var onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null
     var onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null
 
@@ -140,6 +141,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 track.id == selectedClip!!.first && track.clips.any { it.id == selectedClip!!.second }
             }) {
             selectedClip = null
+            onClipSelectionCleared?.invoke()
         }
         durationUs = totalDurationUs.coerceAtLeast(1L)
         playheadUs = currentPlayheadUs.coerceIn(0L, durationUs)
@@ -256,8 +258,13 @@ class NativeTimelineView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP -> {
                 if (!moved && !scaleDetector.isInProgress) {
-                    if (!handleClipTap(event.x, event.y) &&
-                        !handleTrackControlTap(event.x, event.y)) {
+                    val clipHandled = handleClipTap(event.x, event.y)
+                    if (!clipHandled && !handleTrackControlTap(event.x, event.y)) {
+                        if (isTimelineLaneTap(event.x, event.y)) {
+                            selectedClip = null
+                            onClipSelectionCleared?.invoke()
+                            invalidate()
+                        }
                         updatePlayheadFromTouch(event.x)
                     }
                     performClick()
@@ -295,6 +302,12 @@ class NativeTimelineView(context: Context) : View(context) {
         onClipSelected?.invoke(track.engineIndex.takeIf { it >= 0 } ?: row, clip.id)
         invalidate()
         return true
+    }
+
+    private fun isTimelineLaneTap(x: Float, y: Float): Boolean {
+        if (x < labelWidth || y < rulerHeight) return false
+        val row = ((y - rulerHeight) / (rowHeight + rowGap)).toInt()
+        return row in tracks.indices
     }
 
     private fun handleTrackControlTap(x: Float, y: Float): Boolean {
