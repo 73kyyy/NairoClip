@@ -62,8 +62,11 @@ fun NativeEditorScreen(
     onTrackMuteChanged: (Int, Boolean) -> Unit = { _, _ -> },
     transform: NativeTransform = NativeTransform(),
     keyedParameters: Set<NativeParameter> = emptySet(),
+    keyframes: Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>> = emptyMap(),
     onTransformChanged: (Int, Long, NativeTransform) -> Unit = { _, _, _ -> },
     onInsertKeyframe: (Int, Long, NativeParameter) -> Unit = { _, _, _ -> },
+    onRemoveKeyframe: (Int, Long, NativeParameter, Long) -> Unit = { _, _, _, _ -> },
+    onSetKeyframeEasing: (Int, Long, NativeParameter, Long, Int, Double, Double, Double, Double) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onOpenLegacy: () -> Unit
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
@@ -124,6 +127,16 @@ fun NativeEditorScreen(
                 NativeParameterPanel(
                     transform = transform,
                     keyedParameters = keyedParameters,
+                    keyframes = keyframes,
+                    onRemoveKeyframe = { parameter, timeUs ->
+                        onRemoveKeyframe(selectedTarget.first, selectedTarget.second, parameter, timeUs)
+                    },
+                    onSetKeyframeEasing = { parameter, frame ->
+                        onSetKeyframeEasing(
+                            selectedTarget.first, selectedTarget.second, parameter,
+                            frame.timeUs, frame.easing, frame.c1x, frame.c1y, frame.c2x, frame.c2y
+                        )
+                    },
                     onTransformChanged = { value ->
                         onTransformChanged(selectedTarget.first, selectedTarget.second, value)
                     },
@@ -343,40 +356,132 @@ enum class NativeParameter(val engineProperty: Int) {
 }
 
 @Composable
-private fun NativeParameterPanel(transform: NativeTransform, keyedParameters: Set<NativeParameter>, onTransformChanged: (NativeTransform) -> Unit, onInsertKeyframe: (NativeParameter) -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.background(NcColors.panel).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+private fun NativeParameterPanel(
+    transform: NativeTransform,
+    keyedParameters: Set<NativeParameter>,
+    keyframes: Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>>,
+    onTransformChanged: (NativeTransform) -> Unit,
+    onInsertKeyframe: (NativeParameter) -> Unit,
+    onRemoveKeyframe: (NativeParameter, Long) -> Unit,
+    onSetKeyframeEasing: (NativeParameter, NativeEditorCommandAdapter.Keyframe) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var activeParameter by remember { mutableStateOf(NativeParameter.SCALE) }
+    val activeFrames = keyframes[activeParameter].orEmpty()
+    var selectedFrameIndex by remember(activeParameter, activeFrames.size) {
+        mutableStateOf(if (activeFrames.isEmpty()) -1 else 0)
+    }
+    val selectedFrame = activeFrames.getOrNull(selectedFrameIndex)
+    Column(
+        modifier = modifier.background(NcColors.panel).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("变换参数", color = NcColors.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text("关键帧", color = NcColors.secondary, fontSize = 9.sp)
+            Text("关键帧 \${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
         }
         ParameterSlider("X", transform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(x = it)) }
         ParameterSlider("Y", transform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(y = it)) }
         ParameterSlider("缩放", transform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%") { onTransformChanged(transform.copy(scale = it)) }
         ParameterSlider("旋转", transform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°") { onTransformChanged(transform.copy(rotation = it)) }
-        CurvePreview(Modifier.fillMaxWidth().height(30.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            NativeParameter.values().forEach { parameter ->
+                val selected = activeParameter == parameter
+                Text(
+                    text = when (parameter) {
+                        NativeParameter.SCALE -> "缩放"
+                        NativeParameter.X -> "X"
+                        NativeParameter.Y -> "Y"
+                        NativeParameter.ROTATION -> "旋转"
+                    },
+                    color = if (selected) NcColors.text else NcColors.secondary,
+                    fontSize = 9.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(5.dp))
+                        .background(if (selected) Color(0xFF3A3D40) else Color.Transparent)
+                        .clickable { activeParameter = parameter; selectedFrameIndex = 0 }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+        if (activeFrames.isEmpty()) {
+            Text("当前通道暂无关键帧", color = NcColors.muted, fontSize = 9.sp)
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                activeFrames.forEachIndexed { index, frame ->
+                    val selected = index == selectedFrameIndex
+                    Text(
+                        text = "%.2fs · %.2f".format(frame.timeUs / 1_000_000.0, frame.value),
+                        color = if (selected) NcColors.text else NcColors.secondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(5.dp))
+                            .background(if (selected) Color(0xFF414549) else NcColors.lane)
+                            .clickable { selectedFrameIndex = index }
+                            .padding(horizontal = 7.dp, vertical = 5.dp)
+                    )
+                }
+            }
+            selectedFrame?.let { frame ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "缓动 \${easingLabel(frame.easing)}",
+                        color = NcColors.secondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.weight(1f)
+                            .clickable { onSetKeyframeEasing(activeParameter, frame.copy(easing = (frame.easing + 1) % 6)) }
+                            .padding(vertical = 4.dp)
+                    )
+                    Text("删除关键帧", color = NcColors.danger, fontSize = 9.sp,
+                        modifier = Modifier.clickable { onRemoveKeyframe(activeParameter, frame.timeUs) }.padding(4.dp))
+                }
+                KeyframeCurvePreview(frame = frame, modifier = Modifier.fillMaxWidth().height(44.dp))
+            }
+        }
     }
 }
-
+private fun easingLabel(easing: Int): String = when (easing) {
+    0 -> "线性"; 1 -> "缓入"; 2 -> "缓出"; 3 -> "缓入缓出"; 4 -> "阶梯"; 5 -> "贝塞尔"; else -> "未知"
+}
 @Composable
-private fun ParameterSlider(label: String, value: Float, low: Float, high: Float, parameter: NativeParameter, keyedParameters: Set<NativeParameter>, onInsertKeyframe: (NativeParameter) -> Unit, suffix: String = "", onValueChange: (Float) -> Unit) {
+private fun ParameterSlider(
+    label: String, value: Float, low: Float, high: Float, parameter: NativeParameter,
+    keyedParameters: Set<NativeParameter>, onInsertKeyframe: (NativeParameter) -> Unit,
+    suffix: String = "", onValueChange: (Float) -> Unit
+) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(30.dp)) {
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         Slider(value = value.coerceIn(low, high), onValueChange = onValueChange, valueRange = low..high, modifier = Modifier.weight(1f))
         Text("%.1f".format(value) + suffix, color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
-        Text(if (parameter in keyedParameters) "◆" else "◇", color = if (parameter in keyedParameters) Color.White else NcColors.secondary, fontSize = 15.sp, modifier = Modifier.width(26.dp).clickable { onInsertKeyframe(parameter) }, textAlign = TextAlign.Center)
+        Text(if (parameter in keyedParameters) "◆" else "◇",
+            color = if (parameter in keyedParameters) Color.White else NcColors.secondary,
+            fontSize = 15.sp, modifier = Modifier.width(26.dp).clickable { onInsertKeyframe(parameter) }, textAlign = TextAlign.Center)
     }
 }
-
 @Composable
-private fun CurvePreview(modifier: Modifier = Modifier) {
+private fun KeyframeCurvePreview(frame: NativeEditorCommandAdapter.Keyframe, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
-        val curve = androidx.compose.ui.graphics.Path().apply {
-            moveTo(0f, size.height - 2f)
-            cubicTo(size.width * 0.28f, size.height - 2f, size.width * 0.68f, 2f, size.width, 2f)
+        val left = 2f; val right = size.width - 2f; val top = 3f; val bottom = size.height - 3f
+        val width = right - left; val height = bottom - top
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(left, bottom)
+            when (frame.easing) {
+                4 -> { lineTo(left + width * 0.5f, bottom); lineTo(left + width * 0.5f, top); lineTo(right, top) }
+                0 -> lineTo(right, top)
+                1 -> cubicTo(left, bottom, right, top, right, top)
+                2 -> cubicTo(left, bottom, right, bottom, right, top)
+                3 -> cubicTo(left + width * 0.42f, bottom, left + width * 0.58f, top, right, top)
+                5 -> cubicTo(left + width * frame.c1x.toFloat(), bottom - height * frame.c1y.toFloat(),
+                    left + width * frame.c2x.toFloat(), bottom - height * frame.c2y.toFloat(), right, top)
+                else -> lineTo(right, top)
+            }
         }
-        drawPath(curve, Color.LightGray, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f))
-        drawLine(Color(0xFF55595C), androidx.compose.ui.geometry.Offset(0f, size.height / 2f), androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), 0.7f)
+        drawLine(Color(0xFF55595C), androidx.compose.ui.geometry.Offset(left, bottom), androidx.compose.ui.geometry.Offset(right, bottom), 0.8f)
+        drawLine(Color(0xFF55595C), androidx.compose.ui.geometry.Offset(left, top), androidx.compose.ui.geometry.Offset(left, bottom), 0.8f)
+        drawPath(path, Color.LightGray, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6f))
     }
 }
 @Composable
