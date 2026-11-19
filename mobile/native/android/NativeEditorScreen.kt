@@ -105,7 +105,7 @@ fun NativeEditorScreen(
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
                 }
                 val selectedItem = selectedTrack?.clips?.firstOrNull { it.id == selection.second }
-                if (selectedItem != null) {
+                if (selectedTrack != null && selectedItem != null) {
                     ClipSelectionBar(
                         trackName = selectedTrack.name,
                         clipName = selectedItem.label,
@@ -274,6 +274,23 @@ private fun QuickActionStrip(onAction: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ClipSelectionBar(trackName: String, clipName: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .background(NcColors.panel)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("已选中", color = NcColors.secondary, fontSize = 10.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(trackName, color = NcColors.text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(6.dp))
+        Text(clipName, color = NcColors.text, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f))
+        Text("参数目标", color = NcColors.secondary, fontSize = 9.sp)
     }
 }
 
