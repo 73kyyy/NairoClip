@@ -131,6 +131,27 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             )
         }
 
+    /**
+     * Applies one editor mutation and reads the resulting animation snapshot
+     * while retaining the bridge's reentrant state lock. Native UI hosts can use
+     * this to publish the post-command state without a competing edit slipping
+     * between the write and refresh. The mutation must target the supplied clip.
+     */
+    fun mutateAndReadAnimationState(
+        target: ClipTarget,
+        mutation: () -> Result<Unit>
+    ): Result<ClipAnimationState> = bridge.withEditorStateLock {
+        val changed = try {
+            mutation()
+        } catch (error: Exception) {
+            Result(false, error = error.message ?: "编辑命令执行失败")
+        }
+        if (!changed.ok) {
+            return@withEditorStateLock Result(false, error = changed.error ?: "编辑命令失败")
+        }
+        readAnimationState(target)
+    }
+
     fun insertKeyframe(target: ClipTarget, property: Int, timeUs: Long, value: Double): Result<Unit> {
         if (property !in 0..5 || timeUs < 0L || !value.isFinite()) {
             return Result(false, error = "关键帧参数非法")
