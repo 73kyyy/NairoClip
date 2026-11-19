@@ -229,6 +229,8 @@ class NativeTimelineView(context: Context) : View(context) {
     }
 
     private fun drawTracks(canvas: Canvas) {
+        canvas.save()
+        canvas.clipRect(0f, rulerHeight, width.toFloat(), height.toFloat())
         tracks.forEachIndexed { index, track ->
             val top = rulerHeight + index * (rowHeight + rowGap) - verticalScrollOffset
             val bottom = min(height.toFloat(), top + rowHeight)
@@ -270,6 +272,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 }
             }
         }
+        canvas.restore()
     }
 
     private fun drawTimeReadout(canvas: Canvas, centerX: Float) {
@@ -309,6 +312,7 @@ class NativeTimelineView(context: Context) : View(context) {
                         if (kotlin.math.abs(dx) > touchSlop) moved = true
                         if (moved) updatePlayheadFromTouch(event.x)
                     } else if (
+                        event.y >= rulerHeight &&
                         !draggingTimelineVertically &&
                         kotlin.math.abs(dy) > touchSlop &&
                         kotlin.math.abs(dy) > kotlin.math.abs(dx)
@@ -387,8 +391,10 @@ class NativeTimelineView(context: Context) : View(context) {
     private fun handleClipTap(x: Float, y: Float): Boolean {
         if (x < labelWidth || y < rulerHeight) return false
         val contentY = y + verticalScrollOffset
-        val row = ((contentY - rulerHeight) / (rowHeight + rowGap)).toInt()
-        if (row !in tracks.indices) return false
+        val rowOffset = contentY - rulerHeight
+        val row = (rowOffset / (rowHeight + rowGap)).toInt()
+        val withinRow = rowOffset - row * (rowHeight + rowGap)
+        if (row !in tracks.indices || withinRow > rowHeight) return false
         val track = tracks[row]
         if (!track.visible) return false
         val timeUs = (
@@ -408,15 +414,19 @@ class NativeTimelineView(context: Context) : View(context) {
     private fun isTimelineLaneTap(x: Float, y: Float): Boolean {
         if (x < labelWidth || y < rulerHeight) return false
         val contentY = y + verticalScrollOffset
-        val row = ((contentY - rulerHeight) / (rowHeight + rowGap)).toInt()
-        return row in tracks.indices
+        val rowOffset = contentY - rulerHeight
+        val row = (rowOffset / (rowHeight + rowGap)).toInt()
+        val withinRow = rowOffset - row * (rowHeight + rowGap)
+        return row in tracks.indices && withinRow <= rowHeight
     }
 
     private fun handleTrackControlTap(x: Float, y: Float): Boolean {
         if (x >= labelWidth || y < rulerHeight) return false
         val contentY = y + verticalScrollOffset
-        val row = ((contentY - rulerHeight) / (rowHeight + rowGap)).toInt()
-        if (row !in tracks.indices) return false
+        val rowOffset = contentY - rulerHeight
+        val row = (rowOffset / (rowHeight + rowGap)).toInt()
+        val withinRow = rowOffset - row * (rowHeight + rowGap)
+        if (row !in tracks.indices || withinRow > rowHeight) return false
         val track = tracks[row]
         when {
             x in (40f * density)..(62f * density) -> {
