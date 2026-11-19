@@ -482,6 +482,9 @@ private fun ParameterSlider(
 @Composable
 private fun KeyframeCurvePreview(frame: NativeEditorCommandAdapter.Keyframe, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
+        // A newly composed or temporarily constrained panel can report a
+        // zero/tiny canvas before its first measured frame.
+        if (size.width <= 4f || size.height <= 6f) return@Canvas
         val left = 2f; val right = size.width - 2f; val top = 3f; val bottom = size.height - 3f
         val width = right - left; val height = bottom - top
         val path = androidx.compose.ui.graphics.Path().apply {
