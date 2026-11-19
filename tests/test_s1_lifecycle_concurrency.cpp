@@ -25,7 +25,7 @@ std::string savedText(NcEditor* ed) {
 
 bool dispatchTouchesEditor(NcEditor* ed) {
     char* result = nc_apply_command(
-        ed, "{\\"type\\":\\"clip.remove\\",\\"payload\\":{}}");
+        ed, R"({"type":"clip.remove","payload":{}})");
     if (result == nullptr) return false;
     nc_free_string(result);
     return true;
