@@ -430,7 +430,7 @@ private fun NativeParameterPanel(
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                activeFrames.forEachIndexed { index, frame ->
+                activeFrames.forEach { frame ->
                     val selected = frame.timeUs == selectedFrame?.timeUs
                     Text(
                         text = "%.2fs · %.2f".format(frame.timeUs / 1_000_000.0, frame.value),
