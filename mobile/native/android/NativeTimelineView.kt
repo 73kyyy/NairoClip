@@ -394,16 +394,30 @@ class NativeTimelineView(context: Context) : View(context) {
         val rowOffset = contentY - rulerHeight
         val row = (rowOffset / (rowHeight + rowGap)).toInt()
         val withinRow = rowOffset - row * (rowHeight + rowGap)
-        if (row !in tracks.indices || withinRow > rowHeight) return false
+        if (row !in tracks.indices || withinRow < 0f || withinRow >= rowHeight) return false
         val track = tracks[row]
         if (!track.visible) return false
-        val timeUs = (
-            (scrollOffset.toDouble() + x.toDouble() - labelWidth.toDouble()) /
-                pixelsPerSecond.toDouble() * 1_000_000.0
-            ).toLong().coerceAtLeast(0L)
-        val clip = track.clips.firstOrNull { candidate ->
-            candidate.enabled && candidate.startUs >= 0L && candidate.durationUs > 0L &&
-                timeUs >= candidate.startUs && timeUs - candidate.startUs < candidate.durationUs
+        // Hit-test the same pixel geometry used by drawTracks(). Very short
+        // clips are rendered with a 5dp minimum width, so testing only their
+        // source duration made the visible tail impossible to select.
+        // Iterate in reverse draw order so the visually topmost overlapping
+        // clip receives the tap.
+        val clip = track.clips.asReversed().firstOrNull { candidate ->
+            if (!candidate.enabled || candidate.startUs < 0L ||
+                candidate.durationUs <= 0L || candidate.startUs >= durationUs
+            ) {
+                false
+            } else {
+                val visibleDurationUs = min(candidate.durationUs, durationUs - candidate.startUs)
+                val left = labelWidth.toDouble() +
+                    candidate.startUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble() -
+                    scrollOffset.toDouble()
+                val widthPx = visibleDurationUs.toDouble() / 1_000_000.0 *
+                    pixelsPerSecond.toDouble()
+                val right = left + max(widthPx, 5f * density).toDouble()
+                x.toDouble() >= max(left, labelWidth.toDouble()) &&
+                    x.toDouble() < min(right, width.toDouble())
+            }
         } ?: return false
         selectedClip = track.id to clip.id
         onClipSelected?.invoke(track.engineIndex.takeIf { it >= 0 } ?: row, clip.id)
@@ -417,7 +431,7 @@ class NativeTimelineView(context: Context) : View(context) {
         val rowOffset = contentY - rulerHeight
         val row = (rowOffset / (rowHeight + rowGap)).toInt()
         val withinRow = rowOffset - row * (rowHeight + rowGap)
-        return row in tracks.indices && withinRow <= rowHeight
+        return row in tracks.indices && withinRow >= 0f && withinRow < rowHeight
     }
 
     private fun handleTrackControlTap(x: Float, y: Float): Boolean {
@@ -426,7 +440,7 @@ class NativeTimelineView(context: Context) : View(context) {
         val rowOffset = contentY - rulerHeight
         val row = (rowOffset / (rowHeight + rowGap)).toInt()
         val withinRow = rowOffset - row * (rowHeight + rowGap)
-        if (row !in tracks.indices || withinRow > rowHeight) return false
+        if (row !in tracks.indices || withinRow < 0f || withinRow >= rowHeight) return false
         val track = tracks[row]
         when {
             x in (40f * density)..(62f * density) -> {
