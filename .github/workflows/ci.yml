@@ -141,6 +141,8 @@ jobs:
           test -s /tmp/media_gen/denoise_src.wav
 
       - name: 诊断：gdb 抓原生崩溃栈
+        # 深度堆诊断耗时较长；普通 push/PR 保留完整功能回归，按需手动触发。
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         # 之前所有诊断都绕开了一点：ASAN/valgrind/UBSan 都会改变内存布局，
         # 崩溃在它们下面都不复现（UBSan 构建里这个用例是过的）。
         # 只有原生 Release 会崩。gdb 不改布局，能在 abort 那一刻拿到
@@ -187,6 +189,8 @@ jobs:
           echo "::error title=GDB_THREADS::${ALL:-none}"
 
       - name: 诊断：二分定位（原生 Release + glibc 堆调试）
+        # 深度堆诊断耗时较长；普通 push/PR 保留完整功能回归，按需手动触发。
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         # 全量固定死在 Capi.WatermarkRealExportEndToEnd，但「只跑 Capi 靶」
         # 是绿的 —— 说明要么是前面用例污染，要么是该用例在**全量上下文**
         # 里才有差异（例如素材/文件状态、内存布局）。
@@ -242,6 +246,8 @@ jobs:
           # SKIP=50 仍包含崩溃用例：崩 → 前 50 个里没有必要的触发条件。
 
       - name: 诊断：mmap 分配器（越界立即 SIGSEGV）
+        # 深度堆诊断耗时较长；普通 push/PR 保留完整功能回归，按需手动触发。
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         # MALLOC_MMAP_THRESHOLD_=1 让 glibc 对每个分配单独 mmap 一整页，
         # 块尾紧贴不可访问的页边界 —— 任何正向越界写立即 SIGSEGV，
         # 而不是像 arena/tcache 那样把破坏藏起来等下次 malloc 才报。
