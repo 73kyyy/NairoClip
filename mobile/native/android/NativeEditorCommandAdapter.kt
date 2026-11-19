@@ -3,7 +3,7 @@ package com.nairoclip.app
 import org.json.JSONObject
 
 /**
- * Narrow Android adapter over the existing C ABI exposed by NativeEngineBridge.
+ * Narrow adapter for the keyframe C ABI operations already allowlisted by DispatchEdit.
  *
  * This class deliberately does not own an editor handle or bypass the bridge's
  * state lock. All calls go through NativeEngineBridge.call(), which serializes
@@ -18,15 +18,6 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         }
     }
 
-    data class Transform(
-        val enabled: Boolean,
-        val scale: Double,
-        val x: Double,
-        val y: Double,
-        val rotation: Double,
-        val anchor: Int
-    )
-
     data class Keyframe(
         val timeUs: Long,
         val value: Double,
@@ -38,38 +29,6 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     )
 
     data class Result<T>(val ok: Boolean, val value: T? = null, val error: String? = null)
-
-    fun setTransform(target: ClipTarget, value: Transform): Result<Unit> {
-        if (!value.scale.isFinite() || value.scale <= 0.0 ||
-            !value.x.isFinite() || !value.y.isFinite() ||
-            !value.rotation.isFinite() || value.anchor !in 0..8) {
-            return Result(false, error = "变换参数超出有效范围")
-        }
-        return invoke(
-            "nc_set_clip_transform",
-            JSONObject()
-                .put("track_index", target.trackIndex)
-                .put("clip_id", target.clipId)
-                .put("enabled", if (value.enabled) 1 else 0)
-                .put("scale", value.scale)
-                .put("pos_x", value.x)
-                .put("pos_y", value.y)
-                .put("rotation", value.rotation)
-                .put("anchor", value.anchor)
-        ) { Unit }
-    }
-
-    fun getTransform(target: ClipTarget): Result<Transform> =
-        invoke("nc_get_clip_transform", targetArgs(target)) { payload ->
-            Transform(
-                enabled = payload.optInt("enabled", 0) != 0,
-                scale = payload.optDouble("scale", 1.0),
-                x = payload.optDouble("pos_x", 0.0),
-                y = payload.optDouble("pos_y", 0.0),
-                rotation = payload.optDouble("rotation", 0.0),
-                anchor = payload.optInt("anchor", 4)
-            )
-        }
 
     fun insertKeyframe(target: ClipTarget, property: Int, timeUs: Long, value: Double): Result<Unit> {
         if (property !in 0..5 || timeUs < 0L || !value.isFinite()) {
