@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -620,6 +621,7 @@ private fun ParameterSlider(
     val focusManager = LocalFocusManager.current
     val valueFocusRequester = remember { FocusRequester() }
     var editingValue by remember(parameter, safeValue) { mutableStateOf(false) }
+    var numericFieldFocused by remember(parameter, safeValue) { mutableStateOf(false) }
     var numericText by remember(parameter, safeValue) {
         mutableStateOf("%.1f".format(Locale.US, safeValue))
     }
@@ -627,7 +629,7 @@ private fun ParameterSlider(
         if (editingValue) valueFocusRequester.requestFocus()
     }
 
-    fun commitNumericValue() {
+    fun finishNumericEdit() {
         val parsed = numericText.trim().replace(',', '.').toFloatOrNull()
         if (parsed != null && parsed.isFinite()) {
             onValueChange(parsed.coerceIn(low, high))
@@ -636,6 +638,10 @@ private fun ParameterSlider(
             numericText = "%.1f".format(Locale.US, safeValue)
         }
         editingValue = false
+    }
+
+    fun commitNumericValue() {
+        finishNumericEdit()
         focusManager.clearFocus()
     }
 
@@ -652,7 +658,10 @@ private fun ParameterSlider(
             modifier = Modifier.width(58.dp).clip(RoundedCornerShape(5.dp))
                 .background(if (editingValue) NcColors.lane else Color.Transparent)
                 .border(1.dp, NcColors.line, RoundedCornerShape(5.dp))
-                .clickable { editingValue = true }
+                .clickable {
+                    numericFieldFocused = false
+                    editingValue = true
+                }
                 .padding(horizontal = 3.dp, vertical = 5.dp),
             contentAlignment = Alignment.CenterEnd
         ) {
@@ -667,7 +676,18 @@ private fun ParameterSlider(
                         ) numericText = candidate
                     },
                     singleLine = true,
-                    modifier = Modifier.focusRequester(valueFocusRequester),
+                    modifier = Modifier
+                        .focusRequester(valueFocusRequester)
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                numericFieldFocused = true
+                            } else if (numericFieldFocused && editingValue) {
+                                // Tapping elsewhere commits the edit just like
+                                // the keyboard Done action.
+                                numericFieldFocused = false
+                                finishNumericEdit()
+                            }
+                        },
                     textStyle = TextStyle(
                         color = NcColors.text,
                         fontSize = 10.sp,
