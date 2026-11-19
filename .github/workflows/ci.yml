@@ -572,6 +572,22 @@ jobs:
       - name: Build (ASAN)
         run: cmake --build build_asan -j$(nproc)
 
+      - name: S1 生命周期定向回归 (ASAN)
+        # S1-1 验收：在 AddressSanitizer 下单独执行 100 次 load→有效 dispatch，
+        # 并覆盖并发句柄/仲裁器用例；独立于全量套件的其他既有失败。
+        continue-on-error: true
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/ort/lib:$LD_LIBRARY_PATH"
+          export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:symbolize=1:print_stacktrace=1:verify_asan_link_order=0
+          set +e
+          NC_TEST_INCLUDE=S1Lifecycle.,S1Concurrency.,S1EditorLifetime.,S1RecursiveMutex. \
+            ./build_asan/tests/nairoclip_tests > /tmp/s1_lifecycle_asan.txt 2>&1
+          rc=$?
+          cat /tmp/s1_lifecycle_asan.txt
+          echo "s1_lifecycle_asan_exit=$rc"
+          echo "::error title=S1_ASAN_ERROR::$(grep -m1 -E 'ERROR: AddressSanitizer|SUMMARY: AddressSanitizer' /tmp/s1_lifecycle_asan.txt || echo none)"
+          exit "$rc"
+
       - name: 运行测试 (ASAN)
         run: |
           # 不用 stdbuf：它靠 LD_PRELOAD 注入 libstdbuf，会排在 ASAN runtime
