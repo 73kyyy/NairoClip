@@ -99,6 +99,9 @@ class NativeTimelineView(context: Context) : View(context) {
         NativeTimelineTrack(2L, "A1"),
         NativeTimelineTrack(3L, "T1")
     )
+    // The screen supplies immutable project snapshots. Retain their identity
+    // so unrelated Compose recompositions do not copy every track/clip again.
+    private var sourceTracks: List<NativeTimelineTrack>? = null
     private var durationUs: Long = 30_000_000L
     private var playheadUs: Long = 0L
     private var pixelsPerSecond = 42f * density
@@ -161,18 +164,32 @@ class NativeTimelineView(context: Context) : View(context) {
         totalDurationUs: Long,
         currentPlayheadUs: Long
     ) {
-        tracks = newTracks.map { it.copy(clips = it.clips.toList()) }
-        if (selectedClip != null && tracks.none { track ->
-                track.id == selectedClip!!.first &&
-                    track.visible &&
-                    track.clips.any { it.id == selectedClip!!.second && it.enabled }
-            }) {
-            selectedClip = null
+        var tracksChanged = false
+        if (sourceTracks !== newTracks) {
+            sourceTracks = newTracks
+            tracks = newTracks.map { it.copy(clips = it.clips.toList()) }
+            tracksChanged = true
+            if (selectedClip != null && tracks.none { track ->
+                    track.id == selectedClip!!.first &&
+                        track.visible &&
+                        track.clips.any { it.id == selectedClip!!.second && it.enabled }
+                }) {
+                selectedClip = null
+            }
         }
-        durationUs = totalDurationUs.coerceAtLeast(1L)
-        playheadUs = currentPlayheadUs.coerceIn(0L, durationUs)
-        scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
-        verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
+
+        val safeDurationUs = totalDurationUs.coerceAtLeast(1L)
+        val safePlayheadUs = currentPlayheadUs.coerceIn(0L, safeDurationUs)
+        val durationChanged = durationUs != safeDurationUs
+        val playheadChanged = playheadUs != safePlayheadUs
+        if (!tracksChanged && !durationChanged && !playheadChanged) return
+
+        durationUs = safeDurationUs
+        playheadUs = safePlayheadUs
+        if (tracksChanged || durationChanged) {
+            scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
+            verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
+        }
         invalidate()
     }
 
