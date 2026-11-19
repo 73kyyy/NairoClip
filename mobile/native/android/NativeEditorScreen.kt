@@ -76,7 +76,8 @@ fun NativeEditorScreen(
         val selection = selectedClip ?: return@LaunchedEffect
         val stillExists = timelineTracks.any { track ->
             (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
-                track.clips.any { it.id == selection.second }
+                track.visible &&
+                track.clips.any { it.id == selection.second && it.enabled }
         }
         if (!stillExists) selectedClip = null
     }
@@ -130,7 +131,8 @@ fun NativeEditorScreen(
             val selectedTarget = selectedClip?.takeIf { selection ->
                 timelineTracks.any { track ->
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
-                        track.clips.any { it.id == selection.second }
+                        track.visible &&
+                        track.clips.any { it.id == selection.second && it.enabled }
                 }
             }
             if ((activeTool == "画面" || activeTool == "调节") && selectedTarget != null) {
