@@ -74,6 +74,8 @@ extern "C" {
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <fstream>
 #include <new>
 #include <vector>
@@ -2074,8 +2076,13 @@ int32_t nc_set_camera_tracking(NcEditor* editor, uint64_t subtitle_id, const dou
     std::vector<SubtitleCue::TrackingPoint> points;
     points.reserve(static_cast<std::size_t>(point_count));
     for (int32_t i = 0; i < point_count; ++i) {
-        if (times_us[i] < 0.0) {
-            return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
+        // Reject NaN/Inf and values that cannot be represented as int64 microseconds
+        // before rounding/casting. A floating-to-integer conversion outside the
+        // destination range is undefined behavior.
+        if (!std::isfinite(times_us[i]) || times_us[i] < 0.0 ||
+            times_us[i] >= std::ldexp(1.0, 63) ||
+            !std::isfinite(center_x[i]) || !std::isfinite(center_y[i])) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "追踪时间或坐标不是有限有效数值");
         }
         SubtitleCue::TrackingPoint point;
         point.time = fromMicroseconds(static_cast<std::int64_t>(times_us[i] + 0.5));
@@ -2108,8 +2115,12 @@ int32_t nc_set_camera_tracking_scaled(NcEditor* editor, uint64_t subtitle_id,
     std::vector<SubtitleCue::TrackingPoint> points;
     points.reserve(static_cast<std::size_t>(point_count));
     for (int32_t i = 0; i < point_count; ++i) {
-        if (times_us[i] < 0.0) {
-            return failNc(NC_ERROR_INVALID_ARGUMENT, "取值超出允许范围");
+        // Keep validation symmetric with nc_set_camera_tracking().
+        if (!std::isfinite(times_us[i]) || times_us[i] < 0.0 ||
+            times_us[i] >= std::ldexp(1.0, 63) ||
+            !std::isfinite(center_x[i]) || !std::isfinite(center_y[i]) ||
+            (scales != nullptr && !std::isfinite(scales[i]))) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "追踪时间、坐标或缩放不是有限有效数值");
         }
         SubtitleCue::TrackingPoint point;
         point.time = fromMicroseconds(static_cast<std::int64_t>(times_us[i] + 0.5));
