@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import java.util.Locale
 
 /**
  * First native editor surface for the S5 migration.
@@ -144,6 +145,7 @@ fun NativeEditorScreen(
                     ClipSelectionBar(
                         trackName = selectedTrack.name,
                         clipName = selectedItem.label,
+                        onClearSelection = { selectedClip = null },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -380,7 +382,12 @@ private fun QuickActionStrip(
 }
 
 @Composable
-private fun ClipSelectionBar(trackName: String, clipName: String, modifier: Modifier = Modifier) {
+private fun ClipSelectionBar(
+    trackName: String,
+    clipName: String,
+    onClearSelection: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Row(
         modifier = modifier
             .background(NcColors.panel)
@@ -392,7 +399,17 @@ private fun ClipSelectionBar(trackName: String, clipName: String, modifier: Modi
         Text(trackName, color = NcColors.text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.width(6.dp))
         Text(clipName, color = NcColors.text, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f))
-        Text("参数目标", color = NcColors.secondary, fontSize = 9.sp)
+        Text("编辑目标", color = NcColors.secondary, fontSize = 9.sp)
+        Spacer(Modifier.width(6.dp))
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onClearSelection),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("×", color = NcColors.secondary, fontSize = 19.sp)
+        }
     }
 }
 
@@ -603,18 +620,20 @@ private fun ParameterSlider(
     val focusManager = LocalFocusManager.current
     val valueFocusRequester = remember { FocusRequester() }
     var editingValue by remember(parameter, safeValue) { mutableStateOf(false) }
-    var numericText by remember(parameter, safeValue) { mutableStateOf("%.1f".format(safeValue)) }
+    var numericText by remember(parameter, safeValue) {
+        mutableStateOf("%.1f".format(Locale.US, safeValue))
+    }
     LaunchedEffect(editingValue) {
         if (editingValue) valueFocusRequester.requestFocus()
     }
 
     fun commitNumericValue() {
-        val parsed = numericText.trim().toFloatOrNull()
+        val parsed = numericText.trim().replace(',', '.').toFloatOrNull()
         if (parsed != null && parsed.isFinite()) {
             onValueChange(parsed.coerceIn(low, high))
             onValueChangeFinished()
         } else {
-            numericText = "%.1f".format(safeValue)
+            numericText = "%.1f".format(Locale.US, safeValue)
         }
         editingValue = false
         focusManager.clearFocus()
@@ -644,7 +663,7 @@ private fun ParameterSlider(
                         // Keep the input bounded; the value is committed only
                         // when the user confirms it, not on every keystroke.
                         if (candidate.length <= 14 &&
-                            candidate.all { it.isDigit() || it == '-' || it == '.' }
+                            candidate.all { it.isDigit() || it == '-' || it == '.' || it == ',' }
                         ) numericText = candidate
                     },
                     singleLine = true,
@@ -662,7 +681,7 @@ private fun ParameterSlider(
                 )
             } else {
                 Text(
-                    "%.1f".format(safeValue) + suffix,
+                    "%.1f".format(Locale.US, safeValue) + suffix,
                     color = NcColors.text,
                     fontSize = 9.sp,
                     textAlign = TextAlign.End
