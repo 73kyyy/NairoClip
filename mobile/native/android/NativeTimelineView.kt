@@ -394,7 +394,9 @@ class NativeTimelineView(context: Context) : View(context) {
         val rowOffset = contentY - rulerHeight
         val row = (rowOffset / (rowHeight + rowGap)).toInt()
         val withinRow = rowOffset - row * (rowHeight + rowGap)
-        if (row !in tracks.indices || withinRow < 0f || withinRow >= rowHeight) return false
+        if (row !in tracks.indices || withinRow < 5f * density ||
+            withinRow >= rowHeight - 5f * density
+        ) return false
         val track = tracks[row]
         if (!track.visible) return false
         // Hit-test the same pixel geometry used by drawTracks(). Very short
