@@ -1,6 +1,7 @@
 package com.nairoclip.app
 
 import android.view.View
+import androidx.compose.foundation.BasicTextField
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,7 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardActions
+import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -568,7 +575,23 @@ private fun ParameterSlider(
     // Engine snapshots are validated at the adapter boundary, but keep the
     // Compose control resilient to malformed/stale host values as well.
     val safeValue = value.takeIf { it.isFinite() }?.coerceIn(low, high) ?: low
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(30.dp)) {
+    val focusManager = LocalFocusManager.current
+    var editingValue by remember(parameter, safeValue) { mutableStateOf(false) }
+    var numericText by remember(parameter, safeValue) { mutableStateOf("%.1f".format(safeValue)) }
+
+    fun commitNumericValue() {
+        val parsed = numericText.trim().toFloatOrNull()
+        if (parsed != null && parsed.isFinite()) {
+            onValueChange(parsed.coerceIn(low, high))
+            onValueChangeFinished()
+        } else {
+            numericText = "%.1f".format(safeValue)
+        }
+        editingValue = false
+        focusManager.clearFocus()
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(38.dp)) {
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         Slider(
             value = safeValue,
@@ -577,10 +600,51 @@ private fun ParameterSlider(
             valueRange = low..high,
             modifier = Modifier.weight(1f)
         )
-        Text("%.1f".format(safeValue) + suffix, color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
-        Text(if (parameter in keyedParameters) "◆" else "◇",
+        Box(
+            modifier = Modifier.width(58.dp).clip(RoundedCornerShape(5.dp))
+                .background(if (editingValue) NcColors.lane else Color.Transparent)
+                .clickable { editingValue = true }
+                .padding(horizontal = 3.dp, vertical = 5.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            if (editingValue) {
+                BasicTextField(
+                    value = numericText,
+                    onValueChange = { candidate ->
+                        // Keep the input bounded; the value is committed only
+                        // when the user confirms it, not on every keystroke.
+                        if (candidate.length <= 14 &&
+                            candidate.all { it.isDigit() || it == '-' || it == '.' }
+                        ) numericText = candidate
+                    },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = NcColors.text,
+                        fontSize = 10.sp,
+                        textAlign = TextAlign.End
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { commitNumericValue() })
+                )
+            } else {
+                Text(
+                    "%.1f".format(safeValue) + suffix,
+                    color = NcColors.text,
+                    fontSize = 9.sp,
+                    textAlign = TextAlign.End
+                )
+            }
+        }
+        Text(
+            if (parameter in keyedParameters) "◆" else "◇",
             color = if (parameter in keyedParameters) Color.White else NcColors.secondary,
-            fontSize = 15.sp, modifier = Modifier.width(26.dp).clickable { onInsertKeyframe(parameter) }, textAlign = TextAlign.Center)
+            fontSize = 15.sp,
+            modifier = Modifier.width(26.dp).clickable { onInsertKeyframe(parameter) },
+            textAlign = TextAlign.Center
+        )
     }
 }
 @Composable
