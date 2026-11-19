@@ -286,7 +286,12 @@ private fun NativeTimelinePanel(
 
 /** Presentation inputs; the host must persist changes through the engine command API. */
 data class NativeTransform(val x: Float = 0f, val y: Float = 0f, val scale: Float = 100f, val rotation: Float = 0f)
-enum class NativeParameter { X, Y, SCALE, ROTATION }
+enum class NativeParameter(val engineProperty: Int) {
+    SCALE(1),
+    X(2),
+    Y(3),
+    ROTATION(4)
+}
 
 @Composable
 private fun NativeParameterPanel(transform: NativeTransform, keyedParameters: Set<NativeParameter>, onTransformChanged: (NativeTransform) -> Unit, onKeyframeToggle: (NativeParameter) -> Unit, modifier: Modifier = Modifier) {
