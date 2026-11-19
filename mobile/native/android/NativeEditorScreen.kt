@@ -137,6 +137,8 @@ fun NativeEditorScreen(
             }
             if ((activeTool == "画面" || activeTool == "调节") && selectedTarget != null) {
                 NativeParameterPanel(
+                    targetTrackIndex = selectedTarget.first,
+                    targetClipId = selectedTarget.second,
                     transform = transform,
                     keyedParameters = keyedParameters,
                     keyframes = keyframes,
@@ -371,6 +373,8 @@ enum class NativeParameter(val engineProperty: Int) {
 
 @Composable
 private fun NativeParameterPanel(
+    targetTrackIndex: Int,
+    targetClipId: Long,
     transform: NativeTransform,
     keyedParameters: Set<NativeParameter>,
     keyframes: Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>>,
@@ -380,12 +384,17 @@ private fun NativeParameterPanel(
     onSetKeyframeEasing: (NativeParameter, NativeEditorCommandAdapter.Keyframe) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var activeParameter by remember { mutableStateOf(NativeParameter.SCALE) }
+    // Parameter/channel selection belongs to a clip, not to the panel's
+    // compositional position. Switching clips must not carry a stale channel
+    // or keyframe timestamp into the newly selected target.
+    var activeParameter by remember(targetTrackIndex, targetClipId) {
+        mutableStateOf(NativeParameter.SCALE)
+    }
     val activeFrames = keyframes[activeParameter].orEmpty()
     // Track the selected keyframe by its project timestamp rather than list
     // index. Engine refreshes can reorder or replace a channel without changing
     // its size; an index-based selection could then delete/edit a different key.
-    var selectedFrameTimeUs by remember(activeParameter) {
+    var selectedFrameTimeUs by remember(targetTrackIndex, targetClipId, activeParameter) {
         mutableStateOf(activeFrames.firstOrNull()?.timeUs)
     }
     val selectedFrame = activeFrames.firstOrNull { it.timeUs == selectedFrameTimeUs }
