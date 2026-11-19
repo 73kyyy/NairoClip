@@ -88,6 +88,24 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         Result(false, error = error.message ?: "变换写入失败")
     }
 
+    data class HistoryState(val canUndo: Boolean, val canRedo: Boolean)
+
+    /** Reads the history capability flags emitted by the existing engine state snapshot. */
+    fun historyState(): Result<HistoryState> = try {
+        val envelope = JSONObject(bridge.state())
+        if (!envelope.optBoolean("ok", false)) {
+            Result(false, error = envelope.optString("message", "读取撤销状态失败"))
+        } else {
+            val state = envelope.optJSONObject("result") ?: JSONObject()
+            Result(true, HistoryState(
+                canUndo = state.optInt("can_undo", 0) != 0,
+                canRedo = state.optInt("can_redo", 0) != 0
+            ))
+        }
+    } catch (error: Exception) {
+        Result(false, error = error.message ?: "读取撤销状态失败")
+    }
+
     /** Native history operations use the JNI DispatchEdit short-name routes. */
     fun undo(): Result<Unit> = decodeUnitResponse(bridge.editorUndo(), "撤销失败")
 
