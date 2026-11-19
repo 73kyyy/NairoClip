@@ -265,9 +265,9 @@ private fun NativeTimelinePanel(
     durationUs: Long,
     playheadUs: Long,
     onPlayheadChanged: (Long) -> Unit,
-    onClipSelected: (Long, Long) -> Unit,
-    onTrackVisibilityChanged: (Long, Boolean) -> Unit,
-    onTrackMuteChanged: (Long, Boolean) -> Unit,
+    onClipSelected: (Int, Long) -> Unit,
+    onTrackVisibilityChanged: (Int, Boolean) -> Unit,
+    onTrackMuteChanged: (Int, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val initialTracks = remember { tracks.toList() }
