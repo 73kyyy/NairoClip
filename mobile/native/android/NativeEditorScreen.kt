@@ -67,6 +67,7 @@ fun NativeEditorScreen(
     onOpenLegacy: () -> Unit
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
+    var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
 
     MaterialTheme {
         Column(
@@ -88,7 +89,10 @@ fun NativeEditorScreen(
                 durationUs = timelineDurationUs,
                 playheadUs = playheadUs,
                 onPlayheadChanged = onPlayheadChanged,
-                onClipSelected = onClipSelected,
+                onClipSelected = { trackIndex, clipId ->
+                    selectedClip = trackIndex to clipId
+                    onClipSelected(trackIndex, clipId)
+                },
                 onTrackVisibilityChanged = onTrackVisibilityChanged,
                 onTrackMuteChanged = onTrackMuteChanged,
                 modifier = Modifier
@@ -96,7 +100,21 @@ fun NativeEditorScreen(
                     .height(218.dp)
             )
 
-            if (activeTool == "画面" || activeTool == "调节") {
+            selectedClip?.let { selection ->
+                val selectedTrack = timelineTracks.firstOrNull { track ->
+                    (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
+                }
+                val selectedItem = selectedTrack?.clips?.firstOrNull { it.id == selection.second }
+                if (selectedItem != null) {
+                    ClipSelectionBar(
+                        trackName = selectedTrack.name,
+                        clipName = selectedItem.label,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            if ((activeTool == "画面" || activeTool == "调节") && selectedClip != null) {
                 NativeParameterPanel(
                     transform = transform,
                     keyedParameters = keyedParameters,
