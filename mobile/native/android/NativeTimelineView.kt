@@ -495,11 +495,17 @@ class NativeTimelineView(context: Context) : View(context) {
         return true
     }
 
-    private fun playheadXPosition(): Float = (
-        labelWidth.toDouble() +
-            (playheadUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
-            scrollOffset.toDouble()
-        ).toFloat().coerceIn(labelWidth, width.toFloat())
+    private fun playheadXPosition(): Float {
+        val requestedX = (
+            labelWidth.toDouble() +
+                (playheadUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
+                scrollOffset.toDouble()
+            ).toFloat()
+        // A View can be drawn before its first non-zero layout pass. Keep the
+        // clamp range valid even when width is temporarily below the label gutter.
+        val maximumX = width.toFloat().coerceAtLeast(labelWidth)
+        return requestedX.coerceIn(labelWidth, maximumX)
+    }
 
     private fun maxScrollOffset(): Float {
         val contentWidth = durationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
