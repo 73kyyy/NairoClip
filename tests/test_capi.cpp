@@ -11,6 +11,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -130,6 +131,47 @@ NC_TEST(Capi, CollisionRejectedWithCode) {
     NC_CHECK_EQ(nc_clip_count(editor, 0), 1);
     nc_editor_destroy(editor);
 }
+NC_TEST(Capi, CameraTrackingRejectsNonFiniteAndOutOfRangeValues) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    if (editor == nullptr) return;
+    const std::uint64_t subtitleId = nc_upsert_subtitle(editor, 0, 2000000, "tracking");
+    NC_CHECK(subtitleId != 0);
+    const double validTime[] = {1000000.0};
+    const double validX[] = {0.5};
+    const double validY[] = {0.5};
+    const double nanValue[] = {std::numeric_limits<double>::quiet_NaN()};
+    const double infValue[] = {std::numeric_limits<double>::infinity()};
+    const double tooLarge[] = {std::ldexp(1.0, 63)};
+    const double validScale[] = {1.0};
+
+    NC_CHECK_EQ(nc_set_camera_tracking(editor, subtitleId, nanValue, validX, validY, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_camera_tracking(editor, subtitleId, infValue, validX, validY, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_camera_tracking(editor, subtitleId, tooLarge, validX, validY, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_camera_tracking(editor, subtitleId, validTime, nanValue, validY, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_camera_tracking(editor, subtitleId, validTime, validX, infValue, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+
+    NC_CHECK_EQ(nc_set_camera_tracking_scaled(editor, subtitleId, nanValue, validX, validY,
+                                               validScale, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_camera_tracking_scaled(editor, subtitleId, validTime, nanValue, validY,
+                                               validScale, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_set_camera_tracking_scaled(editor, subtitleId, validTime, validX, validY,
+                                               infValue, 1, 1),
+                NC_ERROR_INVALID_ARGUMENT);
+
+    // A valid finite sample remains accepted after the rejected inputs.
+    NC_CHECK_EQ(nc_set_camera_tracking_scaled(editor, subtitleId, validTime, validX, validY,
+                                               validScale, 1, 1), NC_OK);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(Capi, SubtitleCrud) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t sid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
