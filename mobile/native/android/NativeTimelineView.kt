@@ -503,18 +503,19 @@ class NativeTimelineView(context: Context) : View(context) {
         val track = tracks[row]
         when {
             x in (40f * density)..(62f * density) -> {
-                val updated = track.copy(visible = !track.visible)
-                tracks = tracks.toMutableList().also { it[row] = updated }
-                if (!updated.visible && selectedClip?.first == track.id) {
-                    selectedClip = null
-                    onClipSelectionCleared?.invoke()
-                }
-                onTrackVisibilityChanged?.invoke(updated.engineIndex.takeIf { it >= 0 } ?: row, updated.visible)
+                // The engine snapshot is authoritative. Do not permanently
+                // mutate the rendered track here: a rejected command or a
+                // delayed host refresh would otherwise leave a false eye state.
+                onTrackVisibilityChanged?.invoke(
+                    track.engineIndex.takeIf { it >= 0 } ?: row,
+                    !track.visible
+                )
             }
             x in (64f * density)..(86f * density) -> {
-                val updated = track.copy(muted = !track.muted)
-                tracks = tracks.toMutableList().also { it[row] = updated }
-                onTrackMuteChanged?.invoke(updated.engineIndex.takeIf { it >= 0 } ?: row, updated.muted)
+                onTrackMuteChanged?.invoke(
+                    track.engineIndex.takeIf { it >= 0 } ?: row,
+                    !track.muted
+                )
             }
             else -> return false
         }
