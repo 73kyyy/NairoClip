@@ -72,6 +72,14 @@ class NativeTimelineView(context: Context) : View(context) {
     private val playheadCapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.WHITE
     }
+    private val readoutPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.BLACK
+        textSize = 8f * density
+        typeface = android.graphics.Typeface.create(
+            android.graphics.Typeface.DEFAULT,
+            android.graphics.Typeface.BOLD
+        )
+    }
 
     private var tracks: List<NativeTimelineTrack> = listOf(
         NativeTimelineTrack(1L, "V1"),
@@ -96,7 +104,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 )
                 val focusTime = (scrollOffset + detector.focusX - labelWidth).coerceAtLeast(0f) / old
                 scrollOffset = (focusTime * pixelsPerSecond - (detector.focusX - labelWidth))
-                    .coerceAtLeast(0f)
+                    .coerceIn(0f, maxScrollOffset())
                 invalidate()
                 return true
             }
@@ -185,16 +193,11 @@ class NativeTimelineView(context: Context) : View(context) {
 
     private fun drawTimeReadout(canvas: Canvas, centerX: Float) {
         val text = formatTime(playheadUs / 1_000_000L)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.BLACK
-            textSize = 8f * density
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-        }
-        val width = paint.measureText(text) + 8f * density
+        val width = readoutPaint.measureText(text) + 8f * density
         val top = 2f * density
         val rect = RectF(centerX - width / 2f, top, centerX + width / 2f, top + 13f * density)
         canvas.drawRoundRect(rect, 2f * density, 2f * density, playheadCapPaint)
-        canvas.drawText(text, rect.left + 4f * density, rect.bottom - 3f * density, paint)
+        canvas.drawText(text, rect.left + 4f * density, rect.bottom - 3f * density, readoutPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -210,7 +213,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 if (!scaleDetector.isInProgress && event.pointerCount == 1) {
                     val dx = event.x - lastTouchX
                     if (kotlin.math.abs(dx) > 1.5f * density) moved = true
-                    scrollOffset = (scrollOffset - dx).coerceAtLeast(0f)
+                    scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
                     lastTouchX = event.x
                     updatePlayheadFromCenter()
                     invalidate()
@@ -235,6 +238,12 @@ class NativeTimelineView(context: Context) : View(context) {
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    private fun maxScrollOffset(): Float {
+        val contentSeconds = durationUs / 1_000_000f
+        val viewport = (width - labelWidth).coerceAtLeast(1f)
+        return (contentSeconds * pixelsPerSecond - viewport).coerceAtLeast(0f)
     }
 
     private fun updatePlayheadFromCenter() {
