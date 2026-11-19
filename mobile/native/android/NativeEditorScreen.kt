@@ -147,7 +147,7 @@ fun NativeEditorScreen(
                         track.clips.any { it.id == selection.second && it.enabled }
                 }
             }
-            if (activeTool == "画面" && selectedTarget != null) {
+            if (activeTool == "画面" && activeSubTool in setOf("位置", "缩放", "旋转") && selectedTarget != null) {
                 NativeParameterPanel(
                     targetTrackIndex = selectedTarget.first,
                     targetClipId = selectedTarget.second,
@@ -566,16 +566,19 @@ private fun ParameterSlider(
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit
 ) {
+    // Engine snapshots are validated at the adapter boundary, but keep the
+    // Compose control resilient to malformed/stale host values as well.
+    val safeValue = value.takeIf { it.isFinite() }?.coerceIn(low, high) ?: low
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(30.dp)) {
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         Slider(
-            value = value.coerceIn(low, high),
+            value = safeValue,
             onValueChange = onValueChange,
             onValueChangeFinished = onValueChangeFinished,
             valueRange = low..high,
             modifier = Modifier.weight(1f)
         )
-        Text("%.1f".format(value) + suffix, color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
+        Text("%.1f".format(safeValue) + suffix, color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
         Text(if (parameter in keyedParameters) "◆" else "◇",
             color = if (parameter in keyedParameters) Color.White else NcColors.secondary,
             fontSize = 15.sp, modifier = Modifier.width(26.dp).clickable { onInsertKeyframe(parameter) }, textAlign = TextAlign.Center)
