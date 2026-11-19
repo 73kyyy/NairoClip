@@ -33,23 +33,28 @@ data class NativeTimelineSnapshot(
             return value.toLong()
         }
 
-        fun fromEngineState(stateJson: String): NativeTimelineSnapshot {
-            val empty = NativeTimelineSnapshot("未命名工程", 1L, emptyList())
+        /**
+         * Strict parser used by command adapters. A malformed top-level
+         * envelope must be reported as a failed refresh, not as a successful
+         * empty project (which would erase the visible timeline).
+         */
+        fun tryFromEngineState(stateJson: String): NativeTimelineSnapshot? {
             return try {
                 val envelope = JSONObject(stateJson)
-                if (envelope.optBoolean("ok", true).not()) return empty
-                val state = envelope.optJSONObject("result") ?: envelope
-                val project = state.optJSONObject("project") ?: JSONObject()
-                val duration = project.longField("duration_us")?.takeIf { it > 0L } ?: 1L
+                if (!envelope.optBoolean("ok", false)) return null
+                val state = envelope.optJSONObject("result") ?: return null
+                val project = state.optJSONObject("project") ?: return null
+                val duration = project.longField("duration_us")?.takeIf { it > 0L } ?: return null
                 val projectName = project.optString("name", "未命名工程")
                     .ifBlank { "未命名工程" }
+                val sourceTracks = state.optJSONArray("tracks") ?: return null
 
                 val assetNames = HashMap<Long, String>()
                 val assets = state.optJSONArray("assets")
                 if (assets != null) {
                     for (index in 0 until assets.length()) {
                         val asset = assets.optJSONObject(index) ?: continue
-                        val id = asset.longField("id") ?: 0L
+                        val id = asset.longField("id") ?: continue
                         if (id > 0L) {
                             assetNames[id] = asset.optString("name", "").ifBlank { "素材 $id" }
                         }
@@ -57,58 +62,57 @@ data class NativeTimelineSnapshot(
                 }
 
                 val tracks = ArrayList<NativeTimelineTrack>()
-                val sourceTracks = state.optJSONArray("tracks")
-                if (sourceTracks != null) {
-                    for (trackIndex in 0 until sourceTracks.length()) {
-                        val sourceTrack = sourceTracks.optJSONObject(trackIndex) ?: continue
-                        val trackId = sourceTrack.longField("id") ?: 0L
-                        if (trackId <= 0L) continue
+                for (trackIndex in 0 until sourceTracks.length()) {
+                    val sourceTrack = sourceTracks.optJSONObject(trackIndex) ?: continue
+                    val trackId = sourceTrack.longField("id") ?: continue
+                    if (trackId <= 0L) continue
+                    val hidden = sourceTrack.longField("hidden") ?: continue
+                    val muted = sourceTrack.longField("muted") ?: continue
 
-                        val clips = ArrayList<NativeTimelineClip>()
-                        val sourceClips = sourceTrack.optJSONArray("clips")
-                        if (sourceClips != null) {
-                            for (clipIndex in 0 until sourceClips.length()) {
-                                val sourceClip = sourceClips.optJSONObject(clipIndex) ?: continue
-                                val clipId = sourceClip.longField("id") ?: 0L
-                                val assetId = sourceClip.longField("asset_id") ?: 0L
-                                val startUs = sourceClip.longField("start_us") ?: -1L
-                                val clipDurationUs = sourceClip.longField("duration_us") ?: 0L
-                                if (clipId <= 0L || startUs < 0L || clipDurationUs <= 0L) continue
-                                // BuildState always emits enabled as an integer.
-                                // Missing or malformed flags must not silently turn a
-                                // disabled clip into an editable/visible one.
-                                val enabledValue = sourceClip.longField("enabled") ?: continue
-                                val enabled = enabledValue != 0L
-                                clips += NativeTimelineClip(
-                                    id = clipId,
-                                    startUs = startUs,
-                                    durationUs = clipDurationUs,
-                                    label = assetNames[assetId] ?: "片段 $clipId",
-                                    enabled = enabled
-                                )
-                            }
+                    val clips = ArrayList<NativeTimelineClip>()
+                    val sourceClips = sourceTrack.optJSONArray("clips")
+                    if (sourceClips != null) {
+                        for (clipIndex in 0 until sourceClips.length()) {
+                            val sourceClip = sourceClips.optJSONObject(clipIndex) ?: continue
+                            val clipId = sourceClip.longField("id") ?: continue
+                            val assetId = sourceClip.longField("asset_id") ?: 0L
+                            val startUs = sourceClip.longField("start_us") ?: continue
+                            val clipDurationUs = sourceClip.longField("duration_us") ?: continue
+                            val enabledValue = sourceClip.longField("enabled") ?: continue
+                            if (clipId <= 0L || startUs < 0L || clipDurationUs <= 0L) continue
+                            clips += NativeTimelineClip(
+                                id = clipId,
+                                startUs = startUs,
+                                durationUs = clipDurationUs,
+                                label = assetNames[assetId] ?: "片段 $clipId",
+                                enabled = enabledValue != 0L
+                            )
                         }
-
-                        // The JNI serializer always includes both flags. If either
-                        // is malformed, skip this row rather than displaying a
-                        // potentially hidden/muted track as active.
-                        val hidden = sourceTrack.longField("hidden") ?: continue
-                        val muted = sourceTrack.longField("muted") ?: continue
-                        tracks += NativeTimelineTrack(
-                            id = trackId,
-                            name = sourceTrack.optString("name", "轨道 $trackId")
-                                .ifBlank { "轨道 $trackId" },
-                            clips = clips,
-                            visible = hidden == 0L,
-                            muted = muted != 0L,
-                            engineIndex = trackIndex
-                        )
                     }
+
+                    tracks += NativeTimelineTrack(
+                        id = trackId,
+                        name = sourceTrack.optString("name", "轨道 $trackId")
+                            .ifBlank { "轨道 $trackId" },
+                        clips = clips,
+                        visible = hidden == 0L,
+                        muted = muted != 0L,
+                        engineIndex = trackIndex
+                    )
                 }
                 NativeTimelineSnapshot(projectName, duration, tracks)
             } catch (_: Exception) {
-                empty
+                null
             }
         }
+
+        /**
+         * Compatibility convenience for display-only callers. Command paths
+         * must use [tryFromEngineState] so malformed state is never mistaken
+         * for a legitimate empty project.
+         */
+        fun fromEngineState(stateJson: String): NativeTimelineSnapshot =
+            tryFromEngineState(stateJson)
+                ?: NativeTimelineSnapshot("未命名工程", 1L, emptyList())
     }
 }
