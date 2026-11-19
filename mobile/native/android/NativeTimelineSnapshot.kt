@@ -74,7 +74,11 @@ data class NativeTimelineSnapshot(
                                 val startUs = sourceClip.longField("start_us") ?: -1L
                                 val clipDurationUs = sourceClip.longField("duration_us") ?: 0L
                                 if (clipId <= 0L || startUs < 0L || clipDurationUs <= 0L) continue
-                                val enabled = sourceClip.longField("enabled")?.let { it != 0L } ?: true
+                                // BuildState always emits enabled as an integer.
+                                // Missing or malformed flags must not silently turn a
+                                // disabled clip into an editable/visible one.
+                                val enabledValue = sourceClip.longField("enabled") ?: continue
+                                val enabled = enabledValue != 0L
                                 clips += NativeTimelineClip(
                                     id = clipId,
                                     startUs = startUs,
@@ -85,13 +89,18 @@ data class NativeTimelineSnapshot(
                             }
                         }
 
+                        // The JNI serializer always includes both flags. If either
+                        // is malformed, skip this row rather than displaying a
+                        // potentially hidden/muted track as active.
+                        val hidden = sourceTrack.longField("hidden") ?: continue
+                        val muted = sourceTrack.longField("muted") ?: continue
                         tracks += NativeTimelineTrack(
                             id = trackId,
                             name = sourceTrack.optString("name", "轨道 $trackId")
                                 .ifBlank { "轨道 $trackId" },
                             clips = clips,
-                            visible = sourceTrack.longField("hidden")?.let { it == 0L } ?: true,
-                            muted = sourceTrack.longField("muted")?.let { it != 0L } ?: false,
+                            visible = hidden == 0L,
+                            muted = muted != 0L,
                             engineIndex = trackIndex
                         )
                     }
