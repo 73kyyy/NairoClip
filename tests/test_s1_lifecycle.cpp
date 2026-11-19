@@ -10,6 +10,7 @@
 #include "test_framework.h"
 
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <string>
 
