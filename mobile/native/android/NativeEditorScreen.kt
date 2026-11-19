@@ -160,6 +160,7 @@ fun NativeEditorScreen(
                 NativeParameterPanel(
                     targetTrackIndex = selectedTarget.first,
                     targetClipId = selectedTarget.second,
+                    activeSubTool = activeSubTool ?: "位置",
                     transform = transform,
                     keyedParameters = keyedParameters,
                     keyframes = keyframes,
@@ -434,6 +435,7 @@ enum class NativeParameter(val engineProperty: Int) {
 private fun NativeParameterPanel(
     targetTrackIndex: Int,
     targetClipId: Long,
+    activeSubTool: String,
     transform: NativeTransform,
     keyedParameters: Set<NativeParameter>,
     keyframes: Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>>,
@@ -446,8 +448,14 @@ private fun NativeParameterPanel(
     // Parameter/channel selection belongs to a clip, not to the panel's
     // compositional position. Switching clips must not carry a stale channel
     // or keyframe timestamp into the newly selected target.
-    var activeParameter by remember(targetTrackIndex, targetClipId) {
-        mutableStateOf(NativeParameter.SCALE)
+    var activeParameter by remember(targetTrackIndex, targetClipId, activeSubTool) {
+        mutableStateOf(
+            when (activeSubTool) {
+                "缩放" -> NativeParameter.SCALE
+                "旋转" -> NativeParameter.ROTATION
+                else -> NativeParameter.X
+            }
+        )
     }
     val activeFrames = keyframes[activeParameter].orEmpty()
     // Track the selected keyframe by its project timestamp rather than list
@@ -497,14 +505,29 @@ private fun NativeParameterPanel(
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("变换参数", color = NcColors.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                when (activeSubTool) {
+                    "缩放" -> "缩放参数"
+                    "旋转" -> "旋转参数"
+                    else -> "位置参数"
+                },
+                color = NcColors.text,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
             Spacer(Modifier.weight(1f))
             Text("关键帧 ${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
         }
-        ParameterSlider("X", draftTransform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.X, it) }, onValueChangeFinished = ::commitDraft)
-        ParameterSlider("Y", draftTransform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.Y, it) }, onValueChangeFinished = ::commitDraft)
-        ParameterSlider("缩放", draftTransform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", onValueChange = { updateDraft(NativeParameter.SCALE, it) }, onValueChangeFinished = ::commitDraft)
-        ParameterSlider("旋转", draftTransform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", onValueChange = { updateDraft(NativeParameter.ROTATION, it) }, onValueChangeFinished = ::commitDraft)
+        if (activeSubTool == "位置") {
+            ParameterSlider("X", draftTransform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.X, it) }, onValueChangeFinished = ::commitDraft)
+            ParameterSlider("Y", draftTransform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.Y, it) }, onValueChangeFinished = ::commitDraft)
+        }
+        if (activeSubTool == "缩放") {
+            ParameterSlider("缩放", draftTransform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", onValueChange = { updateDraft(NativeParameter.SCALE, it) }, onValueChangeFinished = ::commitDraft)
+        }
+        if (activeSubTool == "旋转") {
+            ParameterSlider("旋转", draftTransform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", onValueChange = { updateDraft(NativeParameter.ROTATION, it) }, onValueChangeFinished = ::commitDraft)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             NativeParameter.values().forEach { parameter ->
                 val selected = activeParameter == parameter
