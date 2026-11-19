@@ -180,7 +180,7 @@ private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Black)
-                    .border(1.dp, Color(0x332FFFFFF), RoundedCornerShape(8.dp)),
+                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (previewView != null) {
@@ -235,87 +235,10 @@ private fun QuickActionStrip(onAction: () -> Unit) {
 
 @Composable
 private fun NativeTimelinePanel(modifier: Modifier = Modifier) {
-    Column(
+    AndroidView(
+        factory = { context -> NativeTimelineView(context) },
         modifier = modifier
-            .background(NcColors.timeline)
-            .padding(top = 5.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(25.dp)
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("时间轴", color = NcColors.secondary, fontSize = 10.sp)
-            Text("00:00:00:00", color = NcColors.text, fontSize = 10.sp)
-        }
-
-        Row(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .width(42.dp)
-                    .padding(top = 23.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                listOf("V1", "A1", "T1").forEachIndexed { index, label ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(42.dp)
-                            .background(if (index % 2 == 0) NcColors.laneAlt else NcColors.lane),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(label, color = NcColors.secondary, fontSize = 9.sp)
-                    }
-                }
-            }
-
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .horizontalScroll(rememberScrollState())
-                ) {
-                    TimelineRuler()
-                    listOf("视频轨道 · 添加素材", "音频轨道 · 添加音频", "文字轨道 · 添加字幕").forEachIndexed { index, hint ->
-                        Box(
-                            modifier = Modifier
-                                .width(820.dp)
-                                .height(42.dp)
-                                .padding(bottom = 4.dp)
-                                .background(if (index % 2 == 0) NcColors.laneAlt else NcColors.lane),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = hint,
-                                color = NcColors.muted,
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                        }
-                    }
-                }
-
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val x = size.width * 0.46f
-                    drawLine(
-                        color = Color.White,
-                        start = androidx.compose.ui.geometry.Offset(x, 0f),
-                        end = androidx.compose.ui.geometry.Offset(x, size.height),
-                        strokeWidth = 1.5.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
-                    drawCircle(
-                        color = Color.White,
-                        radius = 3.dp.toPx(),
-                        center = androidx.compose.ui.geometry.Offset(x, 4.dp.toPx())
-                    )
-                }
-            }
-        }
-    }
+    )
 }
 
 @Composable
