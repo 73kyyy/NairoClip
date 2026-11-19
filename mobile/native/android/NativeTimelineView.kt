@@ -595,8 +595,14 @@ class NativeTimelineView(context: Context) : View(context) {
 
     private fun formatTime(seconds: Long): String {
         val safe = seconds.coerceAtLeast(0L)
-        val minutes = safe / 60L
+        val hours = safe / 3_600L
+        val minutes = (safe / 60L) % 60L
         val remaining = safe % 60L
-        return "%02d:%02d".format(minutes, remaining)
+        fun twoDigits(value: Long): String = if (value < 10L) "0$value" else value.toString()
+        return if (hours > 0L) {
+            "${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(remaining)}"
+        } else {
+            "${twoDigits(safe / 60L)}:${twoDigits(remaining)}"
+        }
     }
 }
