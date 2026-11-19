@@ -652,7 +652,7 @@ private fun ParameterSlider(
         focusManager.clearFocus()
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(38.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(48.dp)) {
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         Slider(
             value = safeValue,
@@ -662,7 +662,7 @@ private fun ParameterSlider(
             modifier = Modifier.weight(1f)
         )
         Box(
-            modifier = Modifier.width(58.dp).clip(RoundedCornerShape(5.dp))
+            modifier = Modifier.width(58.dp).height(44.dp).clip(RoundedCornerShape(5.dp))
                 .background(if (editingValue) NcColors.lane else Color.Transparent)
                 .border(1.dp, NcColors.line, RoundedCornerShape(5.dp))
                 .clickable {
