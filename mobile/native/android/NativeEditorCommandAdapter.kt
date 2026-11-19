@@ -3,11 +3,13 @@ package com.nairoclip.app
 import org.json.JSONObject
 
 /**
- * Narrow adapter for the keyframe C ABI operations already allowlisted by DispatchEdit.
+ * Narrow adapter for the keyframe C ABI operations explicitly allowlisted by
+ * the Android JNI DispatchEdit function.
  *
  * This class deliberately does not own an editor handle or bypass the bridge's
  * state lock. All calls go through NativeEngineBridge.call(), which serializes
- * access to the non-thread-safe NcEditor instance.
+ * access to the non-thread-safe NcEditor instance. Only operations with an
+ * existing nc_* dispatcher branch are exposed here.
  */
 class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
