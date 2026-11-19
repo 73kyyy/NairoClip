@@ -727,6 +727,22 @@ class NativeEngineBridge(
             }
         }
 
+        /**
+         * Render one project timestamp into the currently attached native Surface.
+         * This is a synchronous frame render, not a playback clock or transport API.
+         */
+        fun renderPreviewFrame(timeUs: Long): Boolean = synchronized(stateLock) {
+            if (timeUs < 0L) return@synchronized false
+            val inst = instanceForSurface ?: return@synchronized false
+            val handle = inst.editor
+            if (handle == 0L) return@synchronized false
+            try {
+                inst.nativeBlitFrame(handle, timeUs)
+            } catch (_: Throwable) {
+                false
+            }
+        }
+
         /** 安装崩溃处理器（§8.1）。用单例实例转发。 */
         fun installCrashHandler(dir: String): Boolean {
             return synchronized(stateLock) {
