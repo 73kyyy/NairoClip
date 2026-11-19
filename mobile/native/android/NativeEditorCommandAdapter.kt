@@ -168,16 +168,46 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     data class HistoryState(val canUndo: Boolean, val canRedo: Boolean)
 
     /** Reads the history capability flags emitted by the existing engine state snapshot. */
-    fun historyState(): Result<HistoryState> = try {
+    fun historyState(): Result<HistoryState> =
+        bridge.withEditorStateLock { readHistoryStateLocked() }
+
+    /**
+     * Executes undo/redo and reads the resulting capability flags under the
+     * same bridge monitor. Hosts can publish the returned state atomically,
+     * avoiding a stale enabled/disabled state between the command and refresh.
+     */
+    fun undoAndReadHistoryState(): Result<HistoryState> =
+        mutateAndReadHistoryState { undo() }
+
+    fun redoAndReadHistoryState(): Result<HistoryState> =
+        mutateAndReadHistoryState { redo() }
+
+    private fun mutateAndReadHistoryState(
+        mutation: () -> Result<Unit>
+    ): Result<HistoryState> = bridge.withEditorStateLock {
+        val changed = try {
+            mutation()
+        } catch (error: Exception) {
+            Result(false, error = error.message ?: "历史命令执行失败")
+        }
+        if (!changed.ok) {
+            return@withEditorStateLock Result(false, error = changed.error ?: "历史命令执行失败")
+        }
+        readHistoryStateLocked()
+    }
+
+    private fun readHistoryStateLocked(): Result<HistoryState> = try {
         val envelope = JSONObject(bridge.state())
         if (!envelope.optBoolean("ok", false)) {
             Result(false, error = envelope.optString("message", "读取撤销状态失败"))
         } else {
-            val state = envelope.optJSONObject("result") ?: JSONObject()
-            Result(true, HistoryState(
-                canUndo = state.optInt("can_undo", 0) != 0,
-                canRedo = state.optInt("can_redo", 0) != 0
-            ))
+            val state = envelope.optJSONObject("result")
+                ?: return Result(false, error = "工程历史状态缺失")
+            val canUndo = state.opt("can_undo") as? Number
+                ?: return Result(false, error = "撤销状态字段无效")
+            val canRedo = state.opt("can_redo") as? Number
+                ?: return Result(false, error = "重做状态字段无效")
+            Result(true, HistoryState(canUndo.toInt() != 0, canRedo.toInt() != 0))
         }
     } catch (error: Exception) {
         Result(false, error = error.message ?: "读取撤销状态失败")
