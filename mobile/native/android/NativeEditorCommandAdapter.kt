@@ -22,6 +22,62 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     data class Result<T>(val ok: Boolean, val value: T? = null, val error: String? = null)
 
+    data class TransformState(
+        val transform: NativeTransform,
+        val enabled: Boolean,
+        val anchor: Int
+    )
+
+    fun getTransform(target: ClipTarget): Result<TransformState> = try {
+        val response = JSONObject(bridge.editorTransformGet(target.trackIndex, target.clipId))
+        if (!response.optBoolean("ok", false)) {
+            Result(false, error = response.optString("message", "读取变换失败"))
+        } else {
+            val raw = response.opt("result")
+            val payload = when (raw) {
+                is JSONObject -> raw
+                is String -> JSONObject(raw)
+                else -> JSONObject()
+            }
+            val scale = payload.getDouble("scale")
+            val x = payload.getDouble("pos_x")
+            val y = payload.getDouble("pos_y")
+            val rotation = payload.getDouble("rotation")
+            require(scale.isFinite() && scale > 0.0)
+            require(x.isFinite() && y.isFinite() && rotation.isFinite())
+            Result(
+                true,
+                TransformState(
+                    transform = NativeTransform(
+                        x = x.toFloat(),
+                        y = y.toFloat(),
+                        scale = (scale * 100.0).toFloat(),
+                        rotation = rotation.toFloat()
+                    ),
+                    enabled = payload.optInt("enabled", 1) != 0,
+                    anchor = payload.optInt("anchor", 4).coerceIn(0, 8)
+                )
+            )
+        }
+    } catch (error: Exception) {
+        Result(false, error = error.message ?: "变换响应解析失败")
+    }
+
+    fun setTransform(
+        target: ClipTarget,
+        transform: NativeTransform,
+        enabled: Boolean = true,
+        anchor: Int = 4
+    ): Result<Unit> = try {
+        val response = JSONObject(
+            bridge.editorTransformSet(target.trackIndex, target.clipId, transform, enabled, anchor)
+        )
+        if (response.optBoolean("ok", false)) Result(true)
+        else Result(false, error = response.optString("message", "写入变换失败"))
+    } catch (error: Exception) {
+        Result(false, error = error.message ?: "变换写入失败")
+    }
+
     fun insertKeyframe(target: ClipTarget, property: Int, timeUs: Long, value: Double): Result<Unit> {
         if (property !in 0..5 || timeUs < 0L || !value.isFinite()) {
             return Result(false, error = "关键帧参数非法")
