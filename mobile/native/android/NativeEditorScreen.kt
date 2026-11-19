@@ -379,7 +379,7 @@ private fun NativeParameterPanel(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("变换参数", color = NcColors.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text("关键帧 \${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
+            Text("关键帧 ${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
         }
         ParameterSlider("X", transform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(x = it)) }
         ParameterSlider("Y", transform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(y = it)) }
@@ -428,7 +428,7 @@ private fun NativeParameterPanel(
             selectedFrame?.let { frame ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "缓动 \${easingLabel(frame.easing)}",
+                        text = "缓动 ${easingLabel(frame.easing)}",
                         color = NcColors.secondary,
                         fontSize = 9.sp,
                         modifier = Modifier.weight(1f)
