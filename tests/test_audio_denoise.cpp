@@ -576,7 +576,7 @@ NC_TEST(AudioDenoise, MixerAppliesDenoiseToRealMedia) {
     const double noiseReductionDb = 20.0 * std::log10((noiseOut + 1e-12) / (noiseIn + 1e-12));
     std::fprintf(stderr,
                  "[AUDIO_DENOISE_METRICS] tone_in=%.9f tone_out=%.9f tone_retention_db=%.3f "
-                 "noise_in=%.9f noise_out=%.9f noise_reduction_db=%.3f\\n",
+                 "noise_in=%.9f noise_out=%.9f noise_reduction_db=%.3f\n",
                  toneIn, toneOut, toneRetentionDb, noiseIn, noiseOut, noiseReductionDb);
     NC_CHECK(toneIn > 0.05);
     NC_CHECK(20.0 * std::log10((toneOut + 1e-12) / (toneIn + 1e-12)) > -8.0);
