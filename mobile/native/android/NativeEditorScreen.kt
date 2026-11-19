@@ -507,12 +507,21 @@ private fun KeyframeCurvePreview(frame: NativeEditorCommandAdapter.Keyframe, mod
                 5 -> {
                     // Engine Bezier Y controls may overshoot [0, 1]. Keep a
                     // useful overshoot preview while bounding Canvas geometry.
-                    val c1y = frame.c1y.toFloat().coerceIn(-4f, 4f)
-                    val c2y = frame.c2y.toFloat().coerceIn(-4f, 4f)
+                    // Keep malformed host-supplied values from poisoning
+                    // the Canvas path. The command adapter validates engine
+                    // data too; these bounds protect this presentation boundary.
+                    val c1x = frame.c1x.takeIf { it.isFinite() }
+                        ?.toFloat()?.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+                    val c2x = frame.c2x.takeIf { it.isFinite() }
+                        ?.toFloat()?.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 1f
+                    val c1y = frame.c1y.takeIf { it.isFinite() }
+                        ?.toFloat()?.takeIf { it.isFinite() }?.coerceIn(-4f, 4f) ?: 0f
+                    val c2y = frame.c2y.takeIf { it.isFinite() }
+                        ?.toFloat()?.takeIf { it.isFinite() }?.coerceIn(-4f, 4f) ?: 0f
                     cubicTo(
-                        left + width * frame.c1x.toFloat(),
+                        left + width * c1x,
                         bottom - height * c1y,
-                        left + width * frame.c2x.toFloat(),
+                        left + width * c2x,
                         bottom - height * c2y,
                         right,
                         top
