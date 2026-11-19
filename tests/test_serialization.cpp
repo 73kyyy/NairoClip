@@ -99,6 +99,66 @@ NC_TEST(Serialization, RejectsBadJson) {
     NC_CHECK(!r.result.isOk());
     NC_CHECK(r.result.code == ErrorCode::InvalidArgument);
 }
+NC_TEST(Serialization, RejectsZeroRationalDenominator) {
+    const std::string text =
+        R"({"format":"nclip","version":1,"project":{"name":"bad-rational"},"assets":[{"id":10,"path":"x.mp4","name":"x.mp4","type":"video","duration":[1,1],"frameRate":[30,1],"width":1,"height":1,"sampleRate":0,"channels":0}],"sequences":[{"id":1,"name":"s","frameRate":[30,1],"width":1920,"height":1080,"tracks":[{"id":2,"type":"video","name":"v","clips":[{"id":3,"asset":10,"start":[0,0],"duration":[1,1],"sourceIn":[0,1],"speed":[1,1]}]}],"markers":[]}]})";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(!r.result.isOk());
+    NC_CHECK(r.result.code == ErrorCode::InvalidArgument);
+    NC_CHECK(out.sequences.empty());
+}
+
+NC_TEST(Serialization, RejectsNegativeRationalDenominator) {
+    const std::string text =
+        R"({"format":"nclip","version":1,"project":{"name":"bad-rational"},"assets":[{"id":10,"path":"x.mp4","name":"x.mp4","type":"video","duration":[1,1],"frameRate":[30,1],"width":1,"height":1,"sampleRate":0,"channels":0}],"sequences":[{"id":1,"name":"s","frameRate":[30,1],"width":1920,"height":1080,"tracks":[{"id":2,"type":"video","name":"v","clips":[{"id":3,"asset":10,"start":[0,-1],"duration":[1,1],"sourceIn":[0,1],"speed":[1,1]}]}],"markers":[]}]})";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(!r.result.isOk());
+    NC_CHECK(r.result.code == ErrorCode::InvalidArgument);
+    NC_CHECK(out.sequences.empty());
+}
+
+NC_TEST(Serialization, RejectsNonPositiveFrameRate) {
+    const std::string text =
+        R"({"format":"nclip","version":1,"project":{"name":"bad-fps"},"assets":[],"sequences":[{"id":1,"name":"s","frameRate":[0,1],"width":1920,"height":1080,"tracks":[],"markers":[]}]})";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(!r.result.isOk());
+    NC_CHECK(r.result.code == ErrorCode::InvalidArgument);
+    NC_CHECK(out.sequences.empty());
+}
+
+NC_TEST(Serialization, RejectsZeroFrameRateDenominator) {
+    const std::string text =
+        R"({"format":"nclip","version":1,"project":{"name":"bad-fps"},"assets":[],"sequences":[{"id":1,"name":"s","frameRate":[30,0],"width":1920,"height":1080,"tracks":[],"markers":[]}]})";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(!r.result.isOk());
+    NC_CHECK(r.result.code == ErrorCode::InvalidArgument);
+    NC_CHECK(out.sequences.empty());
+}
+
+NC_TEST(Serialization, RejectsNegativeSequenceFrameRate) {
+    const std::string text =
+        R"({"format":"nclip","version":1,"project":{"name":"bad-fps"},"assets":[],"sequences":[{"id":1,"name":"s","frameRate":[-30,1],"width":1920,"height":1080,"tracks":[],"markers":[]}]})";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(!r.result.isOk());
+    NC_CHECK(r.result.code == ErrorCode::InvalidArgument);
+    NC_CHECK(out.sequences.empty());
+}
+
+NC_TEST(Serialization, RejectsNegativeAssetFrameRate) {
+    const std::string text =
+        R"({"format":"nclip","version":1,"project":{"name":"bad-asset-fps"},"assets":[{"id":10,"path":"x.mp4","name":"x.mp4","type":"video","duration":[1,1],"frameRate":[-30,1],"width":1,"height":1,"sampleRate":0,"channels":0}],"sequences":[]})";
+    Project out;
+    const NclipLoadResult r = loadProjectFromNclip(text, out);
+    NC_CHECK(!r.result.isOk());
+    NC_CHECK(r.result.code == ErrorCode::InvalidArgument);
+    NC_CHECK(out.assets.empty());
+}
+
 NC_TEST(Serialization, RejectsDanglingAssetReference) {
     // 片段引用了不存在的素材 ID → 拒绝载入
     const std::string text = R"({"format":"nclip","version":1,"project":{"name":"t"},"assets":[],"sequences":[{"id":1,"name":"s","frameRate":[30,1],"width":1920,"height":1080,"tracks":[{"id":2,"type":"video","name":"v","clips":[{"id":3,"asset":999,"start":[0,1],"duration":[1,1],"sourceIn":[0,1],"speed":[1,1]}]}],"markers":[]}]})";
