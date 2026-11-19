@@ -89,6 +89,12 @@ fun NativeEditorScreen(
     var expandedTool by remember { mutableStateOf<String?>(null) }
     var activeSubTool by remember { mutableStateOf<String?>(null) }
     var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
+    LaunchedEffect(projectName) {
+        // Do not carry an expanded tool or parameter context into a different project.
+        activeTool = "剪辑"
+        expandedTool = null
+        activeSubTool = null
+    }
     LaunchedEffect(timelineTracks, selectedClip) {
         val selection = selectedClip ?: return@LaunchedEffect
         val stillExists = timelineTracks.any { track ->
