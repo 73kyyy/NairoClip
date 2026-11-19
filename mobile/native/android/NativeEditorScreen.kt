@@ -57,6 +57,7 @@ fun NativeEditorScreen(
     timelineDurationUs: Long = 30_000_000L,
     playheadUs: Long = 0L,
     onPlayheadChanged: (Long) -> Unit = {},
+    onClipSelected: (Long, Long) -> Unit = { _, _ -> },
     onTrackVisibilityChanged: (Long, Boolean) -> Unit = { _, _ -> },
     onTrackMuteChanged: (Long, Boolean) -> Unit = { _, _ -> },
     transform: NativeTransform = NativeTransform(),
@@ -87,6 +88,7 @@ fun NativeEditorScreen(
                 durationUs = timelineDurationUs,
                 playheadUs = playheadUs,
                 onPlayheadChanged = onPlayheadChanged,
+                onClipSelected = onClipSelected,
                 onTrackVisibilityChanged = onTrackVisibilityChanged,
                 onTrackMuteChanged = onTrackMuteChanged,
                 modifier = Modifier
@@ -263,6 +265,7 @@ private fun NativeTimelinePanel(
     durationUs: Long,
     playheadUs: Long,
     onPlayheadChanged: (Long) -> Unit,
+    onClipSelected: (Long, Long) -> Unit,
     onTrackVisibilityChanged: (Long, Boolean) -> Unit,
     onTrackMuteChanged: (Long, Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -276,6 +279,7 @@ private fun NativeTimelinePanel(
         },
         update = { view ->
             view.onPlayheadChanged = onPlayheadChanged
+            view.onClipSelected = onClipSelected
             view.onTrackVisibilityChanged = onTrackVisibilityChanged
             view.onTrackMuteChanged = onTrackMuteChanged
             view.setTimeline(tracks, durationUs, playheadUs)
