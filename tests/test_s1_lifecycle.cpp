@@ -46,8 +46,9 @@ bool dispatchTouchesEditor(NcEditor* editor) {
     if (result == nullptr) {
         return false;
     }
+    const bool dispatched = std::string(result).find(commandId) != std::string::npos;
     nc_free_string(result);
-    return true;
+    return dispatched;
 }
 
 }  // namespace
