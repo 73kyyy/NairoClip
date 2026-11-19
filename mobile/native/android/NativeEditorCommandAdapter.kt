@@ -81,6 +81,34 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         ) { Unit }
     }
 
+
+    fun setKeyframeEasing(
+        target: ClipTarget,
+        property: Int,
+        timeUs: Long,
+        easing: Int,
+        c1x: Double = 0.0,
+        c1y: Double = 0.0,
+        c2x: Double = 1.0,
+        c2y: Double = 1.0
+    ): Result<Unit> {
+        if (property !in 0..5 || timeUs < 0L || easing !in 0..5 ||
+            !c1x.isFinite() || !c1y.isFinite() || !c2x.isFinite() || !c2y.isFinite()) {
+            return Result(false, error = "关键帧曲线参数非法")
+        }
+        return invoke(
+            "nc_set_keyframe_easing",
+            targetArgs(target)
+                .put("property", property)
+                .put("time_us", timeUs)
+                .put("easing", easing)
+                .put("c1x", c1x)
+                .put("c1y", c1y)
+                .put("c2x", c2x)
+                .put("c2y", c2y)
+        ) { Unit }
+    }
+
     fun keyframeCount(target: ClipTarget, property: Int): Result<Int> {
         if (property !in 0..5) return Result(false, error = "关键帧属性编号非法")
         return invoke(
