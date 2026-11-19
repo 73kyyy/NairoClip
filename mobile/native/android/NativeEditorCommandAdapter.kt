@@ -51,6 +51,107 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         return insertKeyframe(target, parameter.engineProperty, playheadUs, value.toDouble())
     }
 
+    data class Keyframe(
+        val timeUs: Long,
+        val value: Double,
+        val easing: Int,
+        val c1x: Double,
+        val c1y: Double,
+        val c2x: Double,
+        val c2y: Double
+    )
+
+    fun keyframeCount(target: ClipTarget, parameter: NativeParameter): Result<Int> =
+        invoke(
+            "nc_keyframe_count",
+            targetArgs(target).put("property", parameter.engineProperty)
+        ) { payload -> payload.optInt("count", -1).also { require(it >= 0) } }
+
+    fun keyframes(target: ClipTarget, parameter: NativeParameter): Result<List<Keyframe>> {
+        val countResult = keyframeCount(target, parameter)
+        if (!countResult.ok) return Result(false, error = countResult.error)
+        val count = countResult.value ?: return Result(false, error = "关键帧数量缺失")
+        if (count > MAX_KEYFRAMES_PER_CHANNEL) {
+            return Result(false, error = "关键帧数量超出安全读取上限")
+        }
+        val frames = ArrayList<Keyframe>(count)
+        for (index in 0 until count) {
+            val result = invoke(
+                "nc_keyframe_get_ex",
+                targetArgs(target)
+                    .put("property", parameter.engineProperty)
+                    .put("index", index)
+            ) { payload ->
+                Keyframe(
+                    timeUs = payload.getLong("time_us"),
+                    value = payload.getDouble("value"),
+                    easing = payload.getInt("easing"),
+                    c1x = payload.optDouble("c1x", 0.0),
+                    c1y = payload.optDouble("c1y", 0.0),
+                    c2x = payload.optDouble("c2x", 1.0),
+                    c2y = payload.optDouble("c2y", 1.0)
+                ).also { frame ->
+                    require(frame.timeUs >= 0L && frame.value.isFinite())
+                    require(frame.easing in 0..5)
+                    require(frame.c1x.isFinite() && frame.c1y.isFinite())
+                    require(frame.c2x.isFinite() && frame.c2y.isFinite())
+                }
+            }
+            if (!result.ok) return Result(false, error = result.error)
+            frames += result.value ?: return Result(false, error = "关键帧数据缺失")
+        }
+        return Result(true, frames)
+    }
+
+    fun removeKeyframe(
+        target: ClipTarget,
+        parameter: NativeParameter,
+        timeUs: Long
+    ): Result<Unit> {
+        if (timeUs < 0L) return Result(false, error = "关键帧时间不能为负数")
+        return invoke(
+            "nc_remove_keyframe",
+            targetArgs(target)
+                .put("property", parameter.engineProperty)
+                .put("time_us", timeUs)
+        ) { Unit }
+    }
+
+    fun setKeyframeEasing(
+        target: ClipTarget,
+        parameter: NativeParameter,
+        timeUs: Long,
+        easing: Int,
+        c1x: Double = 0.0,
+        c1y: Double = 0.0,
+        c2x: Double = 1.0,
+        c2y: Double = 1.0
+    ): Result<Unit> {
+        if (timeUs < 0L || easing !in 0..5 ||
+            !c1x.isFinite() || !c1y.isFinite() || !c2x.isFinite() || !c2y.isFinite()
+        ) {
+            return Result(false, error = "关键帧曲线参数非法")
+        }
+        if (easing == 5 && (c1x !in 0.0..1.0 || c2x !in 0.0..1.0)) {
+            return Result(false, error = "贝塞尔控制点 X 必须在 0 到 1 之间")
+        }
+        return invoke(
+            "nc_set_keyframe_easing",
+            targetArgs(target)
+                .put("property", parameter.engineProperty)
+                .put("time_us", timeUs)
+                .put("easing", easing)
+                .put("c1x", c1x)
+                .put("c1y", c1y)
+                .put("c2x", c2x)
+                .put("c2y", c2y)
+        ) { Unit }
+    }
+
+    companion object {
+        private const val MAX_KEYFRAMES_PER_CHANNEL = 4096
+    }
+
     private fun targetArgs(target: ClipTarget) =
         JSONObject().put("track_index", target.trackIndex).put("clip_id", target.clipId)
 
