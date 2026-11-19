@@ -72,8 +72,8 @@ fun NativeEditorScreen(
     playheadUs: Long = 0L,
     onPlayheadChanged: (Long) -> Unit = {},
     onClipSelected: (Int, Long) -> Unit = { _, _ -> },
-    onTrackVisibilityChanged: (Int, Boolean) -> Unit = { _, _ -> },
-    onTrackMuteChanged: (Int, Boolean) -> Unit = { _, _ -> },
+    onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null,
+    onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null,
     transform: NativeTransform = NativeTransform(),
     keyedParameters: Set<NativeParameter> = emptySet(),
     keyframes: Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>> = emptyMap(),
@@ -430,8 +430,8 @@ private fun NativeTimelinePanel(
     onPlayheadChanged: (Long) -> Unit,
     onClipSelected: (Int, Long) -> Unit,
     onClipSelectionCleared: () -> Unit,
-    onTrackVisibilityChanged: (Int, Boolean) -> Unit,
-    onTrackMuteChanged: (Int, Boolean) -> Unit,
+    onTrackVisibilityChanged: ((Int, Boolean) -> Unit)?,
+    onTrackMuteChanged: ((Int, Boolean) -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     AndroidView(
