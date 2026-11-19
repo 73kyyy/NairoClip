@@ -157,7 +157,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         if (!envelope.optBoolean("ok", false)) {
             Result(false, error = envelope.optString("message", "读取工程快照失败"))
         } else {
-            Result(true, NativeTimelineSnapshot.fromEngineState(stateJson))
+            val snapshot = NativeTimelineSnapshot.tryFromEngineState(stateJson)
+                ?: return Result(false, error = "工程快照结构无效，保留当前时间轴状态")
+            Result(true, snapshot)
         }
     } catch (error: Exception) {
         Result(false, error = error.message ?: "工程快照解析失败")
