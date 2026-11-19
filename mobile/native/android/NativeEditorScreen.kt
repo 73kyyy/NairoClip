@@ -579,10 +579,11 @@ private fun NativeParameterPanel(
                         text = "%.2fs · %.2f".format(frame.timeUs / 1_000_000.0, frame.value),
                         color = if (selected) NcColors.text else NcColors.secondary,
                         fontSize = 9.sp,
-                        modifier = Modifier.clip(RoundedCornerShape(5.dp))
+                        modifier = Modifier
+                            .padding(horizontal = 7.dp, vertical = 10.dp)
+                            .clip(RoundedCornerShape(5.dp))
                             .background(if (selected) Color(0xFF414549) else NcColors.lane)
                             .clickable { selectedFrameTimeUs = frame.timeUs }
-                            .padding(horizontal = 7.dp, vertical = 5.dp)
                     )
                 }
             }
@@ -593,11 +594,17 @@ private fun NativeParameterPanel(
                         color = NcColors.secondary,
                         fontSize = 9.sp,
                         modifier = Modifier.weight(1f)
+                            .padding(vertical = 10.dp)
                             .clickable { onSetKeyframeEasing(activeParameter, frame.copy(easing = (frame.easing + 1) % 6)) }
-                            .padding(vertical = 4.dp)
                     )
-                    Text("删除关键帧", color = NcColors.danger, fontSize = 9.sp,
-                        modifier = Modifier.clickable { onRemoveKeyframe(activeParameter, frame.timeUs) }.padding(4.dp))
+                    Text(
+                        "删除关键帧",
+                        color = NcColors.danger,
+                        fontSize = 9.sp,
+                        modifier = Modifier
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
+                            .clickable { onRemoveKeyframe(activeParameter, frame.timeUs) }
+                    )
                 }
                 KeyframeCurvePreview(frame = frame, modifier = Modifier.fillMaxWidth().height(44.dp))
             }
