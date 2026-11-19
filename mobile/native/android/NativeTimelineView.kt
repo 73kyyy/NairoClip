@@ -478,9 +478,15 @@ class NativeTimelineView(context: Context) : View(context) {
     }
 
     private fun maxVerticalScrollOffset(): Float {
-        val contentHeight = tracks.size.toDouble() * (rowHeight + rowGap).toDouble()
-        val viewportHeight = (height.toFloat() - rulerHeight).coerceAtLeast(0f).toDouble()
-        return (contentHeight - viewportHeight).coerceIn(0.0, Float.MAX_VALUE.toDouble()).toFloat()
+        if (tracks.isEmpty()) return 0f
+        // The last lane has no trailing row gap. Counting N * (height + gap)
+        // overestimated the content by one gap and allowed blank space below
+        // the final track at maximum scroll.
+        val contentHeight = tracks.size.toDouble() * rowHeight.toDouble() +
+            (tracks.size - 1).toDouble() * rowGap.toDouble()
+        val viewportHeight = (height.toDouble() - rulerHeight.toDouble()).coerceAtLeast(0.0)
+        val maximum = (contentHeight - viewportHeight).coerceAtLeast(0.0)
+        return maximum.coerceAtMost(Float.MAX_VALUE.toDouble()).toFloat()
     }
 
     private fun updatePlayheadFromTouch(x: Float) {
