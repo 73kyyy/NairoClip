@@ -68,9 +68,13 @@ fun NativeEditorScreen(
     onInsertKeyframe: (Int, Long, NativeParameter) -> Unit = { _, _, _ -> },
     onRemoveKeyframe: (Int, Long, NativeParameter, Long) -> Unit = { _, _, _, _ -> },
     onSetKeyframeEasing: (Int, Long, NativeParameter, Long, Int, Double, Double, Double, Double) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    onUndo: () -> Unit = {},
+    onRedo: () -> Unit = {},
     onOpenLegacy: () -> Unit
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
+    var expandedTool by remember { mutableStateOf<String?>(null) }
+    var activeSubTool by remember { mutableStateOf<String?>(null) }
     var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
     LaunchedEffect(timelineTracks, selectedClip) {
         val selection = selectedClip ?: return@LaunchedEffect
@@ -95,7 +99,11 @@ fun NativeEditorScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth()
             )
 
-            QuickActionStrip(onAction = onOpenLegacy)
+            QuickActionStrip(
+                onUndo = onUndo,
+                onRedo = onRedo,
+                onOpenLegacy = onOpenLegacy
+            )
 
             NativeTimelinePanel(
                 tracks = timelineTracks,
@@ -165,9 +173,20 @@ fun NativeEditorScreen(
 
             NativeToolBar(
                 activeTool = activeTool,
-                onToolSelected = {
-                    activeTool = it
-                    if (it != "画面" && it != "调节") onOpenLegacy()
+                expandedTool = expandedTool,
+                activeSubTool = activeSubTool,
+                onToolSelected = { tool ->
+                    if (expandedTool == tool) {
+                        expandedTool = null
+                    } else {
+                        expandedTool = tool
+                        activeTool = tool
+                        activeSubTool = null
+                    }
+                },
+                onSubToolSelected = { tool, subTool ->
+                    activeTool = tool
+                    activeSubTool = subTool
                 }
             )
         }
@@ -281,7 +300,11 @@ private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun QuickActionStrip(onAction: () -> Unit) {
+private fun QuickActionStrip(
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onOpenLegacy: () -> Unit
+) {
     val actions = listOf("＋", "⌂", "‹", "◇", "渲染", "◆", "＃", "▧", "AI", "↶", "↷")
     Row(
         modifier = Modifier
@@ -300,7 +323,11 @@ private fun QuickActionStrip(onAction: () -> Unit) {
                     .clip(CircleShape)
                     .background(NcColors.panel)
                     .border(1.dp, NcColors.line, CircleShape)
-                    .clickable(onClick = onAction),
+                    .clickable(onClick = when (label) {
+                        "↶" -> onUndo
+                        "↷" -> onRedo
+                        else -> onOpenLegacy
+                    }),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -618,8 +645,23 @@ private fun TransportButton(label: String, onAction: () -> Unit, tint: Color = N
 }
 
 @Composable
-private fun NativeToolBar(activeTool: String, onToolSelected: (String) -> Unit) {
-    val tools = listOf("剪辑", "音频", "文本", "贴纸", "特效", "画面", "调节", "更多")
+private fun NativeToolBar(
+    activeTool: String,
+    expandedTool: String?,
+    activeSubTool: String?,
+    onToolSelected: (String) -> Unit,
+    onSubToolSelected: (String, String) -> Unit
+) {
+    val tools = listOf(
+        "剪辑" to listOf("分割", "删除", "复制", "变速", "动画"),
+        "音频" to listOf("音量", "淡入淡出", "降噪", "人声分离"),
+        "文本" to listOf("添加文本", "自动字幕", "样式", "朗读"),
+        "贴纸" to listOf("贴纸库", "表情", "自定义"),
+        "特效" to listOf("视频特效", "转场", "滤镜", "蒙版"),
+        "画面" to listOf("位置", "缩放", "旋转", "锚点"),
+        "调节" to listOf("基础", "曲线", "色轮", "LUT"),
+        "更多" to listOf("画中画", "关键帧", "跟踪", "AI工具")
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -627,9 +669,10 @@ private fun NativeToolBar(activeTool: String, onToolSelected: (String) -> Unit) 
             .background(NcColors.topBar)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        tools.forEach { tool ->
+        tools.forEach { (tool, subTools) ->
             val selected = activeTool == tool
             Column(
                 modifier = Modifier
@@ -656,6 +699,38 @@ private fun NativeToolBar(activeTool: String, onToolSelected: (String) -> Unit) 
                     fontSize = 9.sp,
                     textAlign = TextAlign.Center
                 )
+            }
+            if (expandedTool == tool) {
+                subTools.forEach { subTool ->
+                    val subSelected = activeTool == tool && activeSubTool == subTool
+                    Column(
+                        modifier = Modifier
+                            .width(58.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (subSelected) Color(0xFF3A3D40) else NcColors.panel)
+                            .clickable { onSubToolSelected(tool, subTool) }
+                            .padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .border(1.dp, if (subSelected) Color.White else NcColors.line, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(subTool.take(1), color = NcColors.text, fontSize = 10.sp)
+                        }
+                        Text(
+                            subTool,
+                            color = if (subSelected) NcColors.text else NcColors.secondary,
+                            fontSize = 8.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
     }
