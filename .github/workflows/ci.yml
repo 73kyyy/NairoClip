@@ -136,7 +136,9 @@ jobs:
         # 缺失时 FFmpeg 用例会大批失败，看起来像代码坏了——提前检查。
         run: |
           ls /tmp/media_gen/ || true
-          test -f /tmp/media_gen/test_av.mp4
+          test -s /tmp/media_gen/test_av.mp4
+          # 降噪端到端用例依赖真实 WAV；缺失时原测试会静默 return，不能算通过。
+          test -s /tmp/media_gen/denoise_src.wav
 
       - name: 诊断：gdb 抓原生崩溃栈
         # 之前所有诊断都绕开了一点：ASAN/valgrind/UBSan 都会改变内存布局，
