@@ -104,8 +104,11 @@ class NativeTimelineView(context: Context) : View(context) {
     private var pixelsPerSecond = 42f * density
     private var scrollOffset = 0f
     private var lastTouchX = 0f
+    private var lastTouchY = 0f
     private var moved = false
     private var draggingPlayhead = false
+    private var draggingTimelineVertically = false
+    private var verticalScrollOffset = 0f
     // Once a gesture becomes multi-touch, lifting one finger must not turn the
     // remaining finger-up into a tap, seek, scrub, or one-finger pan.
     private var gestureHadMultiplePointers = false
@@ -168,6 +171,7 @@ class NativeTimelineView(context: Context) : View(context) {
         durationUs = totalDurationUs.coerceAtLeast(1L)
         playheadUs = currentPlayheadUs.coerceIn(0L, durationUs)
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
+        verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
         invalidate()
     }
 
@@ -179,6 +183,7 @@ class NativeTimelineView(context: Context) : View(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
+        verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -225,9 +230,9 @@ class NativeTimelineView(context: Context) : View(context) {
 
     private fun drawTracks(canvas: Canvas) {
         tracks.forEachIndexed { index, track ->
-            val top = rulerHeight + index * (rowHeight + rowGap)
+            val top = rulerHeight + index * (rowHeight + rowGap) - verticalScrollOffset
             val bottom = min(height.toFloat(), top + rowHeight)
-            if (top >= height) return@forEachIndexed
+            if (bottom <= rulerHeight || top >= height) return@forEachIndexed
 
             val lane = if (index % 2 == 0) alternateLanePaint else lanePaint
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
@@ -282,9 +287,14 @@ class NativeTimelineView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastTouchX = event.x
+                lastTouchY = event.y
                 moved = false
+                draggingTimelineVertically = false
                 gestureHadMultiplePointers = false
-                draggingPlayhead = kotlin.math.abs(event.x - playheadXPosition()) <= 18f * density
+                // The draggable handle is in the fixed ruler, not every point
+                // along the playhead line; this keeps vertical lane scrolling usable.
+                draggingPlayhead = event.y <= rulerHeight + 8f * density &&
+                    kotlin.math.abs(event.x - playheadXPosition()) <= 18f * density
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
@@ -294,15 +304,28 @@ class NativeTimelineView(context: Context) : View(context) {
                     event.pointerCount == 1
                 ) {
                     val dx = event.x - lastTouchX
+                    val dy = event.y - lastTouchY
                     if (draggingPlayhead) {
                         if (kotlin.math.abs(dx) > touchSlop) moved = true
                         if (moved) updatePlayheadFromTouch(event.x)
+                    } else if (
+                        !draggingTimelineVertically &&
+                        kotlin.math.abs(dy) > touchSlop &&
+                        kotlin.math.abs(dy) > kotlin.math.abs(dx)
+                    ) {
+                        draggingTimelineVertically = true
+                        moved = true
+                    } else if (draggingTimelineVertically) {
+                        verticalScrollOffset = (verticalScrollOffset - dy)
+                            .coerceIn(0f, maxVerticalScrollOffset())
+                        invalidate()
                     } else if (kotlin.math.abs(dx) > touchSlop) {
                         moved = true
                         scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
                         invalidate()
                     }
                     lastTouchX = event.x
+                    lastTouchY = event.y
                 }
                 return true
             }
@@ -339,12 +362,14 @@ class NativeTimelineView(context: Context) : View(context) {
                     performClick()
                 }
                 draggingPlayhead = false
+                draggingTimelineVertically = false
                 gestureHadMultiplePointers = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
                 draggingPlayhead = false
+                draggingTimelineVertically = false
                 moved = false
                 gestureHadMultiplePointers = false
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -361,7 +386,8 @@ class NativeTimelineView(context: Context) : View(context) {
 
     private fun handleClipTap(x: Float, y: Float): Boolean {
         if (x < labelWidth || y < rulerHeight) return false
-        val row = ((y - rulerHeight) / (rowHeight + rowGap)).toInt()
+        val contentY = y + verticalScrollOffset
+        val row = ((contentY - rulerHeight) / (rowHeight + rowGap)).toInt()
         if (row !in tracks.indices) return false
         val track = tracks[row]
         if (!track.visible) return false
@@ -381,13 +407,15 @@ class NativeTimelineView(context: Context) : View(context) {
 
     private fun isTimelineLaneTap(x: Float, y: Float): Boolean {
         if (x < labelWidth || y < rulerHeight) return false
-        val row = ((y - rulerHeight) / (rowHeight + rowGap)).toInt()
+        val contentY = y + verticalScrollOffset
+        val row = ((contentY - rulerHeight) / (rowHeight + rowGap)).toInt()
         return row in tracks.indices
     }
 
     private fun handleTrackControlTap(x: Float, y: Float): Boolean {
         if (x >= labelWidth || y < rulerHeight) return false
-        val row = ((y - rulerHeight) / (rowHeight + rowGap)).toInt()
+        val contentY = y + verticalScrollOffset
+        val row = ((contentY - rulerHeight) / (rowHeight + rowGap)).toInt()
         if (row !in tracks.indices) return false
         val track = tracks[row]
         when {
@@ -421,6 +449,12 @@ class NativeTimelineView(context: Context) : View(context) {
         val contentWidth = durationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
         val viewport = (width - labelWidth).coerceAtLeast(1f).toDouble()
         return (contentWidth - viewport).coerceIn(0.0, Float.MAX_VALUE.toDouble()).toFloat()
+    }
+
+    private fun maxVerticalScrollOffset(): Float {
+        val contentHeight = tracks.size.toDouble() * (rowHeight + rowGap).toDouble()
+        val viewportHeight = (height.toFloat() - rulerHeight).coerceAtLeast(0f).toDouble()
+        return (contentHeight - viewportHeight).coerceIn(0.0, Float.MAX_VALUE.toDouble()).toFloat()
     }
 
     private fun updatePlayheadFromTouch(x: Float) {
