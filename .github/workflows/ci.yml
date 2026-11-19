@@ -434,29 +434,32 @@ jobs:
           # 所以不能拿它判「LUT 跑了几个」。这里数真正的 [  OK  ] 行。
           RAN=$(grep -c '^\[  OK  \]' /tmp/lut_output.txt || true)
           echo "实际通过用例数（按名字筛选后）= $RAN"
+          LUT_OK=1
           if [ "$rc" -ne 0 ]; then
             echo "::error title=LUT_TESTS::exit=$rc"
-            exit 1
+            LUT_OK=0
           fi
           if [ "$RAN" -lt 15 ]; then
             echo "::error title=LUT_TESTS::只跑了 $RAN 个，少于预期 15 个"
-            exit 1
+            LUT_OK=0
           fi
-          echo "✅ LUT 用例全部通过（$RAN 个）"
-
-          # 结论写进 Job Summary + 落盘，供 ci-status 回传。
-          # 这一步是**成功步骤**，其日志不会出现在 --log-failed 里，
-          # 而开发容器读不到 Actions 网页 —— 必须主动留证据。
+          if [ "$LUT_OK" -eq 1 ]; then
+            echo "LUT 专项通过（$RAN 个）"
+          else
+            echo "LUT 专项未通过；继续执行最终对账"
+          fi
           {
             echo "## LUT 用例专项"
             echo ""
-            echo "- 通过：$RAN 个"
+            echo "- 实际通过：$RAN 个"
             echo "- 退出码：$rc"
+            echo "- 专项状态：$LUT_OK"
           } >> "$GITHUB_STEP_SUMMARY"
           mkdir -p /tmp/lutdiag
           {
             echo "ran=$RAN"
             echo "rc=$rc"
+            echo "ok=$LUT_OK"
           } > /tmp/lutdiag/summary.txt
           grep -E '^\[  OK  \]' /tmp/lut_output.txt > /tmp/lutdiag/ok.txt || true
 
@@ -476,12 +479,18 @@ jobs:
             echo "::error title=KNOWN_CRASH::全量测试中途 abort（既有 glibc 堆破坏）"
             LAST=$(grep -E '^\[ RUN  \]' /tmp/test_output.txt | tail -1 || true)
             echo "崩溃前最后进入的用例：${LAST:-未知}"
-            if [ -f /tmp/lut_output.txt ] && grep -q '^=====' /tmp/lut_output.txt; then
-              LUTSUM=$(grep -E '^=====' /tmp/lut_output.txt | tail -1)
-              echo "LUT 专项汇总：$LUTSUM"
-              echo "::notice title=LUT_OK::新增 LUT 用例已单独验证通过"
+            if [ -f /tmp/lutdiag/summary.txt ]; then
+              . /tmp/lutdiag/summary.txt
+              echo "LUT 专项：通过数=$ran 退出码=$rc 专项状态=$ok"
+              if [ "$ok" -eq 1 ]; then
+                echo "::notice title=LUT_OK::LUT 专项独立验证通过"
+              else
+                echo "::error title=LUT_FAILED::LUT 专项未通过"
+              fi
+            else
+              echo "::error title=LUT_EVIDENCE_MISSING::缺少 LUT 专项结果文件"
             fi
-            echo "结论：既有堆破坏仍未修复；本次 LUT 改动由专项步骤独立验证。"
+            echo "结论：全量测试未完成；整条 CI 保持失败。"
             exit 1
           fi
 
@@ -499,6 +508,16 @@ jobs:
           fi
           if [ "$TEST_EXIT" -ne 0 ]; then
             echo "ERROR: 测试进程退出码异常（$TEST_EXIT），即使存在汇总行也不能判定通过"
+            exit 1
+          fi
+          if [ ! -f /tmp/lutdiag/summary.txt ]; then
+            echo "ERROR: 缺少 LUT 专项结果，不能判定通过"
+            exit 1
+          fi
+          . /tmp/lutdiag/summary.txt
+          echo "LUT 实际通过数=$ran 退出码=$rc 专项状态=$ok"
+          if [ "$ok" -ne 1 ]; then
+            echo "ERROR: LUT 专项未通过"
             exit 1
           fi
           echo "全部通过"
