@@ -33,11 +33,13 @@ class NativePreviewSurfaceController(
             }
         }
         previewView.onSurfaceDestroyed = {
-            currentSurface = null
-            bufferWidth = 0
-            bufferHeight = 0
-            if (attached) NativeEngineBridge.detachSurface()
-            attached = false
+            if (!disposed) {
+                currentSurface = null
+                bufferWidth = 0
+                bufferHeight = 0
+                if (attached) NativeEngineBridge.detachSurface()
+                attached = false
+            }
         }
     }
 
@@ -66,6 +68,14 @@ class NativePreviewSurfaceController(
             NativeEngineBridge.detachSurface()
         }
         return success
+    }
+
+    /** Render a single frame at project time after the Surface and engine are ready. */
+    fun renderFrameAt(timeUs: Long): Boolean {
+        if (disposed || !attached || currentSurface?.isValid != true || timeUs < 0L) {
+            return false
+        }
+        return NativeEngineBridge.renderPreviewFrame(timeUs)
     }
 
     /** Detaches native rendering and releases all View listener references. */
