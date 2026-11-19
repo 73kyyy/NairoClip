@@ -273,6 +273,24 @@ jobs:
             echo "::error title=MMAP_${scope}_DIAG::${LASTL:-none}"
           done
 
+      - name: 降噪真实媒体用例隔离复测
+        # S1-5b 诊断：全量回归出现 AudioDenoise.MixerAppliesDenoiseToRealMedia
+        # 单项失败时，先在相同 Release/FFmpeg/测试素材环境中单独复跑，
+        # 区分算法/素材本身失败与前序用例污染或顺序相关问题。
+        continue-on-error: true
+        run: |
+          set +e
+          MALLOC_PERTURB_=165 MALLOC_CHECK_=3 NC_TEST_CHECK_HEAP=1 \
+            NC_EXPORT_HEAP_PROBE=1 NC_MEDIA_HEAP_PROBE=1 \
+            NC_TEST_INCLUDE=AudioDenoise.MixerAppliesDenoiseToRealMedia \
+            stdbuf -oL -eL ./build/tests/nairoclip_tests \
+            > /tmp/audio_denoise_isolated.txt 2>&1
+          rc=$?
+          echo "isolated_exit=$rc"
+          tail -30 /tmp/audio_denoise_isolated.txt
+          echo "::error title=AUDIO_DENOISE_ISOLATED::exit=$rc $(grep -E '^\\[FAIL\\]' /tmp/audio_denoise_isolated.txt | tr '\\n' '~' | cut -c1-1200)"
+          exit 0
+
       - name: 运行全量测试
         # 不加 set -o pipefail：测试失败时也要继续跑到「对账」步骤，
         # 把失败数打出来；否则只剩一个红叉，看不到原因。
