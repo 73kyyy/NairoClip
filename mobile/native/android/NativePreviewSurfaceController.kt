@@ -106,14 +106,6 @@ class NativePreviewSurfaceController(
         return success
     }
 
-    /** Render a single frame at project time after the Surface and engine are ready. */
-    fun renderFrameAt(timeUs: Long): Boolean {
-        if (disposed || !attached || currentSurface?.isValid != true || timeUs < 0L) {
-            return false
-        }
-        return NativeEngineBridge.renderPreviewFrame(timeUs)
-    }
-
     /**
      * Queue a scrub/seek preview render without blocking the caller.
      *
