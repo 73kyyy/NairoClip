@@ -34,15 +34,16 @@ data class NativeTimelineTrack(
     val name: String,
     val clips: List<NativeTimelineClip> = emptyList(),
     val visible: Boolean = true,
-    val muted: Boolean = false
+    val muted: Boolean = false,
+    val engineIndex: Int = -1
 )
 
 class NativeTimelineView(context: Context) : View(context) {
 
     var onPlayheadChanged: ((Long) -> Unit)? = null
-    var onClipSelected: ((Long, Long) -> Unit)? = null
-    var onTrackVisibilityChanged: ((Long, Boolean) -> Unit)? = null
-    var onTrackMuteChanged: ((Long, Boolean) -> Unit)? = null
+    var onClipSelected: ((Int, Long) -> Unit)? = null
+    var onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null
+    var onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null
 
     private val density = resources.displayMetrics.density
     private val rulerHeight = 27f * density
@@ -283,10 +284,10 @@ class NativeTimelineView(context: Context) : View(context) {
             .coerceAtLeast(0L)
         val clip = track.clips.firstOrNull { candidate ->
             candidate.enabled && candidate.startUs >= 0L && candidate.durationUs > 0L &&
-                timeUs >= candidate.startUs && timeUs < candidate.startUs + candidate.durationUs
+                timeUs >= candidate.startUs && timeUs - candidate.startUs < candidate.durationUs
         } ?: return false
         selectedClip = track.id to clip.id
-        onClipSelected?.invoke(track.id, clip.id)
+        onClipSelected?.invoke(track.engineIndex.takeIf { it >= 0 } ?: row, clip.id)
         invalidate()
         return true
     }
@@ -300,12 +301,12 @@ class NativeTimelineView(context: Context) : View(context) {
             x in (40f * density)..(62f * density) -> {
                 val updated = track.copy(visible = !track.visible)
                 tracks = tracks.toMutableList().also { it[row] = updated }
-                onTrackVisibilityChanged?.invoke(updated.id, updated.visible)
+                onTrackVisibilityChanged?.invoke(updated.engineIndex.takeIf { it >= 0 } ?: row, updated.visible)
             }
             x in (64f * density)..(86f * density) -> {
                 val updated = track.copy(muted = !track.muted)
                 tracks = tracks.toMutableList().also { it[row] = updated }
-                onTrackMuteChanged?.invoke(updated.id, updated.muted)
+                onTrackMuteChanged?.invoke(updated.engineIndex.takeIf { it >= 0 } ?: row, updated.muted)
             }
             else -> return false
         }
