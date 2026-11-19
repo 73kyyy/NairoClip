@@ -18,16 +18,6 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         }
     }
 
-    data class Keyframe(
-        val timeUs: Long,
-        val value: Double,
-        val easing: Int,
-        val c1x: Double,
-        val c1y: Double,
-        val c2x: Double,
-        val c2y: Double
-    )
-
     data class Result<T>(val ok: Boolean, val value: T? = null, val error: String? = null)
 
     fun insertKeyframe(target: ClipTarget, property: Int, timeUs: Long, value: Double): Result<Unit> {
@@ -41,57 +31,24 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     }
 
 
-    fun setKeyframeEasing(
+    /**
+     * Inserts the current native transform value at the supplied project time.
+     * Only insertion is exposed by the current JNI dispatcher; keyframe read,
+     * delete and easing operations are intentionally not fabricated here.
+     */
+    fun insertTransformKeyframe(
         target: ClipTarget,
-        property: Int,
-        timeUs: Long,
-        easing: Int,
-        c1x: Double = 0.0,
-        c1y: Double = 0.0,
-        c2x: Double = 1.0,
-        c2y: Double = 1.0
+        parameter: NativeParameter,
+        transform: NativeTransform,
+        playheadUs: Long
     ): Result<Unit> {
-        if (property !in 0..5 || timeUs < 0L || easing !in 0..5 ||
-            !c1x.isFinite() || !c1y.isFinite() || !c2x.isFinite() || !c2y.isFinite()) {
-            return Result(false, error = "关键帧曲线参数非法")
+        val value = when (parameter) {
+            NativeParameter.SCALE -> transform.scale / 100.0f
+            NativeParameter.X -> transform.x
+            NativeParameter.Y -> transform.y
+            NativeParameter.ROTATION -> transform.rotation
         }
-        return invoke(
-            "nc_set_keyframe_easing",
-            targetArgs(target)
-                .put("property", property)
-                .put("time_us", timeUs)
-                .put("easing", easing)
-                .put("c1x", c1x)
-                .put("c1y", c1y)
-                .put("c2x", c2x)
-                .put("c2y", c2y)
-        ) { Unit }
-    }
-
-    fun keyframeCount(target: ClipTarget, property: Int): Result<Int> {
-        if (property !in 0..5) return Result(false, error = "关键帧属性编号非法")
-        return invoke(
-            "nc_keyframe_count",
-            targetArgs(target).put("property", property)
-        ) { it.optInt("count", 0) }
-    }
-
-    fun keyframeAt(target: ClipTarget, property: Int, index: Int): Result<Keyframe> {
-        if (property !in 0..5 || index < 0) return Result(false, error = "关键帧索引非法")
-        return invoke(
-            "nc_keyframe_get_ex",
-            targetArgs(target).put("property", property).put("index", index)
-        ) { payload ->
-            Keyframe(
-                timeUs = payload.optLong("time_us", 0L),
-                value = payload.optDouble("value", 0.0),
-                easing = payload.optInt("easing", 0),
-                c1x = payload.optDouble("c1x", 0.0),
-                c1y = payload.optDouble("c1y", 0.0),
-                c2x = payload.optDouble("c2x", 1.0),
-                c2y = payload.optDouble("c2y", 1.0)
-            )
-        }
+        return insertKeyframe(target, parameter.engineProperty, playheadUs, value.toDouble())
     }
 
     private fun targetArgs(target: ClipTarget) =
