@@ -397,8 +397,15 @@ private fun NativeParameterPanel(
     var selectedFrameTimeUs by remember(targetTrackIndex, targetClipId, activeParameter) {
         mutableStateOf(activeFrames.firstOrNull()?.timeUs)
     }
+    // Reconcile selection when an engine refresh removes the selected keyframe.
+    // Keep the state itself synchronized with the fallback shown by the panel,
+    // so a later reinsert at the old timestamp cannot silently regain selection.
+    LaunchedEffect(activeFrames, selectedFrameTimeUs) {
+        if (selectedFrameTimeUs == null || activeFrames.none { it.timeUs == selectedFrameTimeUs }) {
+            selectedFrameTimeUs = activeFrames.firstOrNull()?.timeUs
+        }
+    }
     val selectedFrame = activeFrames.firstOrNull { it.timeUs == selectedFrameTimeUs }
-        ?: activeFrames.firstOrNull()
     Column(
         modifier = modifier.background(NcColors.panel).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
