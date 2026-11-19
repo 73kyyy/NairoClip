@@ -1,7 +1,7 @@
 package com.nairoclip.app
 
 import android.view.View
-import androidx.compose.foundation.BasicTextField
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
