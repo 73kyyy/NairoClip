@@ -1,7 +1,6 @@
 package com.nairoclip.app
 
 import android.view.View
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,9 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -180,7 +176,7 @@ private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Black)
-                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp)),
+                    .border(1.dp, Color(0x33FFFFFFL), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (previewView != null) {
@@ -239,26 +235,6 @@ private fun NativeTimelinePanel(modifier: Modifier = Modifier) {
         factory = { context -> NativeTimelineView(context) },
         modifier = modifier
     )
-}
-
-@Composable
-private fun TimelineRuler() {
-    Row(
-        modifier = Modifier
-            .width(820.dp)
-            .height(23.dp)
-            .background(NcColors.timeline),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        listOf("00:00", "00:05", "00:10", "00:15", "00:20", "00:25", "00:30", "00:35").forEach { time ->
-            Box(
-                modifier = Modifier.width(102.dp).fillMaxHeight(),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(time, color = NcColors.secondary, fontSize = 8.sp)
-            }
-        }
-    }
 }
 
 @Composable
