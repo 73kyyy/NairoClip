@@ -273,6 +273,19 @@ jobs:
             echo "::error title=MMAP_${scope}_DIAG::${LASTL:-none}"
           done
 
+      - name: S1 生命周期定向回归
+        # S1-1 / S1-5b：独立执行生命周期、并发句柄和生命周期仲裁测试，
+        # 避免全量套件中的既有非相关失败掩盖本批次结果。
+        run: |
+          set +e
+          NC_TEST_INCLUDE=S1Lifecycle.,S1Concurrency.,S1EditorLifetime.,S1RecursiveMutex. \
+            stdbuf -oL -eL ./build/tests/nairoclip_tests \
+            > /tmp/s1_lifecycle_regression.txt 2>&1
+          rc=$?
+          cat /tmp/s1_lifecycle_regression.txt
+          echo "s1_lifecycle_exit=$rc"
+          exit "$rc"
+
       - name: 降噪真实媒体用例隔离复测
         # S1-5b 诊断：全量回归出现 AudioDenoise.MixerAppliesDenoiseToRealMedia
         # 单项失败时，先在相同 Release/FFmpeg/测试素材环境中单独复跑，
