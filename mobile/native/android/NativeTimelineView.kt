@@ -93,6 +93,16 @@ class NativeTimelineView(context: Context) : View(context) {
             android.graphics.Typeface.BOLD
         )
     }
+    private val emptyStatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFB8BEC2.toInt()
+        textSize = 13f * density
+        textAlign = Paint.Align.CENTER
+    }
+    private val emptyHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF777F84.toInt()
+        textSize = 10f * density
+        textAlign = Paint.Align.CENTER
+    }
 
     private var tracks: List<NativeTimelineTrack> = listOf(
         NativeTimelineTrack(1L, "V1"),
@@ -217,6 +227,7 @@ class NativeTimelineView(context: Context) : View(context) {
         val playheadX = playheadXPosition()
         drawRuler(canvas, playheadX)
         drawTracks(canvas)
+        if (tracks.isEmpty()) drawEmptyTimeline(canvas)
 
         canvas.drawLine(playheadX, 0f, playheadX, height.toFloat(), playheadPaint)
         canvas.drawCircle(playheadX, 4f * density, 3f * density, playheadCapPaint)
@@ -308,6 +319,21 @@ class NativeTimelineView(context: Context) : View(context) {
             }
         }
         canvas.restore()
+    }
+
+    private fun drawEmptyTimeline(canvas: Canvas) {
+        val contentTop = rulerHeight
+        val contentHeight = (height.toFloat() - contentTop).coerceAtLeast(0f)
+        if (contentHeight <= 0f || width.toFloat() <= labelWidth) return
+        val centerX = labelWidth + (width.toFloat() - labelWidth) / 2f
+        val centerY = contentTop + contentHeight / 2f
+        canvas.drawText("暂无轨道内容", centerX, centerY - 4f * density, emptyStatePaint)
+        canvas.drawText(
+            "导入素材后，片段会显示在这里",
+            centerX,
+            centerY + 17f * density,
+            emptyHintPaint
+        )
     }
 
     private fun drawTimeReadout(canvas: Canvas, centerX: Float) {
