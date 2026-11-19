@@ -101,8 +101,8 @@ class NativeTimelineView(context: Context) : View(context) {
     )
     // Keep a detached source snapshot rather than the caller's list identity.
     // Some hosts reuse and mutate a list in place; identity-only invalidation
-    // would then leave stale clips on screen. This copy is separate from
-    // [tracks], which may be optimistically updated by track-control gestures.
+    // would then leave stale clips on screen. Track-control gestures only emit
+    // commands; the rendered [tracks] snapshot remains engine-authoritative.
     private var sourceTracksSnapshot: List<NativeTimelineTrack>? = null
     private var durationUs: Long = 30_000_000L
     private var playheadUs: Long = 0L
