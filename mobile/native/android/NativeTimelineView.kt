@@ -270,7 +270,8 @@ class NativeTimelineView(context: Context) : View(context) {
 
             val lane = if (index % 2 == 0) alternateLanePaint else lanePaint
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
-            canvas.drawText(track.name.take(5), 7f * density, top + rowHeight * 0.58f, labelPaint)
+            val trackLabel = if (track.name.length > 4) "${track.name.take(3)}…" else track.name
+            canvas.drawText(trackLabel, 7f * density, top + rowHeight * 0.58f, labelPaint)
             val controlPaint = if (track.visible) labelPaint else tickPaint
             canvas.drawText(if (track.visible) "◉" else "○", 54f * density, top + rowHeight * 0.58f, controlPaint)
             canvas.drawText(if (track.muted) "×" else "♪", 98f * density, top + rowHeight * 0.58f, if (track.muted) tickPaint else labelPaint)
