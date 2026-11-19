@@ -25,7 +25,8 @@ data class NativeTimelineClip(
     val id: Long,
     val startUs: Long,
     val durationUs: Long,
-    val label: String
+    val label: String,
+    val enabled: Boolean = true
 )
 
 data class NativeTimelineTrack(
@@ -189,7 +190,7 @@ class NativeTimelineView(context: Context) : View(context) {
 
             if (!track.visible) return@forEachIndexed
             track.clips.forEach clipLoop@{ clip ->
-                if (clip.startUs < 0L || clip.durationUs <= 0L || clip.startUs >= durationUs) return@clipLoop
+                if (!clip.enabled || clip.startUs < 0L || clip.durationUs <= 0L || clip.startUs >= durationUs) return@clipLoop
                 val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
                 val left = labelWidth + clip.startUs / 1_000_000f * pixelsPerSecond - scrollOffset
                 val right = left + max(visibleDurationUs / 1_000_000f * pixelsPerSecond, 5f * density)
