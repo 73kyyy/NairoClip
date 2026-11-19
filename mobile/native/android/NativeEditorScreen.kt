@@ -62,7 +62,7 @@ fun NativeEditorScreen(
     transform: NativeTransform = NativeTransform(),
     keyedParameters: Set<NativeParameter> = emptySet(),
     onTransformChanged: (NativeTransform) -> Unit = {},
-    onKeyframeToggle: (NativeParameter) -> Unit = {},
+    onInsertKeyframe: (NativeParameter) -> Unit = {},
     onOpenLegacy: () -> Unit
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
@@ -99,7 +99,7 @@ fun NativeEditorScreen(
                     transform = transform,
                     keyedParameters = keyedParameters,
                     onTransformChanged = onTransformChanged,
-                    onKeyframeToggle = onKeyframeToggle,
+                    onInsertKeyframe = onInsertKeyframe,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -294,28 +294,28 @@ enum class NativeParameter(val engineProperty: Int) {
 }
 
 @Composable
-private fun NativeParameterPanel(transform: NativeTransform, keyedParameters: Set<NativeParameter>, onTransformChanged: (NativeTransform) -> Unit, onKeyframeToggle: (NativeParameter) -> Unit, modifier: Modifier = Modifier) {
+private fun NativeParameterPanel(transform: NativeTransform, keyedParameters: Set<NativeParameter>, onTransformChanged: (NativeTransform) -> Unit, onInsertKeyframe: (NativeParameter) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier = modifier.background(NcColors.panel).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("变换参数", color = NcColors.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
             Text("关键帧", color = NcColors.secondary, fontSize = 9.sp)
         }
-        ParameterSlider("X", transform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onKeyframeToggle) { onTransformChanged(transform.copy(x = it)) }
-        ParameterSlider("Y", transform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onKeyframeToggle) { onTransformChanged(transform.copy(y = it)) }
-        ParameterSlider("缩放", transform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onKeyframeToggle, "%") { onTransformChanged(transform.copy(scale = it)) }
-        ParameterSlider("旋转", transform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onKeyframeToggle, "°") { onTransformChanged(transform.copy(rotation = it)) }
+        ParameterSlider("X", transform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(x = it)) }
+        ParameterSlider("Y", transform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe) { onTransformChanged(transform.copy(y = it)) }
+        ParameterSlider("缩放", transform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%") { onTransformChanged(transform.copy(scale = it)) }
+        ParameterSlider("旋转", transform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°") { onTransformChanged(transform.copy(rotation = it)) }
         CurvePreview(Modifier.fillMaxWidth().height(30.dp))
     }
 }
 
 @Composable
-private fun ParameterSlider(label: String, value: Float, low: Float, high: Float, parameter: NativeParameter, keyedParameters: Set<NativeParameter>, onKeyframeToggle: (NativeParameter) -> Unit, suffix: String = "", onValueChange: (Float) -> Unit) {
+private fun ParameterSlider(label: String, value: Float, low: Float, high: Float, parameter: NativeParameter, keyedParameters: Set<NativeParameter>, onInsertKeyframe: (NativeParameter) -> Unit, suffix: String = "", onValueChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(30.dp)) {
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         Slider(value = value.coerceIn(low, high), onValueChange = onValueChange, valueRange = low..high, modifier = Modifier.weight(1f))
         Text("%.1f".format(value) + suffix, color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
-        Text(if (parameter in keyedParameters) "◆" else "◇", color = if (parameter in keyedParameters) Color.White else NcColors.secondary, fontSize = 15.sp, modifier = Modifier.width(26.dp).clickable { onKeyframeToggle(parameter) }, textAlign = TextAlign.Center)
+        Text(if (parameter in keyedParameters) "◆" else "◇", color = if (parameter in keyedParameters) Color.White else NcColors.secondary, fontSize = 15.sp, modifier = Modifier.width(26.dp).clickable { onInsertKeyframe(parameter) }, textAlign = TextAlign.Center)
     }
 }
 
