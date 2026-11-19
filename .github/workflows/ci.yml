@@ -355,6 +355,8 @@ jobs:
             > /tmp/test_output.txt 2>&1
           rc=$?
           echo "exit_code=$rc (137=SIGKILL 134=SIGABRT 139=SIGSEGV)"
+          # 保存退出码，但暂不让本步骤失败；后续 LUT 专项与用例对账必须执行。
+          echo "$rc" > /tmp/test_exit_code
           echo "output_bytes=$(stat -c%s /tmp/test_output.txt)"
           echo "---------------- 末尾 40 行 ----------------"
           tail -40 /tmp/test_output.txt
@@ -410,7 +412,7 @@ jobs:
             i=$((i+1))
             [ "$i" -ge 6 ] && break
           done
-          exit $rc
+          # 不在这里 exit：失败状态由「对账用例总数」统一判定，确保后续专项仍执行。
 
       # LUT 按名筛选跑一遍：给出不受全量崩溃影响的独立结论。
       #
@@ -485,13 +487,18 @@ jobs:
 
           CASES=$(echo "$SUMMARY" | sed -E 's/^===== ([0-9]+) cases.*/\1/')
           FAILED=$(echo "$SUMMARY" | sed -E 's/.*\| ([0-9]+) failed.*/\1/')
-          echo "用例数=$CASES 失败数=$FAILED"
+          TEST_EXIT=$(cat /tmp/test_exit_code 2>/dev/null || echo 1)
+          echo "用例数=$CASES 失败数=$FAILED 测试进程退出码=$TEST_EXIT"
           if [ "$CASES" -lt 1458 ]; then
             echo "ERROR: 用例数 $CASES 低于下限 1458（LUT 接口新增 15 例），可能有测试文件未编入"
             exit 1
           fi
           if [ "$FAILED" -ne 0 ]; then
             echo "ERROR: $FAILED 个用例失败"
+            exit 1
+          fi
+          if [ "$TEST_EXIT" -ne 0 ]; then
+            echo "ERROR: 测试进程退出码异常（$TEST_EXIT），即使存在汇总行也不能判定通过"
             exit 1
           fi
           echo "全部通过"
