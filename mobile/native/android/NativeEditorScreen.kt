@@ -492,8 +492,20 @@ private fun KeyframeCurvePreview(frame: NativeEditorCommandAdapter.Keyframe, mod
                 1 -> cubicTo(left, bottom, right, top, right, top)
                 2 -> cubicTo(left, bottom, right, bottom, right, top)
                 3 -> cubicTo(left + width * 0.42f, bottom, left + width * 0.58f, top, right, top)
-                5 -> cubicTo(left + width * frame.c1x.toFloat(), bottom - height * frame.c1y.toFloat(),
-                    left + width * frame.c2x.toFloat(), bottom - height * frame.c2y.toFloat(), right, top)
+                5 -> {
+                    // Engine Bezier Y controls may overshoot [0, 1]. Keep a
+                    // useful overshoot preview while bounding Canvas geometry.
+                    val c1y = frame.c1y.toFloat().coerceIn(-4f, 4f)
+                    val c2y = frame.c2y.toFloat().coerceIn(-4f, 4f)
+                    cubicTo(
+                        left + width * frame.c1x.toFloat(),
+                        bottom - height * c1y,
+                        left + width * frame.c2x.toFloat(),
+                        bottom - height * c2y,
+                        right,
+                        top
+                    )
+                }
                 else -> lineTo(right, top)
             }
         }
