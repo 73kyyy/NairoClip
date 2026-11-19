@@ -88,6 +88,19 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         Result(false, error = error.message ?: "变换写入失败")
     }
 
+    /** Native history operations use the JNI DispatchEdit short-name routes. */
+    fun undo(): Result<Unit> = decodeUnitResponse(bridge.editorUndo(), "撤销失败")
+
+    fun redo(): Result<Unit> = decodeUnitResponse(bridge.editorRedo(), "重做失败")
+
+    private fun decodeUnitResponse(json: String, fallback: String): Result<Unit> = try {
+        val response = JSONObject(json)
+        if (response.optBoolean("ok", false)) Result(true)
+        else Result(false, error = response.optString("message", fallback))
+    } catch (error: Exception) {
+        Result(false, error = error.message ?: fallback)
+    }
+
     data class ClipAnimationState(
         val transform: NativeTransform,
         val transformEnabled: Boolean,
