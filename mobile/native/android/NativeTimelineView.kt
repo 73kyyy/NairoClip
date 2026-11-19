@@ -111,6 +111,7 @@ class NativeTimelineView(context: Context) : View(context) {
     private var moved = false
     private var draggingPlayhead = false
     private var draggingTimelineVertically = false
+    private var draggingTimelineHorizontally = false
     private var touchStartedInTimelineLane = false
     private var verticalScrollOffset = 0f
     // Once a gesture becomes multi-touch, lifting one finger must not turn the
@@ -324,6 +325,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 lastTouchY = event.y
                 moved = false
                 draggingTimelineVertically = false
+                draggingTimelineHorizontally = false
                 touchStartedInTimelineLane = event.y >= rulerHeight
                 gestureHadMultiplePointers = false
                 // The draggable handle is in the fixed ruler, not every point
@@ -346,12 +348,12 @@ class NativeTimelineView(context: Context) : View(context) {
                     } else if (
                         touchStartedInTimelineLane &&
                         !draggingTimelineVertically &&
+                        !draggingTimelineHorizontally &&
                         kotlin.math.abs(dy) > touchSlop &&
                         kotlin.math.abs(dy) > kotlin.math.abs(dx)
                     ) {
-                        // Consume the threshold-crossing delta as well. Without
-                        // this, the first vertical movement is discarded and the
-                        // timeline visibly lags behind the user's finger.
+                        // Lock the gesture to its dominant axis on the first
+                        // threshold-crossing move; do not switch axes mid-drag.
                         draggingTimelineVertically = true
                         moved = true
                         verticalScrollOffset = (verticalScrollOffset - dy)
@@ -361,8 +363,15 @@ class NativeTimelineView(context: Context) : View(context) {
                         verticalScrollOffset = (verticalScrollOffset - dy)
                             .coerceIn(0f, maxVerticalScrollOffset())
                         invalidate()
-                    } else if (kotlin.math.abs(dx) > touchSlop) {
+                    } else if (
+                        !draggingTimelineHorizontally &&
+                        kotlin.math.abs(dx) > touchSlop
+                    ) {
+                        draggingTimelineHorizontally = true
                         moved = true
+                        scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
+                        invalidate()
+                    } else if (draggingTimelineHorizontally) {
                         scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
                         invalidate()
                     }
@@ -410,6 +419,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 }
                 draggingPlayhead = false
                 draggingTimelineVertically = false
+                draggingTimelineHorizontally = false
                 gestureHadMultiplePointers = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
@@ -417,6 +427,7 @@ class NativeTimelineView(context: Context) : View(context) {
             MotionEvent.ACTION_CANCEL -> {
                 draggingPlayhead = false
                 draggingTimelineVertically = false
+                draggingTimelineHorizontally = false
                 moved = false
                 gestureHadMultiplePointers = false
                 parent?.requestDisallowInterceptTouchEvent(false)
