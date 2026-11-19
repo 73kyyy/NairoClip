@@ -231,6 +231,7 @@ class NativeTimelineView(context: Context) : View(context) {
             MotionEvent.ACTION_CANCEL -> {
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
+            }
         }
         return true
     }
