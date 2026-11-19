@@ -40,6 +40,7 @@ data class NativeTimelineTrack(
 class NativeTimelineView(context: Context) : View(context) {
 
     var onPlayheadChanged: ((Long) -> Unit)? = null
+    var onClipSelected: ((Long, Long) -> Unit)? = null
     var onTrackVisibilityChanged: ((Long, Boolean) -> Unit)? = null
     var onTrackMuteChanged: ((Long, Boolean) -> Unit)? = null
 
@@ -66,6 +67,11 @@ class NativeTimelineView(context: Context) : View(context) {
         strokeWidth = density
     }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF454B4F.toInt() }
+    private val selectedClipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF777F86.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
+    }
     private val clipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFE4E5E6.toInt()
         textSize = 9f * density
@@ -97,6 +103,7 @@ class NativeTimelineView(context: Context) : View(context) {
     private var scrollOffset = 0f
     private var lastTouchX = 0f
     private var moved = false
+    private var selectedClip: Pair<Long, Long>? = null
 
     private val scaleDetector = ScaleGestureDetector(
         context,
@@ -202,6 +209,9 @@ class NativeTimelineView(context: Context) : View(context) {
                     bottom - 5f * density
                 )
                 canvas.drawRoundRect(rect, 3f * density, 3f * density, clipPaint)
+                if (selectedClip == (track.id to clip.id)) {
+                    canvas.drawRoundRect(rect, 3f * density, 3f * density, selectedClipPaint)
+                }
                 if (rect.width() > 34f * density) {
                     canvas.drawText(clip.label, rect.left + 5f * density, rect.centerY() + 3f * density, clipTextPaint)
                 }
@@ -240,7 +250,8 @@ class NativeTimelineView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP -> {
                 if (!moved && !scaleDetector.isInProgress) {
-                    if (!handleTrackControlTap(event.x, event.y)) {
+                    if (!handleClipTap(event.x, event.y) &&
+                        !handleTrackControlTap(event.x, event.y)) {
                         updatePlayheadFromTouch(event.x)
                     }
                     performClick()
@@ -258,6 +269,25 @@ class NativeTimelineView(context: Context) : View(context) {
 
     override fun performClick(): Boolean {
         super.performClick()
+        return true
+    }
+
+    private fun handleClipTap(x: Float, y: Float): Boolean {
+        if (x < labelWidth || y < rulerHeight) return false
+        val row = ((y - rulerHeight) / (rowHeight + rowGap)).toInt()
+        if (row !in tracks.indices) return false
+        val track = tracks[row]
+        if (!track.visible) return false
+        val timeUs = ((scrollOffset + x - labelWidth) / pixelsPerSecond * 1_000_000f)
+            .toLong()
+            .coerceAtLeast(0L)
+        val clip = track.clips.firstOrNull { candidate ->
+            candidate.enabled && candidate.startUs >= 0L && candidate.durationUs > 0L &&
+                timeUs >= candidate.startUs && timeUs < candidate.startUs + candidate.durationUs
+        } ?: return false
+        selectedClip = track.id to clip.id
+        onClipSelected?.invoke(track.id, clip.id)
+        invalidate()
         return true
     }
 
