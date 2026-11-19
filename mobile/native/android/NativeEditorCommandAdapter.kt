@@ -149,7 +149,15 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         playheadUs: Long
     ): Result<Unit> {
         val value = when (parameter) {
-            NativeParameter.SCALE -> transform.scale / 100.0f
+            NativeParameter.SCALE -> {
+                // Scale is a positive multiplier in the engine. The UI uses
+                // percentages, but callers can invoke this adapter without the
+                // slider, so enforce the engine invariant at this boundary.
+                if (!transform.scale.isFinite() || transform.scale <= 0f) {
+                    return Result(false, error = "缩放关键帧值必须是有限正数")
+                }
+                transform.scale / 100.0f
+            }
             NativeParameter.X -> transform.x
             NativeParameter.Y -> transform.y
             NativeParameter.ROTATION -> transform.rotation
