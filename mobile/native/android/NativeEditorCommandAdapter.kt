@@ -35,8 +35,8 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     /**
      * Inserts the current native transform value at the supplied project time.
-     * Only insertion is exposed by the current JNI dispatcher; keyframe read,
-     * delete and easing operations are intentionally not fabricated here.
+     * The engine stores scale as a unit multiplier while the native panel uses
+     * percentages, so scale is normalized before crossing the JNI boundary.
      */
     fun insertTransformKeyframe(
         target: ClipTarget,
