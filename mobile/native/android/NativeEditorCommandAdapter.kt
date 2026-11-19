@@ -101,30 +101,35 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
      * The caller should invoke this on selection/project refresh, not on every
      * slider frame; writes remain separate commands to preserve undo semantics.
      */
-    fun readAnimationState(target: ClipTarget): Result<ClipAnimationState> {
-        val transformResult = getTransform(target)
-        if (!transformResult.ok) {
-            return Result(false, error = transformResult.error)
-        }
-        val transform = transformResult.value
-            ?: return Result(false, error = "片段变换数据缺失")
-        val channels = LinkedHashMap<NativeParameter, List<Keyframe>>()
-        for (parameter in NativeParameter.values()) {
-            val result = keyframes(target, parameter)
-            if (!result.ok) return Result(false, error = result.error)
-            channels[parameter] = result.value ?: return Result(false, error = "关键帧通道数据缺失")
-        }
-        return Result(
-            true,
-            ClipAnimationState(
-                transform = transform.transform,
-                transformEnabled = transform.enabled,
-                anchor = transform.anchor,
-                keyframes = channels,
-                keyedParameters = channels.filterValues { it.isNotEmpty() }.keys
+    fun readAnimationState(target: ClipTarget): Result<ClipAnimationState> =
+        bridge.withEditorStateLock {
+            // Keep transform + all four keyframe channels on one engine revision.
+            // Without the outer lock, another editor command could mutate the clip
+            // between JNI calls and produce a mixed-time UI snapshot.
+            val transformResult = getTransform(target)
+            if (!transformResult.ok) {
+                return@withEditorStateLock Result(false, error = transformResult.error)
+            }
+            val transform = transformResult.value
+                ?: return@withEditorStateLock Result(false, error = "片段变换数据缺失")
+            val channels = LinkedHashMap<NativeParameter, List<Keyframe>>()
+            for (parameter in NativeParameter.values()) {
+                val result = keyframes(target, parameter)
+                if (!result.ok) return@withEditorStateLock Result(false, error = result.error)
+                channels[parameter] = result.value
+                    ?: return@withEditorStateLock Result(false, error = "关键帧通道数据缺失")
+            }
+            Result(
+                true,
+                ClipAnimationState(
+                    transform = transform.transform,
+                    transformEnabled = transform.enabled,
+                    anchor = transform.anchor,
+                    keyframes = channels,
+                    keyedParameters = channels.filterValues { it.isNotEmpty() }.keys
+                )
             )
-        )
-    }
+        }
 
     fun insertKeyframe(target: ClipTarget, property: Int, timeUs: Long, value: Double): Result<Unit> {
         if (property !in 0..5 || timeUs < 0L || !value.isFinite()) {
