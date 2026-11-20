@@ -366,17 +366,34 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     ): Result<Unit> {
         val value = when (parameter) {
             NativeParameter.SCALE -> {
-                // Scale is a positive multiplier in the engine. The UI uses
-                // percentages, but callers can invoke this adapter without the
-                // slider, so enforce the engine invariant at this boundary.
-                if (!transform.scale.isFinite() || transform.scale <= 0f) {
-                    return Result(false, error = "缩放关键帧值必须是有限正数")
+                // Scale is stored as a positive multiplier in the engine while
+                // the editor exposes percent. Keep keyframes inside the same
+                // hard domain as static transform writes.
+                if (!transform.scale.isFinite() ||
+                    transform.scale !in NativeTransformRange.SCALE_MIN_PERCENT..NativeTransformRange.SCALE_MAX_PERCENT
+                ) {
+                    return Result(false, error = "缩放关键帧必须在 5%–1000% 范围内")
                 }
                 transform.scale / 100.0f
             }
-            NativeParameter.X -> transform.x
-            NativeParameter.Y -> transform.y
-            NativeParameter.ROTATION -> transform.rotation
+            NativeParameter.X -> {
+                if (!transform.x.isFinite() ||
+                    transform.x !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX
+                ) return Result(false, error = "X 轴关键帧必须在 -10..10 范围内")
+                transform.x
+            }
+            NativeParameter.Y -> {
+                if (!transform.y.isFinite() ||
+                    transform.y !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX
+                ) return Result(false, error = "Y 轴关键帧必须在 -10..10 范围内")
+                transform.y
+            }
+            NativeParameter.ROTATION -> {
+                if (!transform.rotation.isFinite() ||
+                    transform.rotation !in NativeTransformRange.ROTATION_MIN_DEGREES..NativeTransformRange.ROTATION_MAX_DEGREES
+                ) return Result(false, error = "旋转关键帧必须在 -3600°..3600° 范围内")
+                transform.rotation
+            }
         }
         return insertKeyframe(target, parameter.engineProperty, clipLocalTimeUs, value.toDouble())
     }
