@@ -89,12 +89,32 @@ data class NativeTimelineSnapshot(
                         if (startUs > Long.MAX_VALUE - clipDurationUs || !clipIds.add(clipId)) {
                             return null
                         }
+                        val sourceEffects = sourceClip.optJSONArray("effects") ?: return null
+                        val effects = ArrayList<NativeClipEffect>(sourceEffects.length())
+                        val effectIds = HashSet<Long>()
+                        for (effectIndex in 0 until sourceEffects.length()) {
+                            val sourceEffect = sourceEffects.optJSONObject(effectIndex) ?: return null
+                            val effectId = sourceEffect.longField("id")?.takeIf { it > 0L } ?: return null
+                            val effectType = sourceEffect.longField("type")?.takeIf { it in 0L..4096L } ?: return null
+                            val effectEnabled = sourceEffect.longField("enabled")?.takeIf { it in 0L..1L } ?: return null
+                            val rawValue = sourceEffect.opt("value") as? Number ?: return null
+                            val effectValue = rawValue.toDouble()
+                            if (!effectValue.isFinite() || !effectIds.add(effectId)) return null
+                            effects += NativeClipEffect(
+                                id = effectId,
+                                type = effectType.toInt(),
+                                value = effectValue,
+                                enabled = effectEnabled == 1L
+                            )
+                        }
+
                         clips += NativeTimelineClip(
                             id = clipId,
                             startUs = startUs,
                             durationUs = clipDurationUs,
                             label = assetNames[assetId] ?: "片段 $clipId",
                             enabled = enabledValue == 1L,
+                            effects = effects,
                             speedNumerator = speedNumerator,
                             speedDenominator = speedDenominator
                         )
