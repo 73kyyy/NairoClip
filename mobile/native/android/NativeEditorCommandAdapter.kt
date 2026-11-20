@@ -242,6 +242,39 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         }
     }
 
+    /**
+     * Applies one of the engine-defined speed-curve presets. source duration
+     * remains zero so the C ABI resolves the clip's authoritative source range.
+     */
+    fun applySpeedCurvePresetAndReadEditorState(
+        target: ClipTarget,
+        preset: Int
+    ): Result<EditorStateSnapshot> {
+        if (preset !in 0..6) return Result(false, error = "变速曲线预设编号无效")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) {
+                return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            }
+            val track = before.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) {
+                return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            }
+            if (track.clips.none { it.id == target.clipId }) {
+                return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            }
+            val changed = invoke(
+                "nc_apply_speed_curve_preset",
+                targetArgs(target).put("preset", preset).put("source_duration_us", 0L)
+            ) { Unit }
+            if (!changed.ok) {
+                return@withEditorStateLock Result(false, error = changed.error ?: "应用变速曲线失败")
+            }
+            readEditorStateSnapshotLocked()
+        }
+    }
+
     /** Removes the selected clip and returns the authoritative post-edit state. */
     fun removeClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
         mutateClipAndReadEditorState(target, "nc_remove_clip")
