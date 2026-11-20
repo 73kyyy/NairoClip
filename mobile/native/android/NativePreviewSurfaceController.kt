@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * Surface callbacks can arrive before the engine is bound. In that case the
  * latest valid surface/size is retained and [onEngineReady] retries the attach.
+ * All lifecycle entry points and render-request publication are main-thread
+ * confined; only the actual JNI frame render runs on the dedicated worker.
  */
 class NativePreviewSurfaceController(
     private val previewView: PreviewSurfaceView
@@ -48,6 +50,7 @@ class NativePreviewSurfaceController(
     private val renderWorkerScheduled = AtomicBoolean(false)
 
     init {
+        checkMainThread()
         previewView.onSurfaceAvailable = { surface ->
             if (!disposed) {
                 if (currentSurface !== surface) invalidatePendingRender()
@@ -84,6 +87,7 @@ class NativePreviewSurfaceController(
      * than once; the current valid Surface and buffer size are re-applied.
      */
     fun onEngineReady(): Boolean {
+        checkMainThread()
         if (disposed) return false
         return attachCurrentSurface()
     }
@@ -120,6 +124,7 @@ class NativePreviewSurfaceController(
         timeUs: Long,
         onComplete: ((timeUs: Long, rendered: Boolean) -> Unit)? = null
     ): Boolean {
+        checkMainThread()
         if (disposed || !attached || currentSurface?.isValid != true || timeUs < 0L) {
             return false
         }
@@ -147,6 +152,12 @@ class NativePreviewSurfaceController(
      * changes. A worker that has dequeued but not started a frame also checks
      * the sequence immediately before entering JNI.
      */
+    private fun checkMainThread() {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "NativePreviewSurfaceController lifecycle and request APIs must run on the main thread"
+        }
+    }
+
     private fun invalidatePendingRender() {
         renderSequence.incrementAndGet()
         pendingRender.set(null)
@@ -192,6 +203,7 @@ class NativePreviewSurfaceController(
 
     /** Detaches native rendering and releases all View listener references. */
     fun dispose() {
+        checkMainThread()
         if (disposed) return
         disposed = true
         invalidatePendingRender()
