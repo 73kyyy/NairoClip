@@ -895,6 +895,56 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val enabled: Boolean
     )
 
+    data class ClipMaskState(
+        val shape: Int,
+        val centerX: Double,
+        val centerY: Double,
+        val rotationDegrees: Double,
+        val width: Double,
+        val height: Double,
+        val feather: Double,
+        val cornerRadius: Double,
+        val invert: Boolean,
+        val enabled: Boolean
+    )
+
+    /** Reads the authoritative mask values; disabled masks remain distinguishable from defaults. */
+    fun readClipMask(target: ClipTarget): Result<ClipMaskState> =
+        bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            invoke("mask_get", targetArgs(target)) { payload ->
+                fun finite(name: String): Double {
+                    val raw = payload.opt(name) as? Number
+                        ?: throw IllegalArgumentException("蒙版字段 $name 缺失")
+                    return raw.toDouble().also {
+                        require(it.isFinite()) { "蒙版字段 $name 不是有限数值" }
+                    }
+                }
+                val shape = finite("shape")
+                val centerX = finite("center_x")
+                val centerY = finite("center_y")
+                val rotation = finite("rotation_degrees")
+                val width = finite("width")
+                val height = finite("height")
+                val feather = finite("feather")
+                val cornerRadius = finite("corner_radius")
+                val invert = finite("invert")
+                val enabled = finite("enabled")
+                require(shape % 1.0 == 0.0 && shape in 1.0..6.0)
+                require(centerX in 0.0..1.0 && centerY in 0.0..1.0)
+                require(rotation in -3600.0..3600.0)
+                require(width in 0.0..1.0 && height in 0.0..1.0)
+                require(feather in 0.0..1.0 && cornerRadius in 0.0..1.0)
+                require(invert == 0.0 || invert == 1.0)
+                require(enabled == 0.0 || enabled == 1.0)
+                ClipMaskState(
+                    shape.toInt(), centerX, centerY, rotation, width, height,
+                    feather, cornerRadius, invert == 1.0, enabled == 1.0
+                )
+            }
+        }
+
     fun readClipFilter(target: ClipTarget): Result<ClipFilterState> =
         bridge.withEditorStateLock {
             val valid = validateEditableClipLocked(target)
