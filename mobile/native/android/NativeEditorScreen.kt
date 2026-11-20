@@ -884,10 +884,11 @@ private fun NativeClipLutPanel(
             return
         }
         val result = onValidate?.invoke(path)
-        if (result?.ok == true && result.value != null) {
+        val info = result?.value
+        if (result?.ok == true && info != null) {
             onChange(path, strength.toDouble())
-            validationText = "校验通过，已应用：${result.value.size}³" +
-                if (result.value.title.isBlank()) "" else " · ${result.value.title}"
+            validationText = "校验通过，已应用：${info.size}³" +
+                if (info.title.isBlank()) "" else " · ${info.title}"
         } else {
             validationText = result?.error ?: "尚未接入 LUT 文件校验，已阻止应用"
         }
