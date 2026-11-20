@@ -94,7 +94,8 @@ fun NativeEditorScreen(
     onSplitClip: ((Int, Long, Long) -> Unit)? = null,
     onDeleteClip: ((Int, Long) -> Unit)? = null,
     onDuplicateClip: ((Int, Long) -> Unit)? = null,
-    onRippleDeleteClip: ((Int, Long) -> Unit)? = null
+    onRippleDeleteClip: ((Int, Long) -> Unit)? = null,
+    onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -209,6 +210,26 @@ fun NativeEditorScreen(
                 )
             }
 
+            if (activeTool == "剪辑" && activeSubTool == "变速" && selectedTarget != null) {
+                val selectedSpeed = timelineTracks
+                    .firstOrNull { it.engineIndex == selectedTarget.first }
+                    ?.clips?.firstOrNull { it.id == selectedTarget.second }
+                    ?.let { it.speedNumerator.toDouble() / it.speedDenominator.toDouble() }
+                    ?.toFloat()
+                    ?: 1f
+                NativeSpeedPanel(
+                    clipId = selectedTarget.second,
+                    initialSpeed = selectedSpeed,
+                    onApply = { speed ->
+                        val numerator = (speed * 1000f).toLong()
+                        if (numerator > 0L) {
+                            onClipSpeedChanged?.invoke(selectedTarget.first, selectedTarget.second, numerator, 1000L)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
@@ -245,6 +266,11 @@ fun NativeEditorScreen(
                         tool == "剪辑" && subTool == "波纹删除" &&
                             selectedTarget != null && onRippleDeleteClip != null -> {
                             onRippleDeleteClip(selectedTarget.first, selectedTarget.second)
+                        }
+                        tool == "剪辑" && subTool == "变速" && selectedTarget != null &&
+                            onClipSpeedChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
                         }
                         tool == "画面" && subTool in setOf("位置", "缩放", "旋转", "锚点") -> {
                             activeTool = tool
@@ -504,6 +530,79 @@ enum class NativeParameter(val engineProperty: Int) {
     X(2),
     Y(3),
     ROTATION(4)
+}
+
+@Composable
+private fun NativeSpeedPanel(
+    clipId: Long,
+    initialSpeed: Float,
+    onApply: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var speed by remember(clipId, initialSpeed) {
+        mutableStateOf(initialSpeed.coerceIn(0.1f, 10f))
+    }
+    var numericText by remember(clipId, initialSpeed) {
+        mutableStateOf(String.format(Locale.US, "%.3f", initialSpeed.coerceIn(0.1f, 10f)))
+    }
+    Column(
+        modifier = modifier
+            .background(NcColors.panel, RoundedCornerShape(12.dp))
+            .border(1.dp, NcColors.line, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("常规变速", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            BasicTextField(
+                value = numericText,
+                onValueChange = { candidate ->
+                    if (candidate.length <= 8 && candidate.matches(Regex("[0-9]*[.]?[0-9]*"))) {
+                        numericText = candidate
+                    }
+                },
+                modifier = Modifier
+                    .width(76.dp)
+                    .background(NcColors.lane, RoundedCornerShape(5.dp))
+                    .padding(horizontal = 7.dp, vertical = 5.dp),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(onDone = {
+                    val parsed = numericText.toFloatOrNull()
+                    if (parsed != null && parsed.isFinite() && parsed in 0.1f..10f) {
+                        speed = parsed
+                        numericText = String.format(Locale.US, "%.3f", parsed)
+                        onApply(parsed)
+                    } else {
+                        numericText = String.format(Locale.US, "%.3f", speed)
+                    }
+                }),
+                textStyle = TextStyle(color = NcColors.text, fontSize = 12.sp, textAlign = TextAlign.End)
+            )
+            Text(" ×", color = NcColors.secondary, fontSize = 10.sp)
+        }
+        Slider(
+            value = speed,
+            onValueChange = { value ->
+                speed = value
+                numericText = String.format(Locale.US, "%.3f", value)
+            },
+            onValueChangeFinished = { onApply(speed) },
+            valueRange = 0.1f..10f
+        )
+        Row {
+            Text("0.1×", color = NcColors.muted, fontSize = 9.sp)
+            Spacer(Modifier.weight(1f))
+            Text("1× 原速", color = NcColors.secondary, fontSize = 9.sp)
+            Spacer(Modifier.weight(1f))
+            Text("10×", color = NcColors.muted, fontSize = 9.sp)
+        }
+        Text("滑块与数值输入范围一致；数值支持三位小数。", color = NcColors.muted, fontSize = 9.sp)
+    }
 }
 
 @Composable
