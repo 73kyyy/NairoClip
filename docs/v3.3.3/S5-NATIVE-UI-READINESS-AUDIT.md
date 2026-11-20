@@ -503,3 +503,13 @@
 - `NativeEditorScreen` 新增“特效 → 转场”原生面板：从引擎类型库展示类型，允许输入微秒时长，显示当前片段关联转场并提供删除；只有时间轴中严格首尾相接的后续片段可作为新转场终点，避免跨空隙错误创建。宿主未提供回调时仍走旧编辑器。
 - 转场面板、类型库与适配器尚未接入 Activity/ViewModel；目前是可接线的原生 UI/API 切片，不代表运行时已启用。
 - 本轮未执行 Android Gradle/Compose/NDK 编译、自动化测试或真机测试。
+
+
+## 32. 原生片段 LUT 调色面板切片（2026-11-20）
+
+- Android JNI 新增 `lut_get` / `lut` 命令：读取片段 LUT 路径与强度，写入时调用现有 C ABI `nc_set_clip_lut`；读取后释放引擎分配的路径字符串，并对 JSON 路径执行转义。
+- `NativeEditorCommandAdapter` 新增 `ClipLutState`、`readClipLut` 与 `setClipLutAndRead`；写入前校验目标轨道/片段存在、轨道未锁定、强度为有限数且位于核心声明的 0..1 域，写入后回读真实状态。
+- `NativeEditorScreen` 新增“调节 → LUT”原生参数面板：编辑 .cube 3D LUT 文件路径、强度滑块与数值输入、应用和清除操作。滑块和数值输入统一使用核心 0..1 范围；滑块在拖动结束时提交，数值在失焦时校验提交。
+- 不创建虚假的内置 LUT 预设。核心接口说明当前内置 LUT 预设数量为 0；本切片仅支持用户输入设备可访问的 .cube 路径。原生文件选择器、URI 到应用可读路径的授权/复制流程尚未实现，因此不能宣称已完成导入体验。
+- 面板、JNI 和适配器尚未接入 Activity/ViewModel；只有宿主提供 `clipLut` 与 `onClipLutChanged` 时才进入原生面板，正式运行时仍未启用。
+- 本轮未执行 Android Gradle/Compose/NDK 编译、单元/仪器测试或真机验证。
