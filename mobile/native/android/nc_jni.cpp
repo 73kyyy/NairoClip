@@ -886,7 +886,26 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("应用变速曲线预设失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "speed_curve" || op == "nc_set_clip_speed_curve") {
+    if (op == "nc_clip_speed_curve_count") {
+        const int32_t count = nc_clip_speed_curve_count(ed, ti, cid);
+        if (count < 0) { *out = Err("读取速度曲线控制点数量失败"); return true; }
+        *out = Ok("{\\"count\\":" + std::to_string(count) + "}");
+        return true;
+    }
+    if (op == "nc_clip_speed_curve_get") {
+        const int32_t index = static_cast<int32_t>(JInt(a, "index", -1));
+        if (index < 0) { *out = Err("速度曲线控制点索引非法"); return true; }
+        double sourceSeconds = 0.0, speed = 1.0;
+        int32_t easing = 0;
+        const int32_t rc = nc_clip_speed_curve_get(
+            ed, ti, cid, index, &sourceSeconds, &speed, &easing);
+        if (rc != NC_OK) { *out = Err("读取速度曲线控制点失败，错误码 " + std::to_string(rc)); return true; }
+        *out = Ok("{\\"source_seconds\\":" + Num(sourceSeconds) +
+                  ",\\"speed\\":" + Num(speed) +
+                  ",\\"easing\\":" + std::to_string(easing) + "}");
+        return true;
+    }
+    if (op == "speed_curve" || op == "nc_set_clip_speed_curve" || op == "nc_set_clip_speed_curve_points") {
         // 参数是数组：points:[{t,v,e}]。JInt/JNum 只能读标量，
         // 这里用最小 JSON 扫描取出三元组；点少于 2 个视为清除曲线。
         std::vector<double> ts, vs;
