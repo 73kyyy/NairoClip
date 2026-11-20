@@ -820,7 +820,8 @@ ExportStats executeExport(
                                                 // 说明：仅在需要可变缓冲时拷贝（无滤镜/特效
                                                 //       且已在上层画布路径时零拷贝）。
                                                 if ((lower->filterStyle != FilterStyle::None ||
-                                                     !lower->effects.empty())) {
+                                                     !lower->effects.empty() ||
+                                                     !lower->colorGrade.isIdentity())) {
                                                     if (lowerPixels != lowerCanvas.data()) {
                                                         lowerCanvas.assign(
                                                             lowerPixels,
