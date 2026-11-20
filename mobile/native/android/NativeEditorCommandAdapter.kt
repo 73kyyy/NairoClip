@@ -997,10 +997,6 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
                 ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
             if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
-            val transitions = readTransitions(trackIndex)
-            if (!transitions.ok || transitions.value.orEmpty().none { it.id == transitionId }) {
-                return@withEditorStateLock Result(false, error = transitions.error ?: "转场已不存在")
-            }
             invoke("remove_transition", JSONObject()
                 .put("track_index", trackIndex)
                 .put("transition_id", transitionId)) { Unit }
