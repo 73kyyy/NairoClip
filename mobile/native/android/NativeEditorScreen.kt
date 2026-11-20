@@ -280,7 +280,7 @@ private fun EditorTopBar(projectName: String, onOpenLegacy: () -> Unit) {
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "导出",
+            text = "完整编辑器",
             color = NcColors.text,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
