@@ -24,12 +24,20 @@ import kotlin.math.min
  * empty tracks; real project snapshots and edit commands are connected in the
  * following S5 slices after the shared timeline contract is frozen.
  */
+data class NativeClipEffect(
+    val id: Long,
+    val type: Int,
+    val value: Double,
+    val enabled: Boolean
+)
+
 data class NativeTimelineClip(
     val id: Long,
     val startUs: Long,
     val durationUs: Long,
     val label: String,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val effects: List<NativeClipEffect> = emptyList()
 )
 
 data class NativeTimelineTrack(
