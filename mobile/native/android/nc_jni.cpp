@@ -531,6 +531,39 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                   ",\"enabled\":" + std::to_string(enabled) + "}");
         return true;
     }
+    if (op == "mask_get") {
+        if (ti < 0 || cid == 0) {
+            *out = Err("缺少蒙版目标片段");
+            return true;
+        }
+        int32_t shape = 0;
+        double centerX = 0.5;
+        double centerY = 0.5;
+        double rotation = 0.0;
+        double width = 1.0;
+        double height = 1.0;
+        double feather = 0.0;
+        double cornerRadius = 0.0;
+        int32_t invert = 0;
+        const int32_t enabled = nc_get_clip_mask(
+            ed, ti, cid, &shape, &centerX, &centerY, &rotation,
+            &width, &height, &feather, &cornerRadius, &invert);
+        if (enabled < 0) {
+            *out = Err("读取蒙版状态失败");
+            return true;
+        }
+        *out = Ok("{\"shape\":" + std::to_string(shape) +
+                  ",\"center_x\":" + Num(centerX) +
+                  ",\"center_y\":" + Num(centerY) +
+                  ",\"rotation_degrees\":" + Num(rotation) +
+                  ",\"width\":" + Num(width) +
+                  ",\"height\":" + Num(height) +
+                  ",\"feather\":" + Num(feather) +
+                  ",\"corner_radius\":" + Num(cornerRadius) +
+                  ",\"invert\":" + std::to_string(invert) +
+                  ",\"enabled\":" + std::to_string(enabled) + "}");
+        return true;
+    }
     if (op == "rename_project") {
         const int32_t rc = nc_set_project_name(ed, JStrField(a, "name").c_str());
         *out = rc == NC_OK ? Ok("") : Err("重命名失败，错误码 " + std::to_string(rc));
