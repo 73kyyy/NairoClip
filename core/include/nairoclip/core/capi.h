@@ -1854,6 +1854,21 @@ int32_t nc_set_clip_lut(NcEditor* editor, int32_t track_index, uint64_t clip_id,
 int32_t nc_get_clip_lut(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
                         char** out_path, double* out_strength);
 
+/// 设置片段 RGB 主曲线。每个通道使用扁平 [x0,y0,x1,y1,...] 数组，点数 2..32。
+/// 输入/输出均为 [0,1]；输入严格递增，端点必须为 (0,0)/(1,1)。
+/// 一次调用对应一条撤销记录。
+int32_t nc_set_clip_color_grade(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                const double* master_xy, int32_t master_count,
+                                const double* red_xy, int32_t red_count,
+                                const double* green_xy, int32_t green_count,
+                                const double* blue_xy, int32_t blue_count);
+/// 读取片段 RGB 曲线。每个输出数组容量至少 64 个 double；count 出参返回控制点数。
+int32_t nc_get_clip_color_grade(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                double* master_xy, int32_t capacity, int32_t* master_count,
+                                double* red_xy, int32_t red_capacity, int32_t* red_count,
+                                double* green_xy, int32_t green_capacity, int32_t* green_count,
+                                double* blue_xy, int32_t blue_capacity, int32_t* blue_count);
+
 /// 校验一个 .cube 文件能否被本库使用（供 UI 导入时即时反馈）。
 /// - 成功：*out_size 写 LUT 边长（2..64），*out_title 写文件里的 TITLE（无则空串，
 ///   需 nc_free_string）；*out_message 写简短说明（可空，需 nc_free_string）。
