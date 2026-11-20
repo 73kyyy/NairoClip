@@ -902,7 +902,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             ).also {
                 require(it.name.isNotBlank())
                 require(it.min.isFinite() && it.max.isFinite() && it.min <= it.max)
-                require(it.defaultValue.isFinite() && it.defaultValue in it.min..it.max)
+                require(it.min.toFloat().isFinite() && it.max.toFloat().isFinite())
+                require(it.defaultValue.isFinite() && it.defaultValue in it.min..it.max &&
+                    it.defaultValue.toFloat().isFinite())
             }
         }
     }
@@ -933,18 +935,23 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             .put("effect_id", effect.id).put("type", effect.type).put("value", value))
     }
 
-    fun setEffectEnabled(target: ClipTarget, effectId: Long, enabled: Boolean): Result<Unit> =
-        mutateEffect(target, "effect_enabled", JSONObject()
+    fun setEffectEnabled(target: ClipTarget, effectId: Long, enabled: Boolean): Result<Unit> {
+        if (effectId <= 0L) return Result(false, error = "特效 ID 无效")
+        return mutateEffect(target, "effect_enabled", JSONObject()
             .put("effect_id", effectId).put("enabled", if (enabled) 1 else 0))
+    }
 
     fun moveEffect(target: ClipTarget, effectId: Long, direction: Int): Result<Unit> {
+        if (effectId <= 0L) return Result(false, error = "特效 ID 无效")
         if (direction !in -1..1 || direction == 0) return Result(false, error = "特效移动方向无效")
         return mutateEffect(target, "effect_move", JSONObject()
             .put("effect_id", effectId).put("direction", direction))
     }
 
-    fun removeEffect(target: ClipTarget, effectId: Long): Result<Unit> =
-        mutateEffect(target, "effect_remove", JSONObject().put("effect_id", effectId))
+    fun removeEffect(target: ClipTarget, effectId: Long): Result<Unit> {
+        if (effectId <= 0L) return Result(false, error = "特效 ID 无效")
+        return mutateEffect(target, "effect_remove", JSONObject().put("effect_id", effectId))
+    }
 
     private fun mutateEffect(target: ClipTarget, operation: String, extra: JSONObject): Result<Unit> =
         bridge.withEditorStateLock {
