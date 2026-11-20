@@ -574,7 +574,12 @@ private fun NativeParameterPanel(
             ParameterSlider("缩放", draftTransform.scale, 5f, 1000f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", onValueChange = { updateDraft(NativeParameter.SCALE, it) }, onValueChangeFinished = ::commitDraft)
         }
         if (activeSubTool == "旋转") {
-            ParameterSlider("旋转", draftTransform.rotation, -180f, 180f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", onValueChange = { updateDraft(NativeParameter.ROTATION, it) }, onValueChangeFinished = ::commitDraft)
+            Text(
+                "支持正负多圈旋转（范围 -3600° 至 3600°）",
+                color = NcColors.muted,
+                fontSize = 9.sp
+            )
+            ParameterSlider("旋转", draftTransform.rotation, -3600f, 3600f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", onValueChange = { updateDraft(NativeParameter.ROTATION, it) }, onValueChangeFinished = ::commitDraft)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             NativeParameter.values().forEach { parameter ->
