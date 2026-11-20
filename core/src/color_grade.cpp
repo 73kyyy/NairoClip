@@ -60,5 +60,19 @@ void ColorGrade::apply(double& r, double& g, double& b) const {
     b = blue.evaluate(b);
 }
 
+void applyColorGradeToRgba(std::uint8_t* pixels, std::size_t pixelCount,
+                           const ColorGrade& grade) {
+    if (pixels == nullptr || pixelCount == 0 || grade.isIdentity() || !grade.valid()) return;
+    for (std::size_t i = 0; i < pixelCount; ++i) {
+        double r = static_cast<double>(pixels[i * 4]) / 255.0;
+        double g = static_cast<double>(pixels[i * 4 + 1]) / 255.0;
+        double b = static_cast<double>(pixels[i * 4 + 2]) / 255.0;
+        grade.apply(r, g, b);
+        pixels[i * 4] = static_cast<std::uint8_t>(std::lround(r * 255.0));
+        pixels[i * 4 + 1] = static_cast<std::uint8_t>(std::lround(g * 255.0));
+        pixels[i * 4 + 2] = static_cast<std::uint8_t>(std::lround(b * 255.0));
+    }
+}
+
 }  // namespace core
 }  // namespace nairoclip
