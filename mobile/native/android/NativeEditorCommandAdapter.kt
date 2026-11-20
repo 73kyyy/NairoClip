@@ -895,6 +895,118 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val enabled: Boolean
     )
 
+    data class TransitionState(
+        val id: Long,
+        val type: Int,
+        val durationUs: Long,
+        val fromClipId: Long,
+        val toClipId: Long,
+        val name: String
+    )
+
+    fun readTransitions(trackIndex: Int): Result<List<TransitionState>> {
+        if (trackIndex < 0) return Result(false, error = "目标轨道索引无效")
+        return bridge.withEditorStateLock {
+            val snapshot = readEditorStateSnapshotLocked()
+            if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error)
+            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            invoke("transition_get", JSONObject().put("track_index", trackIndex)) { payload ->
+                val items = payload.optJSONArray("items")
+                    ?: throw IllegalArgumentException("转场列表缺失")
+                require(items.length() <= 10000)
+                buildList {
+                    for (index in 0 until items.length()) {
+                        val item = items.optJSONObject(index)
+                            ?: throw IllegalArgumentException("转场记录格式非法")
+                        val id = item.opt("id") as? Number
+                            ?: throw IllegalArgumentException("转场 ID 缺失")
+                        val type = item.opt("type") as? Number
+                            ?: throw IllegalArgumentException("转场类型缺失")
+                        val duration = item.opt("duration_us") as? Number
+                            ?: throw IllegalArgumentException("转场时长缺失")
+                        val from = item.opt("from_clip") as? Number
+                            ?: throw IllegalArgumentException("转场起始片段缺失")
+                        val to = item.opt("to_clip") as? Number
+                            ?: throw IllegalArgumentException("转场结束片段缺失")
+                        val name = item.optString("name", "")
+                        require(id.toLong() > 0L && type.toInt() >= 0)
+                        require(duration.toLong() > 0L && from.toLong() > 0L && to.toLong() > 0L)
+                        require(name.isNotBlank())
+                        add(TransitionState(id.toLong(), type.toInt(), duration.toLong(),
+                            from.toLong(), to.toLong(), name))
+                    }
+                }
+            }
+        }
+    }
+
+    fun readTransitionTypeCount(): Result<Int> =
+        invoke("nc_transition_type_count", JSONObject()) { payload ->
+            val raw = payload.opt("value") as? Number
+                ?: throw IllegalArgumentException("转场类型数量缺失")
+            raw.toInt().also { require(it in 1..4096) }
+        }
+
+    fun readTransitionTypeName(type: Int): Result<String> {
+        if (type < 0) return Result(false, error = "转场类型无效")
+        return invoke("nc_transition_type_name", JSONObject().put("type", type)) { payload ->
+            payload.getString("value").also { require(it.isNotBlank() && it != "未知转场") }
+        }
+    }
+
+    fun addTransition(
+        trackIndex: Int,
+        fromClipId: Long,
+        toClipId: Long,
+        type: Int,
+        durationUs: Long
+    ): Result<Long> {
+        if (trackIndex < 0 || fromClipId <= 0L || toClipId <= 0L ||
+            fromClipId == toClipId || type < 0 || durationUs <= 0L
+        ) return Result(false, error = "转场参数无效")
+        return bridge.withEditorStateLock {
+            val snapshot = readEditorStateSnapshotLocked()
+            if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error)
+            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            if (track.clips.none { it.id == fromClipId } || track.clips.none { it.id == toClipId }) {
+                return@withEditorStateLock Result(false, error = "转场两端片段必须位于同一目标轨道")
+            }
+            val count = readTransitionTypeCount()
+            if (!count.ok || type !in 0 until (count.value ?: 0)) {
+                return@withEditorStateLock Result(false, error = count.error ?: "转场类型超出引擎范围")
+            }
+            invoke("transition", JSONObject()
+                .put("track_index", trackIndex)
+                .put("from_clip", fromClipId)
+                .put("to_clip", toClipId)
+                .put("transition_type", type)
+                .put("duration_us", durationUs)) { payload ->
+                payload.getLong("value").also { require(it > 0L) }
+            }
+        }
+    }
+
+    fun removeTransition(trackIndex: Int, transitionId: Long): Result<Unit> {
+        if (trackIndex < 0 || transitionId <= 0L) return Result(false, error = "转场 ID 无效")
+        return bridge.withEditorStateLock {
+            val snapshot = readEditorStateSnapshotLocked()
+            if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error)
+            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            val transitions = readTransitions(trackIndex)
+            if (!transitions.ok || transitions.value.orEmpty().none { it.id == transitionId }) {
+                return@withEditorStateLock Result(false, error = transitions.error ?: "转场已不存在")
+            }
+            invoke("remove_transition", JSONObject()
+                .put("track_index", trackIndex)
+                .put("transition_id", transitionId)) { Unit }
+        }
+    }
+
     data class ClipMaskState(
         val shape: Int,
         val centerX: Double,
