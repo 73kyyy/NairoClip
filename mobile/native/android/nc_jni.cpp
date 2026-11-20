@@ -518,6 +518,19 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置滤镜失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "filter_get") {
+        int32_t style = 0;
+        double intensity = 0.0;
+        const int32_t enabled = nc_get_clip_filter(ed, ti, cid, &style, &intensity);
+        if (enabled < 0) {
+            *out = Err("读取滤镜状态失败");
+            return true;
+        }
+        *out = Ok("{\"style\":" + std::to_string(style) +
+                  ",\"intensity\":" + Num(intensity) +
+                  ",\"enabled\":" + std::to_string(enabled) + "}");
+        return true;
+    }
     if (op == "rename_project") {
         const int32_t rc = nc_set_project_name(ed, JStrField(a, "name").c_str());
         *out = rc == NC_OK ? Ok("") : Err("重命名失败，错误码 " + std::to_string(rc));
