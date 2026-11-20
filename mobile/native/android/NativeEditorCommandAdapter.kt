@@ -812,6 +812,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             if (!result.ok) return Result(false, error = result.error)
             frames += result.value ?: return Result(false, error = "关键帧数据缺失")
         }
+        NativeKeyframeValueRules.validateTimes(frames.map { it.timeUs })?.let {
+            return Result(false, error = it)
+        }
         return Result(true, frames)
     }
 
