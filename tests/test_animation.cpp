@@ -213,6 +213,31 @@ NC_TEST(Animation, EditorKeyframeWithUndo) {
     NC_CHECK(editor.undo().isOk());
     c = findClip(project, seqId, trackId, clipId);
     NC_CHECK_EQ(c->animation.findCurve(ClipProperty::Opacity)->size(), std::size_t(2));
+
+    // The editor command path must enforce the same rotation bounds as the
+    // static transform API while retaining intentional multi-turn values.
+    Keyframe invalidRotation;
+    invalidRotation.time = Rational::make(3);
+    invalidRotation.value = transform_limits::kRotationMaxDegrees + 0.01;
+    NC_CHECK(!editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Rotation,
+                                   invalidRotation).isOk());
+    invalidRotation.value = transform_limits::kRotationMinDegrees - 0.01;
+    NC_CHECK(!editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Rotation,
+                                   invalidRotation).isOk());
+
+    Keyframe rotationStart;
+    rotationStart.time = Rational::make(0);
+    rotationStart.value = 0.0;
+    Keyframe rotationEnd;
+    rotationEnd.time = Rational::make(2);
+    rotationEnd.value = 720.0;
+    NC_CHECK(editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Rotation,
+                                   rotationStart).isOk());
+    NC_CHECK(editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Rotation,
+                                   rotationEnd).isOk());
+    c = findClip(project, seqId, trackId, clipId);
+    NC_CHECK(c != nullptr);
+    NC_CHECK(nearly(c->animation.sample(ClipProperty::Rotation, Rational::make(1)), 360.0));
 }
 
 
