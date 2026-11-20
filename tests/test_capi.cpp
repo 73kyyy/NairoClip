@@ -1974,3 +1974,39 @@ NC_TEST(Capi, HeartbeatLifecycle) {
     NC_CHECK_EQ(nc_heartbeat_clear_lock(nullptr), NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
 }
+
+
+NC_TEST(Capi, ClipColorGradeUndoRoundtrip) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t asset = nc_import_asset(editor, "curve.mp4", "/curve.mp4", 0, 10000000);
+    NC_CHECK(asset != 0);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clip = nc_insert_clip(editor, 0, asset, 0, 5000000);
+    NC_CHECK(clip != 0);
+    const double master[] = {0.0, 0.0, 0.5, 0.75, 1.0, 1.0};
+    const double identity[] = {0.0, 0.0, 1.0, 1.0};
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        master, 3, identity, 2, identity, 2, identity, 2), NC_OK);
+    double readMaster[64] = {}, readRed[64] = {}, readGreen[64] = {}, readBlue[64] = {};
+    int32_t mc = 0, rc = 0, gc = 0, bc = 0;
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 3);
+    NC_CHECK(std::abs(readMaster[3] - 0.75) < 1e-9);
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 2);
+    NC_CHECK(std::abs(readMaster[3] - 1.0) < 1e-9);
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 3);
+    const double invalid[] = {0.0, 0.0, 0.8, 0.6, 0.7, 0.9, 1.0, 1.0};
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        invalid, 4, identity, 2, identity, 2, identity, 2), NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
