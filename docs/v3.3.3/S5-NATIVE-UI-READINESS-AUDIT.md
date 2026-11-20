@@ -257,7 +257,7 @@
 
 ## 12. 首页 / 设置原生页面实现切片（2026-11-20）
 
-新增 `mobile/native/android/NativeAppShell.kt`，将原 HTML 页面中的主要信息架构拆成宿主驱动的 Compose 页面组件：
+新增首页/设置原生 Compose 页面组件（当前源码位于 `mobile/native/android/NativeHomeSettingsScreens.kt`），将原 HTML 页面中的主要信息架构拆成宿主驱动的 Compose 页面组件：
 
 - `NativeHomeScreen`：原生首页头部、创建项目入口、四个快捷入口、草稿搜索、空态/加载/错误态、草稿列表和管理选择。
 - `NativeCreateProjectDialog`：原生创建项目对话框；工程规格只接受宿主从引擎/正式项目配置契约提供的 `NativeProjectPreset` 列表。没有规格时禁用创建，不在 UI 内私自硬编码分辨率或帧率。
@@ -276,7 +276,7 @@
 
 ## 13. 账号 / 帮助 / 法律页面原生组件切片（2026-11-20）
 
-在 `mobile/native/android/NativeAppShell.kt` 中继续增加宿主驱动的页面组件：
+在独立源码文件 `mobile/native/android/NativeAccountSupportScreens.kt` 中增加宿主驱动的页面组件：
 
 - `NativeMeScreen`：账号摘要、手机号绑定入口、会员状态入口、可配置分组、账号退出动作；开关/选项沿用统一设置行组件。
 - `NativeAuthScreen`：手机号登录入口和平台可用的第三方登录入口；Android UI 不显示当前 NativeAuthBridge 明确拒绝的 Apple 登录。
@@ -293,7 +293,7 @@
 
 ## 14. 模板 / AI 创作页面原生承载切片（2026-11-20）
 
-新增以下宿主驱动 Compose 页面组件，覆盖现有产品页面 `20-template.html`、`21-template-fill.html`、`22-template-progress.html`、`23-ai-edit.html` 的主要信息架构：
+新增独立源码文件 `mobile/native/android/NativeCreationFlowScreens.kt`，其中宿主驱动 Compose 页面组件覆盖现有产品页面 `20-template.html`、`21-template-fill.html`、`22-template-progress.html`、`23-ai-edit.html` 的主要信息架构：
 
 - `NativeTemplateScreen`：模板搜索、分类筛选、单选和下一步；模板项由既有 `nc_template_list` 结果映射，不在 UI 内生成虚构模板。
 - `NativeTemplateFillScreen`：按模板槽位选择素材；模板、槽位和素材列表均由宿主提供，缺少素材时不允许提交生成。
@@ -314,3 +314,17 @@
 对照 `23-ai-edit.html` 与 `ai-edit.js` 后，补回原流程中容易遗漏的交互：创作风格（smooth/effect/curve）、强度 20%–100%、镜头智能/原有顺序、叠层密度 few/mid/all，以及现有混合模式枚举。强度控件已放回原产品流程对应的“创作方向”步骤；选项横向滚动，避免窄屏裁切。
 
 **仍需宿主接线的回调**：风格/排序/叠层密度/混合模式变更必须映射回现有 AI 编排状态和引擎命令；本次只补 UI 表达与类型化回调，不在 Kotlin UI 层重写 AI 编排算法。此项仍未通过编译、UI 自动化或真机验收。
+
+
+## 16. 页面源码路径与 PR 状态校正（2026-11-20）
+
+本节校正前文早期切片记录与当前仓库状态之间的差异：
+
+- 首页/创建项目弹窗/设置页面当前实现文件为 `mobile/native/android/NativeHomeSettingsScreens.kt`。
+- 我的/认证/手机号登录/反馈/FAQ/法律/崩溃日志页面当前实现文件为 `mobile/native/android/NativeAccountSupportScreens.kt`。
+- 模板/素材填充/生成进度/AI 创作向导当前实现文件为 `mobile/native/android/NativeCreationFlowScreens.kt`。
+- `mobile/native/android/NativeAppShell.kt` 已收缩为迁移说明空壳，不再承载上述页面实现。第 12–14 节中提到该旧文件的描述应按以上拆分后的实际路径理解。
+- 本次读取 PR #32 的 GitHub API 当前 head 为 `c84691542163b83bb396bd0049ce6b9ad65105ae`，状态仍为 open / draft / unmerged；该提交的 combined status 没有任何 status context（statuses 为空）。因此不能把静态源码检查描述为 CI 或构建通过。
+- PR #32 仍未修改 `MainActivity`、Manifest、持久化和 JNI/C ABI；WebView 仍是实际运行入口和回退路径。原生页面组件存在不等于原生页面已接入或已通过端到端验收。
+
+本次仅校正文档路径与状态，不改变 S1-3、S3-1、S1-8D、S5 接口冻结、A-5/A-6 审批及正式入口切换的先决条件。
