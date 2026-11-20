@@ -39,16 +39,29 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                 is String -> JSONObject(raw)
                 else -> JSONObject()
             }
-            val scale = payload.getDouble("scale")
-            val x = payload.getDouble("pos_x")
-            val y = payload.getDouble("pos_y")
-            val rotation = payload.getDouble("rotation")
+            // JNI serializes these fields as JSON numbers. Do not coerce strings,
+            // default missing flags, or clamp an invalid anchor into a plausible
+            // value: that would make a broken engine response look authoritative.
+            fun requiredFiniteNumber(name: String): Double {
+                val raw = payload.opt(name) as? Number
+                    ?: throw IllegalArgumentException("变换字段 $name 缺失或类型错误")
+                return raw.toDouble().also {
+                    require(it.isFinite()) { "变换字段 $name 不是有限数值" }
+                }
+            }
+            val scale = requiredFiniteNumber("scale")
+            val x = requiredFiniteNumber("pos_x")
+            val y = requiredFiniteNumber("pos_y")
+            val rotation = requiredFiniteNumber("rotation")
+            val enabledValue = requiredFiniteNumber("enabled")
+            val anchorValue = requiredFiniteNumber("anchor")
             val scalePercent = scale * 100.0
             // The engine reports Double values, while Compose sliders and the
             // native transform model use Float. Finite Doubles can still
             // overflow to Float infinity; reject them before exposing UI state.
-            require(scale.isFinite() && scale > 0.0 && scalePercent.isFinite())
-            require(x.isFinite() && y.isFinite() && rotation.isFinite())
+            require(scale > 0.0 && scalePercent.isFinite())
+            require(enabledValue == 0.0 || enabledValue == 1.0)
+            require(anchorValue % 1.0 == 0.0 && anchorValue in 0.0..8.0)
             require(
                 scalePercent.toFloat().isFinite() &&
                     x.toFloat().isFinite() &&
@@ -64,8 +77,8 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                         scale = scalePercent.toFloat(),
                         rotation = rotation.toFloat()
                     ),
-                    enabled = payload.optInt("enabled", 1) != 0,
-                    anchor = payload.optInt("anchor", 4).coerceIn(0, 8)
+                    enabled = enabledValue == 1.0,
+                    anchor = anchorValue.toInt()
                 )
             )
         }
