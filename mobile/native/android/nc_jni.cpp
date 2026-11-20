@@ -856,7 +856,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置混合模式失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "speed") {
+    if (op == "speed" || op == "nc_set_clip_speed") {
         // nc_set_clip_speed 收的是**整数分数**（num/den），不是 double ——
         // 用 double 传会直接编译失败，且分数形式能保证 1/3 这类速度精确可逆。
         int64_t num = static_cast<int64_t>(JInt(a, "num", -1));
@@ -875,7 +875,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置速度失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "speed_curve") {
+    if (op == "speed_curve" || op == "nc_set_clip_speed_curve") {
         // 参数是数组：points:[{t,v,e}]。JInt/JNum 只能读标量，
         // 这里用最小 JSON 扫描取出三元组；点少于 2 个视为清除曲线。
         std::vector<double> ts, vs;
