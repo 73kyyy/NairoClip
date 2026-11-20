@@ -354,7 +354,7 @@ private fun NativeCreateProjectDialog(
     )
 }
 
-private fun formatNativeDuration(durationUs: Long): String {
+internal fun formatNativeDuration(durationUs: Long): String {
     val seconds = (durationUs.coerceAtLeast(0L) / 1_000_000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
@@ -454,7 +454,7 @@ fun NativeSettingsScreen(
 }
 
 @Composable
-private fun NativeSettingRow(
+internal fun NativeSettingRow(
     item: NativeSettingItem,
     onAction: () -> Unit,
     onValueChanged: (String) -> Unit
