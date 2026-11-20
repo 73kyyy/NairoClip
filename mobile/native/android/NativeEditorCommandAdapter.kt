@@ -895,6 +895,47 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val enabled: Boolean
     )
 
+    data class ClipLutState(
+        val path: String,
+        val strength: Double
+    )
+
+    /** Reads the selected clip's persisted .cube LUT path and blend strength. */
+    fun readClipLut(target: ClipTarget): Result<ClipLutState> =
+        invoke("lut_get", targetArgs(target)) { payload ->
+            ClipLutState(
+                path = payload.optString("path", ""),
+                strength = payload.getDouble("strength")
+            ).also { require(it.strength.isFinite() && it.strength in 0.0..1.0) }
+        }
+
+    /** Sets or clears a clip LUT; strength follows the core's authoritative 0..1 domain. */
+    fun setClipLutAndRead(
+        target: ClipTarget,
+        path: String,
+        strength: Double
+    ): Result<ClipLutState> {
+        if (path.any { it == '\\u0000' } || !strength.isFinite() || strength !in 0.0..1.0) {
+            return Result(false, error = "LUT 路径或强度参数非法")
+        }
+        return bridge.withEditorStateLock {
+            val snapshot = readTimelineSnapshotLocked()
+            if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error ?: "读取工程时间轴失败")
+            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            if (track.clips.none { it.id == target.clipId }) {
+                return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            }
+            val changed = invoke(
+                "lut",
+                targetArgs(target).put("path", path).put("strength", strength)
+            ) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置 LUT 失败")
+            readClipLut(target)
+        }
+    }
+
     data class TransitionState(
         val id: Long,
         val type: Int,
