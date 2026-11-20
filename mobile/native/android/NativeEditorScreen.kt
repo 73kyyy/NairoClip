@@ -458,6 +458,31 @@ private fun NativeTimelinePanel(
 }
 
 /**
+ * Shared transform value domains. Keep UI, command adapters and the JNI bridge
+ * aligned with the C ABI contract; slider travel is intentionally narrower
+ * than typed-entry limits for comfortable mobile adjustment.
+ */
+object NativeTransformRange {
+    const val POSITION_MIN = -10f
+    const val POSITION_MAX = 10f
+    const val POSITION_SLIDER_MIN = -2f
+    const val POSITION_SLIDER_MAX = 2f
+
+    const val SCALE_MIN_PERCENT = 5f
+    const val SCALE_MAX_PERCENT = 1000f
+    const val SCALE_SLIDER_MAX_PERCENT = 400f
+
+    const val ROTATION_MIN_DEGREES = -3600f
+    const val ROTATION_MAX_DEGREES = 3600f
+    const val ROTATION_SLIDER_MIN_DEGREES = -360f
+    const val ROTATION_SLIDER_MAX_DEGREES = 360f
+
+    const val ANCHOR_MIN = 0
+    const val ANCHOR_MAX = 8
+    const val ANCHOR_CENTER = 4
+}
+
+/**
  * Presentation inputs; the host must persist changes through the engine command API.
  * X/Y are normalized canvas offsets (1.0 = one full canvas width/height),
  * scale is expressed as a percentage, and rotation is in degrees.
@@ -563,23 +588,57 @@ private fun NativeParameterPanel(
         }
         if (activeSubTool == "位置") {
             Text(
-                "位置偏移按画布尺寸比例计量（1.0 = 一个画布宽度/高度）",
+                "位置以画布尺寸为单位：1.0 = 一个画布宽/高；滑动常用 ±2，数值可输入 ±10",
                 color = NcColors.muted,
                 fontSize = 9.sp
             )
-            ParameterSlider("X", draftTransform.x, -10f, 10f, NativeParameter.X, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.X, it) }, onValueChangeFinished = ::commitDraft)
-            ParameterSlider("Y", draftTransform.y, -10f, 10f, NativeParameter.Y, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.Y, it) }, onValueChangeFinished = ::commitDraft)
+            ParameterSlider(
+                "X", draftTransform.x,
+                NativeTransformRange.POSITION_SLIDER_MIN, NativeTransformRange.POSITION_SLIDER_MAX,
+                NativeParameter.X, keyedParameters, onInsertKeyframe,
+                inputLow = NativeTransformRange.POSITION_MIN,
+                inputHigh = NativeTransformRange.POSITION_MAX,
+                onValueChange = { updateDraft(NativeParameter.X, it) },
+                onValueChangeFinished = ::commitDraft
+            )
+            ParameterSlider(
+                "Y", draftTransform.y,
+                NativeTransformRange.POSITION_SLIDER_MIN, NativeTransformRange.POSITION_SLIDER_MAX,
+                NativeParameter.Y, keyedParameters, onInsertKeyframe,
+                inputLow = NativeTransformRange.POSITION_MIN,
+                inputHigh = NativeTransformRange.POSITION_MAX,
+                onValueChange = { updateDraft(NativeParameter.Y, it) },
+                onValueChangeFinished = ::commitDraft
+            )
         }
         if (activeSubTool == "缩放") {
-            ParameterSlider("缩放", draftTransform.scale, 5f, 1000f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", onValueChange = { updateDraft(NativeParameter.SCALE, it) }, onValueChangeFinished = ::commitDraft)
+            Text("100% 为原始尺寸；滑动常用 5%–400%，数值可输入 5%–1000%", color = NcColors.muted, fontSize = 9.sp)
+            ParameterSlider(
+                "缩放", draftTransform.scale,
+                NativeTransformRange.SCALE_MIN_PERCENT, NativeTransformRange.SCALE_SLIDER_MAX_PERCENT,
+                NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%",
+                inputLow = NativeTransformRange.SCALE_MIN_PERCENT,
+                inputHigh = NativeTransformRange.SCALE_MAX_PERCENT,
+                onValueChange = { updateDraft(NativeParameter.SCALE, it) },
+                onValueChangeFinished = ::commitDraft
+            )
         }
         if (activeSubTool == "旋转") {
             Text(
-                "支持正负多圈旋转（范围 -3600° 至 3600°）",
+                "滑动常用 ±360°；数值支持正负 10 圈（±3600°），角度不自动折返",
                 color = NcColors.muted,
                 fontSize = 9.sp
             )
-            ParameterSlider("旋转", draftTransform.rotation, -3600f, 3600f, NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", onValueChange = { updateDraft(NativeParameter.ROTATION, it) }, onValueChangeFinished = ::commitDraft)
+            ParameterSlider(
+                "旋转", draftTransform.rotation,
+                NativeTransformRange.ROTATION_SLIDER_MIN_DEGREES,
+                NativeTransformRange.ROTATION_SLIDER_MAX_DEGREES,
+                NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°",
+                inputLow = NativeTransformRange.ROTATION_MIN_DEGREES,
+                inputHigh = NativeTransformRange.ROTATION_MAX_DEGREES,
+                onValueChange = { updateDraft(NativeParameter.ROTATION, it) },
+                onValueChangeFinished = ::commitDraft
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             NativeParameter.values().forEach { parameter ->
@@ -654,12 +713,17 @@ private fun ParameterSlider(
     label: String, value: Float, low: Float, high: Float, parameter: NativeParameter,
     keyedParameters: Set<NativeParameter>, onInsertKeyframe: (NativeParameter) -> Unit,
     suffix: String = "",
+    inputLow: Float = low,
+    inputHigh: Float = high,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit
 ) {
-    // Engine snapshots are validated at the adapter boundary, but keep the
-    // Compose control resilient to malformed/stale host values as well.
-    val safeValue = value.takeIf { it.isFinite() }?.coerceIn(low, high) ?: low
+    // Keep the thumb usable when a typed value is outside the common drag
+    // window: expand the displayed slider domain to include the current value.
+    // Typed entry always retains the wider engine-safe range.
+    val safeValue = value.takeIf { it.isFinite() }?.coerceIn(inputLow, inputHigh) ?: inputLow
+    val effectiveLow = minOf(low, safeValue)
+    val effectiveHigh = maxOf(high, safeValue)
     val focusManager = LocalFocusManager.current
     val valueFocusRequester = remember { FocusRequester() }
     var editingValue by remember(parameter, safeValue) { mutableStateOf(false) }
@@ -674,7 +738,7 @@ private fun ParameterSlider(
     fun finishNumericEdit() {
         val parsed = numericText.trim().replace(',', '.').toFloatOrNull()
         if (parsed != null && parsed.isFinite()) {
-            onValueChange(parsed.coerceIn(low, high))
+            onValueChange(parsed.coerceIn(inputLow, inputHigh))
             onValueChangeFinished()
         } else {
             numericText = "%.1f".format(Locale.US, safeValue)
@@ -693,7 +757,7 @@ private fun ParameterSlider(
             value = safeValue,
             onValueChange = onValueChange,
             onValueChangeFinished = onValueChangeFinished,
-            valueRange = low..high,
+            valueRange = effectiveLow..effectiveHigh,
             modifier = Modifier.weight(1f)
         )
         Box(
