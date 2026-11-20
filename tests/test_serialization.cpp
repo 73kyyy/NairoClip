@@ -162,6 +162,23 @@ NC_TEST(Serialization, AnimationRoundtrip) {
     NC_CHECK(std::abs(scale->keyframes()[0].easing.c1x - 0.2) < 1e-9);
     NC_CHECK(std::abs(scale->keyframes()[0].easing.c2y - 0.6) < 1e-9);
 }
+NC_TEST(Serialization, RejectsOutOfRangeTransformKeyframes) {
+    const ClipProperty properties[] = {ClipProperty::Scale, ClipProperty::PositionX,
+                                       ClipProperty::PositionY, ClipProperty::Rotation};
+    const double invalidValues[] = {10.01, 10.01, -10.01, 3600.01};
+    for (std::size_t i = 0; i < 4; ++i) {
+        Project original = makeSampleProject();
+        Clip& clip = original.sequences[0].tracks[0].clips[0];
+        Keyframe invalid;
+        invalid.time = Rational::make(0);
+        invalid.value = invalidValues[i];
+        NC_CHECK(clip.animation.curve(properties[i]).insert(invalid).isOk());
+
+        Project loaded;
+        const NclipLoadResult result = loadProjectFromNclip(saveProjectToNclip(original), loaded);
+        NC_CHECK(!result.result.isOk());
+    }
+}
 NC_TEST(Serialization, ClipWithoutAnimationOmitsField) {
     Project p;
     p.name = "n";
