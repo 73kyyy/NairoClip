@@ -931,11 +931,10 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                 val cornerRadius = finite("corner_radius")
                 val invert = finite("invert")
                 val enabled = finite("enabled")
-                require(shape % 1.0 == 0.0 && shape in 1.0..6.0)
-                require(centerX in 0.0..1.0 && centerY in 0.0..1.0)
-                require(rotation in -3600.0..3600.0)
-                require(width in 0.0..1.0 && height in 0.0..1.0)
-                require(feather in 0.0..1.0 && cornerRadius in 0.0..1.0)
+                require(shape % 1.0 == 0.0 && shape in 0.0..6.0)
+                // The core Mask contract only bounds feather/cornerRadius to 0..0.5.
+                // Width/height are normalized shape-specific dimensions and are not capped at 1.
+                require(feather in 0.0..0.5 && cornerRadius in 0.0..0.5)
                 require(invert == 0.0 || invert == 1.0)
                 require(enabled == 0.0 || enabled == 1.0)
                 ClipMaskState(
