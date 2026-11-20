@@ -839,7 +839,7 @@ fun NativeAuthScreen(
         Text("登录仅用于账号与云服务，本地剪辑不受影响", color = Color(0xFF858B8F), fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
         Spacer(Modifier.height(30.dp))
         Button(onClick = onPhoneLogin, modifier = Modifier.fillMaxWidth()) { Text("手机号登录") }
-        availableProviders.forEach { provider ->
+        availableProviders.filterNot { it.equals("apple", ignoreCase = true) }.forEach { provider ->
             TextButton(
                 onClick = { onAuthorize(provider) },
                 enabled = busyProvider == null,
@@ -887,7 +887,7 @@ fun NativePhoneLoginScreen(
         Text("验证码仅用于本次登录验证", color = Color(0xFF858B8F), fontSize = 11.sp)
         OutlinedTextField(
             value = phone,
-            onValueChange = { value -> phone = value.filter { it.isDigit() || it == '+' }.take(16) },
+            onValueChange = { value -> phone = value.filterIndexed { index, char -> char.isDigit() || (index == 0 && char == '+') }.take(16) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text("手机号") }
@@ -902,7 +902,7 @@ fun NativePhoneLoginScreen(
             )
             TextButton(
                 onClick = { onRequestCode(phone.trim()) },
-                enabled = phone.length >= 6 && !requestInProgress && cooldownSeconds <= 0
+                enabled = phone.count(Char::isDigit) in 7..15 && !requestInProgress && cooldownSeconds <= 0
             ) {
                 Text(
                     when {
@@ -916,7 +916,7 @@ fun NativePhoneLoginScreen(
         statusMessage?.let { Text(it, color = Color(0xFFFFB4AB), fontSize = 12.sp) }
         Button(
             onClick = { onSubmit(phone.trim(), code.trim()) },
-            enabled = phone.length >= 6 && code.isNotBlank() && !submitInProgress,
+            enabled = phone.count(Char::isDigit) in 7..15 && code.length in 4..8 && !submitInProgress,
             modifier = Modifier.fillMaxWidth()
         ) { Text(if (submitInProgress) "登录中…" else "登录") }
     }
