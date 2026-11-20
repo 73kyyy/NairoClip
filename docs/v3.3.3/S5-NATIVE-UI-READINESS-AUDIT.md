@@ -133,3 +133,5 @@
 - Keyframe reads now reject out-of-domain transform values instead of accepting any finite number into the Compose model. This prevents corrupted or stale engine keyframes from being rendered as valid UI state.
 - Non-transform channels retain their existing property-specific semantics; this change does not impose transform bounds on opacity/audio or other channels.
 - Static source verification only; no Android build, Kotlin unit tests, CI, or device test was run.
+
+- Follow-up interaction fix: when a selected clip loads a transform value outside the common slider window, the expanded slider domain is now captured per selected clip/parameter and remains stable for the entire drag. It is recalculated only when the selected clip or control domain changes, preventing a moving-boundary/thumb-chasing effect during pointer input.
