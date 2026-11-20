@@ -4439,6 +4439,76 @@ int32_t nc_get_clip_lut(const NcEditor* editor, int32_t track_index, uint64_t cl
     return NC_OK;
 }
 
+
+int32_t nc_set_clip_color_grade(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                const double* master_xy, int32_t master_count,
+                                const double* red_xy, int32_t red_count,
+                                const double* green_xy, int32_t green_count,
+                                const double* blue_xy, int32_t blue_count) {
+    if (editor == nullptr || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 或片段 ID 无效");
+    }
+    const auto readCurve = [](const double* values, int32_t count, ColorCurve& out) {
+        if (values == nullptr || count < static_cast<int32_t>(ColorCurve::kMinPoints) ||
+            count > static_cast<int32_t>(ColorCurve::kMaxPoints)) return false;
+        out.points.clear();
+        out.points.reserve(static_cast<std::size_t>(count));
+        for (int32_t i = 0; i < count; ++i) {
+            out.points.push_back({values[i * 2], values[i * 2 + 1]});
+        }
+        return out.valid();
+    };
+    ColorGrade grade;
+    if (!readCurve(master_xy, master_count, grade.master) ||
+        !readCurve(red_xy, red_count, grade.red) ||
+        !readCurve(green_xy, green_count, grade.green) ||
+        !readCurve(blue_xy, blue_count, grade.blue)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "RGB 曲线必须为 2–32 个合法控制点");
+    }
+    SequenceId sequenceId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &sequenceId, &trackId, &code)) return code;
+    return failResult(editor->editor->setClipColorGrade(
+        sequenceId, trackId, ClipId{clip_id}, grade));
+}
+
+int32_t nc_get_clip_color_grade(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                double* master_xy, int32_t master_capacity, int32_t* master_count,
+                                double* red_xy, int32_t red_capacity, int32_t* red_count,
+                                double* green_xy, int32_t green_capacity, int32_t* green_count,
+                                double* blue_xy, int32_t blue_capacity, int32_t* blue_count) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 或片段目标无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "主序列不存在");
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size())
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引越界");
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    const auto writeCurve = [](const ColorCurve& curve, double* values,
+                               int32_t capacity, int32_t* count) {
+        if (count != nullptr) *count = static_cast<int32_t>(curve.points.size());
+        if (values == nullptr) return true;
+        if (capacity < static_cast<int32_t>(curve.points.size() * 2)) return false;
+        for (std::size_t i = 0; i < curve.points.size(); ++i) {
+            values[i * 2] = curve.points[i].input;
+            values[i * 2 + 1] = curve.points[i].output;
+        }
+        return true;
+    };
+    const ColorGrade& grade = clip->colorGrade;
+    if (!writeCurve(grade.master, master_xy, master_capacity, master_count) ||
+        !writeCurve(grade.red, red_xy, red_capacity, red_count) ||
+        !writeCurve(grade.green, green_xy, green_capacity, green_count) ||
+        !writeCurve(grade.blue, blue_xy, blue_capacity, blue_count)) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "RGB 曲线输出缓冲区容量不足");
+    }
+    return NC_OK;
+}
+
 int32_t nc_lut_validate_file(const char* path, int32_t* out_size, char** out_title,
                              char** out_message) {
     if (path == nullptr || path[0] == '\0') {
