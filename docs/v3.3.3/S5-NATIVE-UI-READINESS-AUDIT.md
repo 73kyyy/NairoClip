@@ -681,3 +681,11 @@
 - 该校验防止异常/损坏的引擎回包把重复关键帧交给 Compose 面板，避免列表选择、删除和曲线显示对同一时间点产生歧义。
 - 规则集中在纯函数 `NativeKeyframeValueRules.validateTimes`，并补充单元测试覆盖空通道、正常递增、负时间、重复时间和逆序时间。
 - 本项仅强化读取边界，不修改核心关键帧排序策略，也不改变项目时间到片段本地时间的换算契约。Gradle 测试与真机验证尚未执行。
+
+## 52. 原生文本片段创建面板与事务适配器（2026-11-21）
+
+- 将“文本 → 添加文本”接入原生 Compose 面板；支持多行正文输入、UTF-8 16 KiB 输入上限、播放头位置提示与创建操作。默认样式采用核心 C ABI 文档默认值：48 画布点、白色、居中、归一化锚点 (0.5, 0.5)，片段默认时长 3 秒。
+- `NativeEditorCommandAdapter.addTextClipAndReadEditorState` 先检查文本非空/长度、时间溢出与工程时长，再在同一编辑器状态锁内调用已有 `nc_add_text_clip` JNI 分发，并回读权威时间轴及 Undo/Redo 快照；返回新文本片段 ID 和同批编辑器状态。
+- JNI 与核心 C ABI 的 `nc_add_text_clip` 已存在，本切片不新增底层协议、不修改 MainActivity/Manifest/正式入口。
+- Compose 面板通过可选 `onCreateTextClip` 回调交给宿主执行；当前仍未接入 Activity/ViewModel，因此没有声称正式运行时已启用。宿主需在成功后用返回的 `TextClipMutationResult.editorState` 更新时间轴/历史，并可按 `clipId` 定位新片段。
+- 未执行 Android Gradle/Compose/NDK 编译、JUnit 或真机验证；当前仅可做源码回读与静态检查。
