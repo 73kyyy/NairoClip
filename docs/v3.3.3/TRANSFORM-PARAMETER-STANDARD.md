@@ -47,3 +47,6 @@
 ## 6. 未来扩展
 
 如需自由锚点、负缩放镜像、非等比 X/Y 缩放、像素单位位置或更大角度范围，必须先升级跨平台核心模型和项目序列化版本，再升级 C ABI 与各端 UI；不能仅扩大某一端滑块范围。
+
+### Core implementation invariant
+- C++ static `ClipTransform` validation and animation `PropertySpec` for Scale/X/Y/Rotation must both consume `core/include/nairoclip/core/transform_limits.h`. Tests must compare the property specs to those constants rather than repeat numeric literals.
