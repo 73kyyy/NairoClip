@@ -88,7 +88,7 @@ fun NativeTemplateScreen(
             singleLine = true, label = { Text("搜索模板") }
         )
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             categories.forEach { item ->
