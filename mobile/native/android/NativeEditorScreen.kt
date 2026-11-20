@@ -343,6 +343,7 @@ fun NativeEditorScreen(
                             onRemoveClipEffect.invoke(selectedTarget.first, selectedTarget.second, effectId)
                         },
                         panelTitle = "基础画面调节 · 效果栈",
+                        allowStackOrdering = false,
                         options = listOf(
                             NativeEffectOption(1, "亮度"), NativeEffectOption(2, "对比度"),
                             NativeEffectOption(3, "饱和度"), NativeEffectOption(4, "色温"),
@@ -1049,6 +1050,7 @@ private fun NativeClipEffectsPanel(
     onRemove: (Long) -> Unit,
     modifier: Modifier = Modifier,
     panelTitle: String = "视频特效 · 效果栈",
+    allowStackOrdering: Boolean = true,
     options: List<NativeEffectOption> = listOf(
         NativeEffectOption(13, "故障"), NativeEffectOption(14, "分屏"),
         NativeEffectOption(15, "镜像"), NativeEffectOption(16, "旋转模糊"),
@@ -1083,8 +1085,10 @@ private fun NativeClipEffectsPanel(
                     Text("效果 " + effect.type, color = NcColors.text, fontSize = 10.sp, modifier = Modifier.weight(1f))
                     Text(if (effect.enabled) "关闭" else "启用", color = NcColors.secondary, fontSize = 9.sp,
                         modifier = Modifier.clickable { onEnabled(effect.id, !effect.enabled) }.padding(horizontal = 5.dp))
-                    Text("↑", color = NcColors.text, modifier = Modifier.clickable { onMove(effect.id, -1) }.padding(horizontal = 5.dp))
-                    Text("↓", color = NcColors.text, modifier = Modifier.clickable { onMove(effect.id, 1) }.padding(horizontal = 5.dp))
+                    if (allowStackOrdering) {
+                        Text("↑", color = NcColors.text, modifier = Modifier.clickable { onMove(effect.id, -1) }.padding(horizontal = 5.dp))
+                        Text("↓", color = NcColors.text, modifier = Modifier.clickable { onMove(effect.id, 1) }.padding(horizontal = 5.dp))
+                    }
                     Text("删除", color = NcColors.secondary, modifier = Modifier.clickable { onRemove(effect.id) }.padding(start = 5.dp))
                 }
                 val spec = specs[effect.type]
