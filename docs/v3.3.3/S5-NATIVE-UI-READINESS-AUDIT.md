@@ -152,3 +152,5 @@
 - These checks apply to core/C ABI callers across platforms, not only Android. The C ABI still clamps finite out-of-range static transform values per its existing contract; Kotlin rejects them before crossing JNI.
 
 - Anchor grid accessibility follow-up: the nine native presets are now grouped with Compose `selectableGroup()` and each cell retains `Role.RadioButton` selected semantics. This makes the nine choices one coherent accessibility group without changing the C ABI index mapping. Source-level verification only; Compose compilation and TalkBack testing remain pending.
+
+- Core animation property specifications now source X/Y and rotation limits from `transform_limits.h`, matching `ClipTransform::clamp()` rather than duplicating literals. `tests/test_animation.cpp` now asserts Scale, PositionX, PositionY and Rotation property specs against those shared constants. Changes are committed; native test execution remains pending.
