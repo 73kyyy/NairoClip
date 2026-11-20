@@ -105,6 +105,52 @@ NC_TEST(Animation, EasedCurveSample) {
     const double mid = anim.sample(ClipProperty::Opacity, Rational::make(1, 2));
     NC_CHECK(mid > 0.0 && mid < 0.5);
 }
+NC_TEST(Animation, TransformRotationPreservesMultipleTurns) {
+    ClipAnimation anim;
+    Keyframe start = key(0, 0.0);
+    Keyframe end = key(2, 1080.0);
+    NC_CHECK(anim.curve(ClipProperty::Rotation).insert(start).isOk());
+    NC_CHECK(anim.curve(ClipProperty::Rotation).insert(end).isOk());
+    // Preserve the unwrapped degree path: 0 -> 1080 passes through 540.
+    NC_CHECK(nearly(anim.sample(ClipProperty::Rotation, Rational::make(1)), 540.0));
+    NC_CHECK(nearly(anim.sample(ClipProperty::Rotation, Rational::make(1, 2)), 270.0));
+}
+
+NC_TEST(Animation, TransformBezierOvershootIsClampedToHardRange) {
+    ClipAnimation upper;
+    Keyframe upperStart = key(0, 1.0);
+    upperStart.easing = Easing::bezier(0.42, 2.0, 0.58, 2.0);
+    NC_CHECK(upper.curve(ClipProperty::Scale).insert(upperStart).isOk());
+    NC_CHECK(upper.curve(ClipProperty::Scale).insert(key(1, 10.0)).isOk());
+    NC_CHECK(nearly(upper.sample(ClipProperty::Scale, Rational::make(1, 2)),
+                    transform_limits::kScaleMax));
+
+    ClipAnimation lower;
+    Keyframe lowerStart = key(0, 0.05);
+    lowerStart.easing = Easing::bezier(0.42, -2.0, 0.58, -2.0);
+    NC_CHECK(lower.curve(ClipProperty::Scale).insert(lowerStart).isOk());
+    NC_CHECK(lower.curve(ClipProperty::Scale).insert(key(1, 0.1)).isOk());
+    NC_CHECK(nearly(lower.sample(ClipProperty::Scale, Rational::make(1, 2)),
+                    transform_limits::kScaleMin));
+}
+
+NC_TEST(Animation, TransformPositionAndRotationSamplesStayInRange) {
+    ClipAnimation anim;
+    Keyframe xStart = key(0, -10.0);
+    xStart.easing = Easing::bezier(0.42, 2.0, 0.58, 2.0);
+    NC_CHECK(anim.curve(ClipProperty::PositionX).insert(xStart).isOk());
+    NC_CHECK(anim.curve(ClipProperty::PositionX).insert(key(1, 10.0)).isOk());
+    NC_CHECK(nearly(anim.sample(ClipProperty::PositionX, Rational::make(1, 2)),
+                    transform_limits::kPositionMax));
+
+    Keyframe rotationStart = key(0, -3600.0);
+    rotationStart.easing = Easing::bezier(0.42, -2.0, 0.58, -2.0);
+    NC_CHECK(anim.curve(ClipProperty::Rotation).insert(rotationStart).isOk());
+    NC_CHECK(anim.curve(ClipProperty::Rotation).insert(key(1, 3600.0)).isOk());
+    NC_CHECK(nearly(anim.sample(ClipProperty::Rotation, Rational::make(1, 2)),
+                    transform_limits::kRotationMinDegrees));
+}
+
 #include "nairoclip/core/editor.h"
 NC_TEST(Animation, EditorKeyframeWithUndo) {
     Project project;
