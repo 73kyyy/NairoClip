@@ -789,13 +789,20 @@ private fun ParameterSlider(
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit
 ) {
-    // Capture an out-of-common-range starting value once per selected clip.
-    // Do not recompute the slider domain on every drag sample: a moving upper
-    // bound makes the thumb chase itself and produces unstable gesture response.
+    // Expand the slider domain whenever an authoritative or numeric value
+    // moves outside the common range. Freeze that domain during a drag so the
+    // thumb never chases a moving bound.
     val safeValue = value.takeIf { it.isFinite() }?.coerceIn(inputLow, inputHigh) ?: inputLow
-    val sliderBounds = remember(rangeKey, parameter, low, high, inputLow, inputHigh) {
-        val initialValue = value.takeIf { it.isFinite() }?.coerceIn(inputLow, inputHigh) ?: inputLow
-        minOf(low, initialValue) to maxOf(high, initialValue)
+    var sliderDragging by remember(rangeKey, parameter) { mutableStateOf(false) }
+    var sliderBounds by remember(rangeKey, parameter, low, high, inputLow, inputHigh) {
+        mutableStateOf(
+            minOf(low, safeValue) to maxOf(high, safeValue)
+        )
+    }
+    LaunchedEffect(safeValue, sliderDragging) {
+        if (!sliderDragging) {
+            sliderBounds = minOf(low, safeValue) to maxOf(high, safeValue)
+        }
     }
     val effectiveLow = sliderBounds.first
     val effectiveHigh = sliderBounds.second
@@ -835,8 +842,14 @@ private fun ParameterSlider(
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         Slider(
             value = safeValue,
-            onValueChange = onValueChange,
-            onValueChangeFinished = onValueChangeFinished,
+            onValueChange = { next ->
+                sliderDragging = true
+                onValueChange(next)
+            },
+            onValueChangeFinished = {
+                sliderDragging = false
+                onValueChangeFinished()
+            },
             valueRange = effectiveLow..effectiveHigh,
             modifier = Modifier.weight(1f)
         )
