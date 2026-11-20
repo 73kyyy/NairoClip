@@ -324,7 +324,7 @@
 - 我的/认证/手机号登录/反馈/FAQ/法律/崩溃日志页面当前实现文件为 `mobile/native/android/NativeAccountSupportScreens.kt`。
 - 模板/素材填充/生成进度/AI 创作向导当前实现文件为 `mobile/native/android/NativeCreationFlowScreens.kt`。
 - `mobile/native/android/NativeAppShell.kt` 已收缩为迁移说明空壳，不再承载上述页面实现。第 12–14 节中提到该旧文件的描述应按以上拆分后的实际路径理解。
-- 本次读取 PR #32 的 GitHub API 当前 head 为 `c84691542163b83bb396bd0049ce6b9ad65105ae`，状态仍为 open / draft / unmerged；该提交的 combined status 没有任何 status context（statuses 为空）。因此不能把静态源码检查描述为 CI 或构建通过。
+- 本次代码核对基准为 `6ee842855615ccdad3a79e896a26258c5fa8efa9`；PR #32 仍为 open / draft / unmerged。代码核对提交没有任何 status context（statuses 为空）。本节后续文档提交会推进 PR head，因此不把文档内记录的旧 SHA 当作永久当前 head。
 - PR #32 仍未修改 `MainActivity`、Manifest、持久化和 JNI/C ABI；WebView 仍是实际运行入口和回退路径。原生页面组件存在不等于原生页面已接入或已通过端到端验收。
 
 本次仅校正文档路径与状态，不改变 S1-3、S3-1、S1-8D、S5 接口冻结、A-5/A-6 审批及正式入口切换的先决条件。
@@ -337,7 +337,7 @@
 - PR #29（S3-1 Rational 项目时间数据校验）：open、draft、unmerged；head `267dd4670a705ac15313ad3a68d498a9f6bfd91e`，combined status 无 status context。
 - PR #31（S3-1 C ABI 浮点时间输入校验）：open、draft、unmerged；head `a7e0aa647d1a8b72140d5ddaa997d8a06ca3a124`，combined status 无 status context。
 - PR #30（为 `development/v3.3.3` 启用 PR CI）：open、draft、unmerged；head `ea4768690cedbb06221ad314e97e85c1d4526050`。因此不能假定该工作流触发修复已进入目标分支。
-- PR #32（S5 原生 UI 基础）：open、draft、unmerged；head `c84691542163b83bb396bd0049ce6b9ad65105ae`，combined status 无 status context。
+- PR #32（S5 原生 UI 基础）：open、draft、unmerged；本轮代码核对基准 `6ee842855615ccdad3a79e896a26258c5fa8efa9` 的 combined status 无 status context。
 
 这些 PR 的代码切片不能视为依赖项已验收。当前可继续的范围仍限于隔离式原生组件、静态契约核对、文档和不改变运行入口的安全修复；不得把 S5-0B/S5-1 或引擎运行接线提前标为可执行/已完成。
 
