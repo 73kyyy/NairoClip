@@ -413,3 +413,14 @@
 **契约边界：** 这些旧 C ABI 入口使用当前主序列的轨道索引 + clip ID，并由 C ABI 内部 resolveTrack 映射真实 SequenceId/TrackId；本切片不需要臆造 projectId/sequenceId，也不把 track array index 冒充稳定 TrackId。该路径通过 bridge stateLock 串行化，但不是带 expectedRevision 的结构化 CommandRequest。若未来迁移到跨平台 typed command，仍需补齐主序列 ID/项目身份与 revision 快照字段。
 
 **未完成：** Activity/ViewModel 尚未接线这些新回调；正式入口仍受 S1-3、S3-1 与 S5 interface freeze 前置条件约束。未执行 Gradle 编译、自动化测试或真机验证。
+
+## 23. 原生常规变速参数与 UI 切片（2026-11-20）
+
+- NativeTimelineClip 现在保留引擎快照中的 speed_num/speed_den 有理数，不把分数速度先压成浮点数再回写；快照解析拒绝缺失、非正分子/分母及超出 C ABI 0.1x–100x 合同范围的数据。
+- JNI DispatchEdit 为现有 nc_set_clip_speed 增加 nc_* 全名 alias，仍调用原有整数分子/分母 C ABI。
+- NativeEditorCommandAdapter.setClipSpeedAndReadEditorState() 验证正分子/分母、0.1x–100x 范围、目标轨道/片段存在和轨道未锁定，在状态锁内执行并回读时间轴及撤销/重做状态。
+- NativeEditorScreen 增加“剪辑 → 变速”原生面板；滑块和数字输入均为 0.1x–100x，数字输入支持三位小数。宿主回调未接入时仍走旧编辑器，不展示假成功。
+
+**范围说明：** 0.1x–100x 直接来自 core/include/nairoclip/core/capi.h 的现有引擎合同，本轮没有自行扩张引擎范围。UI 以千分之一为输入精度并通过分子/分母保存；速度曲线仍未接入原生 UI，本轮不将其标记为完成。
+
+**未完成与验证边界：** Activity/ViewModel 尚未接入 onClipSpeedChanged；未执行 Gradle 编译、自动化测试或真机验证。速度曲线的读回分支与曲线点编辑器需作为后续独立切片处理。
