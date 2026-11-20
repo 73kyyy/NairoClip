@@ -626,7 +626,10 @@ ExportStats executeExport(
                                与预览用**同一个** applyXformStack 重载、
                                同一套取值优先级，保证「预览 = 导出」。 */
                             const auto resolveXf = [&](ClipProperty prop, double fallback) {
-                                if (!active->hasAnimation) return fallback;
+                                // Resolve each channel independently. A keyframe on
+                                // opacity must not replace an unanimated static scale,
+                                // position, or rotation with that channel's default.
+                                if (!active->animation.hasCurve(prop)) return fallback;
                                 return active->animation.sample(prop,
                                                                 t - active->timelineStart);
                             };
