@@ -434,33 +434,43 @@ class NativeEngineBridge(
      * 返回 {"installed":1|0,"message":"…"}。
      */
     @JavascriptInterface
-        fun installModel(modelId: String, filePath: String): String {
-        synchronized(stateLock) {
-        val f = java.io.File(filePath)
-        if (!f.isFile) return err("文件不存在：$filePath")
+    fun installModel(modelId: String, filePath: String): String {
+        // File I/O and hashing can take a long time. Keep them outside the
+        // engine monitor so preview rendering, state reads and task heartbeats
+        // are not blocked while a model file is loaded.
+        val file = java.io.File(filePath)
+        if (!file.isFile) return err("文件不存在：$filePath")
 
         val bytes: ByteArray = try {
-            f.readBytes()
-        } catch (e: Throwable) {
-            return err("读取失败：${e.message}")
+            file.readBytes()
+        } catch (error: Throwable) {
+            return err("读取失败：${error.message}")
         }
         if (bytes.isEmpty()) return err("文件为空")
 
         val sha = try {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            md.digest(bytes).joinToString("") { "%02x".format(it) }
-        } catch (e: Throwable) {
-            return err("计算 SHA-256 失败：${e.message}")
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            digest.digest(bytes).joinToString("") { "%02x".format(it) }
+        } catch (error: Throwable) {
+            return err("计算 SHA-256 失败：${error.message}")
         }
 
-        return try {
-            nativeInstallModel(ensure(), modelId, bytes, f.absolutePath, sha,
-                               System.currentTimeMillis() / 1000)
-        } catch (e: Throwable) {
-            err("安装调用失败：${e.message}")
+        // Only the native mutation is serialized with the engine lifecycle.
+        return synchronized(stateLock) {
+            try {
+                nativeInstallModel(
+                    ensure(),
+                    modelId,
+                    bytes,
+                    file.absolutePath,
+                    sha,
+                    System.currentTimeMillis() / 1000
+                )
+            } catch (error: Throwable) {
+                err("安装调用失败：${error.message}")
+            }
         }
-    
-        }}
+    }
 
     /** 模型文件应放的目录（应用私有）。 */
     @JavascriptInterface
