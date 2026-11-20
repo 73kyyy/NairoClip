@@ -113,6 +113,7 @@ fun NativeEditorScreen(
     onClipFilterChanged: ((Int, Long, Int, Double) -> Unit)? = null,
     clipLut: NativeEditorCommandAdapter.ClipLutState? = null,
     onClipLutChanged: ((Int, Long, String, Double) -> Unit)? = null,
+    onValidateClipLut: ((String) -> NativeEditorCommandAdapter.Result<NativeEditorCommandAdapter.LutValidationState>)? = null,
     clipMask: NativeEditorCommandAdapter.ClipMaskState? = null,
     onClipMaskChanged: ((Int, Long, NativeEditorCommandAdapter.ClipMaskState) -> Unit)? = null,
     clipTransitions: List<NativeEditorCommandAdapter.TransitionState> = emptyList(),
@@ -366,6 +367,7 @@ fun NativeEditorScreen(
                         onChange = { path, strength ->
                             onClipLutChanged.invoke(selectedTarget.first, selectedTarget.second, path, strength)
                         },
+                        onValidate = onValidateClipLut,
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
@@ -865,6 +867,7 @@ private fun NativeClipFilterPanel(
 private fun NativeClipLutPanel(
     state: NativeEditorCommandAdapter.ClipLutState,
     onChange: (String, Double) -> Unit,
+    onValidate: ((String) -> NativeEditorCommandAdapter.Result<NativeEditorCommandAdapter.LutValidationState>)?,
     modifier: Modifier = Modifier
 ) {
     var path by remember(state.path) { mutableStateOf(state.path) }
@@ -873,6 +876,7 @@ private fun NativeClipLutPanel(
         mutableStateOf(String.format(Locale.US, "%.2f", state.strength))
     }
     val focusManager = LocalFocusManager.current
+    var validationText by remember(path) { mutableStateOf<String?>(null) }
     Column(
         modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -930,6 +934,25 @@ private fun NativeClipLutPanel(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
+                "校验 .cube",
+                color = if (onValidate != null) NcColors.text else NcColors.secondary,
+                fontSize = 9.sp,
+                modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(NcColors.stage)
+                    .clickable {
+                        val result = onValidate?.invoke(path)
+                        validationText = when {
+                            result == null -> "等待宿主接入 LUT 文件校验"
+                            !result.ok -> result.error ?: "LUT 文件校验失败"
+                            else -> {
+                                val info = result.value
+                                if (info == null) "引擎未返回 LUT 校验结果"
+                                else "校验通过：${info.size}³" + if (info.title.isBlank()) "" else " · ${info.title}"
+                            }
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+            Text(
                 "应用路径与强度",
                 color = NcColors.text,
                 fontSize = 9.sp,
@@ -946,6 +969,7 @@ private fun NativeClipLutPanel(
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             )
         }
+        validationText?.let { Text(it, color = NcColors.secondary, fontSize = 9.sp) }
         Text("引擎仅接受有效的 .cube 3D LUT（边长 2–64）；当前面板负责路径与强度编辑，不伪造内置预设。", color = NcColors.secondary, fontSize = 8.sp)
     }
 }
