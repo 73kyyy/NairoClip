@@ -521,3 +521,12 @@
 - 转场读取适配器现在会验证每条转场的起止片段 ID 不同，且两个端点都仍存在于该轨道当前快照；不再只校验字段格式与正数。
 - LUT 路径校验改用 NUL 字符检测，避免 Kotlin 字符字面量转义歧义。
 - 这些属于源码级静态修正；未执行 Android/NDK 构建或运行时验证。
+
+
+## 34. 原生 LUT 文件格式校验入口（2026-11-20）
+
+- JNI 新增 `lut_validate`，调用核心 `nc_lut_validate_file`，返回 .cube 边长、TITLE 与诊断信息；无论成功或失败均释放核心分配的字符串，失败时将核心给出的具体原因传回 UI。
+- `NativeEditorCommandAdapter.validateLutFile` 增加只读校验入口，不修改工程；拒绝空路径和 NUL 字符，并验证核心返回的边长位于 2..64。
+- LUT 原生面板新增“校验 .cube”操作，可展示校验结果及 LUT 标题。该操作依赖宿主提供 `onValidateClipLut` 回调；正式 Activity/ViewModel 尚未接线，因此目前是可复用的原生 UI/API 切片。
+- 文件选择器、Android URI 持久授权、导入文件复制/生命周期管理仍未实现；当前输入完整路径不是最终用户导入体验。
+- 本轮未执行 Android Gradle/Compose/NDK 编译、自动化测试或真机验证。
