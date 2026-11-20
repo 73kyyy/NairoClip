@@ -22,6 +22,13 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     data class Result<T>(val ok: Boolean, val value: T? = null, val error: String? = null)
 
+    data class SpeedCurvePoint(
+        val sourceSeconds: Double,
+        val speed: Double,
+        val easing: Int
+    )
+
+
     data class TransformState(
         val transform: NativeTransform,
         val enabled: Boolean,
@@ -271,6 +278,70 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             if (!changed.ok) {
                 return@withEditorStateLock Result(false, error = changed.error ?: "应用变速曲线失败")
             }
+            readEditorStateSnapshotLocked()
+        }
+    }
+
+    /** Reads the engine-owned speed curve without inventing a default curve. */
+    fun readSpeedCurve(target: ClipTarget): Result<List<SpeedCurvePoint>> {
+        return bridge.withEditorStateLock {
+            val countResult = invoke("nc_clip_speed_curve_count", targetArgs(target)) {
+                it.getInt("count")
+            }
+            if (!countResult.ok) return@withEditorStateLock Result(false, error = countResult.error)
+            val count = countResult.value ?: return@withEditorStateLock Result(false, error = "速度曲线点数缺失")
+            if (count !in 0..256) return@withEditorStateLock Result(false, error = "速度曲线控制点数量超出安全上限")
+            val points = ArrayList<SpeedCurvePoint>(count)
+            for (index in 0 until count) {
+                val point = invoke(
+                    "nc_clip_speed_curve_get",
+                    targetArgs(target).put("index", index)
+                ) { payload ->
+                    SpeedCurvePoint(
+                        sourceSeconds = payload.getDouble("source_seconds"),
+                        speed = payload.getDouble("speed"),
+                        easing = payload.getInt("easing")
+                    ).also {
+                        require(it.sourceSeconds.isFinite() && it.sourceSeconds >= 0.0)
+                        require(it.speed.isFinite() && it.speed in 0.1..10.0)
+                        require(it.easing in 0..4)
+                    }
+                }
+                if (!point.ok) return@withEditorStateLock Result(false, error = point.error)
+                points += point.value ?: return@withEditorStateLock Result(false, error = "速度曲线控制点数据缺失")
+            }
+            if (points.zipWithNext().any { (left, right) -> right.sourceSeconds <= left.sourceSeconds }) {
+                return@withEditorStateLock Result(false, error = "引擎返回的速度曲线时间顺序非法")
+            }
+            Result(true, points)
+        }
+    }
+
+    /** Replaces the engine curve using validated source-time/speed/easing arrays. */
+    fun setSpeedCurveAndReadEditorState(
+        target: ClipTarget,
+        points: List<SpeedCurvePoint>
+    ): Result<EditorStateSnapshot> {
+        if (points.size !in 2..256 ||
+            points.any { !it.sourceSeconds.isFinite() || it.sourceSeconds < 0.0 ||
+                !it.speed.isFinite() || it.speed !in 0.1..10.0 || it.easing !in 0..4 } ||
+            points.zipWithNext().any { (left, right) -> right.sourceSeconds <= left.sourceSeconds }
+        ) return Result(false, error = "速度曲线控制点参数非法")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val track = before.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            if (track.clips.none { it.id == target.clipId }) {
+                return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            }
+            val args = targetArgs(target)
+                .put("times", org.json.JSONArray(points.map { it.sourceSeconds }))
+                .put("speeds", org.json.JSONArray(points.map { it.speed }))
+                .put("easings", org.json.JSONArray(points.map { it.easing }))
+            val changed = invoke("nc_set_clip_speed_curve_points", args) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置速度曲线失败")
             readEditorStateSnapshotLocked()
         }
     }
