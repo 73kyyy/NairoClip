@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace nairoclip {
@@ -37,6 +38,10 @@ struct ColorGrade {
     bool isIdentity() const;
     void apply(double& r, double& g, double& b) const;
 };
+
+/// Apply a validated clip color grade to interleaved RGBA8 pixels; alpha is preserved.
+void applyColorGradeToRgba(std::uint8_t* pixels, std::size_t pixelCount,
+                           const ColorGrade& grade);
 
 }  // namespace core
 }  // namespace nairoclip
