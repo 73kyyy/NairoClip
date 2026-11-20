@@ -1108,6 +1108,8 @@ private fun NativeClipColorCurvePanel(
     }
     var points by remember(channel, sourceCurve) { mutableStateOf(sourceCurve.points) }
     var selectedPoint by remember(channel) { mutableStateOf(1) }
+    val latestPoints by rememberUpdatedState(points)
+    val latestSelectedPoint by rememberUpdatedState(selectedPoint)
     val focusManager = LocalFocusManager.current
     var inputX by remember(channel, selectedPoint, points) {
         mutableStateOf(points.getOrNull(selectedPoint)?.first?.let { String.format(Locale.US, "%.3f", it) } ?: "0.500")
@@ -1171,30 +1173,33 @@ private fun NativeClipColorCurvePanel(
         Canvas(
             modifier = Modifier.fillMaxWidth().height(174.dp)
                 .clip(RoundedCornerShape(8.dp)).background(NcColors.stage)
-                .pointerInput(channel, points) {
+                .pointerInput(channel) {
                     detectDragGestures(
                         onDragStart = { position ->
+                            val currentPoints = latestPoints
                             val width = size.width.coerceAtLeast(1)
                             val height = size.height.coerceAtLeast(1)
-                            selectedPoint = points.indices.minByOrNull { index ->
-                                val px = points[index].first * width
-                                val py = (1.0 - points[index].second) * height
+                            selectedPoint = currentPoints.indices.minByOrNull { index ->
+                                val px = currentPoints[index].first * width
+                                val py = (1.0 - currentPoints[index].second) * height
                                 val dx = px - position.x
                                 val dy = py - position.y
                                 dx * dx + dy * dy
                             } ?: 0
                         },
-                        onDragEnd = { publish(points) },
+                        onDragEnd = { publish(latestPoints) },
                         onDrag = { change, _ ->
-                            if (selectedPoint in 1 until points.lastIndex) {
+                            val currentPoints = latestPoints
+                            val pointIndex = latestSelectedPoint
+                            if (pointIndex in 1 until currentPoints.lastIndex) {
                                 val width = size.width.coerceAtLeast(1)
                                 val height = size.height.coerceAtLeast(1)
-                                val minX = points[selectedPoint - 1].first + 0.001
-                                val maxX = points[selectedPoint + 1].first - 0.001
+                                val minX = currentPoints[pointIndex - 1].first + 0.001
+                                val maxX = currentPoints[pointIndex + 1].first - 0.001
                                 if (minX <= maxX) {
                                     val x = (change.position.x / width).toDouble().coerceIn(minX, maxX)
                                     val y = (1.0 - change.position.y / height).coerceIn(0.0, 1.0)
-                                    points = points.toMutableList().also { it[selectedPoint] = x to y }
+                                    points = currentPoints.toMutableList().also { it[pointIndex] = x to y }
                                     inputX = String.format(Locale.US, "%.3f", x)
                                     outputY = String.format(Locale.US, "%.3f", y)
                                 }
