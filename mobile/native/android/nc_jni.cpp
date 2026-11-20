@@ -875,6 +875,17 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置速度失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "speed_curve_preset" || op == "nc_apply_speed_curve_preset") {
+        const int32_t preset = static_cast<int32_t>(JInt(a, "preset", -1));
+        const int64_t sourceDurationUs = static_cast<int64_t>(JInt(a, "source_duration_us", 0));
+        if (preset < 0 || preset > 6 || sourceDurationUs < 0) {
+            *out = Err("变速曲线预设参数非法");
+            return true;
+        }
+        const int32_t rc = nc_apply_speed_curve_preset(ed, ti, cid, preset, sourceDurationUs);
+        *out = rc == NC_OK ? Ok("") : Err("应用变速曲线预设失败，错误码 " + std::to_string(rc));
+        return true;
+    }
     if (op == "speed_curve" || op == "nc_set_clip_speed_curve") {
         // 参数是数组：points:[{t,v,e}]。JInt/JNum 只能读标量，
         // 这里用最小 JSON 扫描取出三元组；点少于 2 个视为清除曲线。
