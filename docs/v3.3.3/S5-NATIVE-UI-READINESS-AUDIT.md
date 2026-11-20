@@ -470,3 +470,4 @@
 - 这一切片仍未接入 Activity/ViewModel：正式宿主尚未提供效果规格缓存、添加/更新/启停/排序/删除回调，因此目前属于原生组件 + 适配器 API + 快照数据契约，不等于用户运行时已经能使用。
 - 本轮没有修改 MainActivity、Manifest、JNI/C ABI 或 WebView 入口；不越过 S1-3、S3-1、S1-8D 和 A-5/A-6 约束。
 - 静态源码回读与 Kotlin/Compose 编译仍需继续验证；本轮未运行 Gradle、NDK、单元/仪器测试或真机操作。
+- 后续静态检查补充：效果参数规格的 min/max/default 必须可安全转换为 Compose Float；快照拒绝超出 Float 表示域的特效值；效果参数滑块先更新本地 draft，仅在拖动结束时发出一次引擎写命令，避免每个触摸采样都生成一次编辑命令/撤销记录。
