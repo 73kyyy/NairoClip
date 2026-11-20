@@ -1,7 +1,7 @@
 # S5 原生 UI 迁移就绪审计
 
 - 审计分支：`work/v3.3.3-s5-native-editor-foundation`
-- 审计 HEAD：`1fa969a5b1eeb8216b935976043040e3cf83ed57`
+- 审计代码基准 HEAD：`c84691542163b83bb396bd0049ce6b9ad65105ae`
 - 审计日期：2026-11-20
 - 性质：基于当前分支源码与任务文档的只读核验；不是编译、运行或真机验收。
 
@@ -249,7 +249,7 @@
 | S3-1 C ABI 浮点时间输入校验 | PR #31，`work/v3.3.3-s3-1-capi-finite-time`，open / draft / unmerged；提交状态无 CI status context | 代码切片已提交 PR，但未验收 |
 | S1-3 工程格式/保存/恢复 | 当前任务注册表仍要求 S1-1、S1-2 等前置；本轮未找到可证明 S1-3 完整验收的合并 PR/验收记录 | 不能标记完成 |
 | S1-8D Android 备份策略 | 验收回退表仍为待执行/不可验证；本轮未找到完成证据 | S5-1 的 Manifest 入口改动仍须等待该项串行完成 |
-| S5 原生编辑器基础 | PR #32，当前 head 为 `24ad0a32658c5e1619c47daf43db49afcd2b6bf2`，open / draft / unmerged | 原生组件与本节页面清点已提交；未进入正式运行入口 |
+| S5 原生编辑器基础 | PR #32，当前 head 为 `c84691542163b83bb396bd0049ce6b9ad65105ae`，open / draft / unmerged | 原生组件与本节页面清点已提交；未进入正式运行入口 |
 | PR 自动验证 | #29、#31、#32 的当前提交状态均为 pending，且 status context 数为 0 | 不得声称 CI/构建通过 |
 
 因此，当前可继续的是不改变宿主入口/Manifest/持久化契约的隔离式原生页面与组件准备；S5-0B 的正式接口冻结、S5-1 的宿主导航切换，以及 S5-4/5/6 的真实引擎运行接线，必须在各自前置任务与验收门解除后执行。旧 WebView 回退路径继续保留。
@@ -328,3 +328,15 @@
 - PR #32 仍未修改 `MainActivity`、Manifest、持久化和 JNI/C ABI；WebView 仍是实际运行入口和回退路径。原生页面组件存在不等于原生页面已接入或已通过端到端验收。
 
 本次仅校正文档路径与状态，不改变 S1-3、S3-1、S1-8D、S5 接口冻结、A-5/A-6 审批及正式入口切换的先决条件。
+
+
+## 17. S5 前置 PR 的当前阻塞复核（2026-11-20）
+
+本轮重新读取 GitHub PR 与 commit status：
+
+- PR #29（S3-1 Rational 项目时间数据校验）：open、draft、unmerged；head `267dd4670a705ac15313ad3a68d498a9f6bfd91e`，combined status 无 status context。
+- PR #31（S3-1 C ABI 浮点时间输入校验）：open、draft、unmerged；head `a7e0aa647d1a8b72140d5ddaa997d8a06ca3a124`，combined status 无 status context。
+- PR #30（为 `development/v3.3.3` 启用 PR CI）：open、draft、unmerged；head `ea4768690cedbb06221ad314e97e85c1d4526050`。因此不能假定该工作流触发修复已进入目标分支。
+- PR #32（S5 原生 UI 基础）：open、draft、unmerged；head `c84691542163b83bb396bd0049ce6b9ad65105ae`，combined status 无 status context。
+
+这些 PR 的代码切片不能视为依赖项已验收。当前可继续的范围仍限于隔离式原生组件、静态契约核对、文档和不改变运行入口的安全修复；不得把 S5-0B/S5-1 或引擎运行接线提前标为可执行/已完成。
