@@ -399,3 +399,17 @@
 - 校验、原生分割和编辑后 timeline + undo/redo 快照读取保持在同一可重入状态锁中，避免 UI 选择或并发编辑在校验与提交之间改变目标。
 
 **边界：** 这项修正只加固现有 nc_split_clip 路径，不修改 C ABI/JNI、Activity、Manifest 或正式入口。UI callback 仍待宿主接线；没有执行 Gradle 构建、自动化测试或真机验证。
+
+## 22. 原生片段删除、复制与波纹删除命令切片（2026-11-20）
+
+本轮继续扩展 S5 编辑器命令纵向切片，复用现有 C ABI，不伪造结构化命令类型：
+
+- JNI DispatchEdit 为现有 nc_remove_clip、nc_duplicate_clip、nc_ripple_delete 增加 nc_* 全名 alias，兼容 NativeEngineBridge.call() 的 nc_ 前缀约束；底层仍分别调用既有 C ABI。
+- NativeTimelineTrack 增加 locked 状态，NativeTimelineSnapshot 严格解析 BuildState 已提供的 locked 字段。
+- NativeEditorCommandAdapter 新增 removeClipAndReadEditorState、duplicateClipAndReadEditorState、rippleDeleteClipAndReadEditorState；在 bridge 状态锁内回读权威时间轴、校验轨道/片段仍存在及轨道未锁定，再执行命令并回读 timeline + undo/redo 状态。
+- 复制命令必须返回正数新 clip_id，否则按失败处理；删除/波纹删除不虚构返回片段 ID。
+- NativeEditorScreen 新增可选 onDeleteClip/onDuplicateClip/onRippleDeleteClip 回调；仅当宿主提供回调时走原生命令，否则保留旧编辑器回退，不显示假成功。
+
+**契约边界：** 这些旧 C ABI 入口使用当前主序列的轨道索引 + clip ID，并由 C ABI 内部 resolveTrack 映射真实 SequenceId/TrackId；本切片不需要臆造 projectId/sequenceId，也不把 track array index 冒充稳定 TrackId。该路径通过 bridge stateLock 串行化，但不是带 expectedRevision 的结构化 CommandRequest。若未来迁移到跨平台 typed command，仍需补齐主序列 ID/项目身份与 revision 快照字段。
+
+**未完成：** Activity/ViewModel 尚未接线这些新回调；正式入口仍受 S1-3、S3-1 与 S5 interface freeze 前置条件约束。未执行 Gradle 编译、自动化测试或真机验证。
