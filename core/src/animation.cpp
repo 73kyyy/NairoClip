@@ -13,11 +13,11 @@ PropertySpec propertySpec(ClipProperty property) {
         case ClipProperty::Scale:
             return PropertySpec{1.0, transform_limits::kScaleMin, transform_limits::kScaleMax};
         case ClipProperty::PositionX:
-            return PropertySpec{0.0, -10.0, 10.0};
+            return PropertySpec{0.0, transform_limits::kPositionMin, transform_limits::kPositionMax};
         case ClipProperty::PositionY:
-            return PropertySpec{0.0, -10.0, 10.0};
+            return PropertySpec{0.0, transform_limits::kPositionMin, transform_limits::kPositionMax};
         case ClipProperty::Rotation:
-            return PropertySpec{0.0, -3600.0, 3600.0};
+            return PropertySpec{0.0, transform_limits::kRotationMinDegrees, transform_limits::kRotationMaxDegrees};
         case ClipProperty::Volume:
             return PropertySpec{1.0, 0.0, 4.0};
     }
