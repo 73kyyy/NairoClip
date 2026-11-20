@@ -889,6 +889,53 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val defaultValue: Double
     )
 
+    data class ClipFilterState(
+        val style: Int,
+        val intensity: Double,
+        val enabled: Boolean
+    )
+
+    fun readClipFilter(target: ClipTarget): Result<ClipFilterState> =
+        bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            invoke("filter_get", targetArgs(target)) { payload ->
+                val style = payload.opt("style") as? Number
+                    ?: throw IllegalArgumentException("滤镜风格缺失")
+                val intensity = payload.opt("intensity") as? Number
+                    ?: throw IllegalArgumentException("滤镜强度缺失")
+                val enabled = payload.opt("enabled") as? Number
+                    ?: throw IllegalArgumentException("滤镜启用状态缺失")
+                val styleValue = style.toDouble()
+                val intensityValue = intensity.toDouble()
+                val enabledValue = enabled.toDouble()
+                require(styleValue % 1.0 == 0.0 && styleValue in 0.0..13.0)
+                require(intensityValue.isFinite() && intensityValue in 0.0..100.0)
+                require(enabledValue == 0.0 || enabledValue == 1.0)
+                ClipFilterState(styleValue.toInt(), intensityValue, enabledValue == 1.0)
+            }
+        }
+
+    fun setClipFilterAndRead(
+        target: ClipTarget,
+        style: Int,
+        intensity: Double
+    ): Result<ClipFilterState> {
+        if (style !in 0..13 || !intensity.isFinite() || intensity !in 0.0..100.0) {
+            return Result(false, error = "滤镜参数超出允许范围")
+        }
+        return bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            val changed = invoke(
+                "filter",
+                targetArgs(target).put("style", style).put("intensity", intensity)
+            ) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error)
+            readClipFilter(target)
+        }
+    }
+
     fun readEffectSpec(type: Int): Result<EffectSpec> {
         if (type !in 0..4096) return Result(false, error = "特效类型无效")
         return invoke("nc_effect_spec", JSONObject().put("type", type)) { payload ->
