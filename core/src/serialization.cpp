@@ -317,6 +317,72 @@ bool readSpeedCurve(const JsonValue& v, SpeedCurve& out, std::string& err) {
     return true;
 }
 
+// ---------------- 主调色曲线读写 ----------------
+
+JsonValue writeColorCurve(const ColorCurve& curve) {
+    JsonValue arr = JsonValue::array();
+    for (const auto& point : curve.points) {
+        JsonValue pair = JsonValue::array();
+        pair.push(JsonValue::number(point.input));
+        pair.push(JsonValue::number(point.output));
+        arr.push(std::move(pair));
+    }
+    return arr;
+}
+
+bool readColorCurve(const JsonValue& value, ColorCurve& out, const char* field,
+                    std::string& err) {
+    if (!value.isArray() || value.size() < ColorCurve::kMinPoints ||
+        value.size() > ColorCurve::kMaxPoints) {
+        err = std::string("colorGrade.") + field + " 控制点数量无效";
+        return false;
+    }
+    ColorCurve curve;
+    curve.points.clear();
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        const JsonValue& pair = value.at(i);
+        if (!pair.isArray() || pair.size() != 2 ||
+            !pair.at(0).isNumber() || !pair.at(1).isNumber()) {
+            err = std::string("colorGrade.") + field + " 控制点必须为 [input, output]";
+            return false;
+        }
+        curve.points.push_back({pair.at(0).asNumber(), pair.at(1).asNumber()});
+    }
+    if (!curve.valid()) {
+        err = std::string("colorGrade.") + field +
+              " 必须在 [0,1] 范围内、输入严格递增且端点固定为 0/1";
+        return false;
+    }
+    out = std::move(curve);
+    return true;
+}
+
+JsonValue writeColorGrade(const ColorGrade& grade) {
+    JsonValue object = JsonValue::object();
+    object.set("version", JsonValue::integer(1));
+    object.set("master", writeColorCurve(grade.master));
+    object.set("red", writeColorCurve(grade.red));
+    object.set("green", writeColorCurve(grade.green));
+    object.set("blue", writeColorCurve(grade.blue));
+    return object;
+}
+
+bool readColorGrade(const JsonValue& value, ColorGrade& out, std::string& err) {
+    if (!value.isObject() || value.get("version").asInteger() != 1) {
+        err = "colorGrade 结构或版本不受支持";
+        return false;
+    }
+    ColorGrade grade;
+    if (!readColorCurve(value.get("master"), grade.master, "master", err) ||
+        !readColorCurve(value.get("red"), grade.red, "red", err) ||
+        !readColorCurve(value.get("green"), grade.green, "green", err) ||
+        !readColorCurve(value.get("blue"), grade.blue, "blue", err)) {
+        return false;
+    }
+    out = std::move(grade);
+    return true;
+}
+
 // ---------------- 特效读写 ----------------
 
 JsonValue writeEffects(const EffectStack& stack) {
@@ -425,6 +491,9 @@ JsonValue writeClip(const Clip& c) {
     }
     if (!c.effects.empty()) {
         o.set("effects", writeEffects(c.effects));
+    }
+    if (!c.colorGrade.isIdentity()) {
+        o.set("colorGrade", writeColorGrade(c.colorGrade));
     }
     if (c.audioGainDb != 0.0 || c.audioFadeIn.isPositive() || c.audioFadeOut.isPositive() ||
         c.denoise != DenoiseStrength::Off) {
@@ -595,6 +664,10 @@ bool readClip(const JsonValue& v, Clip& out, std::string& err) {
     out.effects.clear();
     if (v.has("effects")) {
         if (!readEffects(v.get("effects"), out.effects, err)) return false;
+    }
+    out.colorGrade = ColorGrade{};
+    if (v.has("colorGrade")) {
+        if (!readColorGrade(v.get("colorGrade"), out.colorGrade, err)) return false;
     }
     out.audioGainDb = 0.0;
     out.audioFadeIn = Time{};
