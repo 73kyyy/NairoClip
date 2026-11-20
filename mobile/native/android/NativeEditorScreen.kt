@@ -102,7 +102,13 @@ fun NativeEditorScreen(
     clipAudio: NativeEditorCommandAdapter.ClipAudioState? = null,
     onClipAudioChanged: ((Int, Long, NativeEditorCommandAdapter.ClipAudioState) -> Unit)? = null,
     clipDenoiseStrength: Int? = null,
-    onClipDenoiseChanged: ((Int, Long, Int) -> Unit)? = null
+    onClipDenoiseChanged: ((Int, Long, Int) -> Unit)? = null,
+    onAddClipEffect: ((Int, Long, Int) -> Unit)? = null,
+    onUpdateClipEffect: ((Int, Long, NativeClipEffect, Double) -> Unit)? = null,
+    onSetClipEffectEnabled: ((Int, Long, Long, Boolean) -> Unit)? = null,
+    onMoveClipEffect: ((Int, Long, Long, Int) -> Unit)? = null,
+    onRemoveClipEffect: ((Int, Long, Long) -> Unit)? = null,
+    clipEffectSpecs: Map<Int, NativeEditorCommandAdapter.EffectSpec> = emptyMap()
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -300,6 +306,35 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "特效" && activeSubTool == "视频特效" && selectedTarget != null) {
+                val selectedEffects = selectedItem?.effects.orEmpty()
+                if (onAddClipEffect != null && onUpdateClipEffect != null &&
+                    onSetClipEffectEnabled != null && onMoveClipEffect != null &&
+                    onRemoveClipEffect != null
+                ) {
+                    NativeClipEffectsPanel(
+                        effects = selectedEffects,
+                        specs = clipEffectSpecs,
+                        onAdd = { type -> onAddClipEffect.invoke(selectedTarget.first, selectedTarget.second, type) },
+                        onUpdate = { effect, value ->
+                            onUpdateClipEffect.invoke(selectedTarget.first, selectedTarget.second, effect, value)
+                        },
+                        onEnabled = { effectId, enabled ->
+                            onSetClipEffectEnabled.invoke(selectedTarget.first, selectedTarget.second, effectId, enabled)
+                        },
+                        onMove = { effectId, direction ->
+                            onMoveClipEffect.invoke(selectedTarget.first, selectedTarget.second, effectId, direction)
+                        },
+                        onRemove = { effectId ->
+                            onRemoveClipEffect.invoke(selectedTarget.first, selectedTarget.second, effectId)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("特效面板等待宿主接入引擎命令与参数规格", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
+
             LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
@@ -361,10 +396,99 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = subTool
                         }
+                        tool == "特效" && subTool == "视频特效" &&
+                            selectedTarget != null && onAddClipEffect != null &&
+                            onUpdateClipEffect != null && onSetClipEffectEnabled != null &&
+                            onMoveClipEffect != null && onRemoveClipEffect != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         else -> onOpenLegacy()
                     }
                 }
             )
+        }
+    }
+}
+
+private data class NativeEffectOption(val type: Int, val name: String)
+
+@Composable
+private fun NativeClipEffectsPanel(
+    effects: List<NativeClipEffect>,
+    specs: Map<Int, NativeEditorCommandAdapter.EffectSpec>,
+    onAdd: (Int) -> Unit,
+    onUpdate: (NativeClipEffect, Double) -> Unit,
+    onEnabled: (Long, Boolean) -> Unit,
+    onMove: (Long, Int) -> Unit,
+    onRemove: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val options = listOf(
+        NativeEffectOption(13, "故障"), NativeEffectOption(14, "分屏"),
+        NativeEffectOption(15, "镜像"), NativeEffectOption(16, "旋转模糊"),
+        NativeEffectOption(17, "扫描线"), NativeEffectOption(18, "RGB分离"),
+        NativeEffectOption(19, "雪花"), NativeEffectOption(20, "下雨"),
+        NativeEffectOption(21, "光斑"), NativeEffectOption(22, "老电影"),
+        NativeEffectOption(23, "星光"), NativeEffectOption(24, "缩放冲击"),
+        NativeEffectOption(25, "甩镜"), NativeEffectOption(26, "变速闪烁"),
+        NativeEffectOption(27, "节奏律动"), NativeEffectOption(28, "运动模糊"),
+        NativeEffectOption(29, "闪光"), NativeEffectOption(30, "马赛克"),
+        NativeEffectOption(31, "抖动"), NativeEffectOption(32, "放大"),
+        NativeEffectOption(33, "边缘检测"), NativeEffectOption(34, "瘦身"),
+        NativeEffectOption(35, "发光轮廓")
+    )
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("视频特效 · 效果栈", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (effects.isEmpty()) Text("当前片段尚未添加特效", color = NcColors.secondary, fontSize = 10.sp)
+        effects.forEach { effect ->
+            Column(
+                modifier = Modifier.fillMaxWidth().background(NcColors.stage, RoundedCornerShape(8.dp)).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("效果 " + effect.type, color = NcColors.text, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                    Text(if (effect.enabled) "关闭" else "启用", color = NcColors.secondary, fontSize = 9.sp,
+                        modifier = Modifier.clickable { onEnabled(effect.id, !effect.enabled) }.padding(horizontal = 5.dp))
+                    Text("↑", color = NcColors.text, modifier = Modifier.clickable { onMove(effect.id, -1) }.padding(horizontal = 5.dp))
+                    Text("↓", color = NcColors.text, modifier = Modifier.clickable { onMove(effect.id, 1) }.padding(horizontal = 5.dp))
+                    Text("删除", color = NcColors.secondary, modifier = Modifier.clickable { onRemove(effect.id) }.padding(start = 5.dp))
+                }
+                val spec = specs[effect.type]
+                if (spec == null) {
+                    Text("正在读取引擎参数规格…", color = NcColors.secondary, fontSize = 9.sp)
+                } else {
+                    Text(spec.name + ": " + String.format(Locale.US, "%.2f %s", effect.value, spec.unit),
+                        color = NcColors.text, fontSize = 9.sp)
+                    if (spec.min < spec.max) {
+                        Slider(
+                            value = effect.value.toFloat().coerceIn(spec.min.toFloat(), spec.max.toFloat()),
+                            onValueChange = { onUpdate(effect, it.toDouble()) },
+                            valueRange = spec.min.toFloat()..spec.max.toFloat(),
+                            enabled = effect.enabled
+                        )
+                    }
+                    if (spec.hint.isNotBlank()) Text(spec.hint, color = NcColors.secondary, fontSize = 8.sp)
+                }
+            }
+        }
+        Text("添加效果", color = NcColors.text, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            options.forEach { option ->
+                Text(
+                    option.name,
+                    color = NcColors.text,
+                    fontSize = 9.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(NcColors.stage)
+                        .clickable { onAdd(option.type) }.padding(horizontal = 9.dp, vertical = 7.dp)
+                )
+            }
         }
     }
 }
