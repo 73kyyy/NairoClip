@@ -3,6 +3,10 @@
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/xform.h"
 #include "nairoclip/core/serialization.h"
+
+#include <cmath>
+#include <limits>
+
 using namespace nairoclip::core;
 
 namespace {
@@ -126,6 +130,21 @@ NC_TEST(ClipTransform, ClampScaleFloor) {
     t.scale = 0.0;     // 不能为 0（会让画面消失且无法恢复）
     t.clamp();
     NC_CHECK(t.scale == 0.05);
+}
+
+NC_TEST(ClipTransform, NonFiniteInputsReturnToNeutralValues) {
+    ClipTransform t;
+    t.scale = std::numeric_limits<double>::quiet_NaN();
+    t.posX = std::numeric_limits<double>::infinity();
+    t.posY = -std::numeric_limits<double>::infinity();
+    t.rotation = std::numeric_limits<double>::quiet_NaN();
+    t.anchor = 9;
+    t.clamp();
+    NC_CHECK(t.scale == 1.0);
+    NC_CHECK(t.posX == 0.0);
+    NC_CHECK(t.posY == 0.0);
+    NC_CHECK(t.rotation == 0.0);
+    NC_CHECK(t.anchor == 4);
 }
 
 // =============================================================================
