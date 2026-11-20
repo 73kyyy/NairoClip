@@ -185,3 +185,55 @@
 - PreviewFrame transform metadata now uses the same per-property priority as the actual preview pixels: that property's keyframe > that property's static transform > neutral default. This removes a mismatch where preview pixels could be transformed correctly while the PreviewFrame scale/position/rotation metadata reported defaults.
 - Added preview and export regression tests using opacity-only keyframes with a static 50% scale. The preview test checks resolved transform metadata; the export test checks that pixels outside the centered scaled image remain background.
 - The normative transform contract now explicitly requires per-channel keyframe/static/default resolution and preview/export parity. Tests are committed but have not been executed; no native build, CI, or device validation is claimed.
+
+
+## 10. 全部产品页面原生化范围清点（2026-11-20）
+
+本节按当前分支 `mobile/pages/` 与 `mobile/native/android/` 的实际文件清点，不把原生引擎桥、预览 Surface 或编辑器组件误计为已经完成的原生页面。
+
+### 10.1 页面清单与目标承载方式
+
+| 页面文件 | 当前页面 | 目标承载方式 | S5 归属 | 当前状态 |
+|---|---|---|---|---|
+| `01-home.html` | 首页 / 我的草稿 | Compose 原生页面；真实草稿列表、空态、创建项目入口 | S5-1/S5-2 | WebView 运行中；原生页面未实现 |
+| `02-me.html` | 我的 | Compose 原生页面；账户资料、入口和状态 | S5-2 | WebView 运行中；原生页面未实现 |
+| `03-auth.html` | 登录 | Compose 原生表单；认证仍走既有安全认证服务 | S5-2 | WebView 运行中；原生页面未实现 |
+| `03a-phone.html` | 手机号登录 | Compose 原生表单；验证码/风控调用现有认证契约 | S5-2 | WebView 运行中；原生页面未实现 |
+| `04-settings.html` | 设置 | Compose 原生列表、开关、选择器和子页面导航 | S5-2 | WebView 运行中；原生页面未实现 |
+| `05-legal.html` | 条款与说明 | 原生 Compose 文本阅读页；长文分段/目录/滚动，不需要 WebView | S5-2 | WebView 运行中；原生页面未实现 |
+| `06-feedback.html` | 意见反馈 | Compose 原生表单；提交走既有反馈接口 | S5-2 | WebView 运行中；原生页面未实现 |
+| `07-faq.html` | 常见问题 | Compose 原生折叠列表/搜索 | S5-2 | WebView 运行中；原生页面未实现 |
+| `08-crashlog.html` | 崩溃日志 | Compose 原生列表/详情/复制；日志读取权限保持最小化 | S5-2 | WebView 运行中；原生页面未实现 |
+| `10-editor.html` | 剪辑器 | Compose 外壳 + 自定义 Canvas 时间轴 + Surface 预览 + 原生参数面板 | S5-3..S5-7 | 原生组件已存在；尚未接入正式宿主 |
+| `20-template.html` | AI 模板剪辑 | Compose 原生模板列表/筛选/详情 | S5-7 | WebView 运行中；原生页面未实现 |
+| `21-template-fill.html` | 填充素材 | Compose 原生素材槽位与系统 Photo Picker/文件选择器 | S5-7 | WebView 运行中；原生页面未实现 |
+| `22-template-progress.html` | 生成进度 | Compose 原生任务状态/进度/取消；只显示真实任务状态 | S5-7 | WebView 运行中；原生页面未实现 |
+| `23-ai-edit.html` | AI 参考视频剪辑 | Compose 原生分步流程、素材选择和分析结果 | S5-7 | WebView 运行中；原生页面未实现 |
+
+`_probe.html` 是调试探针，不属于产品页面，必须继续排除在正式导航与发布页面清单之外。
+
+### 10.2 创建项目弹窗与全局交互
+
+创建项目流程不应被当作一个独立静态页面遗漏。它应作为首页的原生 Compose Dialog/BottomSheet 流程实现，并覆盖：
+- 新建工程：名称、画幅/分辨率、帧率、背景等字段；选项必须来自核心层支持范围，不得只在 UI 伪造。
+- 打开工程：最近工程、文件选择、缺失素材/版本兼容提示。
+- 创建/载入中：可取消、错误可见、避免重复提交；完成后导航到原生编辑器。
+- 全局导航：返回栈、登录态、深链/恢复入口和进程重建后的路由恢复。
+
+### 10.3 原生技术分工
+
+- **Compose**：首页、我的、登录/手机号登录、设置、条款、反馈、FAQ、崩溃日志、模板/AI 流程、创建项目弹窗，以及编辑器外框和参数面板。
+- **Android 自定义 View + Canvas**：多轨时间轴绘制与高频手势；保持单一 Canvas/视口虚拟化，不为每个片段创建 View/Compose 节点。
+- **SurfaceView/原生 Surface**：预览画面显示；渲染请求在专用工作线程串行化，UI 线程不得执行同步 JNI 解码/渲染。
+- **C++ 共享核心 + 稳定 C ABI**：工程、时间、轨道/片段、效果、关键帧、预览/导出等领域逻辑；Kotlin 只维护视图状态与平台生命周期。
+- **系统组件**：媒体/文档选择使用 Android Photo Picker / SAF；认证、支付、模型下载等外部能力继续使用已定义的安全服务契约，不复制业务规则到 UI。
+
+### 10.4 完成判定与迁移顺序
+
+1. 页面逐项迁移并逐项对照现有 HTML/JS 的真实功能、状态、错误与空态；只有视觉壳相似不算完成。
+2. 所有页面与弹窗共享同一导航/主题/状态策略；工程数据只能来自 Editor API/C ABI，不得维护第二份工程事实源。
+3. 编辑器原生工具栏遵循已确认的交互：二级工具在一级工具同一水平行向右展开；再次点击收起；切换一级工具自动关闭旧二级工具。
+4. 每个迁移页面必须有状态/交互回归；关键流程需覆盖进程重建、旋转/窗口变化、无数据、失败、重复点击和权限拒绝。
+5. 旧 WebView 只能在 S5-2 至 S5-7 全部迁移并验收后进入 S5-8/S5-9；在 A-6 未批准前保留可回退路径。
+
+**本节状态：页面范围清点完成；Compose 页面实现、宿主导航接入、功能等价验证、WebView 退出均未完成。** 本节不解除 S1-3、S3-1、S1-8D 等前置，也不代替 A-5/A-6 审批或 Android/真机验收。
