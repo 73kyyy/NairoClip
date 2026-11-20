@@ -925,7 +925,7 @@ private fun NativeClipLutPanel(
                         val parsed = strengthText.toDoubleOrNull()
                         if (parsed != null && parsed.isFinite() && parsed in 0.0..1.0) {
                             strength = parsed.toFloat()
-                            onChange(path, parsed)
+                            applyValidatedLut()
                         } else {
                             strengthText = String.format(Locale.US, "%.2f", strength)
                         }
