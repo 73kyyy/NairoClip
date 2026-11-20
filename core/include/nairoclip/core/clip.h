@@ -5,6 +5,7 @@
 #include "nairoclip/core/background_fill.h"
 #include "nairoclip/core/blend_modes.h"
 #include "nairoclip/core/chroma_key.h"
+#include "nairoclip/core/color_grade.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/filters.h"
 #include "nairoclip/core/mask.h"
@@ -83,6 +84,8 @@ struct Clip {
     SpeedCurve speedCurve;
     /// 视频特效栈（按顺序应用；空间效果由渲染器处理）。
     EffectStack effects;
+    /// Primary/master and per-channel color grading curves (identity by default).
+    ColorGrade colorGrade;
     /// 片段蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）。
     /// hasMask 为 true 时导出/预览按蒙版裁剪可见区域；false = 不使用蒙版。
     bool hasMask = false;
