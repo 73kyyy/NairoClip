@@ -194,7 +194,7 @@ fun NativeEditorScreen(
                 )
             }
 
-            TransportBar(onAction = onOpenLegacy)
+            LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
                 activeTool = activeTool,
@@ -784,42 +784,32 @@ private fun KeyframeCurvePreview(frame: NativeEditorCommandAdapter.Keyframe, mod
     }
 }
 @Composable
-private fun TransportBar(onAction: () -> Unit) {
-    Row(
+private fun LegacyTransportFallback(onOpenLegacy: () -> Unit) {
+    // Do not present play/split/delete glyphs as native controls while all three
+    // still delegate to the legacy editor. One explicit action communicates the
+    // current capability boundary and avoids surprising users with identical
+    // behavior behind three unrelated-looking buttons.
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .background(NcColors.timeline),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+            .background(NcColors.timeline)
+            .clickable(onClick = onOpenLegacy)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        TransportButton("✂", onAction)
-        Spacer(Modifier.width(28.dp))
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF292C2E))
-                .clickable(onClick = onAction),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("▶", color = Color.White, fontSize = 14.sp)
-        }
-        Spacer(Modifier.width(38.dp))
-        TransportButton("⌫", onAction, tint = NcColors.danger)
-    }
-}
-
-@Composable
-private fun TransportButton(label: String, onAction: () -> Unit, tint: Color = NcColors.text) {
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onAction),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, color = tint, fontSize = 17.sp)
+        Text(
+            "播放、分割与删除暂由完整编辑器处理",
+            color = NcColors.text,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            "点击打开完整编辑器",
+            color = NcColors.secondary,
+            fontSize = 9.sp
+        )
     }
 }
 
