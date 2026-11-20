@@ -197,6 +197,65 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val history: HistoryState
     )
 
+    data class ClipMutationResult(
+        val editorState: EditorStateSnapshot,
+        val newClipId: Long? = null
+    )
+
+    /** Removes the selected clip and returns the authoritative post-edit state. */
+    fun removeClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
+        mutateClipAndReadEditorState(target, "nc_remove_clip")
+
+    /** Duplicates the selected clip immediately after its source clip. */
+    fun duplicateClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
+        mutateClipAndReadEditorState(target, "nc_duplicate_clip") { payload ->
+            payload.getLong("clip_id").takeIf { it > 0L }
+                ?: throw IllegalArgumentException("复制结果缺少有效片段 ID")
+        }
+
+    /** Ripple-deletes the selected clip on its current track. */
+    fun rippleDeleteClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
+        mutateClipAndReadEditorState(target, "nc_ripple_delete")
+
+    private fun mutateClipAndReadEditorState(
+        target: ClipTarget,
+        operation: String,
+        decodeNewClipId: (JSONObject) -> Long? = { null }
+    ): Result<ClipMutationResult> = bridge.withEditorStateLock {
+        val before = readTimelineSnapshotLocked()
+        if (!before.ok) {
+            return@withEditorStateLock Result(
+                false,
+                error = before.error ?: "编辑前无法读取工程时间轴"
+            )
+        }
+        val track = before.value?.tracks
+            ?.firstOrNull { it.engineIndex == target.trackIndex }
+            ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+        if (track.locked) {
+            return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+        }
+        if (track.clips.none { it.id == target.clipId }) {
+            return@withEditorStateLock Result(false, error = "目标片段已不存在")
+        }
+
+        val changed = invoke(operation, targetArgs(target), decodeNewClipId)
+        if (!changed.ok) {
+            return@withEditorStateLock Result(
+                false,
+                error = changed.error ?: "片段操作失败"
+            )
+        }
+        val state = readEditorStateSnapshotLocked()
+        if (!state.ok) {
+            return@withEditorStateLock Result(
+                false,
+                error = state.error ?: "操作已执行，但编辑后状态读取失败"
+            )
+        }
+        Result(true, ClipMutationResult(state.value!!, changed.value))
+    }
+
     /** Reads timeline and history capability flags from one engine revision. */
     fun editorStateSnapshot(): Result<EditorStateSnapshot> =
         bridge.withEditorStateLock { readEditorStateSnapshotLocked() }
