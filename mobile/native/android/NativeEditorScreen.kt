@@ -214,7 +214,7 @@ fun NativeEditorScreen(
                         track.clips.any { it.id == selection.second && it.enabled }
                 }
             }
-            if (activeTool == "画面" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点") && selectedTarget != null) {
+            if (((activeTool == "画面" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点")) || (activeTool == "剪辑" && activeSubTool == "动画")) && selectedTarget != null) {
                 NativeParameterPanel(
                     targetTrackIndex = selectedTarget.first,
                     targetClipId = selectedTarget.second,
@@ -533,6 +533,10 @@ fun NativeEditorScreen(
                             activeSubTool = subTool
                         }
                         tool == "画面" && subTool in setOf("位置", "缩放", "旋转", "锚点") -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
+                        tool == "剪辑" && subTool == "动画" && selectedTarget != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
@@ -2200,6 +2204,7 @@ private fun NativeParameterPanel(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 when (activeSubTool) {
+                    "动画" -> "动画关键帧"
                     "缩放" -> "缩放参数"
                     "旋转" -> "旋转参数"
                     "锚点" -> "锚点参数"
@@ -2211,6 +2216,34 @@ private fun NativeParameterPanel(
             )
             Spacer(Modifier.weight(1f))
             Text(if (activeSubTool == "锚点") "3×3 九宫格预设" else "关键帧 ${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
+        }
+        if (activeSubTool == "动画") {
+            Text(
+                "选择变换通道，管理关键帧与缓动。新增关键帧使用当前播放头位置。",
+                color = NcColors.muted,
+                fontSize = 9.sp
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "选择 X / Y / 缩放 / 旋转通道后添加关键帧",
+                    color = NcColors.secondary,
+                    fontSize = 9.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "＋ 添加关键帧",
+                    color = NcColors.text,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(NcColors.lane)
+                        .clickable { onInsertKeyframe(activeParameter) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                )
+            }
         }
         if (activeSubTool == "位置") {
             Text(
