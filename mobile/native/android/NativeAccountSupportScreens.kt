@@ -433,7 +433,7 @@ fun NativePhoneLoginScreen(
             )
             TextButton(
                 onClick = { onRequestCode(phone.trim()) },
-                enabled = phone.count(Char::isDigit) in 7..15 && !requestInProgress && cooldownSeconds <= 0
+                enabled = phone.count { it.isDigit() } in 7..15 && !requestInProgress && cooldownSeconds <= 0
             ) {
                 Text(
                     when {
@@ -447,7 +447,7 @@ fun NativePhoneLoginScreen(
         statusMessage?.let { Text(it, color = Color(0xFFFFB4AB), fontSize = 12.sp) }
         Button(
             onClick = { onSubmit(phone.trim(), code.trim()) },
-            enabled = phone.count(Char::isDigit) in 7..15 && code.length in 4..8 && !submitInProgress,
+            enabled = phone.count { it.isDigit() } in 7..15 && code.length in 4..8 && !submitInProgress,
             modifier = Modifier.fillMaxWidth()
         ) { Text(if (submitInProgress) "登录中…" else "登录") }
     }
