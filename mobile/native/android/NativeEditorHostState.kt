@@ -22,7 +22,7 @@ data class NativeEditorHostState(
     val canUndo: Boolean get() = history.canUndo
     val canRedo: Boolean get() = history.canRedo
 
-    fun containsEditableSelection(target: NativeEditorCommandAdapter.ClipTarget): Boolean {
+    fun containsVisibleEnabledSelection(target: NativeEditorCommandAdapter.ClipTarget): Boolean {
         val snapshot = timeline ?: return false
         val track = snapshot.tracks.firstOrNull { it.engineIndex == target.trackIndex } ?: return false
         return track.visible && track.clips.any { it.id == target.clipId && it.enabled }
@@ -30,7 +30,7 @@ data class NativeEditorHostState(
 
     fun normalized(): NativeEditorHostState {
         val snapshot = timeline ?: return copy(selectedClip = null, playheadUs = 0L)
-        val selection = selectedClip?.takeIf(::containsEditableSelection)
+        val selection = selectedClip?.takeIf(::containsVisibleEnabledSelection)
         return copy(
             selectedClip = selection,
             playheadUs = playheadUs.coerceIn(0L, snapshot.durationUs)
