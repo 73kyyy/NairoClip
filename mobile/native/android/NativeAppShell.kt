@@ -534,6 +534,7 @@ fun NativeMeScreen(
     onMembership: () -> Unit,
     onLogout: () -> Unit,
     onAction: (String) -> Unit,
+    onValueChanged: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxSize().background(Color(0xFF0D0F10))) {
@@ -597,18 +598,11 @@ fun NativeMeScreen(
                         if (expanded) {
                             group.items.forEach { item ->
                                 Divider(color = Color(0xFF2A2E30), thickness = 0.6.dp)
-                                Row(
-                                    Modifier.fillMaxWidth().clickable(
-                                        enabled = item.enabled && item.kind == NativeSettingKind.ACTION
-                                    ) { onAction(item.id) }.padding(horizontal = 16.dp, vertical = 13.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(item.title, color = if (item.destructive) Color(0xFFFFB4AB) else Color(0xFFE6E8E9), fontSize = 13.sp)
-                                        if (item.summary.isNotBlank()) Text(item.summary, color = Color(0xFF858B8F), fontSize = 10.sp)
-                                    }
-                                    Text(item.value.ifBlank { if (item.kind == NativeSettingKind.ACTION) "›" else "—" }, color = Color(0xFF9B9FA2), fontSize = 12.sp)
-                                }
+                                NativeSettingRow(
+                                    item = item,
+                                    onAction = { onAction(item.id) },
+                                    onValueChanged = { value -> onValueChanged(item.id, value) }
+                                )
                             }
                         }
                     }
@@ -867,5 +861,63 @@ fun NativeAuthScreen(
         statusMessage?.let {
             Text(it, color = Color(0xFFFFB4AB), fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
         }
+    }
+}
+
+
+@Composable
+fun NativePhoneLoginScreen(
+    requestInProgress: Boolean,
+    submitInProgress: Boolean,
+    cooldownSeconds: Int,
+    statusMessage: String?,
+    onBack: () -> Unit,
+    onRequestCode: (String) -> Unit,
+    onSubmit: (String, String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var phone by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    Column(
+        modifier.fillMaxSize().background(Color(0xFF0D0F10)).padding(22.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        TextButton(onClick = onBack) { Text("‹ 返回") }
+        Text("手机号登录", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text("验证码仅用于本次登录验证", color = Color(0xFF858B8F), fontSize = 11.sp)
+        OutlinedTextField(
+            value = phone,
+            onValueChange = { value -> phone = value.filter { it.isDigit() || it == '+' }.take(16) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text("手机号") }
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = code,
+                onValueChange = { value -> code = value.filter(Char::isDigit).take(8) },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = { Text("验证码") }
+            )
+            TextButton(
+                onClick = { onRequestCode(phone.trim()) },
+                enabled = phone.length >= 6 && !requestInProgress && cooldownSeconds <= 0
+            ) {
+                Text(
+                    when {
+                        requestInProgress -> "发送中…"
+                        cooldownSeconds > 0 -> "${cooldownSeconds}s"
+                        else -> "获取验证码"
+                    }
+                )
+            }
+        }
+        statusMessage?.let { Text(it, color = Color(0xFFFFB4AB), fontSize = 12.sp) }
+        Button(
+            onClick = { onSubmit(phone.trim(), code.trim()) },
+            enabled = phone.length >= 6 && code.isNotBlank() && !submitInProgress,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (submitInProgress) "登录中…" else "登录") }
     }
 }
