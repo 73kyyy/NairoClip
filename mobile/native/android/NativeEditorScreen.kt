@@ -716,8 +716,13 @@ private fun NativeParameterPanel(
             ) {
                 activeFrames.forEach { frame ->
                     val selected = frame.timeUs == selectedFrame?.timeUs
+                    val formattedValue = when (activeParameter) {
+                        NativeParameter.SCALE -> "%.1f%%".format(Locale.US, frame.value * 100.0)
+                        NativeParameter.X, NativeParameter.Y -> "%.3f".format(Locale.US, frame.value)
+                        NativeParameter.ROTATION -> "%.1f°".format(Locale.US, frame.value)
+                    }
                     Text(
-                        text = "%.2fs · %.2f".format(frame.timeUs / 1_000_000.0, frame.value),
+                        text = "%.2fs · %s".format(Locale.US, frame.timeUs / 1_000_000.0, formattedValue),
                         color = if (selected) NcColors.text else NcColors.secondary,
                         fontSize = 9.sp,
                         modifier = Modifier
@@ -777,12 +782,17 @@ private fun ParameterSlider(
     }
     val effectiveLow = sliderBounds.first
     val effectiveHigh = sliderBounds.second
+    val valueFormat = when (parameter) {
+        NativeParameter.X, NativeParameter.Y -> "%.3f"
+        NativeParameter.SCALE, NativeParameter.ROTATION -> "%.1f"
+    }
+    fun formatValue(value: Float): String = valueFormat.format(Locale.US, value)
     val focusManager = LocalFocusManager.current
     val valueFocusRequester = remember { FocusRequester() }
     var editingValue by remember(parameter, safeValue) { mutableStateOf(false) }
     var numericFieldFocused by remember(parameter, safeValue) { mutableStateOf(false) }
     var numericText by remember(parameter, safeValue) {
-        mutableStateOf("%.1f".format(Locale.US, safeValue))
+        mutableStateOf(formatValue(safeValue))
     }
     LaunchedEffect(editingValue) {
         if (editingValue) valueFocusRequester.requestFocus()
@@ -794,7 +804,7 @@ private fun ParameterSlider(
             onValueChange(parsed.coerceIn(inputLow, inputHigh))
             onValueChangeFinished()
         } else {
-            numericText = "%.1f".format(Locale.US, safeValue)
+            numericText = formatValue(safeValue)
         }
         editingValue = false
     }
@@ -860,7 +870,7 @@ private fun ParameterSlider(
                 )
             } else {
                 Text(
-                    "%.1f".format(Locale.US, safeValue) + suffix,
+                    formatValue(safeValue) + suffix,
                     color = NcColors.text,
                     fontSize = 9.sp,
                     textAlign = TextAlign.End
