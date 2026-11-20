@@ -1452,6 +1452,71 @@ private fun NativeSpeedCurvePointPanel(
         if (draft.isEmpty()) {
             Text("当前片段没有自定义速度曲线。可选择上方预设，或从常规变速开始。", color = NcColors.secondary, fontSize = 10.sp)
         } else {
+            if (draft.size >= 2) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(112.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NcColors.lane)
+                ) {
+                    val inset = 10f
+                    val plotWidth = (size.width - inset * 2f).coerceAtLeast(1f)
+                    val plotHeight = (size.height - inset * 2f).coerceAtLeast(1f)
+                    val minTime = draft.minOf { it.sourceSeconds }
+                    val maxTime = draft.maxOf { it.sourceSeconds }
+                    val timeSpan = (maxTime - minTime).takeIf { it > 0.0 } ?: 1.0
+                    fun pointOffset(point: NativeEditorCommandAdapter.SpeedCurvePoint): androidx.compose.ui.geometry.Offset {
+                        val x = inset + (((point.sourceSeconds - minTime) / timeSpan).toFloat() * plotWidth)
+                        val normalizedSpeed = ((point.speed.coerceIn(0.1, 10.0) - 0.1) / 9.9).toFloat()
+                        val y = inset + (1f - normalizedSpeed) * plotHeight
+                        return androidx.compose.ui.geometry.Offset(x, y)
+                    }
+                    for (step in 0..4) {
+                        val y = inset + plotHeight * step / 4f
+                        drawLine(
+                            color = NcColors.line.copy(alpha = 0.55f),
+                            start = androidx.compose.ui.geometry.Offset(inset, y),
+                            end = androidx.compose.ui.geometry.Offset(inset + plotWidth, y),
+                            strokeWidth = 1f
+                        )
+                    }
+                    for (step in 0..4) {
+                        val x = inset + plotWidth * step / 4f
+                        drawLine(
+                            color = NcColors.line.copy(alpha = 0.35f),
+                            start = androidx.compose.ui.geometry.Offset(x, inset),
+                            end = androidx.compose.ui.geometry.Offset(x, inset + plotHeight),
+                            strokeWidth = 1f
+                        )
+                    }
+                    val curvePath = androidx.compose.ui.graphics.Path()
+                    draft.forEachIndexed { index, point ->
+                        val position = pointOffset(point)
+                        if (index == 0) curvePath.moveTo(position.x, position.y)
+                        else curvePath.lineTo(position.x, position.y)
+                    }
+                    drawPath(
+                        path = curvePath,
+                        color = NcColors.text,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f)
+                    )
+                    draft.forEach { point ->
+                        drawCircle(
+                            color = NcColors.text,
+                            radius = 4f,
+                            center = pointOffset(point)
+                        )
+                    }
+                }
+                Row {
+                    Text("10×", color = NcColors.muted, fontSize = 8.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("速度曲线预览", color = NcColors.secondary, fontSize = 8.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("0.1×", color = NcColors.muted, fontSize = 8.sp)
+                }
+            }
             draft.forEachIndexed { index, point ->
                 Column(
                     modifier = Modifier.fillMaxWidth().background(NcColors.lane, RoundedCornerShape(8.dp)).padding(8.dp),
