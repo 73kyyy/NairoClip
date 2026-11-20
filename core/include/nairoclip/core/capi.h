@@ -1258,6 +1258,10 @@ int32_t nc_set_keyframe_easing(NcEditor* editor, int32_t track_index, uint64_t c
 /// 设置片段音频（增益 dB / 淡入微秒 / 淡出微秒）。
 int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_id, double gain_db,
                           int64_t fade_in_us, int64_t fade_out_us);
+/// 读取片段音频参数（任一输出可为 NULL）；淡入/淡出返回微秒。
+int32_t nc_get_clip_audio(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          double* out_gain_db, int64_t* out_fade_in_us,
+                          int64_t* out_fade_out_us);
 
 /// 设置片段降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）。
 /// - strength：0=off 1=weak 2=medium 3=strong（非法返回 NC_ERROR_INVALID_ARGUMENT）；
