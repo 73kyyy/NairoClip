@@ -436,7 +436,8 @@ private fun NativeClipEffectsPanel(
         NativeEffectOption(29, "闪光"), NativeEffectOption(30, "马赛克"),
         NativeEffectOption(31, "抖动"), NativeEffectOption(32, "放大"),
         NativeEffectOption(33, "边缘检测"), NativeEffectOption(34, "瘦身"),
-        NativeEffectOption(35, "发光轮廓")
+        NativeEffectOption(35, "发光轮廓"), NativeEffectOption(36, "震动"),
+        NativeEffectOption(37, "泛光"), NativeEffectOption(38, "镜头光晕")
     )
     Column(
         modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
