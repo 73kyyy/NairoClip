@@ -5,6 +5,32 @@
 namespace nairoclip {
 namespace core {
 
+namespace {
+
+double evaluateValidCurve(const ColorCurve& curve, double input) {
+    const double x = std::max(0.0, std::min(1.0, input));
+    for (std::size_t i = 1; i < curve.points.size(); ++i) {
+        const auto& right = curve.points[i];
+        if (x <= right.input) {
+            const auto& left = curve.points[i - 1];
+            const double t = (x - left.input) / (right.input - left.input);
+            return left.output + (right.output - left.output) * t;
+        }
+    }
+    return curve.points.back().output;
+}
+
+void applyValidatedGrade(const ColorGrade& grade, double& r, double& g, double& b) {
+    r = evaluateValidCurve(grade.master, r);
+    g = evaluateValidCurve(grade.master, g);
+    b = evaluateValidCurve(grade.master, b);
+    r = evaluateValidCurve(grade.red, r);
+    g = evaluateValidCurve(grade.green, g);
+    b = evaluateValidCurve(grade.blue, b);
+}
+
+}  // namespace
+
 bool ColorCurve::valid() const {
     if (points.size() < kMinPoints || points.size() > kMaxPoints) return false;
     if (points.front().input != 0.0 || points.back().input != 1.0) return false;
@@ -29,16 +55,7 @@ bool ColorCurve::isIdentity() const {
 
 double ColorCurve::evaluate(double input) const {
     if (!valid() || !std::isfinite(input)) return input;
-    const double x = std::max(0.0, std::min(1.0, input));
-    for (std::size_t i = 1; i < points.size(); ++i) {
-        const auto& right = points[i];
-        if (x <= right.input) {
-            const auto& left = points[i - 1];
-            const double t = (x - left.input) / (right.input - left.input);
-            return left.output + (right.output - left.output) * t;
-        }
-    }
-    return points.back().output;
+    return evaluateValidCurve(*this, input);
 }
 
 bool ColorGrade::valid() const {
@@ -52,12 +69,7 @@ bool ColorGrade::isIdentity() const {
 
 void ColorGrade::apply(double& r, double& g, double& b) const {
     if (!valid()) return;
-    r = master.evaluate(r);
-    g = master.evaluate(g);
-    b = master.evaluate(b);
-    r = red.evaluate(r);
-    g = green.evaluate(g);
-    b = blue.evaluate(b);
+    applyValidatedGrade(*this, r, g, b);
 }
 
 void applyColorGradeToRgba(std::uint8_t* pixels, std::size_t pixelCount,
@@ -67,7 +79,7 @@ void applyColorGradeToRgba(std::uint8_t* pixels, std::size_t pixelCount,
         double r = static_cast<double>(pixels[i * 4]) / 255.0;
         double g = static_cast<double>(pixels[i * 4 + 1]) / 255.0;
         double b = static_cast<double>(pixels[i * 4 + 2]) / 255.0;
-        grade.apply(r, g, b);
+        applyValidatedGrade(grade, r, g, b);
         pixels[i * 4] = static_cast<std::uint8_t>(std::lround(r * 255.0));
         pixels[i * 4 + 1] = static_cast<std::uint8_t>(std::lround(g * 255.0));
         pixels[i * 4 + 2] = static_cast<std::uint8_t>(std::lround(b * 255.0));
