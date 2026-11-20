@@ -877,6 +877,21 @@ private fun NativeClipLutPanel(
     }
     val focusManager = LocalFocusManager.current
     var validationText by remember(path) { mutableStateOf<String?>(null) }
+    fun applyValidatedLut() {
+        if (path.isBlank()) {
+            onChange("", strength.toDouble())
+            validationText = "已请求清除 LUT"
+            return
+        }
+        val result = onValidate?.invoke(path)
+        if (result?.ok == true && result.value != null) {
+            onChange(path, strength.toDouble())
+            validationText = "校验通过，已应用：${result.value.size}³" +
+                if (result.value.title.isBlank()) "" else " · ${result.value.title}"
+        } else {
+            validationText = result?.error ?: "尚未接入 LUT 文件校验，已阻止应用"
+        }
+    }
     Column(
         modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -929,7 +944,7 @@ private fun NativeClipLutPanel(
                 strength = it
                 strengthText = String.format(Locale.US, "%.2f", it)
             },
-            onValueChangeFinished = { onChange(path, strength.toDouble()) },
+            onValueChangeFinished = { applyValidatedLut() },
             valueRange = 0f..1f
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -957,7 +972,7 @@ private fun NativeClipLutPanel(
                 color = NcColors.text,
                 fontSize = 9.sp,
                 modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(NcColors.stage)
-                    .clickable { focusManager.clearFocus(); onChange(path, strength.toDouble()) }
+                    .clickable { focusManager.clearFocus(); applyValidatedLut() }
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             )
             Text(
@@ -965,7 +980,7 @@ private fun NativeClipLutPanel(
                 color = NcColors.text,
                 fontSize = 9.sp,
                 modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(NcColors.stage)
-                    .clickable { path = ""; onChange("", strength.toDouble()) }
+                    .clickable { path = ""; applyValidatedLut() }
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             )
         }
