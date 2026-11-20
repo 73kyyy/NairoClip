@@ -35,10 +35,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -1417,6 +1420,8 @@ private fun NativeSpeedCurvePointPanel(
     modifier: Modifier = Modifier
 ) {
     var draft by remember(clipId, points) { mutableStateOf(points) }
+    val currentDraft by rememberUpdatedState(draft)
+    val currentOnChange by rememberUpdatedState(onChange)
     Column(
         modifier = modifier
             .background(NcColors.panel, RoundedCornerShape(12.dp))
@@ -1434,7 +1439,7 @@ private fun NativeSpeedCurvePointPanel(
                 fontSize = 10.sp,
                 modifier = Modifier.clickable(enabled = draft.size in 2 until 256) {
                     val pair = draft.zipWithNext().firstOrNull { (a, b) ->
-                        b.sourceSeconds - a.sourceSeconds > 0.002
+                        b.sourceSeconds - a.sourceSeconds > 0.004
                     }
                     if (pair != null) {
                         val (left, right) = pair
@@ -1456,15 +1461,91 @@ private fun NativeSpeedCurvePointPanel(
                 Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(112.dp)
+                        .height(144.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(NcColors.lane)
+                        .pointerInput(clipId) {
+                            var activeIndex = -1
+                            var changedDuringGesture = false
+                            detectDragGestures(
+                                onDragStart = { pointer ->
+                                    val snapshot = currentDraft
+                                    if (snapshot.size >= 2) {
+                                        val inset = 12f
+                                        val plotWidth = (size.width - inset * 2f).coerceAtLeast(1f)
+                                        val plotHeight = (size.height - inset * 2f).coerceAtLeast(1f)
+                                        val minTime = snapshot.first().sourceSeconds
+                                        val maxTime = snapshot.last().sourceSeconds
+                                        val span = (maxTime - minTime).takeIf { it > 0.0 } ?: 1.0
+                                        activeIndex = snapshot.indices.minByOrNull { index ->
+                                            val point = snapshot[index]
+                                            val x = inset + ((point.sourceSeconds - minTime) / span).toFloat() * plotWidth
+                                            val y = inset + (1f - ((point.speed - 0.1) / 9.9).toFloat()) * plotHeight
+                                            val dx = pointer.x - x
+                                            val dy = pointer.y - y
+                                            dx * dx + dy * dy
+                                        } ?: -1
+                                        val point = snapshot.getOrNull(activeIndex)
+                                        if (point != null) {
+                                            val x = inset + ((point.sourceSeconds - minTime) / span).toFloat() * plotWidth
+                                            val y = inset + (1f - ((point.speed - 0.1) / 9.9).toFloat()) * plotHeight
+                                            val dx = pointer.x - x
+                                            val dy = pointer.y - y
+                                            if (dx * dx + dy * dy > 40f * 40f) activeIndex = -1
+                                        }
+                                    }
+                                    changedDuringGesture = false
+                                },
+                                onDragEnd = {
+                                    if (changedDuringGesture) currentOnChange(currentDraft)
+                                    activeIndex = -1
+                                },
+                                onDragCancel = {
+                                    activeIndex = -1
+                                    changedDuringGesture = false
+                                },
+                                onDrag = { change, _ ->
+                                    val snapshot = currentDraft
+                                    val index = activeIndex
+                                    if (index in snapshot.indices && snapshot.size >= 2) {
+                                        val inset = 12f
+                                        val plotWidth = (size.width - inset * 2f).coerceAtLeast(1f)
+                                        val plotHeight = (size.height - inset * 2f).coerceAtLeast(1f)
+                                        val minTime = snapshot.first().sourceSeconds
+                                        val maxTime = snapshot.last().sourceSeconds
+                                        val span = (maxTime - minTime).takeIf { it > 0.0 } ?: 1.0
+                                        val pointerX = change.position.x.coerceIn(inset, inset + plotWidth)
+                                        val pointerY = change.position.y.coerceIn(inset, inset + plotHeight)
+                                        val old = snapshot[index]
+                                        val speed = (0.1 + (1f - (pointerY - inset) / plotHeight) * 9.9f)
+                                            .toDouble().coerceIn(0.1, 10.0)
+                                        val minGap = 0.002
+                                        val time = if (index == 0 || index == snapshot.lastIndex) {
+                                            old.sourceSeconds
+                                        } else {
+                                            val lower = snapshot[index - 1].sourceSeconds + minGap
+                                            val upper = snapshot[index + 1].sourceSeconds - minGap
+                                            if (lower <= upper) {
+                                                (minTime + ((pointerX - inset) / plotWidth) * span).coerceIn(lower, upper)
+                                            } else old.sourceSeconds
+                                        }
+                                        if (speed != old.speed || time != old.sourceSeconds) {
+                                            draft = snapshot.toMutableList().also {
+                                                it[index] = old.copy(sourceSeconds = time, speed = speed)
+                                            }
+                                            changedDuringGesture = true
+                                        }
+                                        change.consume()
+                                    }
+                                }
+                            )
+                        }
                 ) {
-                    val inset = 10f
+                    val inset = 12f
                     val plotWidth = (size.width - inset * 2f).coerceAtLeast(1f)
                     val plotHeight = (size.height - inset * 2f).coerceAtLeast(1f)
-                    val minTime = draft.minOf { it.sourceSeconds }
-                    val maxTime = draft.maxOf { it.sourceSeconds }
+                    val minTime = draft.first().sourceSeconds
+                    val maxTime = draft.last().sourceSeconds
                     val timeSpan = (maxTime - minTime).takeIf { it > 0.0 } ?: 1.0
                     fun pointOffset(point: NativeEditorCommandAdapter.SpeedCurvePoint): androidx.compose.ui.geometry.Offset {
                         val x = inset + (((point.sourceSeconds - minTime) / timeSpan).toFloat() * plotWidth)
@@ -1504,7 +1585,7 @@ private fun NativeSpeedCurvePointPanel(
                     draft.forEach { point ->
                         drawCircle(
                             color = NcColors.text,
-                            radius = 4f,
+                            radius = 6f,
                             center = pointOffset(point)
                         )
                     }
@@ -1512,7 +1593,7 @@ private fun NativeSpeedCurvePointPanel(
                 Row {
                     Text("10×", color = NcColors.muted, fontSize = 8.sp)
                     Spacer(Modifier.weight(1f))
-                    Text("速度曲线预览", color = NcColors.secondary, fontSize = 8.sp)
+                    Text("拖动曲线节点直接调节 · 首尾时间点固定", color = NcColors.secondary, fontSize = 8.sp)
                     Spacer(Modifier.weight(1f))
                     Text("0.1×", color = NcColors.muted, fontSize = 8.sp)
                 }
@@ -1558,10 +1639,44 @@ private fun NativeSpeedCurvePointPanel(
                         )
                         Text(String.format(Locale.US, "%.2f×", point.speed), color = NcColors.text, fontSize = 9.sp)
                     }
+                    if (index in 1 until draft.lastIndex) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("时间", color = NcColors.secondary, fontSize = 9.sp)
+                            var timeText by remember(clipId, point.sourceSeconds) {
+                                mutableStateOf(String.format(Locale.US, "%.3f", point.sourceSeconds))
+                            }
+                            BasicTextField(
+                                value = timeText,
+                                onValueChange = { candidate ->
+                                    if (candidate.length <= 12 && candidate.matches(Regex("[0-9]*[.]?[0-9]*"))) {
+                                        timeText = candidate
+                                    }
+                                },
+                                modifier = Modifier.width(76.dp).background(NcColors.panel, RoundedCornerShape(5.dp))
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    val parsed = timeText.toDoubleOrNull()
+                                    val lower = draft[index - 1].sourceSeconds + 0.002
+                                    val upper = draft[index + 1].sourceSeconds - 0.002
+                                    if (parsed != null && parsed.isFinite() && lower <= upper && parsed in lower..upper) {
+                                        draft = draft.toMutableList().also {
+                                            it[index] = it[index].copy(sourceSeconds = parsed)
+                                        }
+                                        onChange(draft)
+                                    } else {
+                                        timeText = String.format(Locale.US, "%.3f", draft[index].sourceSeconds)
+                                    }
+                                })
+                            )
+                            Text("s（相邻点间隔至少 2ms）", color = NcColors.muted, fontSize = 8.sp)
+                        }
+                    }
                 }
             }
         }
-        Text("时间点按源素材秒数排序；速度范围与引擎曲线合同一致（0.1×–10×）。", color = NcColors.secondary, fontSize = 9.sp)
+        Text("时间点按源素材秒数严格递增；速度范围为 0.1×–10×。曲线拖动在松手时统一提交，首尾时间点固定。", color = NcColors.secondary, fontSize = 9.sp)
     }
 }
 
