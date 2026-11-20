@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "nairoclip/core/animation.h"
+#include "nairoclip/core/transform_limits.h"
 
 #include <limits>
 
@@ -29,8 +30,17 @@ NC_TEST(Animation, PropertySpecAndNames) {
     NC_CHECK(nearly(opacity.minValue, 0.0));
     NC_CHECK(nearly(opacity.maxValue, 1.0));
     const PropertySpec scale = propertySpec(ClipProperty::Scale);
-    NC_CHECK(nearly(scale.minValue, 0.05));
-    NC_CHECK(nearly(scale.maxValue, 10.0));
+    NC_CHECK(nearly(scale.minValue, transform_limits::kScaleMin));
+    NC_CHECK(nearly(scale.maxValue, transform_limits::kScaleMax));
+    const PropertySpec positionX = propertySpec(ClipProperty::PositionX);
+    NC_CHECK(nearly(positionX.minValue, transform_limits::kPositionMin));
+    NC_CHECK(nearly(positionX.maxValue, transform_limits::kPositionMax));
+    const PropertySpec positionY = propertySpec(ClipProperty::PositionY);
+    NC_CHECK(nearly(positionY.minValue, transform_limits::kPositionMin));
+    NC_CHECK(nearly(positionY.maxValue, transform_limits::kPositionMax));
+    const PropertySpec rotation = propertySpec(ClipProperty::Rotation);
+    NC_CHECK(nearly(rotation.minValue, transform_limits::kRotationMinDegrees));
+    NC_CHECK(nearly(rotation.maxValue, transform_limits::kRotationMaxDegrees));
     NC_CHECK_EQ(std::string(propertyName(ClipProperty::Opacity)), std::string("透明度"));
     NC_CHECK_EQ(std::string(propertyName(ClipProperty::Volume)), std::string("音量"));
 }
