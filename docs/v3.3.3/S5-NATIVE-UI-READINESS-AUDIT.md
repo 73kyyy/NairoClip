@@ -195,20 +195,20 @@
 
 | 页面文件 | 当前页面 | 目标承载方式 | S5 归属 | 当前状态 |
 |---|---|---|---|---|
-| `01-home.html` | 首页 / 我的草稿 | Compose 原生页面；真实草稿列表、空态、创建项目入口 | S5-1/S5-2 | WebView 运行中；原生页面未实现 |
-| `02-me.html` | 我的 | Compose 原生页面；账户资料、入口和状态 | S5-2 | WebView 运行中；原生页面未实现 |
-| `03-auth.html` | 登录 | Compose 原生表单；认证仍走既有安全认证服务 | S5-2 | WebView 运行中；原生页面未实现 |
-| `03a-phone.html` | 手机号登录 | Compose 原生表单；验证码/风控调用现有认证契约 | S5-2 | WebView 运行中；原生页面未实现 |
-| `04-settings.html` | 设置 | Compose 原生列表、开关、选择器和子页面导航 | S5-2 | WebView 运行中；原生页面未实现 |
-| `05-legal.html` | 条款与说明 | 原生 Compose 文本阅读页；长文分段/目录/滚动，不需要 WebView | S5-2 | WebView 运行中；原生页面未实现 |
-| `06-feedback.html` | 意见反馈 | Compose 原生表单；提交走既有反馈接口 | S5-2 | WebView 运行中；原生页面未实现 |
-| `07-faq.html` | 常见问题 | Compose 原生折叠列表/搜索 | S5-2 | WebView 运行中；原生页面未实现 |
-| `08-crashlog.html` | 崩溃日志 | Compose 原生列表/详情/复制；日志读取权限保持最小化 | S5-2 | WebView 运行中；原生页面未实现 |
+| `01-home.html` | 首页 / 我的草稿 | Compose 原生页面；真实草稿列表、空态、创建项目入口 | S5-1/S5-2 | `NativeHomeScreen` 已实现；未接宿主数据/导航 |
+| `02-me.html` | 我的 | Compose 原生页面；账户资料、入口和状态 | S5-2 | `NativeMeScreen` 已实现；未接账号服务/导航 |
+| `03-auth.html` | 登录 | Compose 原生表单；认证仍走既有安全认证服务 | S5-2 | `NativeAuthScreen` 已实现；未接认证服务/导航 |
+| `03a-phone.html` | 手机号登录 | Compose 原生表单；验证码/风控调用现有认证契约 | S5-2 | `NativePhoneLoginScreen` 已实现；未接短信/风控服务 |
+| `04-settings.html` | 设置 | Compose 原生列表、开关、选择器和子页面导航 | S5-2 | `NativeSettingsScreen` 已实现；未接偏好/平台动作 |
+| `05-legal.html` | 条款与说明 | 原生 Compose 文本阅读页；长文分段/目录/滚动，不需要 WebView | S5-2 | `NativeLegalScreen` 已实现；未接法律文本数据源 |
+| `06-feedback.html` | 意见反馈 | Compose 原生表单；提交走既有反馈接口 | S5-2 | `NativeFeedbackScreen` 已实现；未接反馈服务 |
+| `07-faq.html` | 常见问题 | Compose 原生折叠列表/搜索 | S5-2 | `NativeFaqScreen` 已实现；未接 FAQ 内容 |
+| `08-crashlog.html` | 崩溃日志 | Compose 原生列表/详情/复制；日志读取权限保持最小化 | S5-2 | `NativeCrashLogScreen` 已实现；未接日志仓库 |
 | `10-editor.html` | 剪辑器 | Compose 外壳 + 自定义 Canvas 时间轴 + Surface 预览 + 原生参数面板 | S5-3..S5-7 | 原生组件已存在；尚未接入正式宿主 |
-| `20-template.html` | AI 模板剪辑 | Compose 原生模板列表/筛选/详情 | S5-7 | WebView 运行中；原生页面未实现 |
-| `21-template-fill.html` | 填充素材 | Compose 原生素材槽位与系统 Photo Picker/文件选择器 | S5-7 | WebView 运行中；原生页面未实现 |
-| `22-template-progress.html` | 生成进度 | Compose 原生任务状态/进度/取消；只显示真实任务状态 | S5-7 | WebView 运行中；原生页面未实现 |
-| `23-ai-edit.html` | AI 参考视频剪辑 | Compose 原生分步流程、素材选择和分析结果 | S5-7 | WebView 运行中；原生页面未实现 |
+| `20-template.html` | AI 模板剪辑 | Compose 原生模板列表/筛选/详情 | S5-7 | `NativeTemplateScreen` 已实现；未接模板服务/导航 |
+| `21-template-fill.html` | 填充素材 | Compose 原生素材槽位与系统 Photo Picker/文件选择器 | S5-7 | `NativeTemplateFillScreen` 已实现；未接素材仓库/选择器 |
+| `22-template-progress.html` | 生成进度 | Compose 原生任务状态/进度/取消；只显示真实任务状态 | S5-7 | `NativeTemplateProgressScreen` 已实现；未接 TaskRegistry 事件 |
+| `23-ai-edit.html` | AI 参考视频剪辑 | Compose 原生分步流程、素材选择和分析结果 | S5-7 | `NativeAIEditWizardScreen` 已实现；未接 AI 编排命令 |
 
 `_probe.html` 是调试探针，不属于产品页面，必须继续排除在正式导航与发布页面清单之外。
 
