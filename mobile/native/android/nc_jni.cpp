@@ -540,8 +540,9 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         double centerX = 0.5;
         double centerY = 0.5;
         double rotation = 0.0;
-        double width = 1.0;
-        double height = 1.0;
+        // Match core::Mask defaults when the clip has no mask yet.
+        double width = 0.5;
+        double height = 0.5;
         double feather = 0.0;
         double cornerRadius = 0.0;
         int32_t invert = 0;
