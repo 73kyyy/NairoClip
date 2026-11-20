@@ -99,7 +99,7 @@ data class NativeTimelineSnapshot(
                             val effectEnabled = sourceEffect.longField("enabled")?.takeIf { it in 0L..1L } ?: return null
                             val rawValue = sourceEffect.opt("value") as? Number ?: return null
                             val effectValue = rawValue.toDouble()
-                            if (!effectValue.isFinite() || !effectIds.add(effectId)) return null
+                            if (!effectValue.isFinite() || !effectValue.toFloat().isFinite() || !effectIds.add(effectId)) return null
                             effects += NativeClipEffect(
                                 id = effectId,
                                 type = effectType.toInt(),
