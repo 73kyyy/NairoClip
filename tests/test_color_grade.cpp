@@ -35,3 +35,15 @@ NC_TEST(ColorGrade, MasterThenChannelOrder) {
     NC_CHECK(std::abs(g - 0.4) < 1e-9);
     NC_CHECK(std::abs(b - 0.4) < 1e-9);
 }
+
+
+NC_TEST(ColorGrade, AppliesToRgbaAndPreservesAlpha) {
+    ColorGrade grade;
+    grade.master.points = {{0.0, 0.0}, {1.0, 0.5}};
+    std::uint8_t rgba[] = {200, 100, 50, 123};
+    applyColorGradeToRgba(rgba, 1, grade);
+    NC_CHECK_EQ(static_cast<int>(rgba[0]), 100);
+    NC_CHECK_EQ(static_cast<int>(rgba[1]), 50);
+    NC_CHECK_EQ(static_cast<int>(rgba[2]), 25);
+    NC_CHECK_EQ(static_cast<int>(rgba[3]), 123);
+}
