@@ -354,3 +354,22 @@
 本轮代码提交：`18d0a60be624f8eaacd733dbe3160465ebb8dac2`（首页搜索/快捷入口/文件大小）；`66fd46bf30c39a5d7601557e8c0d6432e4a71f5f`（草稿头部细节）。
 
 **验收边界：** 本次是原生 UI 组件层对照修正。宿主仍须提供真实项目列表、规格 presets、删除实现和快捷入口路由；特别是列表移除不能冒充磁盘工程删除。未执行 Android Gradle/Compose 构建、UI 自动化或真机测试。
+
+
+## 19. 设置页原生宿主映射契约（2026-11-20）
+
+对照 `mobile/pages/04-settings.html` 与 `mobile/assets/settings.js`，`NativeSettingsScreen` 的 `groups/items` 应按以下稳定 ID 由宿主构造；页面只呈现状态并回调，不自行假定服务成功：
+
+| 分组 | 稳定 item ID | 类型 | 宿主责任 |
+|---|---|---|---|
+| 账号 | `row-login`、`row-logout` | ACTION | 登录导航；退出前确认并清理权威登录态 |
+| 通用 | `sel-lang`、`sel-theme`、`sel-start`、`sw-guide` | CHOICE / TOGGLE | 持久化语言、外观、启动页与新手引导偏好 |
+| 通知 | `sw-draft`、`sw-export`、`sw-promo` | TOGGLE | 持久化通知偏好；系统通知权限另行处理 |
+| 存储 | `row-clear-cache` | ACTION | 读取真实缓存/工程/模型状态；清理前说明范围并确认 |
+| 隐私与安全 | `sw-network`、`row-perm`、`row-export-data`、`row-wipe`、法律文档 ID | TOGGLE / ACTION | 权限设置跳转、数据导出、清除本地数据前二次确认、法律阅读导航 |
+| 帮助与支持 | `row-faq`、`row-feedback`、`row-update`、`row-logs` | ACTION | 打开真实 FAQ/反馈/更新检查/诊断日志流程 |
+| 关于 | `about-build`、`about-core`、`about-ai` 等 | VALUE | 仅显示宿主实际读取的版本、引擎与模型状态 |
+
+`NativeSettingKind` 当前支持 ACTION、TOGGLE、CHOICE、VALUE，足以表达上述基础控件；`NativeSettingItem.destructive` 只负责危险操作的视觉提示，不是确认机制。所有危险操作必须由宿主在调用真实服务前弹出确认，并处理失败/取消。法律条款应继续复用 `assets/legal/legal-text.js` 的单一事实来源或其正式跨平台数据层，不复制一份可能过期的文案。
+
+本节是接口映射规范，不表示以上回调、偏好持久化、系统权限、缓存管理、更新服务或日志导出已在 Compose 宿主接通。
