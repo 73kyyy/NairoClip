@@ -203,10 +203,13 @@ class NativeEngineBridge(
     ): String = synchronized(stateLock) {
         if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
         val scale = transform.scale / 100.0f
-        if (!scale.isFinite() || scale <= 0f ||
-            !transform.x.isFinite() || !transform.y.isFinite() ||
-            !transform.rotation.isFinite() || anchor !in 0..8
-        ) return@synchronized err("变换参数超出有效范围")
+        if (!transform.scale.isFinite() || transform.scale !in 5f..1000f ||
+            !scale.isFinite() ||
+            !transform.x.isFinite() || transform.x !in -10f..10f ||
+            !transform.y.isFinite() || transform.y !in -10f..10f ||
+            !transform.rotation.isFinite() || transform.rotation !in -3600f..3600f ||
+            anchor !in 0..8
+        ) return@synchronized err("变换参数超出引擎范围：缩放 5%–1000%，X/Y -10–10，旋转 -3600°–3600°")
         try {
             nativeCall(
                 ensure(),
