@@ -469,25 +469,18 @@ private fun NativeTimelinePanel(
 }
 
 /**
- * Shared transform value domains. Keep UI, command adapters and the JNI bridge
- * aligned with the C ABI contract; slider travel is intentionally narrower
- * than typed-entry limits for comfortable mobile adjustment.
+ * Shared transform value domains. Slider and numeric entry deliberately use
+ * the exact same hard range: the slider provides coarse navigation and the
+ * numeric field provides precise positioning inside that same domain.
  */
 object NativeTransformRange {
     const val POSITION_MIN = -10f
     const val POSITION_MAX = 10f
-    const val POSITION_SLIDER_MIN = -2f
-    const val POSITION_SLIDER_MAX = 2f
-
     const val SCALE_MIN_PERCENT = 5f
     const val SCALE_MAX_PERCENT = 1000f
-    const val SCALE_SLIDER_MAX_PERCENT = 400f
 
     const val ROTATION_MIN_DEGREES = -3600f
     const val ROTATION_MAX_DEGREES = 3600f
-    const val ROTATION_SLIDER_MIN_DEGREES = -360f
-    const val ROTATION_SLIDER_MAX_DEGREES = 360f
-
     const val ANCHOR_MIN = 0
     const val ANCHOR_MAX = 8
     const val ANCHOR_CENTER = 4
@@ -602,54 +595,46 @@ private fun NativeParameterPanel(
         }
         if (activeSubTool == "位置") {
             Text(
-                "位置以画布尺寸为单位：1.0 = 一个画布宽/高；滑动常用 ±2，数值可输入 ±10",
+                "位置以画布尺寸为单位：1.0 = 一个画布宽/高；滑块与数值输入均为 -10～10",
                 color = NcColors.muted,
                 fontSize = 9.sp
             )
             ParameterSlider(
                 "X", draftTransform.x,
-                NativeTransformRange.POSITION_SLIDER_MIN, NativeTransformRange.POSITION_SLIDER_MAX,
-                NativeParameter.X, keyedParameters, onInsertKeyframe, rangeKey = targetTrackIndex to targetClipId,
-                inputLow = NativeTransformRange.POSITION_MIN,
-                inputHigh = NativeTransformRange.POSITION_MAX,
+                NativeTransformRange.POSITION_MIN, NativeTransformRange.POSITION_MAX,
+                NativeParameter.X, keyedParameters, onInsertKeyframe,
                 onValueChange = { updateDraft(NativeParameter.X, it) },
                 onValueChangeFinished = ::commitDraft
             )
             ParameterSlider(
                 "Y", draftTransform.y,
-                NativeTransformRange.POSITION_SLIDER_MIN, NativeTransformRange.POSITION_SLIDER_MAX,
-                NativeParameter.Y, keyedParameters, onInsertKeyframe, rangeKey = targetTrackIndex to targetClipId,
-                inputLow = NativeTransformRange.POSITION_MIN,
-                inputHigh = NativeTransformRange.POSITION_MAX,
+                NativeTransformRange.POSITION_MIN, NativeTransformRange.POSITION_MAX,
+                NativeParameter.Y, keyedParameters, onInsertKeyframe,
                 onValueChange = { updateDraft(NativeParameter.Y, it) },
                 onValueChangeFinished = ::commitDraft
             )
         }
         if (activeSubTool == "缩放") {
-            Text("100% 为原始尺寸；滑动常用 5%–400%，数值可输入 5%–1000%", color = NcColors.muted, fontSize = 9.sp)
+            Text("100% 为原始尺寸；滑块与数值输入均为 5%–1000%", color = NcColors.muted, fontSize = 9.sp)
             ParameterSlider(
                 "缩放", draftTransform.scale,
-                NativeTransformRange.SCALE_MIN_PERCENT, NativeTransformRange.SCALE_SLIDER_MAX_PERCENT,
-                NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", rangeKey = targetTrackIndex to targetClipId,
-                inputLow = NativeTransformRange.SCALE_MIN_PERCENT,
-                inputHigh = NativeTransformRange.SCALE_MAX_PERCENT,
+                NativeTransformRange.SCALE_MIN_PERCENT, NativeTransformRange.SCALE_MAX_PERCENT,
+                NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%",
                 onValueChange = { updateDraft(NativeParameter.SCALE, it) },
                 onValueChangeFinished = ::commitDraft
             )
         }
         if (activeSubTool == "旋转") {
             Text(
-                "滑动常用 ±360°；数值支持正负 10 圈（±3600°），角度不自动折返",
+                "滑块与数值输入均支持正负 10 圈（±3600°）；角度不自动折返",
                 color = NcColors.muted,
                 fontSize = 9.sp
             )
             ParameterSlider(
                 "旋转", draftTransform.rotation,
-                NativeTransformRange.ROTATION_SLIDER_MIN_DEGREES,
-                NativeTransformRange.ROTATION_SLIDER_MAX_DEGREES,
-                NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", rangeKey = targetTrackIndex to targetClipId,
-                inputLow = NativeTransformRange.ROTATION_MIN_DEGREES,
-                inputHigh = NativeTransformRange.ROTATION_MAX_DEGREES,
+                NativeTransformRange.ROTATION_MIN_DEGREES,
+                NativeTransformRange.ROTATION_MAX_DEGREES,
+                NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°",
                 onValueChange = { updateDraft(NativeParameter.ROTATION, it) },
                 onValueChangeFinished = ::commitDraft
             )
@@ -783,32 +768,12 @@ private fun ParameterSlider(
     label: String, value: Float, low: Float, high: Float, parameter: NativeParameter,
     keyedParameters: Set<NativeParameter>, onInsertKeyframe: (NativeParameter) -> Unit,
     suffix: String = "",
-    inputLow: Float = low,
-    inputHigh: Float = high,
-    rangeKey: Any,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit
 ) {
-    // Expand the slider domain whenever an authoritative or numeric value
-    // moves outside the common range. Freeze that domain during a drag so the
-    // thumb never chases a moving bound.
-    val safeValue = value.takeIf { it.isFinite() }?.coerceIn(inputLow, inputHigh) ?: inputLow
-    var sliderDragging by remember(rangeKey, parameter) { mutableStateOf(false) }
-    var sliderBounds by remember(rangeKey, parameter, low, high, inputLow, inputHigh) {
-        mutableStateOf(
-            minOf(low, safeValue) to maxOf(high, safeValue)
-        )
-    }
-    LaunchedEffect(safeValue, sliderDragging) {
-        if (!sliderDragging) {
-            sliderBounds = minOf(low, safeValue) to maxOf(high, safeValue)
-        }
-    }
-    // Outside a gesture, derive the range synchronously so a newly entered
-    // 900% value is never rendered for one frame against the old 400% range.
-    // On gesture start, snapshot this effective range and keep it fixed.
-    val effectiveLow = if (sliderDragging) sliderBounds.first else minOf(low, safeValue)
-    val effectiveHigh = if (sliderDragging) sliderBounds.second else maxOf(high, safeValue)
+    // Slider and numeric entry intentionally share one fixed domain.
+    // Dragging gives coarse control; numeric entry allows precise placement.
+    val safeValue = value.takeIf { it.isFinite() }?.coerceIn(low, high) ?: low
     val valueFormat = when (parameter) {
         NativeParameter.X, NativeParameter.Y -> "%.3f"
         NativeParameter.SCALE, NativeParameter.ROTATION -> "%.1f"
@@ -828,7 +793,7 @@ private fun ParameterSlider(
     fun finishNumericEdit() {
         val parsed = numericText.trim().replace(',', '.').toFloatOrNull()
         if (parsed != null && parsed.isFinite()) {
-            onValueChange(parsed.coerceIn(inputLow, inputHigh))
+            onValueChange(parsed.coerceIn(low, high))
             onValueChangeFinished()
         } else {
             numericText = formatValue(safeValue)
@@ -845,16 +810,9 @@ private fun ParameterSlider(
         Text(label, color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         Slider(
             value = safeValue,
-            onValueChange = { next ->
-                sliderBounds = effectiveLow to effectiveHigh
-                sliderDragging = true
-                onValueChange(next)
-            },
-            onValueChangeFinished = {
-                sliderDragging = false
-                onValueChangeFinished()
-            },
-            valueRange = effectiveLow..effectiveHigh,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = low..high,
             modifier = Modifier.weight(1f)
         )
         Box(
