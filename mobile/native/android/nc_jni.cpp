@@ -467,7 +467,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("分割失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "delete") {
+    if (op == "delete" || op == "nc_remove_clip") {
         const int32_t rc = nc_remove_clip(ed, ti, cid);
         *out = rc == NC_OK ? Ok("") : Err("删除失败，错误码 " + std::to_string(rc));
         return true;
@@ -700,7 +700,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     // 复制片段
-    if (op == "duplicate") {
+    if (op == "duplicate" || op == "nc_duplicate_clip") {
         if (cid == 0) { *out = Err("缺少目标片段"); return true; }
         const uint64_t newId = nc_duplicate_clip(ed, ti, cid);
         *out = newId ? Ok("{\"clip_id\":" + std::to_string(newId) + "}")
@@ -723,7 +723,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     // 波纹删除（删后自动前移）
-    if (op == "ripple_delete") {
+    if (op == "ripple_delete" || op == "nc_ripple_delete") {
         if (cid == 0) { *out = Err("缺少目标片段"); return true; }
         const uint64_t ids[1] = {cid};
         const int32_t rc = nc_ripple_delete(ed, ti, ids, 1);
