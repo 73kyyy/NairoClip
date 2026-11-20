@@ -424,3 +424,12 @@
 **范围说明：** 0.1x–100x 直接来自 core/include/nairoclip/core/capi.h 的现有引擎合同，本轮没有自行扩张引擎范围。UI 以千分之一为输入精度并通过分子/分母保存；速度曲线仍未接入原生 UI，本轮不将其标记为完成。
 
 **未完成与验证边界：** Activity/ViewModel 尚未接入 onClipSpeedChanged；未执行 Gradle 编译、自动化测试或真机验证。速度曲线的读回分支与曲线点编辑器需作为后续独立切片处理。
+
+## 24. 原生变速曲线预设命令切片（2026-11-20）
+
+- 对照 `core/include/nairoclip/core/capi.h`，复用既有 `nc_apply_speed_curve_preset`，不在 UI 层重新计算曲线。引擎已定义 0–6 共七种预设：自定义/恒速、蒙太奇、英雄时刻、子弹时间、跳跃、闪进、闪出。
+- `nc_jni.cpp` 为该 C ABI 增加 `nc_apply_speed_curve_preset` 全名分发入口；校验预设编号 0–6 与非负 source_duration_us，再调用原有 C ABI。source_duration_us 传 0，按接口合同由引擎解析片段实际源区间。
+- `NativeEditorCommandAdapter.applySpeedCurvePresetAndReadEditorState()` 在同一 editor state lock 内读取权威时间轴，检查轨道/片段存在及轨道未锁定，调用引擎预设接口并回读编辑器状态。
+- `NativeEditorScreen` 增加“剪辑 → 变速曲线”预设面板。所有选项通过可选宿主回调提交；未提供回调时不展示可操作面板，也不假装执行成功。选择预设会替换当前片段曲线，这是 C ABI 的既定语义。
+
+**尚未完成：** 当前切片只覆盖引擎内置预设应用，不是自由曲线编辑器；曲线控制点的原生读回、拖动/插入/删除、每点缓动编辑，以及预设名称从引擎动态读取仍待实现。Activity/ViewModel 尚未接入回调。没有执行 Gradle/NDK 构建、自动化测试或真机验证。
