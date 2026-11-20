@@ -1231,6 +1231,42 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("添加转场失败");
         return true;
     }
+    if (op == "transition_get") {
+        if (ti < 0) { *out = Err("缺少目标轨道"); return true; }
+        const int32_t count = nc_transition_count(ed, ti);
+        if (count < 0 || count > 10000) {
+            *out = Err("转场数量异常");
+            return true;
+        }
+        std::string items = "[";
+        for (int32_t index = 0; index < count; ++index) {
+            int32_t type = -1;
+            int64_t durationUs = 0;
+            uint64_t fromClip = 0;
+            uint64_t toClip = 0;
+            uint64_t transitionId = 0;
+            char* name = nullptr;
+            const int32_t readRc = nc_transition_get(
+                ed, ti, index, &type, &durationUs, &fromClip, &toClip, &name);
+            const int32_t idRc = nc_transition_get_id(ed, ti, index, &transitionId);
+            if (readRc != NC_OK || idRc != NC_OK || transitionId == 0) {
+                if (name != nullptr) nc_free_string(name);
+                *out = Err("读取转场列表失败");
+                return true;
+            }
+            if (index != 0) items += ",";
+            items += "{\"id\":" + std::to_string(transitionId) +
+                     ",\"type\":" + std::to_string(type) +
+                     ",\"duration_us\":" + std::to_string(durationUs) +
+                     ",\"from_clip\":" + std::to_string(fromClip) +
+                     ",\"to_clip\":" + std::to_string(toClip) +
+                     ",\"name\":\"" + JEsc(name ? name : "") + "\"}";
+            if (name != nullptr) nc_free_string(name);
+        }
+        items += "]";
+        *out = Ok("{\"items\":" + items + "}");
+        return true;
+    }
     if (op == "canvas") {
         const int32_t rc = nc_set_project_canvas(
             ed, static_cast<int32_t>(JInt(a, "width", 1080)),
