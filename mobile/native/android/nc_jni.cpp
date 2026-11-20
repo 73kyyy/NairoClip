@@ -1108,7 +1108,17 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置降噪失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "audio") {
+    if (op == "nc_get_clip_audio") {
+        double gainDb = 0.0;
+        int64_t fadeInUs = 0, fadeOutUs = 0;
+        const int32_t rc = nc_get_clip_audio(ed, ti, cid, &gainDb, &fadeInUs, &fadeOutUs);
+        if (rc != NC_OK) { *out = Err("读取音频参数失败，错误码 " + std::to_string(rc)); return true; }
+        *out = Ok("{\\"gain_db\\":" + Num(gainDb) +
+                  ",\\"fade_in_us\\":" + std::to_string(fadeInUs) +
+                  ",\\"fade_out_us\\":" + std::to_string(fadeOutUs) + "}");
+        return true;
+    }
+    if (op == "audio" || op == "nc_set_clip_audio") {
         const int32_t rc = nc_set_clip_audio(
             ed, ti, cid, JNum(a, "gain_db", 0.0),
             static_cast<int64_t>(JInt(a, "fade_in_us", 0)),
