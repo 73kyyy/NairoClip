@@ -110,7 +110,9 @@ fun NativeEditorScreen(
     onRemoveClipEffect: ((Int, Long, Long) -> Unit)? = null,
     clipEffectSpecs: Map<Int, NativeEditorCommandAdapter.EffectSpec> = emptyMap(),
     clipFilter: NativeEditorCommandAdapter.ClipFilterState? = null,
-    onClipFilterChanged: ((Int, Long, Int, Double) -> Unit)? = null
+    onClipFilterChanged: ((Int, Long, Int, Double) -> Unit)? = null,
+    clipMask: NativeEditorCommandAdapter.ClipMaskState? = null,
+    onClipMaskChanged: ((Int, Long, NativeEditorCommandAdapter.ClipMaskState) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -351,6 +353,20 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "特效" && activeSubTool == "蒙版" && selectedTarget != null) {
+                if (clipMask != null && onClipMaskChanged != null) {
+                    NativeClipMaskPanel(
+                        state = clipMask,
+                        onChange = { value ->
+                            onClipMaskChanged.invoke(selectedTarget.first, selectedTarget.second, value)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的蒙版状态…", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
+
             LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
@@ -424,11 +440,186 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = subTool
                         }
+                        tool == "特效" && subTool == "蒙版" &&
+                            selectedTarget != null && onClipMaskChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         else -> onOpenLegacy()
                     }
                 }
             )
         }
+    }
+}
+
+private data class NativeMaskShapeOption(val shape: Int, val name: String)
+
+@Composable
+private fun NativeClipMaskPanel(
+    state: NativeEditorCommandAdapter.ClipMaskState,
+    onChange: (NativeEditorCommandAdapter.ClipMaskState) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shapes = listOf(
+        NativeMaskShapeOption(0, "关闭"),
+        NativeMaskShapeOption(1, "线性"),
+        NativeMaskShapeOption(2, "镜面"),
+        NativeMaskShapeOption(3, "圆形"),
+        NativeMaskShapeOption(4, "矩形"),
+        NativeMaskShapeOption(5, "星形"),
+        NativeMaskShapeOption(6, "爱心")
+    )
+    var draft by remember(state) { mutableStateOf(state) }
+    var rotationText by remember(state) { mutableStateOf(String.format(Locale.US, "%.2f", state.rotationDegrees)) }
+    var widthText by remember(state) { mutableStateOf(String.format(Locale.US, "%.4f", state.width)) }
+    var heightText by remember(state) { mutableStateOf(String.format(Locale.US, "%.4f", state.height)) }
+    var radiusText by remember(state) { mutableStateOf(String.format(Locale.US, "%.4f", state.cornerRadius)) }
+    var featherText by remember(state) { mutableStateOf(String.format(Locale.US, "%.4f", state.feather)) }
+
+    fun commitNumeric() {
+        val rotation = rotationText.toDoubleOrNull()
+        val width = widthText.toDoubleOrNull()
+        val height = heightText.toDoubleOrNull()
+        val radius = radiusText.toDoubleOrNull()
+        val feather = featherText.toDoubleOrNull()
+        if (rotation == null || width == null || height == null || radius == null || feather == null ||
+            !rotation.isFinite() || !width.isFinite() || !height.isFinite() ||
+            !radius.isFinite() || !feather.isFinite() ||
+            radius !in 0.0..0.5 || feather !in 0.0..0.5
+        ) {
+            rotationText = String.format(Locale.US, "%.2f", draft.rotationDegrees)
+            widthText = String.format(Locale.US, "%.4f", draft.width)
+            heightText = String.format(Locale.US, "%.4f", draft.height)
+            radiusText = String.format(Locale.US, "%.4f", draft.cornerRadius)
+            featherText = String.format(Locale.US, "%.4f", draft.feather)
+            return
+        }
+        draft = draft.copy(
+            rotationDegrees = rotation,
+            width = width,
+            height = height,
+            cornerRadius = radius,
+            feather = feather
+        )
+        onChange(draft)
+    }
+
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("蒙版", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            shapes.forEach { option ->
+                val selected = draft.shape == option.shape
+                Text(
+                    option.name,
+                    color = if (selected) NcColors.background else NcColors.text,
+                    fontSize = 9.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) NcColors.text else NcColors.stage)
+                        .clickable {
+                            draft = draft.copy(shape = option.shape, enabled = option.shape != 0)
+                            onChange(draft)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("反转蒙版", color = NcColors.text, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            Text(
+                if (draft.invert) "已开启" else "已关闭",
+                color = NcColors.secondary,
+                fontSize = 10.sp,
+                modifier = Modifier.clickable {
+                    draft = draft.copy(invert = !draft.invert)
+                    onChange(draft)
+                }.padding(horizontal = 8.dp, vertical = 5.dp)
+            )
+        }
+        NativeMaskSlider("中心 X", draft.centerX.toFloat(), 0f..1f) {
+            draft = draft.copy(centerX = it.toDouble())
+            onChange(draft)
+        }
+        NativeMaskSlider("中心 Y", draft.centerY.toFloat(), 0f..1f) {
+            draft = draft.copy(centerY = it.toDouble())
+            onChange(draft)
+        }
+        NativeMaskSlider("羽化", draft.feather.toFloat(), 0f..0.5f, "0–0.5") {
+            draft = draft.copy(feather = it.toDouble())
+            featherText = String.format(Locale.US, "%.4f", it)
+            onChange(draft)
+        }
+        NativeMaskSlider("圆角", draft.cornerRadius.toFloat(), 0f..0.5f, "0–0.5") {
+            draft = draft.copy(cornerRadius = it.toDouble())
+            radiusText = String.format(Locale.US, "%.4f", it)
+            onChange(draft)
+        }
+        Text("旋转 / 宽度 / 高度可直接输入；尺寸按当前蒙版形状解释。", color = NcColors.secondary, fontSize = 8.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NativeMaskNumberField("旋转°", rotationText, { rotationText = it }, ::commitNumeric, Modifier.weight(1f))
+            NativeMaskNumberField("宽度", widthText, { widthText = it }, ::commitNumeric, Modifier.weight(1f))
+            NativeMaskNumberField("高度", heightText, { heightText = it }, ::commitNumeric, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NativeMaskNumberField("羽化", featherText, { featherText = it }, ::commitNumeric, Modifier.weight(1f))
+            NativeMaskNumberField("圆角", radiusText, { radiusText = it }, ::commitNumeric, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun NativeMaskSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    rangeHint: String? = null,
+    onCommit: (Float) -> Unit
+) {
+    var draft by remember(label, value) { mutableStateOf(value.coerceIn(range)) }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = NcColors.text, fontSize = 9.sp, modifier = Modifier.weight(1f))
+            Text(String.format(Locale.US, "%.3f", draft), color = NcColors.secondary, fontSize = 9.sp)
+            if (rangeHint != null) Text("  $rangeHint", color = NcColors.secondary, fontSize = 8.sp)
+        }
+        Slider(
+            value = draft,
+            onValueChange = { draft = it },
+            onValueChangeFinished = { onCommit(draft) },
+            valueRange = range
+        )
+    }
+}
+
+@Composable
+private fun NativeMaskNumberField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    onCommit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, color = NcColors.secondary, fontSize = 8.sp)
+        BasicTextField(
+            value = value,
+            onValueChange = { input ->
+                if (input.length <= 16 && input.all { it.isDigit() || it == '.' || it == '-' }) onValueChange(input)
+            },
+            modifier = Modifier.fillMaxWidth().background(NcColors.stage, RoundedCornerShape(6.dp))
+                .padding(horizontal = 6.dp, vertical = 7.dp)
+                .onFocusChanged { if (!it.isFocused) onCommit() },
+            singleLine = true,
+            textStyle = TextStyle(color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = onCommit)
+        )
     }
 }
 
