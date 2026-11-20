@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -655,36 +656,52 @@ private fun NativeParameterPanel(
         }
         if (activeSubTool == "锚点") {
             Text("锚点（缩放 / 旋转中心）", color = NcColors.secondary, fontSize = 9.sp)
-        }
-        if (activeSubTool == "锚点") {
-        val anchorLabels = listOf("左上", "上中", "右上", "左中", "中心", "右中", "左下", "下中", "右下")
-        for (anchorRow in 0..2) {
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
-                for (anchorColumn in 0..2) {
-                    val anchorIndex = anchorRow * 3 + anchorColumn
-                    val selected = anchor == anchorIndex
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(if (selected) Color(0xFF3A3D40) else NcColors.lane)
-                            .border(1.dp, if (selected) Color.White else NcColors.line, RoundedCornerShape(5.dp))
-                            .selectable(selected = selected, role = Role.RadioButton) { onAnchorChanged(anchorIndex) },
-                        contentAlignment = Alignment.Center
+            val anchorLabels = listOf("左上", "上中", "右上", "左中", "中心", "右中", "左下", "下中", "右下")
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectableGroup(),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                for (anchorRow in 0..2) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            anchorLabels[anchorIndex],
-                            color = if (selected) NcColors.text else NcColors.secondary,
-                            fontSize = 9.sp
-                        )
+                        for (anchorColumn in 0..2) {
+                            val anchorIndex = anchorRow * 3 + anchorColumn
+                            val selected = anchor == anchorIndex
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(if (selected) Color(0xFF3A3D40) else NcColors.lane)
+                                    .border(
+                                        1.dp,
+                                        if (selected) Color.White else NcColors.line,
+                                        RoundedCornerShape(5.dp)
+                                    )
+                                    .selectable(
+                                        selected = selected,
+                                        role = Role.RadioButton,
+                                        onClick = { onAnchorChanged(anchorIndex) }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    anchorLabels[anchorIndex],
+                                    color = if (selected) NcColors.text else NcColors.secondary,
+                                    fontSize = 9.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
-        if (anchor !in NativeTransformRange.ANCHOR_MIN..NativeTransformRange.ANCHOR_MAX) {
-            Text("锚点数据无效，请重新读取片段变换", color = NcColors.muted, fontSize = 9.sp)
-        }
+            if (anchor !in NativeTransformRange.ANCHOR_MIN..NativeTransformRange.ANCHOR_MAX) {
+                Text("锚点数据无效，请重新读取片段变换", color = NcColors.muted, fontSize = 9.sp)
+            }
         }
         if (activeSubTool != "锚点") {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
