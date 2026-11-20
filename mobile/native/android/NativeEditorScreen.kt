@@ -90,7 +90,8 @@ fun NativeEditorScreen(
     canRedo: Boolean = false,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
-    onOpenLegacy: () -> Unit
+    onOpenLegacy: () -> Unit,
+    onSplitClip: ((Int, Long, Long) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -225,14 +226,16 @@ fun NativeEditorScreen(
                     }
                 },
                 onSubToolSelected = { tool, subTool ->
-                    // Only canvas transform subtools have a native command-backed
-                    // panel today. Route every other subtool to the complete legacy
-                    // editor instead of leaving a visually selectable no-op.
-                    if (tool == "画面" && subTool in setOf("位置", "缩放", "旋转", "锚点")) {
-                        activeTool = tool
-                        activeSubTool = subTool
-                    } else {
-                        onOpenLegacy()
+                    when {
+                        tool == "剪辑" && subTool == "分割" &&
+                            selectedTarget != null && onSplitClip != null -> {
+                            onSplitClip(selectedTarget.first, selectedTarget.second, playheadUs)
+                        }
+                        tool == "画面" && subTool in setOf("位置", "缩放", "旋转", "锚点") -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
+                        else -> onOpenLegacy()
                     }
                 }
             )
