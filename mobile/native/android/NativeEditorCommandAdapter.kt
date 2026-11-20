@@ -686,13 +686,15 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
      * playback speed before invoking this API.
      */
     /**
-     * Transform keyframes store scale as a unit multiplier (not UI percent).
-     * Keep generic insert/read paths aligned with static transform hard bounds,
-     * so callers cannot bypass validation by avoiding insertTransformKeyframe.
+     * Validate all six core animation channels at the adapter boundary.
+     * Scale keyframes use the engine's unit multiplier, while the remaining
+     * channel values use their documented native domains.
      */
-    private fun transformKeyframeValueError(property: Int, value: Double): String? {
+    private fun keyframeValueError(property: Int, value: Double): String? {
         if (!value.isFinite()) return "关键帧值必须是有限数值"
         return when (property) {
+            0 -> if (value !in 0.0..1.0) "透明度关键帧必须在 0..1 范围内" else null
+            5 -> if (value !in 0.0..4.0) "音量关键帧必须在 0..4 范围内" else null
             NativeParameter.SCALE.engineProperty -> {
                 val min = NativeTransformRange.SCALE_MIN_PERCENT.toDouble() / 100.0
                 val max = NativeTransformRange.SCALE_MAX_PERCENT.toDouble() / 100.0
@@ -717,7 +719,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         if (property !in 0..5 || clipLocalTimeUs < 0L || !value.isFinite()) {
             return Result(false, error = "关键帧参数非法")
         }
-        transformKeyframeValueError(property, value)?.let {
+        keyframeValueError(property, value)?.let {
             return Result(false, error = it)
         }
         return invoke(
@@ -815,7 +817,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                     c2y = payload.optDouble("c2y", 1.0)
                 ).also { frame ->
                     require(frame.timeUs >= 0L && frame.value.isFinite())
-                    transformKeyframeValueError(parameter.engineProperty, frame.value)?.let {
+                    keyframeValueError(parameter.engineProperty, frame.value)?.let {
                         throw IllegalArgumentException(it)
                     }
                     require(frame.easing in 0..5)
