@@ -171,7 +171,7 @@ fun NativeEditorScreen(
                         track.clips.any { it.id == selection.second && it.enabled }
                 }
             }
-            if (activeTool == "画面" && activeSubTool in setOf("位置", "缩放", "旋转") && selectedTarget != null) {
+            if (activeTool == "画面" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点") && selectedTarget != null) {
                 NativeParameterPanel(
                     targetTrackIndex = selectedTarget.first,
                     targetClipId = selectedTarget.second,
@@ -227,7 +227,7 @@ fun NativeEditorScreen(
                     // Only canvas transform subtools have a native command-backed
                     // panel today. Route every other subtool to the complete legacy
                     // editor instead of leaving a visually selectable no-op.
-                    if (tool == "画面" && subTool in setOf("位置", "缩放", "旋转")) {
+                    if (tool == "画面" && subTool in setOf("位置", "缩放", "旋转", "锚点")) {
                         activeTool = tool
                         activeSubTool = subTool
                     } else {
@@ -589,6 +589,7 @@ private fun NativeParameterPanel(
                 when (activeSubTool) {
                     "缩放" -> "缩放参数"
                     "旋转" -> "旋转参数"
+                    "锚点" -> "锚点参数"
                     else -> "位置参数"
                 },
                 color = NcColors.text,
@@ -652,7 +653,10 @@ private fun NativeParameterPanel(
                 onValueChangeFinished = ::commitDraft
             )
         }
-        Text("锚点（缩放 / 旋转中心）", color = NcColors.secondary, fontSize = 9.sp)
+        if (activeSubTool == "锚点") {
+            Text("锚点（缩放 / 旋转中心）", color = NcColors.secondary, fontSize = 9.sp)
+        }
+        if (activeSubTool == "锚点") {
         val anchorLabels = listOf("左上", "上中", "右上", "左中", "中心", "右中", "左下", "下中", "右下")
         for (anchorRow in 0..2) {
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
@@ -681,6 +685,8 @@ private fun NativeParameterPanel(
         if (anchor !in NativeTransformRange.ANCHOR_MIN..NativeTransformRange.ANCHOR_MAX) {
             Text("锚点数据无效，请重新读取片段变换", color = NcColors.muted, fontSize = 9.sp)
         }
+        }
+        if (activeSubTool != "锚点") {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             NativeParameter.values().forEach { parameter ->
                 val selected = activeParameter == parameter
@@ -743,6 +749,7 @@ private fun NativeParameterPanel(
                 }
                 KeyframeCurvePreview(frame = frame, modifier = Modifier.fillMaxWidth().height(44.dp))
             }
+        }
         }
     }
 }
