@@ -30,7 +30,7 @@ void ClipTransform::clamp() {
 
 bool Clip::valid() const {
     return duration.isPositive() && speed.isPositive() && !start.isNegative() &&
-           !sourceIn.isNegative();
+           !sourceIn.isNegative() && colorGrade.valid();
 }
 
 }  // namespace core
