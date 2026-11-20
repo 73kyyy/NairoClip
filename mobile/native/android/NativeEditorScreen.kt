@@ -91,7 +91,10 @@ fun NativeEditorScreen(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onOpenLegacy: () -> Unit,
-    onSplitClip: ((Int, Long, Long) -> Unit)? = null
+    onSplitClip: ((Int, Long, Long) -> Unit)? = null,
+    onDeleteClip: ((Int, Long) -> Unit)? = null,
+    onDuplicateClip: ((Int, Long) -> Unit)? = null,
+    onRippleDeleteClip: ((Int, Long) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -230,6 +233,18 @@ fun NativeEditorScreen(
                         tool == "剪辑" && subTool == "分割" &&
                             selectedTarget != null && onSplitClip != null -> {
                             onSplitClip(selectedTarget.first, selectedTarget.second, playheadUs)
+                        }
+                        tool == "剪辑" && subTool == "删除" &&
+                            selectedTarget != null && onDeleteClip != null -> {
+                            onDeleteClip(selectedTarget.first, selectedTarget.second)
+                        }
+                        tool == "剪辑" && subTool == "复制" &&
+                            selectedTarget != null && onDuplicateClip != null -> {
+                            onDuplicateClip(selectedTarget.first, selectedTarget.second)
+                        }
+                        tool == "剪辑" && subTool == "波纹删除" &&
+                            selectedTarget != null && onRippleDeleteClip != null -> {
+                            onRippleDeleteClip(selectedTarget.first, selectedTarget.second)
                         }
                         tool == "画面" && subTool in setOf("位置", "缩放", "旋转", "锚点") -> {
                             activeTool = tool
