@@ -540,10 +540,10 @@ private fun NativeSpeedPanel(
     modifier: Modifier = Modifier
 ) {
     var speed by remember(clipId, initialSpeed) {
-        mutableStateOf(initialSpeed.coerceIn(0.1f, 10f))
+        mutableStateOf(initialSpeed.coerceIn(0.1f, 100f))
     }
     var numericText by remember(clipId, initialSpeed) {
-        mutableStateOf(String.format(Locale.US, "%.3f", initialSpeed.coerceIn(0.1f, 10f)))
+        mutableStateOf(String.format(Locale.US, "%.3f", initialSpeed.coerceIn(0.1f, 100f)))
     }
     Column(
         modifier = modifier
@@ -573,7 +573,7 @@ private fun NativeSpeedPanel(
                 ),
                 keyboardActions = KeyboardActions(onDone = {
                     val parsed = numericText.toFloatOrNull()
-                    if (parsed != null && parsed.isFinite() && parsed in 0.1f..10f) {
+                    if (parsed != null && parsed.isFinite() && parsed in 0.1f..100f) {
                         speed = parsed
                         numericText = String.format(Locale.US, "%.3f", parsed)
                         onApply(parsed)
@@ -592,14 +592,14 @@ private fun NativeSpeedPanel(
                 numericText = String.format(Locale.US, "%.3f", value)
             },
             onValueChangeFinished = { onApply(speed) },
-            valueRange = 0.1f..10f
+            valueRange = 0.1f..100f
         )
         Row {
             Text("0.1×", color = NcColors.muted, fontSize = 9.sp)
             Spacer(Modifier.weight(1f))
             Text("1× 原速", color = NcColors.secondary, fontSize = 9.sp)
             Spacer(Modifier.weight(1f))
-            Text("10×", color = NcColors.muted, fontSize = 9.sp)
+            Text("100×", color = NcColors.muted, fontSize = 9.sp)
         }
         Text("滑块与数值输入范围一致；数值支持三位小数。", color = NcColors.muted, fontSize = 9.sp)
     }
