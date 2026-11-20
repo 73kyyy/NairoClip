@@ -480,6 +480,7 @@
 - Android JNI 新增 `filter_get` 只读分发，返回 style、intensity、enabled；原有 `filter` 写入分发保持原样。
 - `NativeEditorCommandAdapter` 新增滤镜状态读取和写入后回读，校验风格 0..13、强度 0..100，并在同一 editor state lock 内验证目标片段存在且轨道未锁定。
 - `NativeEditorScreen` 新增原生滤镜选择条与强度滑块，按旧规格表的 14 个样式（原片 + 13 种滤镜）呈现；强度滑块在拖动结束后才发出写命令。
+- 强度同时提供 0–100 的数字精调输入，与滑块使用同一允许范围；原片模式禁用强度输入与滑块。
 - 该面板仍未接 Activity/ViewModel：需要正式宿主提供 `readClipFilter` / `setClipFilterAndRead` 状态发布和错误反馈回调，当前不代表运行时已经可用。
 - 同步发现并修正上一轮特效目录遗漏引擎现有 36–38 号类型（震动、泛光、镜头光晕）；此前 13–35 列表不完整。C ABI `EffectType::LensFlare` 是当前上限来源。
 - 本轮未修改 MainActivity、Manifest 或正式入口；未运行 Gradle/NDK 编译、自动化测试或真机验证。
