@@ -109,3 +109,5 @@
 - Canvas 时间轴增加标准 Android 无障碍 SeekBar 语义：读出播放位置/总时长/轨道数，支持标准 progress 调整及一秒步进。轨道、片段仍绘制在单一 Canvas 中，尚未提供每个轨道/片段独立的虚拟无障碍节点。
 - 上述变更仅完成源码静态核对；未运行 Android 编译、TalkBack/Accessibility Service 验证、自动化测试或真机手势测试。
 - 本节不解除 S1-3、S3-1、S1-8D 前置，不构成 A-5/A-6 审批，也不授权 Activity/Manifest 入口切换或删除 WebView。
+
+- Native transform bridge validation now rejects out-of-contract values before JNI instead of relying on the C ABI's silent clamping: scale `5%..1000%`, normalized X/Y `-10..10`, rotation `-3600°..3600°`, and anchor `0..8`. The error message reports the supported ranges. Commit: `e3ca75b9a4a1c65cba8895a3bb8c5ac9830bc1eb`. Static source assertions passed; no Android unit test/build/device execution is available in this turn.
