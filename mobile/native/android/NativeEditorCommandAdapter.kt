@@ -218,6 +218,27 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     fun redoAndReadEditorState(): Result<EditorStateSnapshot> =
         mutateAndReadEditorState { redo() }
 
+    /**
+     * Splits the selected clip at an absolute timeline timestamp and returns
+     * the authoritative post-edit timeline/history snapshot. The JNI dispatcher
+     * explicitly allowlists the nc_split_clip alias; keep the timestamp in
+     * project timeline microseconds to match the existing editor command path.
+     */
+    fun splitClipAndReadEditorState(
+        target: ClipTarget,
+        timelineTimeUs: Long
+    ): Result<EditorStateSnapshot> {
+        if (timelineTimeUs <= 0L) {
+            return Result(false, error = "分割位置必须大于 0")
+        }
+        return mutateAndReadEditorState {
+            invoke(
+                "nc_split_clip",
+                targetArgs(target).put("at_us", timelineTimeUs)
+            ) { Unit }
+        }
+    }
+
     private fun mutateAndReadEditorState(
         mutation: () -> Result<Unit>
     ): Result<EditorStateSnapshot> = bridge.withEditorStateLock {
