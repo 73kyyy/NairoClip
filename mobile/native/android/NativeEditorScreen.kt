@@ -607,7 +607,7 @@ private fun NativeParameterPanel(
             ParameterSlider(
                 "X", draftTransform.x,
                 NativeTransformRange.POSITION_SLIDER_MIN, NativeTransformRange.POSITION_SLIDER_MAX,
-                NativeParameter.X, keyedParameters, onInsertKeyframe,
+                NativeParameter.X, keyedParameters, onInsertKeyframe, rangeKey = targetTrackIndex to targetClipId,
                 inputLow = NativeTransformRange.POSITION_MIN,
                 inputHigh = NativeTransformRange.POSITION_MAX,
                 onValueChange = { updateDraft(NativeParameter.X, it) },
@@ -616,7 +616,7 @@ private fun NativeParameterPanel(
             ParameterSlider(
                 "Y", draftTransform.y,
                 NativeTransformRange.POSITION_SLIDER_MIN, NativeTransformRange.POSITION_SLIDER_MAX,
-                NativeParameter.Y, keyedParameters, onInsertKeyframe,
+                NativeParameter.Y, keyedParameters, onInsertKeyframe, rangeKey = targetTrackIndex to targetClipId,
                 inputLow = NativeTransformRange.POSITION_MIN,
                 inputHigh = NativeTransformRange.POSITION_MAX,
                 onValueChange = { updateDraft(NativeParameter.Y, it) },
@@ -628,7 +628,7 @@ private fun NativeParameterPanel(
             ParameterSlider(
                 "缩放", draftTransform.scale,
                 NativeTransformRange.SCALE_MIN_PERCENT, NativeTransformRange.SCALE_SLIDER_MAX_PERCENT,
-                NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%",
+                NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", rangeKey = targetTrackIndex to targetClipId,
                 inputLow = NativeTransformRange.SCALE_MIN_PERCENT,
                 inputHigh = NativeTransformRange.SCALE_MAX_PERCENT,
                 onValueChange = { updateDraft(NativeParameter.SCALE, it) },
@@ -645,7 +645,7 @@ private fun NativeParameterPanel(
                 "旋转", draftTransform.rotation,
                 NativeTransformRange.ROTATION_SLIDER_MIN_DEGREES,
                 NativeTransformRange.ROTATION_SLIDER_MAX_DEGREES,
-                NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°",
+                NativeParameter.ROTATION, keyedParameters, onInsertKeyframe, "°", rangeKey = targetTrackIndex to targetClipId,
                 inputLow = NativeTransformRange.ROTATION_MIN_DEGREES,
                 inputHigh = NativeTransformRange.ROTATION_MAX_DEGREES,
                 onValueChange = { updateDraft(NativeParameter.ROTATION, it) },
@@ -756,15 +756,20 @@ private fun ParameterSlider(
     suffix: String = "",
     inputLow: Float = low,
     inputHigh: Float = high,
+    rangeKey: Any,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit
 ) {
-    // Keep the thumb usable when a typed value is outside the common drag
-    // window: expand the displayed slider domain to include the current value.
-    // Typed entry always retains the wider engine-safe range.
+    // Capture an out-of-common-range starting value once per selected clip.
+    // Do not recompute the slider domain on every drag sample: a moving upper
+    // bound makes the thumb chase itself and produces unstable gesture response.
     val safeValue = value.takeIf { it.isFinite() }?.coerceIn(inputLow, inputHigh) ?: inputLow
-    val effectiveLow = minOf(low, safeValue)
-    val effectiveHigh = maxOf(high, safeValue)
+    val sliderBounds = remember(rangeKey, parameter, low, high, inputLow, inputHigh) {
+        val initialValue = value.takeIf { it.isFinite() }?.coerceIn(inputLow, inputHigh) ?: inputLow
+        minOf(low, initialValue) to maxOf(high, initialValue)
+    }
+    val effectiveLow = sliderBounds.first
+    val effectiveHigh = sliderBounds.second
     val focusManager = LocalFocusManager.current
     val valueFocusRequester = remember { FocusRequester() }
     var editingValue by remember(parameter, safeValue) { mutableStateOf(false) }
