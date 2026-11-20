@@ -1119,9 +1119,9 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         int64_t fadeInUs = 0, fadeOutUs = 0;
         const int32_t rc = nc_get_clip_audio(ed, ti, cid, &gainDb, &fadeInUs, &fadeOutUs);
         if (rc != NC_OK) { *out = Err("读取音频参数失败，错误码 " + std::to_string(rc)); return true; }
-        *out = Ok("{\\"gain_db\\":" + Num(gainDb) +
-                  ",\\"fade_in_us\\":" + std::to_string(fadeInUs) +
-                  ",\\"fade_out_us\\":" + std::to_string(fadeOutUs) + "}");
+        *out = Ok("{\"gain_db\":" + Num(gainDb) +
+                  ",\"fade_in_us\":" + std::to_string(fadeInUs) +
+                  ",\"fade_out_us\":" + std::to_string(fadeOutUs) + "}");
         return true;
     }
     if (op == "audio" || op == "nc_set_clip_audio") {
