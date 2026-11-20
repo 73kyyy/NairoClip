@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -1117,7 +1116,7 @@ fun NativeTemplateProgressScreen(
         if (!completed && !failed) {
             if (validProgress != null) {
                 androidx.compose.material3.LinearProgressIndicator(
-                    progress = { validProgress },
+                    progress = validProgress,
                     modifier = Modifier.fillMaxWidth().padding(top = 20.dp)
                 )
                 Text("${(validProgress * 100f).toInt()}%", color = Color(0xFFB9BEC1), fontSize = 11.sp)
