@@ -132,7 +132,8 @@ fun NativeEditorScreen(
     clipTransitions: List<NativeEditorCommandAdapter.TransitionState> = emptyList(),
     transitionTypes: List<Pair<Int, String>> = emptyList(),
     onAddTransition: ((Int, Long, Long, Int, Long) -> Unit)? = null,
-    onRemoveTransition: ((Int, Long) -> Unit)? = null
+    onRemoveTransition: ((Int, Long) -> Unit)? = null,
+    onCreateTextClip: ((String, Long, Long) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -475,6 +476,17 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "文本" && activeSubTool == "添加文本") {
+                if (onCreateTextClip != null) {
+                    NativeTextCreationPanel(
+                        playheadUs = playheadUs,
+                        onCreate = { value -> onCreateTextClip.invoke(value, playheadUs.coerceAtLeast(0L), 3_000_000L) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("文字创建等待宿主接入原生引擎命令", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
             LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
@@ -496,6 +508,10 @@ fun NativeEditorScreen(
                 },
                 onSubToolSelected = { tool, subTool ->
                     when {
+                        tool == "文本" && subTool == "添加文本" && onCreateTextClip != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         tool == "剪辑" && subTool == "分割" &&
                             selectedTarget != null && onSplitClip != null -> {
                             onSplitClip(selectedTarget.first, selectedTarget.second, playheadUs)
@@ -584,6 +600,36 @@ fun NativeEditorScreen(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun NativeTextCreationPanel(playheadUs: Long, onCreate: (String) -> Unit, modifier: Modifier = Modifier) {
+    var content by remember { mutableStateOf("") }
+    Column(modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp))
+        .border(1.dp, NcColors.line, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("添加文本", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        BasicTextField(value = content,
+            onValueChange = { if (it.toByteArray(Charsets.UTF_8).size <= 16 * 1024) content = it },
+            modifier = Modifier.fillMaxWidth().background(NcColors.stage, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            minLines = 2, textStyle = TextStyle(color = NcColors.text, fontSize = 12.sp),
+            decorationBox = { inner -> Box {
+                if (content.isEmpty()) Text("输入文字内容，支持换行…", color = NcColors.secondary, fontSize = 11.sp)
+                inner()
+            } })
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("插入位置：" + String.format(Locale.ROOT, "%.2f", playheadUs.coerceAtLeast(0L) / 1_000_000.0) + "s · 默认白色居中 · 3 秒",
+                color = NcColors.secondary, fontSize = 9.sp)
+            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                .background(if (content.isNotBlank()) Color(0xFF303235) else NcColors.stage)
+                .clickable(enabled = content.isNotBlank()) { onCreate(content.trim()) }
+                .padding(horizontal = 14.dp, vertical = 8.dp)) {
+                Text("创建文字片段", color = if (content.isNotBlank()) NcColors.text else NcColors.secondary, fontSize = 10.sp)
+            }
         }
     }
 }
