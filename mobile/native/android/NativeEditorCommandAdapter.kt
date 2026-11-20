@@ -944,6 +944,36 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             }
         }
 
+    /** Writes the complete mask value atomically, then reads back engine-authoritative state. */
+    fun setClipMaskAndRead(target: ClipTarget, mask: ClipMaskState): Result<ClipMaskState> {
+        if (mask.shape !in 0..6 ||
+            !mask.centerX.isFinite() || !mask.centerY.isFinite() ||
+            !mask.rotationDegrees.isFinite() || !mask.width.isFinite() ||
+            !mask.height.isFinite() || !mask.feather.isFinite() ||
+            !mask.cornerRadius.isFinite() ||
+            mask.feather !in 0.0..0.5 || mask.cornerRadius !in 0.0..0.5
+        ) return Result(false, error = "蒙版参数不是有效的有限数值或超出核心范围")
+        return bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            val changed = invoke(
+                "mask",
+                targetArgs(target)
+                    .put("shape", mask.shape)
+                    .put("x", mask.centerX)
+                    .put("y", mask.centerY)
+                    .put("rotation", mask.rotationDegrees)
+                    .put("width", mask.width)
+                    .put("height", mask.height)
+                    .put("feather", mask.feather)
+                    .put("radius", mask.cornerRadius)
+                    .put("invert", if (mask.invert) 1 else 0)
+            ) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error)
+            readClipMask(target)
+        }
+    }
+
     fun readClipFilter(target: ClipTarget): Result<ClipFilterState> =
         bridge.withEditorStateLock {
             val valid = validateEditableClipLocked(target)
