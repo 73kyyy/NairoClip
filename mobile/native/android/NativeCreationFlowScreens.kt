@@ -394,14 +394,6 @@ fun NativeAIEditWizardScreen(
                             }
                         }
                     }
-                    item {
-                        Text("剪辑强度", color = Color(0xFFB9BEC1), fontSize = 12.sp)
-                        androidx.compose.material3.Slider(
-                            value = intensity.takeIf { it.isFinite() }?.coerceIn(0.2f, 1f) ?: 0.6f,
-                            onValueChange = onIntensityChanged,
-                            valueRange = 0.2f..1f
-                        )
-                    }
                     items(slots, key = { it.index }) { slot ->
                         var expanded by remember(slot.index) { mutableStateOf(false) }
                         val selected = videos.firstOrNull { it.id == slot.assetId }
