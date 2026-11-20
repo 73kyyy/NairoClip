@@ -889,7 +889,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
     if (op == "nc_clip_speed_curve_count") {
         const int32_t count = nc_clip_speed_curve_count(ed, ti, cid);
         if (count < 0) { *out = Err("读取速度曲线控制点数量失败"); return true; }
-        *out = Ok("{\\"count\\":" + std::to_string(count) + "}");
+        *out = Ok("{\"count\":" + std::to_string(count) + "}");
         return true;
     }
     if (op == "nc_clip_speed_curve_get") {
