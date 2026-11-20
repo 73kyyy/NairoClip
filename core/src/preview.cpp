@@ -148,6 +148,14 @@ std::uint64_t mixClipVisuals(std::uint64_t h, const Clip& clip) {
         for (const auto& k : curve->keyframes()) {
             h = fnvMixDouble(h, k.time.toDouble());
             h = fnvMixDouble(h, k.value);
+            // Easing changes the evaluated frame even when key time/value stay
+            // identical. Include the type and all Bezier controls in the cache
+            // fingerprint or curve edits can incorrectly reuse stale pixels.
+            h = fnvMix(h, static_cast<std::uint64_t>(k.easing.type));
+            h = fnvMixDouble(h, k.easing.c1x);
+            h = fnvMixDouble(h, k.easing.c1y);
+            h = fnvMixDouble(h, k.easing.c2x);
+            h = fnvMixDouble(h, k.easing.c2y);
         }
     }
 
@@ -222,9 +230,15 @@ std::uint64_t PreviewRenderer::contentFingerprint(const Time& timelineTime) cons
                         continue;
                     }
                     h = fnvMix(h, static_cast<std::uint64_t>(prop));
+                    h = fnvMix(h, static_cast<std::uint64_t>(curve->size()));
                     for (const auto& k : curve->keyframes()) {
                         h = fnvMixDouble(h, k.time.toDouble());
                         h = fnvMixDouble(h, k.value);
+                        h = fnvMix(h, static_cast<std::uint64_t>(k.easing.type));
+                        h = fnvMixDouble(h, k.easing.c1x);
+                        h = fnvMixDouble(h, k.easing.c1y);
+                        h = fnvMixDouble(h, k.easing.c2x);
+                        h = fnvMixDouble(h, k.easing.c2y);
                     }
                 }
                 h = fnvMixStr(h, track.adjustmentLutPath);
