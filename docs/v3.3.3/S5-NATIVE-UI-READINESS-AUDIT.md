@@ -177,3 +177,11 @@
 - Found and fixed a real preview-cache invalidation defect: contentFingerprint() previously hashed keyframe time/value but omitted easing type and Bézier control points. Editing only a curve could therefore reuse stale preview pixels. Clip animation and adjustment-layer animation fingerprints now include easing type plus all four control coordinates; adjustment animation also includes curve size.
 - Added a preview regression test that changes easing type and then changes Bézier Y controls without changing keyframe time/value, asserting that the same timestamp is invalidated and re-rendered.
 - This verifies the existing core/export sampling route and cache identity only. No Android runtime host integration, native editor entrypoint switch, build, native test execution, CI run, or device test is claimed. PR #32 remains Draft and unmerged.
+
+## 9. Per-channel static transform fallback (2026-11-20)
+
+- Found a preview/export consistency defect in the export transform resolver: it used the clip-wide hasAnimation flag to decide whether to sample every transform property. If only opacity had keyframes, unkeyed scale/position/rotation were sampled as neutral defaults and their static ClipTransform values were ignored.
+- Export now checks animation.hasCurve(property) independently for each transform channel. A keyframe on one property no longer overrides another property's static value.
+- PreviewFrame transform metadata now uses the same per-property priority as the actual preview pixels: that property's keyframe > that property's static transform > neutral default. This removes a mismatch where preview pixels could be transformed correctly while the PreviewFrame scale/position/rotation metadata reported defaults.
+- Added preview and export regression tests using opacity-only keyframes with a static 50% scale. The preview test checks resolved transform metadata; the export test checks that pixels outside the centered scaled image remain background.
+- The normative transform contract now explicitly requires per-channel keyframe/static/default resolution and preview/export parity. Tests are committed but have not been executed; no native build, CI, or device validation is claimed.
