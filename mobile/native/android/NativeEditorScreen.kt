@@ -452,6 +452,10 @@ private fun NativeClipFilterPanel(
     var intensity by remember(state.style, state.intensity) {
         mutableStateOf(state.intensity.toFloat())
     }
+    var intensityText by remember(state.style, state.intensity) {
+        mutableStateOf(String.format(Locale.US, "%.0f", state.intensity))
+    }
+    val focusManager = LocalFocusManager.current
     Column(
         modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -476,11 +480,35 @@ private fun NativeClipFilterPanel(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("强度", color = NcColors.text, fontSize = 10.sp, modifier = Modifier.weight(1f))
-            Text(String.format(Locale.US, "%.0f%%", intensity), color = NcColors.secondary, fontSize = 10.sp)
+            BasicTextField(
+                value = intensityText,
+                onValueChange = { input ->
+                    if (input.length <= 6 && input.all { it.isDigit() || it == '.' }) intensityText = input
+                },
+                modifier = Modifier.width(48.dp).onFocusChanged { focus ->
+                    if (!focus.isFocused) {
+                        val parsed = intensityText.toDoubleOrNull()
+                        if (parsed != null && parsed.isFinite() && parsed in 0.0..100.0) {
+                            intensity = parsed.toFloat()
+                            onChange(state.style, parsed)
+                        } else {
+                            intensityText = String.format(Locale.US, "%.0f", intensity)
+                        }
+                    }
+                },
+                singleLine = true,
+                textStyle = TextStyle(color = NcColors.text, fontSize = 10.sp, textAlign = TextAlign.End),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+            )
+            Text("%", color = NcColors.secondary, fontSize = 10.sp)
         }
         Slider(
             value = intensity.coerceIn(0f, 100f),
-            onValueChange = { intensity = it },
+            onValueChange = {
+                intensity = it
+                intensityText = String.format(Locale.US, "%.0f", it)
+            },
             onValueChangeFinished = { onChange(state.style, intensity.toDouble()) },
             valueRange = 0f..100f,
             enabled = state.style != 0
