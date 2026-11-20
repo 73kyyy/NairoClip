@@ -373,3 +373,18 @@
 `NativeSettingKind` 当前支持 ACTION、TOGGLE、CHOICE、VALUE，足以表达上述基础控件；`NativeSettingItem.destructive` 只负责危险操作的视觉提示，不是确认机制。所有危险操作必须由宿主在调用真实服务前弹出确认，并处理失败/取消。法律条款应继续复用 `assets/legal/legal-text.js` 的单一事实来源或其正式跨平台数据层，不复制一份可能过期的文案。
 
 本节是接口映射规范，不表示以上回调、偏好持久化、系统权限、缓存管理、更新服务或日志导出已在 Compose 宿主接通。
+
+
+## 20. 编辑器首个原生命令纵向切片：片段分割（2026-11-20）
+
+对照 `mobile/assets/editor.js` 的 `runFunction('clip', {id:'split'})` 与 `mobile/native/android/nc_jni.cpp` 的 `DispatchEdit`：
+
+- 现有 JNI 分发器明确接受 `nc_split_clip` 别名，参数为 `track_index`、`clip_id`、`at_us`；该路径最终调用现有 `nc_split_clip` C ABI，不新增或猜测引擎操作名。
+- `NativeEditorCommandAdapter.splitClipAndReadEditorState()` 已增加输入校验、串行执行以及编辑后 timeline + undo/redo 状态快照读取。时间参数沿用现有编辑器播放头的绝对工程时间微秒，不把工程时间误当片段局部时间。
+- `NativeEditorScreen` 新增可选宿主回调 `onSplitClip(trackIndex, clipId, playheadUs)`。仅当选中有效片段且宿主提供该回调时，“剪辑 → 分割”才走原生命令；未接线时仍走旧编辑器回退，不会显示成功假象。
+
+**尚未完成的宿主工作：** Activity/ViewModel 尚未将回调连接到 `NativeEditorCommandAdapter.splitClipAndReadEditorState()` 并把返回快照发布回 Compose 状态。因而这是已实现的原生 UI → Adapter API 纵向切片，不是已经在正式运行界面可用的功能。
+
+**下一批原生命令候选必须先核对路由能力：** 删除、复制、波纹删除目前只在旧 `DispatchEdit` 短操作名分支可见；`NativeEngineBridge.call()` 只接受 `nc_*` 前缀，而结构化 `applyCommand` 目前只支持 `clip.move`、`clip.split`、`clip.remove`，没有复制/波纹删除。不得直接把短操作名塞进 `call()`，也不得伪造 typed command 类型。下一步先确认稳定 track/sequence/project ID 与 revision 的可读契约，再决定删除接入路径。
+
+**验收边界：** 本次没有修改 JNI/C ABI、`MainActivity` 或正式导航入口；没有执行 Android Gradle/Compose 编译、自动化测试或真机验证。
