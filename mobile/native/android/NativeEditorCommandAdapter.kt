@@ -215,6 +215,11 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val newClipId: Long? = null
     )
 
+    data class ClipColorGradeMutationResult(
+        val grade: ClipColorGradeState,
+        val editorState: EditorStateSnapshot
+    )
+
     /**
      * Sets playback speed as an exact positive rational. The engine contract
      * permits 0.1x..100x; the UI may expose a narrower common range later.
@@ -945,6 +950,20 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         target: ClipTarget,
         grade: ClipColorGradeState
     ): Result<ClipColorGradeState> {
+        val result = setClipColorGradeAndReadEditorState(target, grade)
+        if (!result.ok) return Result(false, error = result.error ?: "设置 RGB 曲线失败")
+        return Result(true, result.value?.grade ?: return Result(false, error = "引擎未返回 RGB 曲线状态"))
+    }
+
+    /**
+     * Commits a color-grade edit and refreshes both the authoritative curve and
+     * undo/redo/timeline state under one bridge lock. Hosts can update the curve
+     * panel and the editor's history controls from the same coherent result.
+     */
+    fun setClipColorGradeAndReadEditorState(
+        target: ClipTarget,
+        grade: ClipColorGradeState
+    ): Result<ClipColorGradeMutationResult> {
         if (!grade.isValid()) return Result(false, error = "RGB 曲线必须包含 2–32 个合法控制点")
         return bridge.withEditorStateLock {
             val snapshot = readTimelineSnapshotLocked()
@@ -967,7 +986,21 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                     .put("blue", flatten(grade.blue))
             ) { Unit }
             if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置 RGB 曲线失败")
-            readClipColorGrade(target)
+            val authoritativeGrade = readClipColorGrade(target)
+            if (!authoritativeGrade.ok) {
+                return@withEditorStateLock Result(false, error = authoritativeGrade.error ?: "读取 RGB 曲线回读失败")
+            }
+            val editorState = readEditorStateSnapshotLocked()
+            if (!editorState.ok) {
+                return@withEditorStateLock Result(false, error = editorState.error ?: "读取撤销状态失败")
+            }
+            Result(
+                true,
+                ClipColorGradeMutationResult(
+                    grade = authoritativeGrade.value ?: return@withEditorStateLock Result(false, error = "RGB 曲线回读数据缺失"),
+                    editorState = editorState.value ?: return@withEditorStateLock Result(false, error = "编辑器状态回读数据缺失")
+                )
+            )
         }
     }
 
