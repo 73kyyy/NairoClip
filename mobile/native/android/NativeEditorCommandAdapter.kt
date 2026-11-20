@@ -3,13 +3,13 @@ package com.nairoclip.app
 import org.json.JSONObject
 
 /**
- * Narrow adapter for the keyframe C ABI operations explicitly allowlisted by
- * the Android JNI DispatchEdit function.
+ * Narrow adapter for native timeline, transform and keyframe C ABI operations
+ * explicitly allowlisted by the Android JNI DispatchEdit function.
  *
  * This class deliberately does not own an editor handle or bypass the bridge's
- * state lock. All calls go through NativeEngineBridge.call(), which serializes
- * access to the non-thread-safe NcEditor instance. Only operations with an
- * existing nc_* dispatcher branch are exposed here.
+ * state lock. Mutations that need a coherent post-edit model hold the bridge
+ * state lock across validation, dispatch and snapshot refresh. Only operations
+ * with an existing nc_* dispatcher branch are exposed here.
  */
 class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
