@@ -457,6 +457,44 @@ NC_TEST(Preview, CacheInvalidatedWhenClipEdited) {
     NC_CHECK(std::abs(before.opacity - 1.0) < 1e-6);
 }
 
+NC_TEST(Preview, CacheInvalidatedWhenKeyframeEasingChanges) {
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(2));
+
+    Keyframe start;
+    start.time = Rational::make(0);
+    start.value = 0.0;
+    Keyframe end;
+    end.time = Rational::make(2);
+    end.value = 1.0;
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, start).isOk());
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, end).isOk());
+
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame linear = renderer.renderAt(Rational::make(1));
+    NC_CHECK(std::abs(linear.opacity - 0.5) < 1e-6);
+    NC_CHECK_EQ(renderer.cacheStats().frameMisses, std::size_t(1));
+
+    // Same keyframe time/value, different easing type and Bezier controls.
+    start.easing = Easing::bezier(0.25, 0.0, 0.75, 1.4);
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, start).isOk());
+    const PreviewFrame overshoot = renderer.renderAt(Rational::make(1));
+    NC_CHECK(overshoot.opacity > 0.6);
+    NC_CHECK_EQ(renderer.cacheStats().invalidatedByEdit, std::size_t(1));
+
+    // Keep the Bezier type but change its Y controls: this must also invalidate.
+    start.easing = Easing::bezier(0.25, 0.0, 0.75, 0.4);
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, start).isOk());
+    const PreviewFrame softened = renderer.renderAt(Rational::make(1));
+    NC_CHECK(softened.opacity < 0.4);
+    NC_CHECK_EQ(renderer.cacheStats().invalidatedByEdit, std::size_t(2));
+}
+
 NC_TEST(Preview, OtherTimestampsSurviveEdit) {
     /* 这是分层失效的**核心价值**：改一处不影响其它时间点的缓存。
        原来是整表 clear，改完 t=1 的事会把 t=0.5 的缓存也丢掉。 */
