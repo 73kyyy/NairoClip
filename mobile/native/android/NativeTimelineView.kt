@@ -257,7 +257,7 @@ class NativeTimelineView(context: Context) : View(context) {
                     .toLong()
             }
             AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ->
-                (playheadUs + stepUs).coerceAtMost(durationUs)
+                if (durationUs - playheadUs < stepUs) durationUs else playheadUs + stepUs
             AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD ->
                 (playheadUs - stepUs).coerceAtLeast(0L)
             else -> return super.performAccessibilityAction(action, arguments)
