@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/xform.h"
+#include "nairoclip/core/transform_limits.h"
 
 #include <cmath>
 #include <cstring>
