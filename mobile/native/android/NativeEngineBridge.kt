@@ -203,13 +203,17 @@ class NativeEngineBridge(
     ): String = synchronized(stateLock) {
         if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
         val scale = transform.scale / 100.0f
-        if (!transform.scale.isFinite() || transform.scale !in 5f..1000f ||
+        if (!transform.scale.isFinite() ||
+            transform.scale !in NativeTransformRange.SCALE_MIN_PERCENT..NativeTransformRange.SCALE_MAX_PERCENT ||
             !scale.isFinite() ||
-            !transform.x.isFinite() || transform.x !in -10f..10f ||
-            !transform.y.isFinite() || transform.y !in -10f..10f ||
-            !transform.rotation.isFinite() || transform.rotation !in -3600f..3600f ||
-            anchor !in 0..8
-        ) return@synchronized err("变换参数超出引擎范围：缩放 5%–1000%，X/Y -10–10，旋转 -3600°–3600°")
+            !transform.x.isFinite() ||
+            transform.x !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX ||
+            !transform.y.isFinite() ||
+            transform.y !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX ||
+            !transform.rotation.isFinite() ||
+            transform.rotation !in NativeTransformRange.ROTATION_MIN_DEGREES..NativeTransformRange.ROTATION_MAX_DEGREES ||
+            anchor !in NativeTransformRange.ANCHOR_MIN..NativeTransformRange.ANCHOR_MAX
+        ) return@synchronized err("变换参数超出引擎范围：缩放 5%–1000%，X/Y -10–10，旋转 -3600°–3600°，锚点 0–8")
         try {
             nativeCall(
                 ensure(),
