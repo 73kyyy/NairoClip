@@ -1,0 +1,175 @@
+{
+  "generated_at": "2026-11-20T14:43:27Z",
+  "repo": "73kyyy/NairoClip",
+  "latest": {
+    "CI": {
+      "conclusion": "failure",
+      "run_number": 484,
+      "run_id": 44754634628,
+      "head_sha": "e0d311b58e9e21d4ae2fccc372db7c9877d64a91",
+      "event": "push",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/44754634628",
+      "created_at": "2026-11-20T14:33:43Z"
+    },
+    "CI Status": {
+      "conclusion": null,
+      "run_number": 871,
+      "run_id": 44756153429,
+      "head_sha": "e0d311b58e9e21d4ae2fccc372db7c9877d64a91",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/44756153429",
+      "created_at": "2026-11-20T14:43:13Z"
+    },
+    "Report": {
+      "conclusion": "success",
+      "run_number": 430,
+      "run_id": 44756117079,
+      "head_sha": "e0d311b58e9e21d4ae2fccc372db7c9877d64a91",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/44756117079",
+      "created_at": "2026-11-20T14:42:59Z"
+    }
+  },
+  "recent": [
+    {
+      "name": "CI Status",
+      "conclusion": null,
+      "head_sha": "e0d311b58e9e21d4ae2fccc372db7c9877d64a91",
+      "run_number": 871,
+      "created_at": "2026-11-20T14:43:13Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "e0d311b58e9e21d4ae2fccc372db7c9877d64a91",
+      "run_number": 870,
+      "created_at": "2026-11-20T14:43:00Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "e0d311b58e9e21d4ae2fccc372db7c9877d64a91",
+      "run_number": 430,
+      "created_at": "2026-11-20T14:42:59Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "failure",
+      "head_sha": "e0d311b58e9e21d4ae2fccc372db7c9877d64a91",
+      "run_number": 484,
+      "created_at": "2026-11-20T14:33:43Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 869,
+      "created_at": "2026-11-19T10:59:16Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 429,
+      "created_at": "2026-11-19T10:59:04Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 868,
+      "created_at": "2026-11-19T10:59:04Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "failure",
+      "head_sha": "ea4768690cedbb06221ad314e97e85c1d4526050",
+      "run_number": 483,
+      "created_at": "2026-11-19T10:43:19Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 867,
+      "created_at": "2026-11-19T09:09:49Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 428,
+      "created_at": "2026-11-19T09:09:34Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 866,
+      "created_at": "2026-11-19T09:09:33Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 865,
+      "created_at": "2026-11-19T09:04:07Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 427,
+      "created_at": "2026-11-19T09:03:53Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 864,
+      "created_at": "2026-11-19T09:03:53Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 863,
+      "created_at": "2026-11-19T08:56:33Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 426,
+      "created_at": "2026-11-19T08:56:21Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 862,
+      "created_at": "2026-11-19T08:56:21Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 861,
+      "created_at": "2026-11-19T08:55:06Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 860,
+      "created_at": "2026-11-19T08:54:52Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "46172f3a6c0fb5a4661edf6b379bdc6a6e01519d",
+      "run_number": 425,
+      "created_at": "2026-11-19T08:54:52Z"
+    }
+  ]
+}
