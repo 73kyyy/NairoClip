@@ -555,6 +555,12 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = subTool
                         }
+                        tool == "调节" && subTool == "曲线" &&
+                            selectedTarget != null && clipColorGrade != null &&
+                            onClipColorGradeChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         tool == "调节" && subTool == "LUT" &&
                             selectedTarget != null && onClipLutChanged != null -> {
                             activeTool = tool
