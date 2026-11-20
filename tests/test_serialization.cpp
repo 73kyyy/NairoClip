@@ -659,7 +659,19 @@ NC_TEST(Serialization, ColorGradeRoundtrip) {
 }
 
 NC_TEST(Serialization, RejectsInvalidColorGradeCurve) {
-    const std::string text = R"({"format":"nclip","version":1,"project":{"name":"t"},"assets":[],"sequences":[{"id":1,"name":"s","frameRate":[30,1],"width":1920,"height":1080,"tracks":[{"id":2,"type":"video","name":"v","clips":[{"id":3,"asset":0,"start":[0,1],"duration":[1,1],"sourceIn":[0,1],"speed":[1,1],"colorGrade":{"version":1,"master":[[0,0],[0.8,0.7],[0.6,0.9],[1,1]],"red":[[0,0],[1,1]],"green":[[0,0],[1,1]],"blue":[[0,0],[1,1]]}}]}],"markers":[]}]})";
+    Project original = makeSampleProject();
+    std::string text = saveProjectToNclip(original);
+    const std::size_t clipEnabled = text.find("\\"enabled\\":true");
+    NC_CHECK(clipEnabled != std::string::npos);
+    if (clipEnabled == std::string::npos) return;
+    const std::string invalidGrade =
+        "\\"colorGrade\\":{\\"version\\":1,"
+        "\\"master\\":[[0,0],[0.8,0.7],[0.6,0.9],[1,1]],"
+        "\\"red\\":[[0,0],[1,1]],"
+        "\\"green\\":[[0,0],[1,1]],"
+        "\\"blue\\":[[0,0],[1,1]]},";
+    text.insert(clipEnabled, invalidGrade);
+
     Project out;
     const NclipLoadResult result = loadProjectFromNclip(text, out);
     NC_CHECK(!result.result.isOk());
