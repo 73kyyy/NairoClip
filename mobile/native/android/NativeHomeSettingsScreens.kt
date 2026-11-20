@@ -83,6 +83,7 @@ fun NativeHomeScreen(
     modifier: Modifier = Modifier
 ) {
     var query by remember { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
     var managing by remember { mutableStateOf(false) }
     var selectedFiles by remember { mutableStateOf(setOf<String>()) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -114,8 +115,27 @@ fun NativeHomeScreen(
                 modifier = Modifier.clickable(onClick = onOpenMe).padding(8.dp)
             )
             Spacer(Modifier.weight(1f))
+            TextButton(onClick = { searching = !searching; if (!searching) query = "" }) {
+                Text(if (searching) "收起搜索" else "搜索")
+            }
             TextButton(onClick = onOpenMe) { Text("我的") }
             TextButton(onClick = onOpenSettings) { Text("设置") }
+        }
+
+        if (searching) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = { Text("搜索草稿名称") }
+                )
+                TextButton(onClick = { query = ""; searching = false }) { Text("取消") }
+            }
         }
 
         LazyColumn(
@@ -145,22 +165,32 @@ fun NativeHomeScreen(
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf("自动剪辑" to "auto", "参考创作" to "ref", "节奏卡点" to "beat", "智能抠像" to "cutout")
-                        .forEach { (label, action) ->
-                            Card(
-                                modifier = Modifier.weight(1f).clickable { onQuickAction(action) },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF191C1E))
-                            ) {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                                    contentAlignment = Alignment.Center
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        listOf("AI 模板剪辑" to ("选模板，填素材，一键成片" to "auto"),
+                            "参考仿剪" to ("照着参考视频的节奏重剪" to "ref")),
+                        listOf("音乐卡点" to ("按音乐鼓点组织剪辑" to "beat"),
+                            "智能抠像" to ("下载模型后对片段应用" to "cutout"))
+                    ).forEach { rowItems ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            rowItems.forEach { (label, detailAndAction) ->
+                                val (detail, action) = detailAndAction
+                                Card(
+                                    modifier = Modifier.weight(1f).clickable { onQuickAction(action) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF191C1E))
                                 ) {
-                                    Text(label, color = Color(0xFFE3E5E6), fontSize = 11.sp, maxLines = 1)
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 13.dp),
+                                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Text(label, color = Color(0xFFE3E5E6), fontSize = 13.sp, maxLines = 1)
+                                        Text(detail, color = Color(0xFF858B8F), fontSize = 10.sp, maxLines = 2)
+                                    }
                                 }
                             }
                         }
+                    }
                 }
             }
             item {
@@ -172,13 +202,6 @@ fun NativeHomeScreen(
                         selectedFiles = emptySet()
                     }) { Text(if (managing) "完成" else "管理") }
                 }
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("搜索草稿名称") }
-                )
             }
             if (loading) {
                 item {
@@ -234,7 +257,8 @@ fun NativeHomeScreen(
                                 Text(
                                     listOfNotNull(
                                         project.durationUs.takeIf { it > 0L }?.let { formatNativeDuration(it) },
-                                        project.updatedLabel.takeIf { it.isNotBlank() }
+                                        project.updatedLabel.takeIf { it.isNotBlank() },
+                                        project.sizeBytes.takeIf { it > 0L }?.let { formatNativeSize(it) }
                                     ).joinToString(" · ").ifBlank { "本地工程" },
                                     color = Color(0xFF8F969A), fontSize = 11.sp,
                                     modifier = Modifier.padding(top = 4.dp)
@@ -352,6 +376,13 @@ private fun NativeCreateProjectDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
+}
+
+internal fun formatNativeSize(sizeBytes: Long): String {
+    if (sizeBytes <= 0L) return ""
+    val kib = sizeBytes.toDouble() / 1024.0
+    return if (kib >= 1024.0) "%.1f MB".format(kib / 1024.0)
+    else "%d KB".format(kib.toLong().coerceAtLeast(1L))
 }
 
 internal fun formatNativeDuration(durationUs: Long): String {
