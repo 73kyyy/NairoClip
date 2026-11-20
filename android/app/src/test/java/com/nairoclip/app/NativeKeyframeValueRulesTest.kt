@@ -37,4 +37,13 @@ class NativeKeyframeValueRulesTest {
         assertEquals("关键帧值必须是有限数值", NativeKeyframeValueRules.validate(5, Double.POSITIVE_INFINITY))
         assertEquals("关键帧值必须是有限数值", NativeKeyframeValueRules.validate(4, Double.NEGATIVE_INFINITY))
     }
+    @Test
+    fun keyframeTimesMustBeNonNegativeAndStrictlyIncreasing() {
+        assertEquals(null, NativeKeyframeValueRules.validateTimes(emptyList()))
+        assertEquals(null, NativeKeyframeValueRules.validateTimes(listOf(0L, 500_000L, 1_000_000L)))
+        assertEquals("关键帧时间不能为负数", NativeKeyframeValueRules.validateTimes(listOf(-1L)))
+        assertEquals("关键帧时间必须严格递增且不能重复", NativeKeyframeValueRules.validateTimes(listOf(0L, 500_000L, 500_000L)))
+        assertEquals("关键帧时间必须严格递增且不能重复", NativeKeyframeValueRules.validateTimes(listOf(1_000_000L, 500_000L)))
+    }
+
 }
