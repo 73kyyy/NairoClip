@@ -122,6 +122,7 @@
 
 
 ### Native nine-point anchor control and pivot contract (2026-11-20)
+- The normative cross-platform ClipTransform unit/range/anchor contract is recorded in `docs/v3.3.3/TRANSFORM-PARAMETER-STANDARD.md`; it distinguishes common slider travel from engine hard limits and defines non-finite fallback behavior.
 - NativeEditorScreen now accepts the selected anchor as explicit host state and requires an `onAnchorChanged(trackIndex, clipId, anchor)` callback. The transform panel exposes all nine positions with labels, selected-state feedback, and a clear description that the anchor is the scale/rotation pivot. The callback validates `0..8` before forwarding; it does not silently substitute the center.
 - The Android app's current MainActivity still launches the WebView editor and does not instantiate NativeEditorScreen. This UI change therefore establishes the native screen contract and interaction only; it does not claim that anchor edits are already wired to the running app. S5 runtime-host and entrypoint approval gates remain in force.
 - C++ `clipTransformMatrix` maps indices as row-major 3×3: 0 top-left, 1 top-center, 2 top-right, 3 middle-left, 4 center, 5 middle-right, 6 bottom-left, 7 bottom-center, 8 bottom-right. The pivot should remain fixed under combined scale and rotation. Added a native unit test covering all nine pivot positions; test execution is pending.
