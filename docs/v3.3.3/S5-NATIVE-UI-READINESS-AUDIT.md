@@ -142,3 +142,11 @@
 - Connected the existing nine-point anchor selector to the native `画面 → 锚点` subtool route. The selector is now shown only in the anchor panel, and transform keyframe controls are hidden there because anchor is not yet a keyframe channel in the current engine contract.
 - The native screen exposes the selected anchor value and a required `onAnchorChanged(trackIndex, clipId, anchor)` callback; persistence remains the host's responsibility through `NativeEditorCommandAdapter.setTransform` and must retain the current transform/enabled state when updating the anchor.
 - Touch targets remain 48 dp and use radio-button semantics. Static source inspection only; no Compose build, accessibility service, or device test was run.
+
+
+### Core transform/keyframe domain hardening (2026-11-20)
+- Found a cross-platform contract mismatch: static clip scale was clamped to multiplier 0.05..10.0, but the generic animation property spec allowed 0.01..100.0. This let keyframed scale exceed the static transform limit even though the Android adapter rejected it. Core animation Scale now shares the static transform range.
+- Added canonical C++ transform limit constants for scale, normalized X/Y, rotation, and anchor. Static clip transform clamping and animation property specifications consume the shared constants.
+- Non-finite keyframe values and Bézier controls are rejected by KeyframeTrack; command insertion rejects values outside the selected property's declared range. Animation sampling falls back to the property's neutral default for legacy non-finite values.
+- Added native unit-test cases for non-finite keyframe rejection and scale-keyframe lower/upper bounds. Existing native transform tests already cover NaN/±Inf recovery for static transform fields. Tests were added/updated but not executed in this turn.
+- These checks apply to core/C ABI callers across platforms, not only Android. The C ABI still clamps finite out-of-range static transform values per its existing contract; Kotlin rejects them before crossing JNI.
