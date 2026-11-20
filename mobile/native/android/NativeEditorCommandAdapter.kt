@@ -231,11 +231,44 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         if (timelineTimeUs <= 0L) {
             return Result(false, error = "分割位置必须大于 0")
         }
-        return mutateAndReadEditorState {
-            invoke(
+        return bridge.withEditorStateLock {
+            // Validate against the authoritative pre-edit snapshot while holding
+            // the same lock as the mutation. A stale selection, wrong track, or
+            // playhead outside the clip must not reach the native split call.
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = before.error ?: "分割前无法读取工程时间轴"
+                )
+            }
+            val track = before.value?.tracks
+                ?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            val clip = track.clips.firstOrNull { it.id == target.clipId }
+                ?: return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            if (clip.startUs > Long.MAX_VALUE - clip.durationUs) {
+                return@withEditorStateLock Result(false, error = "目标片段时间范围溢出")
+            }
+            val clipEndUs = clip.startUs + clip.durationUs
+            if (timelineTimeUs <= clip.startUs || timelineTimeUs >= clipEndUs) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = "分割位置必须位于所选片段内部"
+                )
+            }
+
+            val changed = invoke(
                 "nc_split_clip",
                 targetArgs(target).put("at_us", timelineTimeUs)
             ) { Unit }
+            if (!changed.ok) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = changed.error ?: "分割失败"
+                )
+            }
+            readEditorStateSnapshotLocked()
         }
     }
 
