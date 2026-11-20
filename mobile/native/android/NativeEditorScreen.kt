@@ -1235,6 +1235,16 @@ private fun NativeClipColorCurvePanel(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("控制点 ${selectedPoint + 1}/${points.size}", color = NcColors.text, fontSize = 9.sp, modifier = Modifier.weight(1f))
             Text(
+                "重置通道",
+                color = NcColors.text,
+                fontSize = 9.sp,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(NcColors.stage)
+                    .clickable {
+                        selectedPoint = 1
+                        publish(NativeEditorCommandAdapter.ColorCurveState.identity().points)
+                    }.padding(horizontal = 9.dp, vertical = 6.dp)
+            )
+            Text(
                 "添加点",
                 color = if (points.size < 32) NcColors.text else NcColors.secondary,
                 fontSize = 9.sp,
