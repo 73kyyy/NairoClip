@@ -39,7 +39,9 @@ data class NativeTimelineTrack(
     val visible: Boolean = true,
     val muted: Boolean = false,
     val engineIndex: Int = -1,
-    val locked: Boolean = false
+    val locked: Boolean = false,
+    val speedNumerator: Long = 1L,
+    val speedDenominator: Long = 1L
 )
 
 class NativeTimelineView(context: Context) : View(context) {
