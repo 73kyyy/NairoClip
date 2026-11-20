@@ -1985,8 +1985,16 @@ NC_TEST(Capi, ClipColorGradeUndoRoundtrip) {
     NC_CHECK(clip != 0);
     const double master[] = {0.0, 0.0, 0.5, 0.75, 1.0, 1.0};
     const double identity[] = {0.0, 0.0, 1.0, 1.0};
+    const int32_t historyBefore = nc_undo_count(editor);
     NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
         master, 3, identity, 2, identity, 2, identity, 2), NC_OK);
+    NC_CHECK_EQ(nc_undo_count(editor), historyBefore + 1);
+    // Re-applying an identical curve is a no-op and must not create a dead undo step.
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        master, 3, identity, 2, identity, 2, identity, 2), NC_OK);
+    NC_CHECK_EQ(nc_undo_count(editor), historyBefore + 1);
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        nullptr, 3, identity, 2, identity, 2, identity, 2), NC_ERROR_INVALID_ARGUMENT);
     double readMaster[64] = {}, readRed[64] = {}, readGreen[64] = {}, readBlue[64] = {};
     int32_t mc = 0, rc = 0, gc = 0, bc = 0;
     NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
@@ -1994,6 +2002,9 @@ NC_TEST(Capi, ClipColorGradeUndoRoundtrip) {
         readBlue, 64, &bc), NC_OK);
     NC_CHECK_EQ(mc, 3);
     NC_CHECK(std::abs(readMaster[3] - 0.75) < 1e-9);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 2, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_ERROR_OUT_OF_RANGE);
     NC_CHECK_EQ(nc_undo(editor), NC_OK);
     NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
         readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
