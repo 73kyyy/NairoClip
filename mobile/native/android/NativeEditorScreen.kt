@@ -77,7 +77,7 @@ fun NativeEditorScreen(
     onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null,
     onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null,
     transform: NativeTransform = NativeTransform(),
-    anchor: Int = NativeTransformRange.ANCHOR_CENTER,
+    anchor: Int,
     keyedParameters: Set<NativeParameter> = emptySet(),
     keyframes: Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>> = emptyMap(),
     onTransformChanged: (Int, Long, NativeTransform) -> Unit,
