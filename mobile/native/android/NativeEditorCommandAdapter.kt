@@ -973,6 +973,11 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                         val name = item.optString("name", "")
                         require(id.toLong() > 0L && type.toInt() >= 0)
                         require(duration.toLong() > 0L && from.toLong() > 0L && to.toLong() > 0L)
+                        require(from.toLong() != to.toLong())
+                        require(track.clips.any { it.id == from.toLong() } &&
+                            track.clips.any { it.id == to.toLong() }) {
+                            "转场引用了当前轨道中不存在的片段"
+                        }
                         require(name.isNotBlank())
                         add(TransitionState(id.toLong(), type.toInt(), duration.toLong(),
                             from.toLong(), to.toLong(), name))
