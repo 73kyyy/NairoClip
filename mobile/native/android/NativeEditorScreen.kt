@@ -95,7 +95,8 @@ fun NativeEditorScreen(
     onDeleteClip: ((Int, Long) -> Unit)? = null,
     onDuplicateClip: ((Int, Long) -> Unit)? = null,
     onRippleDeleteClip: ((Int, Long) -> Unit)? = null,
-    onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null
+    onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null,
+    onSpeedCurvePreset: ((Int, Long, Int) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -230,6 +231,16 @@ fun NativeEditorScreen(
                 )
             }
 
+            if (activeTool == "剪辑" && activeSubTool == "变速曲线" && selectedTarget != null) {
+                NativeSpeedCurvePresetPanel(
+                    onApply = { preset ->
+                        onSpeedCurvePreset?.invoke(selectedTarget.first, selectedTarget.second, preset)
+                    },
+                    enabled = onSpeedCurvePreset != null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
@@ -269,6 +280,11 @@ fun NativeEditorScreen(
                         }
                         tool == "剪辑" && subTool == "变速" && selectedTarget != null &&
                             onClipSpeedChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
+                        tool == "剪辑" && subTool == "变速曲线" && selectedTarget != null &&
+                            onSpeedCurvePreset != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
@@ -530,6 +546,49 @@ enum class NativeParameter(val engineProperty: Int) {
     X(2),
     Y(3),
     ROTATION(4)
+}
+
+@Composable
+private fun NativeSpeedCurvePresetPanel(
+    onApply: (Int) -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val presets = listOf(
+        "自定义/恒速" to 0,
+        "蒙太奇" to 1,
+        "英雄时刻" to 2,
+        "子弹时间" to 3,
+        "跳跃" to 4,
+        "闪进" to 5,
+        "闪出" to 6
+    )
+    Column(
+        modifier = modifier
+            .background(NcColors.panel)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("变速曲线预设", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text("预设由剪辑引擎生成；选择后会替换当前片段的速度曲线。", color = NcColors.secondary, fontSize = 10.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            presets.forEach { (name, id) ->
+                Text(
+                    name,
+                    color = if (enabled) NcColors.text else NcColors.muted,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, NcColors.line, RoundedCornerShape(14.dp))
+                        .clickable(enabled = enabled) { onApply(id) }
+                        .padding(horizontal = 11.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -1070,7 +1129,7 @@ private fun NativeToolBar(
     onSubToolSelected: (String, String) -> Unit
 ) {
     val tools = listOf(
-        "剪辑" to listOf("分割", "删除", "波纹删除", "复制", "变速", "动画"),
+        "剪辑" to listOf("分割", "删除", "波纹删除", "复制", "变速", "变速曲线", "动画"),
         "音频" to listOf("音量", "淡入淡出", "降噪", "人声分离"),
         "文本" to listOf("添加文本", "自动字幕", "样式", "朗读"),
         "贴纸" to listOf("贴纸库", "表情", "自定义"),
