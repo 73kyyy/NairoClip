@@ -108,7 +108,9 @@ fun NativeEditorScreen(
     onSetClipEffectEnabled: ((Int, Long, Long, Boolean) -> Unit)? = null,
     onMoveClipEffect: ((Int, Long, Long, Int) -> Unit)? = null,
     onRemoveClipEffect: ((Int, Long, Long) -> Unit)? = null,
-    clipEffectSpecs: Map<Int, NativeEditorCommandAdapter.EffectSpec> = emptyMap()
+    clipEffectSpecs: Map<Int, NativeEditorCommandAdapter.EffectSpec> = emptyMap(),
+    clipFilter: NativeEditorCommandAdapter.ClipFilterState? = null,
+    onClipFilterChanged: ((Int, Long, Int, Double) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -335,6 +337,20 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "特效" && activeSubTool == "滤镜" && selectedTarget != null) {
+                if (clipFilter != null && onClipFilterChanged != null) {
+                    NativeClipFilterPanel(
+                        state = clipFilter,
+                        onChange = { style, intensity ->
+                            onClipFilterChanged.invoke(selectedTarget.first, selectedTarget.second, style, intensity)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的滤镜状态…", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
+
             LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
@@ -403,11 +419,73 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = subTool
                         }
+                        tool == "特效" && subTool == "滤镜" &&
+                            selectedTarget != null && onClipFilterChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         else -> onOpenLegacy()
                     }
                 }
             )
         }
+    }
+}
+
+private data class NativeFilterOption(val style: Int, val name: String)
+
+@Composable
+private fun NativeClipFilterPanel(
+    state: NativeEditorCommandAdapter.ClipFilterState,
+    onChange: (Int, Double) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val options = listOf(
+        NativeFilterOption(0, "原片"), NativeFilterOption(1, "电影"),
+        NativeFilterOption(2, "复古"), NativeFilterOption(3, "清新"),
+        NativeFilterOption(4, "黑白"), NativeFilterOption(5, "赛博"),
+        NativeFilterOption(6, "日系"), NativeFilterOption(7, "胶片"),
+        NativeFilterOption(8, "暖阳"), NativeFilterOption(9, "冷调"),
+        NativeFilterOption(10, "港风"), NativeFilterOption(11, "高级灰"),
+        NativeFilterOption(12, "奶油"), NativeFilterOption(13, "负片")
+    )
+    var intensity by remember(state.style, state.intensity) {
+        mutableStateOf(state.intensity.toFloat())
+    }
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("滤镜", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            options.forEach { option ->
+                val selected = state.style == option.style
+                Text(
+                    option.name,
+                    color = if (selected) NcColors.background else NcColors.text,
+                    fontSize = 9.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) NcColors.text else NcColors.stage)
+                        .clickable { onChange(option.style, intensity.toDouble()) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("强度", color = NcColors.text, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            Text(String.format(Locale.US, "%.0f%%", intensity), color = NcColors.secondary, fontSize = 10.sp)
+        }
+        Slider(
+            value = intensity.coerceIn(0f, 100f),
+            onValueChange = { intensity = it },
+            onValueChangeFinished = { onChange(state.style, intensity.toDouble()) },
+            valueRange = 0f..100f,
+            enabled = state.style != 0
+        )
+        Text("滤镜强度范围 0–100；选择原片将关闭滤镜。", color = NcColors.secondary, fontSize = 8.sp)
     }
 }
 
