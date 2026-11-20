@@ -637,3 +637,30 @@ NC_TEST(Serialization, TrackHeightOutOfRangeIsClamped) {
     NC_CHECK_EQ(out.sequences[0].tracks[0].heightPx, Track::kMaxTrackHeight);
     NC_CHECK(out.sequences[0].invariantsHold());
 }
+
+
+NC_TEST(Serialization, ColorGradeRoundtrip) {
+    Project original = makeSampleProject();
+    Clip& clip = original.sequences[0].tracks[0].clips[0];
+    clip.colorGrade.master.points = {{0.0, 0.0}, {0.35, 0.52}, {1.0, 1.0}};
+    clip.colorGrade.red.points = {{0.0, 0.0}, {0.5, 0.72}, {1.0, 1.0}};
+    const std::string text = saveProjectToNclip(original);
+    NC_CHECK(text.find("\\"colorGrade\\"") != std::string::npos);
+
+    Project loaded;
+    const NclipLoadResult result = loadProjectFromNclip(text, loaded);
+    NC_CHECK(result.result.isOk());
+    const ColorGrade& grade = loaded.sequences[0].tracks[0].clips[0].colorGrade;
+    NC_CHECK_EQ(grade.master.points.size(), std::size_t(3));
+    NC_CHECK_EQ(grade.red.points.size(), std::size_t(3));
+    NC_CHECK(std::abs(grade.master.points[1].input - 0.35) < 1e-9);
+    NC_CHECK(std::abs(grade.master.points[1].output - 0.52) < 1e-9);
+    NC_CHECK(std::abs(grade.red.points[1].output - 0.72) < 1e-9);
+}
+
+NC_TEST(Serialization, RejectsInvalidColorGradeCurve) {
+    const std::string text = R"({"format":"nclip","version":1,"project":{"name":"t"},"assets":[],"sequences":[{"id":1,"name":"s","frameRate":[30,1],"width":1920,"height":1080,"tracks":[{"id":2,"type":"video","name":"v","clips":[{"id":3,"asset":0,"start":[0,1],"duration":[1,1],"sourceIn":[0,1],"speed":[1,1],"colorGrade":{"version":1,"master":[[0,0],[0.8,0.7],[0.6,0.9],[1,1]],"red":[[0,0],[1,1]],"green":[[0,0],[1,1]],"blue":[[0,0],[1,1]]}}]}],"markers":[]}]})";
+    Project out;
+    const NclipLoadResult result = loadProjectFromNclip(text, out);
+    NC_CHECK(!result.result.isOk());
+}
