@@ -22,6 +22,7 @@ add_executable(nairoclip_tests
     test_json.cpp
     test_json_args.cpp
     test_serialization.cpp
+    test_color_grade.cpp
     test_recovery.cpp
     test_animation.cpp
     test_export_plan.cpp
