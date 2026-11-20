@@ -28,6 +28,12 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val easing: Int
     )
 
+    data class ClipAudioState(
+        val gainDb: Double,
+        val fadeInUs: Long,
+        val fadeOutUs: Long
+    )
+
 
     data class TransformState(
         val transform: NativeTransform,
@@ -278,6 +284,75 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             if (!changed.ok) {
                 return@withEditorStateLock Result(false, error = changed.error ?: "应用变速曲线失败")
             }
+            readEditorStateSnapshotLocked()
+        }
+    }
+
+    /** Reads authoritative clip audio settings from the core model. */
+    fun readClipAudio(target: ClipTarget): Result<ClipAudioState> =
+        invoke("nc_get_clip_audio", targetArgs(target)) { payload ->
+            ClipAudioState(
+                gainDb = payload.getDouble("gain_db"),
+                fadeInUs = payload.getLong("fade_in_us"),
+                fadeOutUs = payload.getLong("fade_out_us")
+            ).also {
+                require(it.gainDb.isFinite() && it.gainDb in -60.0..12.0)
+                require(it.fadeInUs >= 0L && it.fadeOutUs >= 0L)
+            }
+        }
+
+    /** Applies clip gain and fades after validating against the selected clip duration. */
+    fun setClipAudioAndReadEditorState(
+        target: ClipTarget,
+        audio: ClipAudioState
+    ): Result<EditorStateSnapshot> {
+        if (!audio.gainDb.isFinite() || audio.gainDb !in -60.0..12.0 ||
+            audio.fadeInUs < 0L || audio.fadeOutUs < 0L
+        ) return Result(false, error = "音频增益或淡入淡出参数非法")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val track = before.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            val clip = track.clips.firstOrNull { it.id == target.clipId }
+                ?: return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            if (audio.fadeInUs > clip.durationUs || audio.fadeOutUs > clip.durationUs ||
+                audio.fadeInUs > clip.durationUs - audio.fadeOutUs
+            ) return@withEditorStateLock Result(false, error = "淡入与淡出总时长不能超过片段时长")
+            val changed = invoke(
+                "nc_set_clip_audio",
+                targetArgs(target)
+                    .put("gain_db", audio.gainDb)
+                    .put("fade_in_us", audio.fadeInUs)
+                    .put("fade_out_us", audio.fadeOutUs)
+            ) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置音频参数失败")
+            readEditorStateSnapshotLocked()
+        }
+    }
+
+    /** Reads current per-clip denoise strength (0=off, 1..3=weak/medium/strong). */
+    fun readClipDenoise(target: ClipTarget): Result<Int> {
+        val result = invoke("nc_get_clip_denoise", targetArgs(target)) { it.getInt("strength") }
+        if (!result.ok) return result
+        val strength = result.value ?: return Result(false, error = "降噪强度缺失")
+        return if (strength in 0..3) Result(true, strength) else Result(false, error = "引擎返回的降噪强度非法")
+    }
+
+    fun setClipDenoiseAndReadEditorState(target: ClipTarget, strength: Int): Result<EditorStateSnapshot> {
+        if (strength !in 0..3) return Result(false, error = "降噪强度必须为 0–3")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val track = before.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            if (track.clips.none { it.id == target.clipId }) {
+                return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            }
+            val changed = invoke("nc_set_clip_denoise", targetArgs(target).put("strength", strength)) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置降噪失败")
             readEditorStateSnapshotLocked()
         }
     }
