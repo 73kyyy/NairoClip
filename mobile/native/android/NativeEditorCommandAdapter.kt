@@ -59,9 +59,22 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             // The engine reports Double values, while Compose sliders and the
             // native transform model use Float. Finite Doubles can still
             // overflow to Float infinity; reject them before exposing UI state.
-            require(scale > 0.0 && scalePercent.isFinite())
+            require(
+                scalePercent.isFinite() &&
+                    scalePercent in NativeTransformRange.SCALE_MIN_PERCENT.toDouble()..NativeTransformRange.SCALE_MAX_PERCENT.toDouble()
+            ) { "引擎缩放值超出 5%–1000% 范围" }
+            require(
+                x in NativeTransformRange.POSITION_MIN.toDouble()..NativeTransformRange.POSITION_MAX.toDouble() &&
+                    y in NativeTransformRange.POSITION_MIN.toDouble()..NativeTransformRange.POSITION_MAX.toDouble()
+            ) { "引擎位置值超出 X/Y -10..10 范围" }
+            require(
+                rotation in NativeTransformRange.ROTATION_MIN_DEGREES.toDouble()..NativeTransformRange.ROTATION_MAX_DEGREES.toDouble()
+            ) { "引擎旋转值超出 -3600°..3600° 范围" }
             require(enabledValue == 0.0 || enabledValue == 1.0)
-            require(anchorValue % 1.0 == 0.0 && anchorValue in 0.0..8.0)
+            require(
+                anchorValue % 1.0 == 0.0 &&
+                    anchorValue in NativeTransformRange.ANCHOR_MIN.toDouble()..NativeTransformRange.ANCHOR_MAX.toDouble()
+            )
             require(
                 scalePercent.toFloat().isFinite() &&
                     x.toFloat().isFinite() &&
@@ -90,7 +103,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         target: ClipTarget,
         transform: NativeTransform,
         enabled: Boolean = true,
-        anchor: Int = 4
+        anchor: Int = NativeTransformRange.ANCHOR_CENTER
     ): Result<Unit> = try {
         val response = JSONObject(
             bridge.editorTransformSet(target.trackIndex, target.clipId, transform, enabled, anchor)
