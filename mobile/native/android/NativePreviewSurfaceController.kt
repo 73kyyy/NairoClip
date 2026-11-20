@@ -171,7 +171,9 @@ class NativePreviewSurfaceController(
                 continue
             }
 
-            val rendered = NativeEngineBridge.renderPreviewFrame(request.timeUs)
+            val rendered = NativeEngineBridge.renderPreviewFrame(request.timeUs) {
+                !disposed && request.sequence == renderSequence.get()
+            }
             if (!disposed &&
                 request.sequence == renderSequence.get() &&
                 pendingRender.get() == null
