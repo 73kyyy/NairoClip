@@ -168,3 +168,12 @@
 | 锚点 | 九宫格 0..8 | 九宫格 0..8 | 0..8 |
 
 滑块用于粗略定位，数值输入用于相同范围内精细定位。滑块边界固定，不因当前值或拖动过程动态改变。该修改仅调整控件交互域，不改变 C++ 核心参数范围、序列化格式或 C ABI。
+
+## 8. Transform keyframe evaluation and preview-cache follow-up (2026-11-20)
+
+- Verified core keyframe evaluation: rotation is interpolated as an unwrapped numeric degree value. It is not normalized modulo 360, so a 0° → 720° curve passes through 360° and preserves two full turns.
+- ClipAnimation::sample() clamps evaluated values after easing to the per-property hard domain. This also constrains Bézier Y overshoot; the endpoint keyframes remain individually range-validated by InsertKeyframeCommand.
+- Added native regression coverage for multi-turn rotation, rotation keyframe values outside ±3600°, and scale/position Bézier overshoot at the domain boundaries. Tests were added but have not been executed in this environment.
+- Found and fixed a real preview-cache invalidation defect: contentFingerprint() previously hashed keyframe time/value but omitted easing type and Bézier control points. Editing only a curve could therefore reuse stale preview pixels. Clip animation and adjustment-layer animation fingerprints now include easing type plus all four control coordinates; adjustment animation also includes curve size.
+- Added a preview regression test that changes easing type and then changes Bézier Y controls without changing keyframe time/value, asserting that the same timestamp is invalidated and re-rendered.
+- This verifies the existing core/export sampling route and cache identity only. No Android runtime host integration, native editor entrypoint switch, build, native test execution, CI run, or device test is claimed. PR #32 remains Draft and unmerged.
