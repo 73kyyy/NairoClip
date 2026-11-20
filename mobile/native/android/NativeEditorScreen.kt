@@ -111,6 +111,8 @@ fun NativeEditorScreen(
     clipEffectSpecs: Map<Int, NativeEditorCommandAdapter.EffectSpec> = emptyMap(),
     clipFilter: NativeEditorCommandAdapter.ClipFilterState? = null,
     onClipFilterChanged: ((Int, Long, Int, Double) -> Unit)? = null,
+    clipLut: NativeEditorCommandAdapter.ClipLutState? = null,
+    onClipLutChanged: ((Int, Long, String, Double) -> Unit)? = null,
     clipMask: NativeEditorCommandAdapter.ClipMaskState? = null,
     onClipMaskChanged: ((Int, Long, NativeEditorCommandAdapter.ClipMaskState) -> Unit)? = null,
     clipTransitions: List<NativeEditorCommandAdapter.TransitionState> = emptyList(),
@@ -357,6 +359,20 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "调节" && activeSubTool == "LUT" && selectedTarget != null) {
+                if (clipLut != null && onClipLutChanged != null) {
+                    NativeClipLutPanel(
+                        state = clipLut,
+                        onChange = { path, strength ->
+                            onClipLutChanged.invoke(selectedTarget.first, selectedTarget.second, path, strength)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的 LUT 状态…", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
+
             if (activeTool == "特效" && activeSubTool == "转场" && selectedTarget != null) {
                 val track = timelineTracks.firstOrNull { it.engineIndex == selectedTarget.first }
                 val nextClipId = track?.clips
@@ -463,6 +479,11 @@ fun NativeEditorScreen(
                         }
                         tool == "特效" && subTool == "滤镜" &&
                             selectedTarget != null && onClipFilterChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
+                        tool == "调节" && subTool == "LUT" &&
+                            selectedTarget != null && onClipLutChanged != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
@@ -837,6 +858,95 @@ private fun NativeClipFilterPanel(
             enabled = state.style != 0
         )
         Text("滤镜强度范围 0–100；选择原片将关闭滤镜。", color = NcColors.secondary, fontSize = 8.sp)
+    }
+}
+
+@Composable
+private fun NativeClipLutPanel(
+    state: NativeEditorCommandAdapter.ClipLutState,
+    onChange: (String, Double) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var path by remember(state.path) { mutableStateOf(state.path) }
+    var strength by remember(state.path, state.strength) { mutableStateOf(state.strength.toFloat()) }
+    var strengthText by remember(state.path, state.strength) {
+        mutableStateOf(String.format(Locale.US, "%.2f", state.strength))
+    }
+    val focusManager = LocalFocusManager.current
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("LUT 调色", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text("使用设备可访问的 .cube 3D LUT 文件路径；清空路径可移除 LUT。", color = NcColors.secondary, fontSize = 9.sp)
+        BasicTextField(
+            value = path,
+            onValueChange = { path = it.take(2048) },
+            modifier = Modifier.fillMaxWidth().background(NcColors.stage, RoundedCornerShape(7.dp)).padding(9.dp),
+            singleLine = true,
+            textStyle = TextStyle(color = NcColors.text, fontSize = 10.sp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+            decorationBox = { inner ->
+                Box {
+                    if (path.isEmpty()) Text("输入 .cube 文件完整路径", color = NcColors.secondary, fontSize = 10.sp)
+                    inner()
+                }
+            }
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("混合强度", color = NcColors.text, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            BasicTextField(
+                value = strengthText,
+                onValueChange = { input ->
+                    if (input.length <= 5 && input.all { it.isDigit() || it == '.' }) strengthText = input
+                },
+                modifier = Modifier.width(56.dp).onFocusChanged { focus ->
+                    if (!focus.isFocused) {
+                        val parsed = strengthText.toDoubleOrNull()
+                        if (parsed != null && parsed.isFinite() && parsed in 0.0..1.0) {
+                            strength = parsed.toFloat()
+                            onChange(path, parsed)
+                        } else {
+                            strengthText = String.format(Locale.US, "%.2f", strength)
+                        }
+                    }
+                },
+                singleLine = true,
+                textStyle = TextStyle(color = NcColors.text, fontSize = 10.sp, textAlign = TextAlign.End),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+            )
+            Text(" / 1.00", color = NcColors.secondary, fontSize = 9.sp)
+        }
+        Slider(
+            value = strength.coerceIn(0f, 1f),
+            onValueChange = {
+                strength = it
+                strengthText = String.format(Locale.US, "%.2f", it)
+            },
+            onValueChangeFinished = { onChange(path, strength.toDouble()) },
+            valueRange = 0f..1f
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "应用路径与强度",
+                color = NcColors.text,
+                fontSize = 9.sp,
+                modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(NcColors.stage)
+                    .clickable { focusManager.clearFocus(); onChange(path, strength.toDouble()) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+            Text(
+                "清除 LUT",
+                color = NcColors.text,
+                fontSize = 9.sp,
+                modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(NcColors.stage)
+                    .clickable { path = ""; onChange("", strength.toDouble()) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+        }
+        Text("引擎仅接受有效的 .cube 3D LUT（边长 2–64）；当前面板负责路径与强度编辑，不伪造内置预设。", color = NcColors.secondary, fontSize = 8.sp)
     }
 }
 
