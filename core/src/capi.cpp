@@ -3209,6 +3209,25 @@ int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_i
                                         fromMicroseconds(fade_out_us)));
 }
 
+int32_t nc_get_clip_audio(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          double* out_gain_db, int64_t* out_fade_in_us,
+                          int64_t* out_fade_out_us) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "clip 不存在");
+    if (out_gain_db != nullptr) *out_gain_db = clip->audioGainDb;
+    if (out_fade_in_us != nullptr) *out_fade_in_us = toMicroseconds(clip->audioFadeIn);
+    if (out_fade_out_us != nullptr) *out_fade_out_us = toMicroseconds(clip->audioFadeOut);
+    return NC_OK;
+}
+
 int32_t nc_set_clip_denoise(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             int32_t strength) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
