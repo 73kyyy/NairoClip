@@ -150,3 +150,5 @@
 - Non-finite keyframe values and Bézier controls are rejected by KeyframeTrack; command insertion rejects values outside the selected property's declared range. Animation sampling falls back to the property's neutral default for legacy non-finite values.
 - Added native unit-test cases for non-finite keyframe rejection and scale-keyframe lower/upper bounds. Existing native transform tests already cover NaN/±Inf recovery for static transform fields. Tests were added/updated but not executed in this turn.
 - These checks apply to core/C ABI callers across platforms, not only Android. The C ABI still clamps finite out-of-range static transform values per its existing contract; Kotlin rejects them before crossing JNI.
+
+- Anchor grid accessibility follow-up: the nine native presets are now grouped with Compose `selectableGroup()` and each cell retains `Role.RadioButton` selected semantics. This makes the nine choices one coherent accessibility group without changing the C ABI index mapping. Source-level verification only; Compose compilation and TalkBack testing remain pending.
