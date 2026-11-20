@@ -1102,7 +1102,13 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置抠像失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "denoise") {
+    if (op == "nc_get_clip_denoise") {
+        const int32_t strength = nc_get_clip_denoise(ed, ti, cid);
+        if (strength < 0) { *out = Err("读取降噪强度失败"); return true; }
+        *out = Ok("{\\"strength\\":" + std::to_string(strength) + "}");
+        return true;
+    }
+    if (op == "denoise" || op == "nc_set_clip_denoise") {
         const int32_t rc = nc_set_clip_denoise(
             ed, ti, cid, static_cast<int32_t>(JInt(a, "strength", 0)));
         *out = rc == NC_OK ? Ok("") : Err("设置降噪失败，错误码 " + std::to_string(rc));
