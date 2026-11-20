@@ -484,3 +484,13 @@
 - 该面板仍未接 Activity/ViewModel：需要正式宿主提供 `readClipFilter` / `setClipFilterAndRead` 状态发布和错误反馈回调，当前不代表运行时已经可用。
 - 同步发现并修正上一轮特效目录遗漏引擎现有 36–38 号类型（震动、泛光、镜头光晕）；此前 13–35 列表不完整。C ABI `EffectType::LensFlare` 是当前上限来源。
 - 本轮未修改 MainActivity、Manifest 或正式入口；未运行 Gradle/NDK 编译、自动化测试或真机验证。
+
+## 30. 原生片段蒙版状态读取切片（2026-11-20）
+
+本轮从旧编辑器“蒙版”功能切入，先补齐原生参数面板所需的权威读取链路：
+
+- Android JNI 新增只读 `mask_get` 分发，直接调用现有 C ABI `nc_get_clip_mask`，返回形状、中心、旋转、宽高、羽化、圆角、反转和启用状态；目标片段/轨道缺失时明确失败。
+- `NativeEditorCommandAdapter` 新增 `ClipMaskState` 与 `readClipMask`，在 editor state lock 内验证目标片段存在且轨道可编辑，并拒绝缺失、非数值、非有限或超出核心已声明域的状态。
+- 参数校验严格遵循 `core/include/nairoclip/core/mask.h`：形状枚举 0..6；羽化与圆角 0..0.5。宽高属于形状相关归一化尺寸，不擅自限制在 0..1；中心/旋转/尺寸只要求有限数值，不在 UI 适配层发明核心未声明的硬范围。
+- 未实现蒙版面板写入/交互，也未把“蒙版”工具从旧编辑器回退路径切换到原生；本节只代表 JNI 读取与 Kotlin 适配器切片。
+- 尚未运行 Android Gradle/Compose/NDK 编译、单元/仪器测试或真机验证；正式宿主接线仍受 S5 前置门约束。
