@@ -273,6 +273,12 @@ bool readClipAnimation(const JsonValue& v, ClipAnimation& out, std::string& err)
             if (!readKeyframeTrack(v.get(names[i]), out.curve(properties[i]), err)) return false;
         }
     }
+    // Finite values may still violate the property's hard domain. Validate
+    // at the deserialization boundary rather than relying on render clamping.
+    if (!out.invariantsHold()) {
+        err = "animation 关键帧超出属性允许范围或通道不变量无效";
+        return false;
+    }
     return true;
 }
 
