@@ -364,7 +364,7 @@ fun NativeEditorScreen(
                     ?.let { sorted ->
                         val current = sorted.firstOrNull { it.id == selectedTarget.second }
                         current?.let { clip ->
-                            sorted.firstOrNull { it.startUs >= clip.startUs + clip.durationUs }?.id
+                            sorted.firstOrNull { it.startUs == clip.startUs + clip.durationUs }?.id
                         }
                     }
                 NativeClipTransitionPanel(
