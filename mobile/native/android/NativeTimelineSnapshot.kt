@@ -109,13 +109,5 @@ data class NativeTimelineSnapshot(
             }
         }
 
-        /**
-         * Compatibility convenience for display-only callers. Command paths
-         * must use [tryFromEngineState] so malformed state is never mistaken
-         * for a legitimate empty project.
-         */
-        fun fromEngineState(stateJson: String): NativeTimelineSnapshot =
-            tryFromEngineState(stateJson)
-                ?: NativeTimelineSnapshot("未命名工程", 1L, emptyList())
     }
 }
