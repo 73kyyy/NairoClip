@@ -900,9 +900,9 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const int32_t rc = nc_clip_speed_curve_get(
             ed, ti, cid, index, &sourceSeconds, &speed, &easing);
         if (rc != NC_OK) { *out = Err("读取速度曲线控制点失败，错误码 " + std::to_string(rc)); return true; }
-        *out = Ok("{\\"source_seconds\\":" + Num(sourceSeconds) +
-                  ",\\"speed\\":" + Num(speed) +
-                  ",\\"easing\\":" + std::to_string(easing) + "}");
+        *out = Ok("{\"source_seconds\":" + Num(sourceSeconds) +
+                  ",\"speed\":" + Num(speed) +
+                  ",\"easing\":" + std::to_string(easing) + "}");
         return true;
     }
     if (op == "speed_curve" || op == "nc_set_clip_speed_curve" || op == "nc_set_clip_speed_curve_points") {
