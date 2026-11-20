@@ -880,6 +880,95 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         ) { Unit }
     }
 
+    data class EffectSpec(
+        val name: String,
+        val unit: String,
+        val hint: String,
+        val min: Double,
+        val max: Double,
+        val defaultValue: Double
+    )
+
+    fun readEffectSpec(type: Int): Result<EffectSpec> {
+        if (type !in 0..4096) return Result(false, error = "特效类型无效")
+        return invoke("nc_effect_spec", JSONObject().put("type", type)) { payload ->
+            EffectSpec(
+                name = payload.getString("name"),
+                unit = payload.optString("unit", ""),
+                hint = payload.optString("hint", ""),
+                min = payload.getDouble("min"),
+                max = payload.getDouble("max"),
+                defaultValue = payload.getDouble("def")
+            ).also {
+                require(it.name.isNotBlank())
+                require(it.min.isFinite() && it.max.isFinite() && it.min <= it.max)
+                require(it.defaultValue.isFinite() && it.defaultValue in it.min..it.max)
+            }
+        }
+    }
+
+    /** Adds an engine-defined clip effect; type/value bounds come from nc_effect_spec. */
+    fun addEffect(target: ClipTarget, type: Int, value: Double): Result<Long> {
+        if (!value.isFinite()) return Result(false, error = "特效参数必须是有限数值")
+        val spec = readEffectSpec(type)
+        if (!spec.ok) return Result(false, error = spec.error ?: "读取特效参数范围失败")
+        val range = spec.value ?: return Result(false, error = "特效参数范围缺失")
+        if (value !in range.min..range.max) return Result(false, error = "特效参数超出引擎允许范围")
+        return bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            invoke("nc_add_effect", targetArgs(target).put("type", type).put("value", value)) {
+                it.getLong("value").also { id -> require(id > 0L) }
+            }
+        }
+    }
+
+    fun updateEffect(target: ClipTarget, effect: NativeClipEffect, value: Double): Result<Unit> {
+        if (effect.id <= 0L || !value.isFinite()) return Result(false, error = "特效参数非法")
+        val spec = readEffectSpec(effect.type)
+        if (!spec.ok) return Result(false, error = spec.error ?: "读取特效参数范围失败")
+        val range = spec.value ?: return Result(false, error = "特效参数范围缺失")
+        if (value !in range.min..range.max) return Result(false, error = "特效参数超出引擎允许范围")
+        return mutateEffect(target, "effect_update", JSONObject()
+            .put("effect_id", effect.id).put("type", effect.type).put("value", value))
+    }
+
+    fun setEffectEnabled(target: ClipTarget, effectId: Long, enabled: Boolean): Result<Unit> =
+        mutateEffect(target, "effect_enabled", JSONObject()
+            .put("effect_id", effectId).put("enabled", if (enabled) 1 else 0))
+
+    fun moveEffect(target: ClipTarget, effectId: Long, direction: Int): Result<Unit> {
+        if (direction !in -1..1 || direction == 0) return Result(false, error = "特效移动方向无效")
+        return mutateEffect(target, "effect_move", JSONObject()
+            .put("effect_id", effectId).put("direction", direction))
+    }
+
+    fun removeEffect(target: ClipTarget, effectId: Long): Result<Unit> =
+        mutateEffect(target, "effect_remove", JSONObject().put("effect_id", effectId))
+
+    private fun mutateEffect(target: ClipTarget, operation: String, extra: JSONObject): Result<Unit> =
+        bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            val args = targetArgs(target)
+            val keys = extra.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                args.put(key, extra.get(key))
+            }
+            invoke(operation, args) { Unit }
+        }
+
+    private fun validateEditableClipLocked(target: ClipTarget): Result<Unit> {
+        val snapshot = readTimelineSnapshotLocked()
+        if (!snapshot.ok) return Result(false, error = snapshot.error ?: "读取工程时间轴失败")
+        val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+            ?: return Result(false, error = "目标轨道已不存在")
+        if (track.locked) return Result(false, error = "目标轨道已锁定，不能修改")
+        if (track.clips.none { it.id == target.clipId }) return Result(false, error = "目标片段已不存在")
+        return Result(true)
+    }
+
     companion object {
         private const val MAX_KEYFRAMES_PER_CHANNEL = 4096
     }
