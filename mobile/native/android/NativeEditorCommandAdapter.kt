@@ -202,6 +202,46 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val newClipId: Long? = null
     )
 
+    /**
+     * Sets playback speed as an exact positive rational. The engine contract
+     * permits 0.1x..100x; the UI may expose a narrower common range later.
+     */
+    fun setClipSpeedAndReadEditorState(
+        target: ClipTarget,
+        numerator: Long,
+        denominator: Long
+    ): Result<EditorStateSnapshot> {
+        if (numerator <= 0L || denominator <= 0L) {
+            return Result(false, error = "速度分子和分母必须为正数")
+        }
+        val speed = numerator.toDouble() / denominator.toDouble()
+        if (!speed.isFinite() || speed !in 0.1..100.0) {
+            return Result(false, error = "播放速度必须在 0.1x–100x 范围内")
+        }
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) {
+                return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            }
+            val track = before.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) {
+                return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            }
+            if (track.clips.none { it.id == target.clipId }) {
+                return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            }
+            val changed = invoke(
+                "nc_set_clip_speed",
+                targetArgs(target).put("num", numerator).put("den", denominator)
+            ) { Unit }
+            if (!changed.ok) {
+                return@withEditorStateLock Result(false, error = changed.error ?: "设置播放速度失败")
+            }
+            readEditorStateSnapshotLocked()
+        }
+    }
+
     /** Removes the selected clip and returns the authoritative post-edit state. */
     fun removeClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
         mutateClipAndReadEditorState(target, "nc_remove_clip")
