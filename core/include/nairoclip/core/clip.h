@@ -41,7 +41,7 @@ struct ClipTransform {
     /// 是否启用。false = 完全不影响渲染（零改动保证）。
     bool enabled = false;
 
-    /// 钳制到合法范围（越界不报错，与 XformParams::clamp 一致）。
+    /// 钳制到合法范围；非有限缩放/位移/旋转恢复为中性值。
     void clamp();
 };
 
