@@ -971,7 +971,7 @@ private fun NativeToolBar(
     onSubToolSelected: (String, String) -> Unit
 ) {
     val tools = listOf(
-        "剪辑" to listOf("分割", "删除", "复制", "变速", "动画"),
+        "剪辑" to listOf("分割", "删除", "波纹删除", "复制", "变速", "动画"),
         "音频" to listOf("音量", "淡入淡出", "降噪", "人声分离"),
         "文本" to listOf("添加文本", "自动字幕", "样式", "朗读"),
         "贴纸" to listOf("贴纸库", "表情", "自定义"),
