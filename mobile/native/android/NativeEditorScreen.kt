@@ -445,6 +445,9 @@ private fun NativeClipEffectsPanel(
         Text("视频特效 · 效果栈", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         if (effects.isEmpty()) Text("当前片段尚未添加特效", color = NcColors.secondary, fontSize = 10.sp)
         effects.forEach { effect ->
+            var draftValue by remember(effect.id, effect.value) {
+                mutableStateOf(effect.value.toFloat())
+            }
             Column(
                 modifier = Modifier.fillMaxWidth().background(NcColors.stage, RoundedCornerShape(8.dp)).padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -461,12 +464,13 @@ private fun NativeClipEffectsPanel(
                 if (spec == null) {
                     Text("正在读取引擎参数规格…", color = NcColors.secondary, fontSize = 9.sp)
                 } else {
-                    Text(spec.name + ": " + String.format(Locale.US, "%.2f %s", effect.value, spec.unit),
+                    Text(spec.name + ": " + String.format(Locale.US, "%.2f %s", draftValue, spec.unit),
                         color = NcColors.text, fontSize = 9.sp)
                     if (spec.min < spec.max) {
                         Slider(
-                            value = effect.value.toFloat().coerceIn(spec.min.toFloat(), spec.max.toFloat()),
-                            onValueChange = { onUpdate(effect, it.toDouble()) },
+                            value = draftValue.coerceIn(spec.min.toFloat(), spec.max.toFloat()),
+                            onValueChange = { draftValue = it },
+                            onValueChangeFinished = { onUpdate(effect, draftValue.toDouble()) },
                             valueRange = spec.min.toFloat()..spec.max.toFloat(),
                             enabled = effect.enabled
                         )
