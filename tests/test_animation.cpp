@@ -1,5 +1,8 @@
 #include "test_framework.h"
 #include "nairoclip/core/animation.h"
+
+#include <limits>
+
 using namespace nairoclip::core;
 namespace {
 bool nearly(double a, double b, double eps = 1e-6) {
@@ -26,10 +29,16 @@ NC_TEST(Animation, PropertySpecAndNames) {
     NC_CHECK(nearly(opacity.minValue, 0.0));
     NC_CHECK(nearly(opacity.maxValue, 1.0));
     const PropertySpec scale = propertySpec(ClipProperty::Scale);
-    NC_CHECK(nearly(scale.minValue, 0.01));
-    NC_CHECK(nearly(scale.maxValue, 100.0));
+    NC_CHECK(nearly(scale.minValue, 0.05));
+    NC_CHECK(nearly(scale.maxValue, 10.0));
     NC_CHECK_EQ(std::string(propertyName(ClipProperty::Opacity)), std::string("透明度"));
     NC_CHECK_EQ(std::string(propertyName(ClipProperty::Volume)), std::string("音量"));
+}
+NC_TEST(Animation, KeyframeTrackRejectsNonFiniteValues) {
+    KeyframeTrack track;
+    NC_CHECK(!track.insert(key(0, std::numeric_limits<double>::quiet_NaN())).isOk());
+    NC_CHECK(!track.insert(key(1, std::numeric_limits<double>::infinity())).isOk());
+    NC_CHECK(track.empty());
 }
 NC_TEST(Animation, CurveInsertAndSample) {
     ClipAnimation anim;
@@ -107,6 +116,13 @@ NC_TEST(Animation, EditorKeyframeWithUndo) {
     clip.duration = Rational::make(5);
     ClipId clipId;
     NC_CHECK(editor.insertClip(seqId, trackId, clip, &clipId).isOk());
+    Keyframe invalidScale;
+    invalidScale.time = Rational::make(0);
+    invalidScale.value = 10.01;
+    NC_CHECK(!editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Scale, invalidScale).isOk());
+    invalidScale.value = 0.04;
+    NC_CHECK(!editor.insertKeyframe(seqId, trackId, clipId, ClipProperty::Scale, invalidScale).isOk());
+
     Keyframe k;
     k.time = Rational::make(0);
     k.value = 0.0;
@@ -119,6 +135,7 @@ NC_TEST(Animation, EditorKeyframeWithUndo) {
     const Clip* c = findClip(project, seqId, trackId, clipId);
     NC_CHECK(c != nullptr);
     NC_CHECK(c->animation.hasCurve(ClipProperty::Opacity));
+    NC_CHECK(!c->animation.hasCurve(ClipProperty::Scale));
     NC_CHECK(nearly(c->animation.sample(ClipProperty::Opacity, Rational::make(1)), 0.5));
     // 撤销
     NC_CHECK(editor.undo().isOk());
