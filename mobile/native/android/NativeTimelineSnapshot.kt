@@ -63,31 +63,34 @@ data class NativeTimelineSnapshot(
 
                 val tracks = ArrayList<NativeTimelineTrack>()
                 for (trackIndex in 0 until sourceTracks.length()) {
-                    val sourceTrack = sourceTracks.optJSONObject(trackIndex) ?: continue
-                    val trackId = sourceTrack.longField("id") ?: continue
-                    if (trackId <= 0L) continue
-                    val hidden = sourceTrack.longField("hidden") ?: continue
-                    val muted = sourceTrack.longField("muted") ?: continue
+                    // BuildState preserves track/clip array indices by emitting {} when
+                    // an engine record cannot be read. Skipping that placeholder would
+                    // publish a plausible but incomplete timeline and could hide media.
+                    val sourceTrack = sourceTracks.optJSONObject(trackIndex) ?: return null
+                    val trackId = sourceTrack.longField("id")?.takeIf { it > 0L } ?: return null
+                    val hidden = sourceTrack.longField("hidden")?.takeIf { it in 0L..1L } ?: return null
+                    val muted = sourceTrack.longField("muted")?.takeIf { it in 0L..1L } ?: return null
+                    val sourceClips = sourceTrack.optJSONArray("clips") ?: return null
 
-                    val clips = ArrayList<NativeTimelineClip>()
-                    val sourceClips = sourceTrack.optJSONArray("clips")
-                    if (sourceClips != null) {
-                        for (clipIndex in 0 until sourceClips.length()) {
-                            val sourceClip = sourceClips.optJSONObject(clipIndex) ?: continue
-                            val clipId = sourceClip.longField("id") ?: continue
-                            val assetId = sourceClip.longField("asset_id") ?: 0L
-                            val startUs = sourceClip.longField("start_us") ?: continue
-                            val clipDurationUs = sourceClip.longField("duration_us") ?: continue
-                            val enabledValue = sourceClip.longField("enabled") ?: continue
-                            if (clipId <= 0L || startUs < 0L || clipDurationUs <= 0L) continue
-                            clips += NativeTimelineClip(
-                                id = clipId,
-                                startUs = startUs,
-                                durationUs = clipDurationUs,
-                                label = assetNames[assetId] ?: "片段 $clipId",
-                                enabled = enabledValue != 0L
-                            )
+                    val clips = ArrayList<NativeTimelineClip>(sourceClips.length())
+                    val clipIds = HashSet<Long>()
+                    for (clipIndex in 0 until sourceClips.length()) {
+                        val sourceClip = sourceClips.optJSONObject(clipIndex) ?: return null
+                        val clipId = sourceClip.longField("id")?.takeIf { it > 0L } ?: return null
+                        val assetId = sourceClip.longField("asset_id")?.takeIf { it >= 0L } ?: return null
+                        val startUs = sourceClip.longField("start_us")?.takeIf { it >= 0L } ?: return null
+                        val clipDurationUs = sourceClip.longField("duration_us")?.takeIf { it > 0L } ?: return null
+                        val enabledValue = sourceClip.longField("enabled")?.takeIf { it in 0L..1L } ?: return null
+                        if (startUs > Long.MAX_VALUE - clipDurationUs || !clipIds.add(clipId)) {
+                            return null
                         }
+                        clips += NativeTimelineClip(
+                            id = clipId,
+                            startUs = startUs,
+                            durationUs = clipDurationUs,
+                            label = assetNames[assetId] ?: "片段 $clipId",
+                            enabled = enabledValue == 1L
+                        )
                     }
 
                     tracks += NativeTimelineTrack(
