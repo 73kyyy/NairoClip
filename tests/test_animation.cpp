@@ -214,3 +214,35 @@ NC_TEST(Animation, EditorKeyframeWithUndo) {
     c = findClip(project, seqId, trackId, clipId);
     NC_CHECK_EQ(c->animation.findCurve(ClipProperty::Opacity)->size(), std::size_t(2));
 }
+
+
+NC_TEST(Animation, TransformInterpolationPreservesTurnsAndClampsOvershoot) {
+    ClipAnimation anim;
+
+    // Rotation is an unwrapped degree value: 0° -> 720° must travel two
+    // complete turns, not be normalized to the shortest angular distance.
+    NC_CHECK(anim.curve(ClipProperty::Rotation).insert(key(0, 0.0)).isOk());
+    NC_CHECK(anim.curve(ClipProperty::Rotation).insert(key(2, 720.0)).isOk());
+    NC_CHECK(nearly(anim.sample(ClipProperty::Rotation, Rational::make(1)), 360.0));
+    NC_CHECK(nearly(anim.sample(ClipProperty::Rotation, Rational::make(2)), 720.0));
+
+    // Bezier Y overshoot may exceed endpoint values, but the evaluated
+    // property must remain inside the same engine domain as direct edits.
+    ClipAnimation scaleAnim;
+    Keyframe scaleStart = key(0, transform_limits::kScaleMin);
+    scaleStart.easing = Easing::bezier(0.25, 2.0, 0.75, 2.0);
+    NC_CHECK(scaleAnim.curve(ClipProperty::Scale).insert(scaleStart).isOk());
+    NC_CHECK(scaleAnim.curve(ClipProperty::Scale)
+                 .insert(key(2, transform_limits::kScaleMax)).isOk());
+    NC_CHECK(nearly(scaleAnim.sample(ClipProperty::Scale, Rational::make(1)),
+                    transform_limits::kScaleMax));
+
+    ClipAnimation positionAnim;
+    Keyframe positionStart = key(0, transform_limits::kPositionMax);
+    positionStart.easing = Easing::bezier(0.25, 2.0, 0.75, 2.0);
+    NC_CHECK(positionAnim.curve(ClipProperty::PositionX).insert(positionStart).isOk());
+    NC_CHECK(positionAnim.curve(ClipProperty::PositionX)
+                 .insert(key(2, transform_limits::kPositionMin)).isOk());
+    NC_CHECK(nearly(positionAnim.sample(ClipProperty::PositionX, Rational::make(1)),
+                    transform_limits::kPositionMin));
+}
