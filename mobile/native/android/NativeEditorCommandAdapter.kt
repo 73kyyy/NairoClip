@@ -971,8 +971,14 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
                 ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
             if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
-            if (track.clips.none { it.id == fromClipId } || track.clips.none { it.id == toClipId }) {
-                return@withEditorStateLock Result(false, error = "转场两端片段必须位于同一目标轨道")
+            val fromClip = track.clips.firstOrNull { it.id == fromClipId }
+                ?: return@withEditorStateLock Result(false, error = "转场起始片段已不存在")
+            val toClip = track.clips.firstOrNull { it.id == toClipId }
+                ?: return@withEditorStateLock Result(false, error = "转场结束片段已不存在")
+            if (fromClip.startUs > Long.MAX_VALUE - fromClip.durationUs ||
+                fromClip.startUs + fromClip.durationUs != toClip.startUs
+            ) {
+                return@withEditorStateLock Result(false, error = "转场必须连接时间轴上首尾相接的相邻片段")
             }
             val count = readTransitionTypeCount()
             if (!count.ok || type !in 0 until (count.value ?: 0)) {
