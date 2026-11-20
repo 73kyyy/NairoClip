@@ -517,7 +517,7 @@ private fun NativeClipTransitionPanel(
     onRemove: ((Int, Long) -> Unit)?,
     modifier: Modifier = Modifier
 ) {
-    var selectedType by remember { mutableStateOf(types.firstOrNull()?.first ?: 0) }
+    var selectedType by remember(types) { mutableStateOf(types.firstOrNull()?.first ?: 0) }
     var durationText by remember { mutableStateOf("500000") }
     val focusManager = LocalFocusManager.current
     val current = transitions.filter { it.fromClipId == fromClipId || it.toClipId == fromClipId }
