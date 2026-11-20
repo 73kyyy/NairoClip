@@ -96,7 +96,9 @@ fun NativeEditorScreen(
     onDuplicateClip: ((Int, Long) -> Unit)? = null,
     onRippleDeleteClip: ((Int, Long) -> Unit)? = null,
     onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null,
-    onSpeedCurvePreset: ((Int, Long, Int) -> Unit)? = null
+    onSpeedCurvePreset: ((Int, Long, Int) -> Unit)? = null,
+    speedCurvePoints: List<NativeEditorCommandAdapter.SpeedCurvePoint> = emptyList(),
+    onSpeedCurveChanged: ((Int, Long, List<NativeEditorCommandAdapter.SpeedCurvePoint>) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -237,6 +239,19 @@ fun NativeEditorScreen(
                         onSpeedCurvePreset?.invoke(selectedTarget.first, selectedTarget.second, preset)
                     },
                     enabled = onSpeedCurvePreset != null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            if (activeTool == "剪辑" && activeSubTool == "变速曲线" &&
+                selectedTarget != null && onSpeedCurveChanged != null
+            ) {
+                NativeSpeedCurvePointPanel(
+                    clipId = selectedTarget.second,
+                    points = speedCurvePoints,
+                    onChange = { points ->
+                        onSpeedCurveChanged.invoke(selectedTarget.first, selectedTarget.second, points)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -546,6 +561,97 @@ enum class NativeParameter(val engineProperty: Int) {
     X(2),
     Y(3),
     ROTATION(4)
+}
+
+@Composable
+private fun NativeSpeedCurvePointPanel(
+    clipId: Long,
+    points: List<NativeEditorCommandAdapter.SpeedCurvePoint>,
+    onChange: (List<NativeEditorCommandAdapter.SpeedCurvePoint>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var draft by remember(clipId, points) { mutableStateOf(points) }
+    Column(
+        modifier = modifier
+            .background(NcColors.panel, RoundedCornerShape(12.dp))
+            .border(1.dp, NcColors.line, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("曲线控制点", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            Text("${draft.size}/256", color = NcColors.secondary, fontSize = 10.sp)
+            Text(
+                "＋ 添加",
+                color = if (draft.size < 256 && draft.size >= 2) NcColors.text else NcColors.muted,
+                fontSize = 10.sp,
+                modifier = Modifier.clickable(enabled = draft.size in 2 until 256) {
+                    val pair = draft.zipWithNext().firstOrNull { (a, b) ->
+                        b.sourceSeconds - a.sourceSeconds > 0.002
+                    }
+                    if (pair != null) {
+                        val (left, right) = pair
+                        val inserted = NativeEditorCommandAdapter.SpeedCurvePoint(
+                            sourceSeconds = (left.sourceSeconds + right.sourceSeconds) / 2.0,
+                            speed = (left.speed + right.speed) / 2.0,
+                            easing = 0
+                        )
+                        draft = (draft + inserted).sortedBy { it.sourceSeconds }
+                        onChange(draft)
+                    }
+                }
+            )
+        }
+        if (draft.isEmpty()) {
+            Text("当前片段没有自定义速度曲线。可选择上方预设，或从常规变速开始。", color = NcColors.secondary, fontSize = 10.sp)
+        } else {
+            draft.forEachIndexed { index, point ->
+                Column(
+                    modifier = Modifier.fillMaxWidth().background(NcColors.lane, RoundedCornerShape(8.dp)).padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("P${index + 1}  ·  ${String.format(Locale.US, "%.3f", point.sourceSeconds)} s",
+                            color = NcColors.text, fontSize = 10.sp)
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "缓动 ${listOf("线性", "缓入", "缓出", "缓入缓出", "阶梯").getOrElse(point.easing) { "未知" }}",
+                            color = NcColors.secondary,
+                            fontSize = 9.sp,
+                            modifier = Modifier.clickable {
+                                draft = draft.toMutableList().also {
+                                    it[index] = point.copy(easing = (point.easing + 1) % 5)
+                                }
+                                onChange(draft)
+                            }
+                        )
+                        if (draft.size > 2) {
+                            Text("删除", color = NcColors.secondary, fontSize = 9.sp,
+                                modifier = Modifier.padding(start = 10.dp).clickable {
+                                    draft = draft.toMutableList().also { it.removeAt(index) }
+                                    onChange(draft)
+                                })
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("速度", color = NcColors.secondary, fontSize = 9.sp)
+                        Slider(
+                            value = point.speed.toFloat().coerceIn(0.1f, 10f),
+                            onValueChange = { value ->
+                                draft = draft.toMutableList().also { it[index] = point.copy(speed = value.toDouble()) }
+                            },
+                            onValueChangeFinished = { onChange(draft) },
+                            valueRange = 0.1f..10f,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(String.format(Locale.US, "%.2f×", point.speed), color = NcColors.text, fontSize = 9.sp)
+                    }
+                }
+            }
+        }
+        Text("时间点按源素材秒数排序；速度范围与引擎曲线合同一致（0.1×–10×）。", color = NcColors.secondary, fontSize = 9.sp)
+    }
 }
 
 @Composable
