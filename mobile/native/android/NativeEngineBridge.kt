@@ -744,12 +744,19 @@ class NativeEngineBridge(
          * Render one project timestamp into the currently attached native Surface.
          * This is a synchronous frame render, not a playback clock or transport API.
          */
-        fun renderPreviewFrame(timeUs: Long): Boolean = synchronized(stateLock) {
-            if (timeUs < 0L) return@synchronized false
+        fun renderPreviewFrame(
+            timeUs: Long,
+            isRequestCurrent: () -> Boolean = { true }
+        ): Boolean = synchronized(stateLock) {
+            if (timeUs < 0L || !isRequestCurrent()) return@synchronized false
             val inst = instanceForSurface ?: return@synchronized false
             val handle = inst.editor
             if (handle == 0L) return@synchronized false
             try {
+                // Validate the Surface generation while holding the same lock
+                // that serializes JNI rendering and Surface detach/release.
+                // This closes the check-then-enter-JNI race during Surface teardown.
+                if (!isRequestCurrent()) return@synchronized false
                 inst.nativeBlitFrame(handle, timeUs)
             } catch (_: Throwable) {
                 false
