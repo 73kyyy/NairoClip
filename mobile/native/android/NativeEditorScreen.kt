@@ -45,10 +45,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -120,6 +123,8 @@ fun NativeEditorScreen(
     clipFilter: NativeEditorCommandAdapter.ClipFilterState? = null,
     onClipFilterChanged: ((Int, Long, Int, Double) -> Unit)? = null,
     clipLut: NativeEditorCommandAdapter.ClipLutState? = null,
+    clipColorGrade: NativeEditorCommandAdapter.ClipColorGradeState? = null,
+    onClipColorGradeChanged: ((Int, Long, NativeEditorCommandAdapter.ClipColorGradeState) -> Unit)? = null,
     onClipLutChanged: ((Int, Long, String, Double) -> Unit)? = null,
     onValidateClipLut: ((String) -> NativeEditorCommandAdapter.Result<NativeEditorCommandAdapter.LutValidationState>)? = null,
     clipMask: NativeEditorCommandAdapter.ClipMaskState? = null,
@@ -402,6 +407,20 @@ fun NativeEditorScreen(
                     )
                 } else {
                     Text("正在等待宿主读取当前片段的滤镜状态…", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
+
+            if (activeTool == "调节" && activeSubTool == "曲线" && selectedTarget != null) {
+                if (clipColorGrade != null && onClipColorGradeChanged != null) {
+                    NativeClipColorCurvePanel(
+                        state = clipColorGrade,
+                        onChange = { grade ->
+                            onClipColorGradeChanged.invoke(selectedTarget.first, selectedTarget.second, grade)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的 RGB 曲线状态…", color = NcColors.secondary, fontSize = 10.sp)
                 }
             }
 
@@ -1071,6 +1090,204 @@ private fun NativeClipLutPanel(
         }
         validationText?.let { Text(it, color = NcColors.secondary, fontSize = 9.sp) }
         Text("导入副本保存在应用私有目录并供工程持续引用；引擎仍负责校验 .cube 3D LUT（边长 2–64）。", color = NcColors.secondary, fontSize = 8.sp)
+    }
+}
+
+private fun NativeClipColorCurvePanel(
+    state: NativeEditorCommandAdapter.ClipColorGradeState,
+    onChange: (NativeEditorCommandAdapter.ClipColorGradeState) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val channels = listOf("master" to "主曲线", "red" to "红", "green" to "绿", "blue" to "蓝")
+    var channel by remember { mutableStateOf("master") }
+    val sourceCurve = when (channel) {
+        "red" -> state.red
+        "green" -> state.green
+        "blue" -> state.blue
+        else -> state.master
+    }
+    var points by remember(channel, sourceCurve) { mutableStateOf(sourceCurve.points) }
+    var selectedPoint by remember(channel) { mutableStateOf(1) }
+    val focusManager = LocalFocusManager.current
+    var inputX by remember(channel, selectedPoint, points) {
+        mutableStateOf(points.getOrNull(selectedPoint)?.first?.let { String.format(Locale.US, "%.3f", it) } ?: "0.500")
+    }
+    var outputY by remember(channel, selectedPoint, points) {
+        mutableStateOf(points.getOrNull(selectedPoint)?.second?.let { String.format(Locale.US, "%.3f", it) } ?: "0.500")
+    }
+
+    fun publish(next: List<Pair<Double, Double>>) {
+        points = next
+        val curve = NativeEditorCommandAdapter.ColorCurveState(next)
+        val grade = when (channel) {
+            "red" -> state.copy(red = curve)
+            "green" -> state.copy(green = curve)
+            "blue" -> state.copy(blue = curve)
+            else -> state.copy(master = curve)
+        }
+        if (grade.isValid()) onChange(grade)
+    }
+
+    fun commitNumericPoint() {
+        val old = points.getOrNull(selectedPoint) ?: return
+        val x = inputX.toDoubleOrNull()
+        val y = outputY.toDoubleOrNull()
+        if (x == null || y == null || !x.isFinite() || !y.isFinite() ||
+            y !in 0.0..1.0 || selectedPoint <= 0 || selectedPoint >= points.lastIndex) {
+            inputX = String.format(Locale.US, "%.3f", old.first)
+            outputY = String.format(Locale.US, "%.3f", old.second)
+            return
+        }
+        val minX = points[selectedPoint - 1].first + 0.001
+        val maxX = points[selectedPoint + 1].first - 0.001
+        if (minX > maxX || x !in minX..maxX) {
+            inputX = String.format(Locale.US, "%.3f", old.first)
+            outputY = String.format(Locale.US, "%.3f", old.second)
+            return
+        }
+        val updated = points.toMutableList().also { it[selectedPoint] = x to y }
+        publish(updated)
+    }
+
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("RGB 曲线调色", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text("主曲线先处理整体亮度，再依次处理红、绿、蓝通道；曲线变化直接进入核心预览与导出。", color = NcColors.secondary, fontSize = 9.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            channels.forEach { (id, label) ->
+                Text(
+                    label,
+                    color = if (channel == id) NcColors.text else NcColors.secondary,
+                    fontSize = 9.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(7.dp))
+                        .background(if (channel == id) NcColors.stage else NcColors.background)
+                        .clickable { channel = id; selectedPoint = 1 }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                )
+            }
+        }
+        Canvas(
+            modifier = Modifier.fillMaxWidth().height(174.dp)
+                .clip(RoundedCornerShape(8.dp)).background(NcColors.stage)
+                .pointerInput(channel, points) {
+                    detectDragGestures(
+                        onDragStart = { position ->
+                            val width = size.width.coerceAtLeast(1)
+                            val height = size.height.coerceAtLeast(1)
+                            selectedPoint = points.indices.minByOrNull { index ->
+                                val px = points[index].first * width
+                                val py = (1.0 - points[index].second) * height
+                                val dx = px - position.x
+                                val dy = py - position.y
+                                dx * dx + dy * dy
+                            } ?: 0
+                        },
+                        onDragEnd = { publish(points) },
+                        onDrag = { change, _ ->
+                            if (selectedPoint in 1 until points.lastIndex) {
+                                val width = size.width.coerceAtLeast(1)
+                                val height = size.height.coerceAtLeast(1)
+                                val minX = points[selectedPoint - 1].first + 0.001
+                                val maxX = points[selectedPoint + 1].first - 0.001
+                                if (minX <= maxX) {
+                                    val x = (change.position.x / width).toDouble().coerceIn(minX, maxX)
+                                    val y = (1.0 - change.position.y / height).coerceIn(0.0, 1.0)
+                                    points = points.toMutableList().also { it[selectedPoint] = x to y }
+                                    inputX = String.format(Locale.US, "%.3f", x)
+                                    outputY = String.format(Locale.US, "%.3f", y)
+                                }
+                            }
+                            change.consume()
+                        }
+                    )
+                }
+        ) {
+            val w = size.width
+            val h = size.height
+            for (i in 0..4) {
+                val x = w * i / 4f
+                val y = h * i / 4f
+                drawLine(NcColors.secondary.copy(alpha = 0.22f), Offset(x, 0f), Offset(x, h), 1f)
+                drawLine(NcColors.secondary.copy(alpha = 0.22f), Offset(0f, y), Offset(w, y), 1f)
+            }
+            val curvePath = Path()
+            points.forEachIndexed { index, point ->
+                val x = (point.first * w).toFloat()
+                val y = ((1.0 - point.second) * h).toFloat()
+                if (index == 0) curvePath.moveTo(x, y) else curvePath.lineTo(x, y)
+            }
+            drawPath(curvePath, NcColors.text, style = Stroke(width = 2.5f))
+            points.forEachIndexed { index, point ->
+                drawCircle(
+                    color = if (index == selectedPoint) NcColors.text else NcColors.secondary,
+                    radius = if (index == selectedPoint) 6f else 4f,
+                    center = Offset((point.first * w).toFloat(), ((1.0 - point.second) * h).toFloat())
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("控制点 ${selectedPoint + 1}/${points.size}", color = NcColors.text, fontSize = 9.sp, modifier = Modifier.weight(1f))
+            Text(
+                "添加点",
+                color = if (points.size < 32) NcColors.text else NcColors.secondary,
+                fontSize = 9.sp,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(NcColors.stage)
+                    .clickable {
+                        if (points.size < 32) {
+                            val gap = points.zipWithNext().mapIndexed { index, pair ->
+                                Triple(index, pair.first.first, pair.second.first)
+                            }.maxByOrNull { it.third - it.second }
+                            if (gap != null) {
+                                val x = (gap.second + gap.third) / 2.0
+                                val y = (points[gap.first].second + points[gap.first + 1].second) / 2.0
+                                val updated = points.toMutableList().apply { add(gap.first + 1, x to y) }
+                                selectedPoint = gap.first + 1
+                                publish(updated)
+                            }
+                        }
+                    }.padding(horizontal = 9.dp, vertical = 6.dp)
+            )
+            Text(
+                "删除点",
+                color = if (selectedPoint in 1 until points.lastIndex) NcColors.text else NcColors.secondary,
+                fontSize = 9.sp,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(NcColors.stage)
+                    .clickable {
+                        if (selectedPoint in 1 until points.lastIndex) {
+                            val updated = points.toMutableList().also { it.removeAt(selectedPoint) }
+                            selectedPoint = (selectedPoint - 1).coerceIn(1, updated.lastIndex - 1)
+                            publish(updated)
+                        }
+                    }.padding(horizontal = 9.dp, vertical = 6.dp)
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("输入 X", color = NcColors.secondary, fontSize = 9.sp)
+            BasicTextField(
+                value = inputX,
+                onValueChange = { inputX = it.take(8) },
+                modifier = Modifier.width(62.dp).background(NcColors.stage, RoundedCornerShape(5.dp))
+                    .padding(6.dp).onFocusChanged { if (!it.isFocused) commitNumericPoint() },
+                singleLine = true,
+                textStyle = TextStyle(color = NcColors.text, fontSize = 10.sp, textAlign = TextAlign.End),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+            )
+            Text("输出 Y", color = NcColors.secondary, fontSize = 9.sp)
+            BasicTextField(
+                value = outputY,
+                onValueChange = { outputY = it.take(8) },
+                modifier = Modifier.width(62.dp).background(NcColors.stage, RoundedCornerShape(5.dp))
+                    .padding(6.dp).onFocusChanged { if (!it.isFocused) commitNumericPoint() },
+                singleLine = true,
+                textStyle = TextStyle(color = NcColors.text, fontSize = 10.sp, textAlign = TextAlign.End),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+            )
+        }
+        Text("首尾端点固定为 (0,0)/(1,1)，内部点 X 必须严格递增；每条曲线最多 32 个点。", color = NcColors.secondary, fontSize = 8.sp)
     }
 }
 
