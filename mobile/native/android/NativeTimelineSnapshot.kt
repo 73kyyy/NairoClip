@@ -82,6 +82,10 @@ data class NativeTimelineSnapshot(
                         val startUs = sourceClip.longField("start_us")?.takeIf { it >= 0L } ?: return null
                         val clipDurationUs = sourceClip.longField("duration_us")?.takeIf { it > 0L } ?: return null
                         val enabledValue = sourceClip.longField("enabled")?.takeIf { it in 0L..1L } ?: return null
+                        val speedNumerator = sourceClip.longField("speed_num")?.takeIf { it > 0L } ?: return null
+                        val speedDenominator = sourceClip.longField("speed_den")?.takeIf { it > 0L } ?: return null
+                        val speed = speedNumerator.toDouble() / speedDenominator.toDouble()
+                        if (!speed.isFinite() || speed !in 0.1..100.0) return null
                         if (startUs > Long.MAX_VALUE - clipDurationUs || !clipIds.add(clipId)) {
                             return null
                         }
@@ -90,7 +94,9 @@ data class NativeTimelineSnapshot(
                             startUs = startUs,
                             durationUs = clipDurationUs,
                             label = assetNames[assetId] ?: "片段 $clipId",
-                            enabled = enabledValue == 1L
+                            enabled = enabledValue == 1L,
+                            speedNumerator = speedNumerator,
+                            speedDenominator = speedDenominator
                         )
                     }
 
