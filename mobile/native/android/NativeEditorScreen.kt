@@ -97,11 +97,11 @@ fun NativeEditorScreen(
     onRippleDeleteClip: ((Int, Long) -> Unit)? = null,
     onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null,
     onSpeedCurvePreset: ((Int, Long, Int) -> Unit)? = null,
-    speedCurvePoints: List<NativeEditorCommandAdapter.SpeedCurvePoint> = emptyList(),
+    speedCurvePoints: List<NativeEditorCommandAdapter.SpeedCurvePoint>? = null,
     onSpeedCurveChanged: ((Int, Long, List<NativeEditorCommandAdapter.SpeedCurvePoint>) -> Unit)? = null,
-    clipAudio: NativeEditorCommandAdapter.ClipAudioState = NativeEditorCommandAdapter.ClipAudioState(0.0, 0L, 0L),
+    clipAudio: NativeEditorCommandAdapter.ClipAudioState? = null,
     onClipAudioChanged: ((Int, Long, NativeEditorCommandAdapter.ClipAudioState) -> Unit)? = null,
-    clipDenoiseStrength: Int = 0,
+    clipDenoiseStrength: Int? = null,
     onClipDenoiseChanged: ((Int, Long, Int) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
@@ -250,42 +250,54 @@ fun NativeEditorScreen(
             if (activeTool == "剪辑" && activeSubTool == "变速曲线" &&
                 selectedTarget != null && onSpeedCurveChanged != null
             ) {
-                NativeSpeedCurvePointPanel(
-                    clipId = selectedTarget.second,
-                    points = speedCurvePoints,
-                    onChange = { points ->
-                        onSpeedCurveChanged.invoke(selectedTarget.first, selectedTarget.second, points)
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (speedCurvePoints != null) {
+                    NativeSpeedCurvePointPanel(
+                        clipId = selectedTarget.second,
+                        points = speedCurvePoints,
+                        onChange = { points ->
+                            onSpeedCurveChanged.invoke(selectedTarget.first, selectedTarget.second, points)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的速度曲线…", color = NcColors.secondary, fontSize = 10.sp)
+                }
             }
 
             if (activeTool == "音频" && activeSubTool in setOf("音量", "淡入淡出") &&
                 selectedTarget != null && onClipAudioChanged != null
             ) {
-                NativeClipAudioPanel(
-                    clipId = selectedTarget.second,
-                    durationUs = selectedItemDuration(timelineTracks, selectedTarget),
-                    audio = clipAudio,
-                    showGain = activeSubTool == "音量",
-                    showFades = activeSubTool == "淡入淡出",
-                    onChange = { audio ->
-                        onClipAudioChanged.invoke(selectedTarget.first, selectedTarget.second, audio)
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (clipAudio != null) {
+                    NativeClipAudioPanel(
+                        clipId = selectedTarget.second,
+                        durationUs = selectedItemDuration(timelineTracks, selectedTarget),
+                        audio = clipAudio,
+                        showGain = activeSubTool == "音量",
+                        showFades = activeSubTool == "淡入淡出",
+                        onChange = { audio ->
+                            onClipAudioChanged.invoke(selectedTarget.first, selectedTarget.second, audio)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的音频参数…", color = NcColors.secondary, fontSize = 10.sp)
+                }
             }
 
             if (activeTool == "音频" && activeSubTool == "降噪" &&
                 selectedTarget != null && onClipDenoiseChanged != null
             ) {
-                NativeClipDenoisePanel(
-                    strength = clipDenoiseStrength,
-                    onChange = { strength ->
-                        onClipDenoiseChanged.invoke(selectedTarget.first, selectedTarget.second, strength)
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (clipDenoiseStrength != null) {
+                    NativeClipDenoisePanel(
+                        strength = clipDenoiseStrength,
+                        onChange = { strength ->
+                            onClipDenoiseChanged.invoke(selectedTarget.first, selectedTarget.second, strength)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的降噪状态…", color = NcColors.secondary, fontSize = 10.sp)
+                }
             }
 
             LegacyTransportFallback(onOpenLegacy)
