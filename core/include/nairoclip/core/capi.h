@@ -1230,6 +1230,8 @@ int32_t nc_adjustment_get(const NcEditor* editor, int32_t track_index,
 // ---- 关键帧 ----
 
 /// 插入关键帧（property 见 ClipProperty 枚举值：0=Opacity..5=Volume）。
+/// value 必须为有限数值，并符合对应 ClipProperty 的 propertySpec 范围；
+/// 画面变换通道 Scale 为 0.05..10，PositionX/Y 为 -10..10，Rotation 为 -3600..3600 度。
 int32_t nc_insert_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                            int32_t property, int64_t time_us, double value);
 
