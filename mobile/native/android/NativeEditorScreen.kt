@@ -597,7 +597,7 @@ private fun NativeParameterPanel(
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.weight(1f))
-            Text("关键帧 ${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
+            Text(if (activeSubTool == "锚点") "3×3 九宫格预设" else "关键帧 ${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
         }
         if (activeSubTool == "位置") {
             Text(
