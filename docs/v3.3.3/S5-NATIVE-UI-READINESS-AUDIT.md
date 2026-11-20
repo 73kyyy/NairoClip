@@ -618,3 +618,11 @@
 - 面板只通过 `clipColorGrade` 状态和 `onClipColorGradeChanged` 回调工作；缺少宿主注入时明确显示等待状态，不伪造本地成功或绕过核心命令。
 - 面板当前未接入 Activity/ViewModel 的状态加载与回调，也未启用正式原生入口；因此源码组件完成不等于 Android 运行时已切换。
 - 色轮仍未实现；不把 RGB 曲线误称为完整调色套件。本轮未执行 Compose/Gradle 编译、测试或真机交互验证。
+
+
+## 44. RGB 曲线 C ABI 边界测试补强（2026-11-20）
+
+- 补充重复提交同一组曲线的 no-op 断言，确保不会生成“撤销后看似无变化”的空历史记录。
+- 补充空指针写入拒绝与输出缓冲区容量不足错误码断言。
+- 原生曲线图拖动手势改用 `rememberUpdatedState` 读取最新控制点，不再把每帧变化的 points 作为 `pointerInput` key，避免拖动过程中手势协程因状态更新而被取消。
+- 仍未替代真实 Android 编译与仪器测试；需在 Compose/NDK 构建环境验证手势、键盘焦点和 JNI 数据传递。
