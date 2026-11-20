@@ -98,7 +98,11 @@ fun NativeEditorScreen(
     onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null,
     onSpeedCurvePreset: ((Int, Long, Int) -> Unit)? = null,
     speedCurvePoints: List<NativeEditorCommandAdapter.SpeedCurvePoint> = emptyList(),
-    onSpeedCurveChanged: ((Int, Long, List<NativeEditorCommandAdapter.SpeedCurvePoint>) -> Unit)? = null
+    onSpeedCurveChanged: ((Int, Long, List<NativeEditorCommandAdapter.SpeedCurvePoint>) -> Unit)? = null,
+    clipAudio: NativeEditorCommandAdapter.ClipAudioState = NativeEditorCommandAdapter.ClipAudioState(0.0, 0L, 0L),
+    onClipAudioChanged: ((Int, Long, NativeEditorCommandAdapter.ClipAudioState) -> Unit)? = null,
+    clipDenoiseStrength: Int = 0,
+    onClipDenoiseChanged: ((Int, Long, Int) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -256,6 +260,34 @@ fun NativeEditorScreen(
                 )
             }
 
+            if (activeTool == "音频" && activeSubTool in setOf("音量", "淡入淡出") &&
+                selectedTarget != null && onClipAudioChanged != null
+            ) {
+                NativeClipAudioPanel(
+                    clipId = selectedTarget.second,
+                    durationUs = selectedItemDuration(timelineTracks, selectedTarget),
+                    audio = clipAudio,
+                    showGain = activeSubTool == "音量",
+                    showFades = activeSubTool == "淡入淡出",
+                    onChange = { audio ->
+                        onClipAudioChanged.invoke(selectedTarget.first, selectedTarget.second, audio)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            if (activeTool == "音频" && activeSubTool == "降噪" &&
+                selectedTarget != null && onClipDenoiseChanged != null
+            ) {
+                NativeClipDenoisePanel(
+                    strength = clipDenoiseStrength,
+                    onChange = { strength ->
+                        onClipDenoiseChanged.invoke(selectedTarget.first, selectedTarget.second, strength)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             LegacyTransportFallback(onOpenLegacy)
 
             NativeToolBar(
@@ -300,6 +332,16 @@ fun NativeEditorScreen(
                         }
                         tool == "剪辑" && subTool == "变速曲线" && selectedTarget != null &&
                             (onSpeedCurvePreset != null || onSpeedCurveChanged != null) -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
+                        tool == "音频" && subTool in setOf("音量", "淡入淡出") &&
+                            selectedTarget != null && onClipAudioChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
+                        tool == "音频" && subTool == "降噪" &&
+                            selectedTarget != null && onClipDenoiseChanged != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
@@ -561,6 +603,90 @@ enum class NativeParameter(val engineProperty: Int) {
     X(2),
     Y(3),
     ROTATION(4)
+}
+
+private fun selectedItemDuration(
+    tracks: List<NativeTimelineTrack>,
+    target: Pair<Int, Long>
+): Long = tracks.firstOrNull { it.engineIndex == target.first }
+    ?.clips?.firstOrNull { it.id == target.second }?.durationUs ?: 0L
+
+@Composable
+private fun NativeClipAudioPanel(
+    clipId: Long,
+    durationUs: Long,
+    audio: NativeEditorCommandAdapter.ClipAudioState,
+    showGain: Boolean,
+    showFades: Boolean,
+    onChange: (NativeEditorCommandAdapter.ClipAudioState) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var gain by remember(clipId, audio.gainDb) { mutableStateOf(audio.gainDb.toFloat().coerceIn(-60f, 12f)) }
+    var fadeIn by remember(clipId, audio.fadeInUs, durationUs) {
+        mutableStateOf(audio.fadeInUs.coerceIn(0L, durationUs))
+    }
+    var fadeOut by remember(clipId, audio.fadeOutUs, durationUs) {
+        mutableStateOf(audio.fadeOutUs.coerceIn(0L, durationUs))
+    }
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp))
+            .border(1.dp, NcColors.line, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (showGain) {
+            Text("片段音量", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Slider(value = gain, onValueChange = { gain = it },
+                    onValueChangeFinished = { onChange(audio.copy(gainDb = gain.toDouble())) },
+                    valueRange = -60f..12f, modifier = Modifier.weight(1f))
+                Text(String.format(Locale.US, "%.1f dB", gain), color = NcColors.text, fontSize = 10.sp)
+            }
+        }
+        if (showFades) {
+            Text("淡入淡出", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("淡入与淡出总时长不能超过片段时长。", color = NcColors.secondary, fontSize = 9.sp)
+            Text("淡入  ${String.format(Locale.US, "%.2f", fadeIn / 1_000_000.0)} s",
+                color = NcColors.text, fontSize = 10.sp)
+            Slider(value = fadeIn.toFloat(), onValueChange = {
+                fadeIn = it.toLong().coerceIn(0L, (durationUs - fadeOut).coerceAtLeast(0L))
+            }, onValueChangeFinished = {
+                onChange(audio.copy(fadeInUs = fadeIn, fadeOutUs = fadeOut))
+            }, valueRange = 0f..durationUs.toFloat().coerceAtLeast(1f))
+            Text("淡出  ${String.format(Locale.US, "%.2f", fadeOut / 1_000_000.0)} s",
+                color = NcColors.text, fontSize = 10.sp)
+            Slider(value = fadeOut.toFloat(), onValueChange = {
+                fadeOut = it.toLong().coerceIn(0L, (durationUs - fadeIn).coerceAtLeast(0L))
+            }, onValueChangeFinished = {
+                onChange(audio.copy(fadeInUs = fadeIn, fadeOutUs = fadeOut))
+            }, valueRange = 0f..durationUs.toFloat().coerceAtLeast(1f))
+        }
+    }
+}
+
+@Composable
+private fun NativeClipDenoisePanel(
+    strength: Int,
+    onChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val labels = listOf("关闭", "弱", "中", "强")
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp))
+            .border(1.dp, NcColors.line, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("音频降噪", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            labels.forEachIndexed { index, label ->
+                Text(label, color = if (strength == index) NcColors.text else NcColors.secondary,
+                    fontSize = 10.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (strength == index) Color(0xFF3A3D40) else NcColors.lane)
+                        .clickable { onChange(index) }.padding(horizontal = 13.dp, vertical = 9.dp))
+            }
+        }
+        Text("0 关闭 · 1 弱 · 2 中 · 3 强；实际降噪由引擎处理。", color = NcColors.secondary, fontSize = 9.sp)
+    }
 }
 
 @Composable
