@@ -34,6 +34,13 @@
 6. 拖动期间可更新本地草稿，手势结束时提交一次可撤销命令，避免每个指针采样点都产生撤销记录。
 7. 所有平台的静态变换、关键帧、预览与导出必须遵循相同单位和硬边界。
 
+
+## 4. 跨功能复用规则
+
+本表是 **ClipTransform** 的规范。其它效果（例如几何效果栈中的 Offset、Stretch、Spin）如果具有不同的物理含义或归一化方式，必须在其功能契约中明确单位、常用范围、精确输入范围和硬边界；不得只因名称同为 X/Y/Scale/Rotation 就盲目套用 ClipTransform 的数值。若它表达的是同一种画面位置、缩放或旋转属性，则必须复用本规范或在边界层做明确、可测试的单位转换。
+
+当前 `XformParams` 的效果栈有独立语义：`value` 是效果强度（0..2），`angle/phase` 使用弧度并归一化到一个完整圆周，`freq` 是频率，`anchor` 与 `ClipTransform` 共用同一九宫格索引（0..8，中心 4）。因此，效果栈的角度不能直接套用 ClipTransform 的度数边界；只有确实表示片段画面旋转的属性才使用 `-3600°..3600°`。所有浮点参数必须在进入渲染矩阵前完成有限值处理，不能让 NaN/Infinity 传播到仿射计算。`XformParams::clamp()` 对非有限值采用确定性中性回退，并复用核心锚点常量。
+
 ## 4. 跨功能复用规则
 
 本表是 **ClipTransform** 的规范。其它效果（例如几何效果栈中的 Offset、Stretch、Spin）如果具有不同的物理含义或归一化方式，必须在其功能契约中明确单位、常用范围、精确输入范围和硬边界；不得只因名称同为 X/Y/Scale/Rotation 就盲目套用 ClipTransform 的数值。若它表达的是同一种画面位置、缩放或旋转属性，则必须复用本规范或在边界层做明确、可测试的单位转换。
@@ -47,6 +54,3 @@
 ## 6. 未来扩展
 
 如需自由锚点、负缩放镜像、非等比 X/Y 缩放、像素单位位置或更大角度范围，必须先升级跨平台核心模型和项目序列化版本，再升级 C ABI 与各端 UI；不能仅扩大某一端滑块范围。
-
-### Core implementation invariant
-- C++ static `ClipTransform` validation and animation `PropertySpec` for Scale/X/Y/Rotation must both consume `core/include/nairoclip/core/transform_limits.h`. Tests must compare the property specs to those constants rather than repeat numeric literals.
