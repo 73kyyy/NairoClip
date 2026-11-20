@@ -914,13 +914,32 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
            times[] / speeds[] / easing，**不是** points:[{t,v,e}]。
            旧实现只扫 points → 永远拿不到点 → 报「至少需要 2 个控制点」，
            速度曲线功能完全不可用。这里先试 points，再回退 times/speeds。 */
-        std::vector<double> fTimes, fSpeeds;
+        std::vector<double> fTimes, fSpeeds, fEasings;
         if (JVecDouble(a, "times", &fTimes) && JVecDouble(a, "speeds", &fSpeeds) &&
             fTimes.size() >= 2 && fTimes.size() == fSpeeds.size()) {
-            const int32_t ease = static_cast<int32_t>(JInt(a, "easing", 0));
             ts = fTimes;
             vs = fSpeeds;
-            es.assign(fTimes.size(), ease);
+            if (JVecDouble(a, "easings", &fEasings)) {
+                if (fEasings.size() != fTimes.size()) {
+                    *out = Err("速度曲线缓动数组长度与控制点不一致");
+                    return true;
+                }
+                for (double easing : fEasings) {
+                    if (!std::isfinite(easing) || std::floor(easing) != easing ||
+                        easing < 0.0 || easing > 4.0) {
+                        *out = Err("速度曲线缓动类型非法");
+                        return true;
+                    }
+                    es.push_back(static_cast<int32_t>(easing));
+                }
+            } else {
+                const int32_t ease = static_cast<int32_t>(JInt(a, "easing", 0));
+                if (ease < 0 || ease > 4) {
+                    *out = Err("速度曲线缓动类型非法");
+                    return true;
+                }
+                es.assign(fTimes.size(), ease);
+            }
         }
         size_t p = a.find("\"points\"");
         if (ts.empty() && p != std::string::npos) {
