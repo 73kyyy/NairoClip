@@ -531,6 +531,45 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                   ",\"enabled\":" + std::to_string(enabled) + "}");
         return true;
     }
+    if (op == "color_grade_set") {
+        if (ti < 0 || cid == 0) { *out = Err("缺少颜色曲线目标片段"); return true; }
+        std::vector<double> master, red, green, blue;
+        if (!JVecDouble(a, "master", &master) || !JVecDouble(a, "red", &red) ||
+            !JVecDouble(a, "green", &green) || !JVecDouble(a, "blue", &blue) ||
+            master.size() % 2 != 0 || red.size() % 2 != 0 ||
+            green.size() % 2 != 0 || blue.size() % 2 != 0) {
+            *out = Err("RGB 曲线数组格式非法"); return true;
+        }
+        const int32_t rc = nc_set_clip_color_grade(
+            ed, ti, cid, master.data(), static_cast<int32_t>(master.size() / 2),
+            red.data(), static_cast<int32_t>(red.size() / 2),
+            green.data(), static_cast<int32_t>(green.size() / 2),
+            blue.data(), static_cast<int32_t>(blue.size() / 2));
+        *out = rc == NC_OK ? Ok("") : Err("设置 RGB 曲线失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "color_grade_get") {
+        if (ti < 0 || cid == 0) { *out = Err("缺少颜色曲线目标片段"); return true; }
+        double master[64] = {}, red[64] = {}, green[64] = {}, blue[64] = {};
+        int32_t mc = 0, rcnt = 0, gc = 0, bc = 0;
+        const int32_t rc = nc_get_clip_color_grade(
+            ed, ti, cid, master, 64, &mc, red, 64, &rcnt,
+            green, 64, &gc, blue, 64, &bc);
+        if (rc != NC_OK) { *out = Err("读取 RGB 曲线失败，错误码 " + std::to_string(rc)); return true; }
+        const auto arrayJson = [](const double* values, int32_t count) {
+            std::string result = "[";
+            for (int32_t i = 0; i < count * 2; ++i) {
+                if (i) result += ",";
+                result += Num(values[i]);
+            }
+            return result + "]";
+        };
+        *out = Ok("{\"master\":" + arrayJson(master, mc) +
+                  ",\"red\":" + arrayJson(red, rcnt) +
+                  ",\"green\":" + arrayJson(green, gc) +
+                  ",\"blue\":" + arrayJson(blue, bc) + "}");
+        return true;
+    }
     if (op == "lut") {
         const std::string path = JStrField(a, "path");
         const int32_t rc = nc_set_clip_lut(ed, ti, cid, path.c_str(),
