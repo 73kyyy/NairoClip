@@ -1105,7 +1105,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
     if (op == "nc_get_clip_denoise") {
         const int32_t strength = nc_get_clip_denoise(ed, ti, cid);
         if (strength < 0) { *out = Err("读取降噪强度失败"); return true; }
-        *out = Ok("{\\"strength\\":" + std::to_string(strength) + "}");
+        *out = Ok("{\"strength\":" + std::to_string(strength) + "}");
         return true;
     }
     if (op == "denoise" || op == "nc_set_clip_denoise") {
