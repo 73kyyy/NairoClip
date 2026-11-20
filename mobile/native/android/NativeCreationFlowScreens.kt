@@ -2,6 +2,7 @@ package com.nairoclip.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -269,18 +271,26 @@ fun NativeAIEditWizardScreen(
     videos: List<NativeTemplateAsset>,
     music: List<NativeAIMusic>,
     selectedMusicId: Long?,
+    style: String,
+    order: String,
     slots: List<NativeAISlot>,
     intensity: Float,
     overlayAssetId: Long?,
+    overlayMode: String,
+    overlayBlend: Int,
     generating: Boolean,
     errorMessage: String?,
     onBack: () -> Unit,
     onSelectReference: (Long) -> Unit,
     onAnalyze: () -> Unit,
     onSelectMusic: (Long?) -> Unit,
+    onStyleChanged: (String) -> Unit,
+    onOrderChanged: (String) -> Unit,
     onSelectSlotAsset: (Int, Long?) -> Unit,
     onIntensityChanged: (Float) -> Unit,
     onSelectOverlay: (Long?) -> Unit,
+    onOverlayModeChanged: (String) -> Unit,
+    onOverlayBlendChanged: (Int) -> Unit,
     onNext: () -> Unit,
     onGenerate: () -> Unit,
     modifier: Modifier = Modifier
@@ -317,7 +327,25 @@ fun NativeAIEditWizardScreen(
                     }
                 }
                 2 -> {
-                    item { Text("镜头分析结果", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                    item {
+                        Text("作品风格", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        listOf(
+                            "smooth" to "丝滑运镜",
+                            "effect" to "画面特效",
+                            "curve" to "丝滑变速"
+                        ).forEach { (value, label) ->
+                            TextButton(onClick = { onStyleChanged(value) }) {
+                                Text(if (style == value) "✓ $label" else label, color = if (style == value) Color.White else Color(0xFF9B9FA2))
+                            }
+                        }
+                        Text("超燃强度", color = Color(0xFFB9BEC1), fontSize = 12.sp)
+                        androidx.compose.material3.Slider(
+                            value = intensity.takeIf { it.isFinite() }?.coerceIn(0.2f, 1f) ?: 0.6f,
+                            onValueChange = onIntensityChanged,
+                            valueRange = 0.2f..1f
+                        )
+                        Text("镜头分析结果", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+                    }
                     if (shots.isEmpty()) item { Text("暂无分析结果，请返回重新分析。", color = Color(0xFF858B8F)) }
                     items(shots, key = { it.index }) { shot ->
                         val confidence = shot.confidence.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0)
@@ -356,13 +384,22 @@ fun NativeAIEditWizardScreen(
                     }
                 }
                 4 -> {
-                    item { Text("填充镜头素材", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                    item {
+                        Text("填充镜头素材", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("smart" to "智能排序", "original" to "原有顺序").forEach { (value, label) ->
+                                TextButton(onClick = { onOrderChanged(value) }) {
+                                    Text(if (order == value) "✓ $label" else label, color = if (order == value) Color.White else Color(0xFF9B9FA2))
+                                }
+                            }
+                        }
+                    }
                     item {
                         Text("剪辑强度", color = Color(0xFFB9BEC1), fontSize = 12.sp)
                         androidx.compose.material3.Slider(
-                            value = intensity.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+                            value = intensity.takeIf { it.isFinite() }?.coerceIn(0.2f, 1f) ?: 0.6f,
                             onValueChange = onIntensityChanged,
-                            valueRange = 0f..1f
+                            valueRange = 0.2f..1f
                         )
                     }
                     items(slots, key = { it.index }) { slot ->
@@ -390,6 +427,7 @@ fun NativeAIEditWizardScreen(
                     }
                     item {
                         var overlayMenu by remember { mutableStateOf(false) }
+                        var blendMenu by remember { mutableStateOf(false) }
                         TextButton(onClick = { overlayMenu = true }) {
                             Text("叠加素材：${videos.firstOrNull { it.id == overlayAssetId }?.name ?: "不添加"}")
                         }
@@ -397,6 +435,25 @@ fun NativeAIEditWizardScreen(
                             DropdownMenuItem(text = { Text("不添加叠加素材") }, onClick = { overlayMenu = false; onSelectOverlay(null) })
                             videos.forEach { asset ->
                                 DropdownMenuItem(text = { Text(asset.name) }, onClick = { overlayMenu = false; onSelectOverlay(asset.id) })
+                            }
+                        }
+                        Text("叠层铺设范围", color = Color(0xFFB9BEC1), fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                            listOf("few" to "少（约 1/3）", "mid" to "中（约 2/3）", "all" to "全部镜头").forEach { (value, label) ->
+                                TextButton(onClick = { onOverlayModeChanged(value) }) {
+                                    Text(if (overlayMode == value) "✓ $label" else label, color = if (overlayMode == value) Color.White else Color(0xFF9B9FA2))
+                                }
+                            }
+                        }
+                        TextButton(onClick = { blendMenu = true }) {
+                            Text("混合模式：${when (overlayBlend) { 0 -> "正常"; 1 -> "滤色"; 2 -> "叠加"; 4 -> "强光"; 5 -> "正片叠底"; 6 -> "变亮"; 11 -> "柔光"; 14 -> "差值"; else -> "未知" }}")
+                        }
+                        DropdownMenu(expanded = blendMenu, onDismissRequest = { blendMenu = false }) {
+                            listOf(0 to "正常", 1 to "滤色（光效常用）", 2 to "叠加", 4 to "强光", 5 to "正片叠底", 6 to "变亮", 11 to "柔光", 14 to "差值").forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = { blendMenu = false; onOverlayBlendChanged(value) }
+                                )
                             }
                         }
                     }
