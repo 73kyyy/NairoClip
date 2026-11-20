@@ -38,7 +38,8 @@ data class NativeTimelineTrack(
     val clips: List<NativeTimelineClip> = emptyList(),
     val visible: Boolean = true,
     val muted: Boolean = false,
-    val engineIndex: Int = -1
+    val engineIndex: Int = -1,
+    val locked: Boolean = false
 )
 
 class NativeTimelineView(context: Context) : View(context) {
