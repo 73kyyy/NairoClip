@@ -348,6 +348,29 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
      * Callers must convert project time using the selected clip's start and
      * playback speed before invoking this API.
      */
+    /**
+     * Transform keyframes store scale as a unit multiplier (not UI percent).
+     * Keep generic insert/read paths aligned with static transform hard bounds,
+     * so callers cannot bypass validation by avoiding insertTransformKeyframe.
+     */
+    private fun transformKeyframeValueError(property: Int, value: Double): String? {
+        if (!value.isFinite()) return "关键帧值必须是有限数值"
+        return when (property) {
+            NativeParameter.SCALE.engineProperty -> {
+                val min = NativeTransformRange.SCALE_MIN_PERCENT.toDouble() / 100.0
+                val max = NativeTransformRange.SCALE_MAX_PERCENT.toDouble() / 100.0
+                if (value !in min..max) "缩放关键帧引擎值必须在 0.05..10.0（5%–1000%）范围内" else null
+            }
+            NativeParameter.X.engineProperty, NativeParameter.Y.engineProperty ->
+                if (value !in NativeTransformRange.POSITION_MIN.toDouble()..NativeTransformRange.POSITION_MAX.toDouble())
+                    "位置关键帧必须在 -10..10 范围内" else null
+            NativeParameter.ROTATION.engineProperty ->
+                if (value !in NativeTransformRange.ROTATION_MIN_DEGREES.toDouble()..NativeTransformRange.ROTATION_MAX_DEGREES.toDouble())
+                    "旋转关键帧必须在 -3600°..3600° 范围内" else null
+            else -> null
+        }
+    }
+
     fun insertKeyframe(
         target: ClipTarget,
         property: Int,
@@ -356,6 +379,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     ): Result<Unit> {
         if (property !in 0..5 || clipLocalTimeUs < 0L || !value.isFinite()) {
             return Result(false, error = "关键帧参数非法")
+        }
+        transformKeyframeValueError(property, value)?.let {
+            return Result(false, error = it)
         }
         return invoke(
             "nc_insert_keyframe",
@@ -452,6 +478,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                     c2y = payload.optDouble("c2y", 1.0)
                 ).also { frame ->
                     require(frame.timeUs >= 0L && frame.value.isFinite())
+                    transformKeyframeValueError(parameter.engineProperty, frame.value)?.let {
+                        throw IllegalArgumentException(it)
+                    }
                     require(frame.easing in 0..5)
                     require(frame.c1x.isFinite() && frame.c1y.isFinite())
                     require(frame.c2x.isFinite() && frame.c2y.isFinite())
