@@ -484,11 +484,24 @@ class NativeEngineBridge(
     private fun renderDataUrl(
         a: Long, width: Int, isThumb: Boolean, thumbIndex: Int
     ): String {
-        val raw: ByteArray = try {
-            if (isThumb) nativeThumb(ensure(), a, thumbIndex, width.coerceIn(16, 1024))
-            else nativeFrame(ensure(), a, width.coerceIn(16, 2048))
-        } catch (e: Throwable) {
-            ByteArray(0)
+        // Acquire the editor handle and execute JNI under the same lifecycle
+        // monitor used by release()/nativeDestroy(). Previously ensure() returned
+        // a handle before the JNI call, leaving a window in which release() could
+        // destroy it and the render path could then use a stale native handle.
+        // Keep bitmap allocation and PNG encoding outside the monitor.
+        val raw: ByteArray = synchronized(stateLock) {
+            try {
+                val handle = ensure()
+                if (handle == 0L) {
+                    ByteArray(0)
+                } else if (isThumb) {
+                    nativeThumb(handle, a, thumbIndex, width.coerceIn(16, 1024))
+                } else {
+                    nativeFrame(handle, a, width.coerceIn(16, 2048))
+                }
+            } catch (e: Throwable) {
+                ByteArray(0)
+            }
         }
         return rgbaToDataUrl(raw)
     }
