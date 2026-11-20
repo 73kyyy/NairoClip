@@ -1,6 +1,8 @@
 package com.nairoclip.app
 
 import android.view.View
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -36,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +50,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
@@ -60,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * First native editor surface for the S5 migration.
@@ -923,6 +928,9 @@ private fun NativeClipLutPanel(
         mutableStateOf(String.format(Locale.US, "%.2f", state.strength))
     }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val importScope = rememberCoroutineScope()
+    var importStatus by remember { mutableStateOf<String?>(null) }
     var validationText by remember(path) { mutableStateOf<String?>(null) }
     fun applyValidatedLut() {
         if (path.isBlank()) {
@@ -940,12 +948,41 @@ private fun NativeClipLutPanel(
             validationText = result?.error ?: "尚未接入 LUT 文件校验，已阻止应用"
         }
     }
+    val lutDocumentPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            importScope.launch {
+                importStatus = "正在导入 LUT 文件…"
+                try {
+                    val importedPath = NativeLutFileImporter.import(context, uri)
+                    path = importedPath
+                    importStatus = "文件已复制到应用私有目录"
+                    applyValidatedLut()
+                } catch (error: Exception) {
+                    importStatus = error.message ?: "LUT 文件导入失败"
+                }
+            }
+        }
+    }
     Column(
         modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("LUT 调色", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Text("使用设备可访问的 .cube 3D LUT 文件路径；清空路径可移除 LUT。", color = NcColors.secondary, fontSize = 9.sp)
+        Text("导入 .cube 后复制到应用私有目录；工程引用私有副本，不依赖原文件 URI。", color = NcColors.secondary, fontSize = 9.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "选择 LUT 文件",
+                color = NcColors.text,
+                fontSize = 9.sp,
+                modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(NcColors.stage)
+                    .clickable { lutDocumentPicker.launch(arrayOf("*/*")) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+            Text("仅接受 .cube 3D LUT", color = NcColors.secondary, fontSize = 8.sp)
+        }
+        importStatus?.let { Text(it, color = NcColors.secondary, fontSize = 9.sp) }
         BasicTextField(
             value = path,
             onValueChange = { path = it.take(2048) },
@@ -1033,7 +1070,7 @@ private fun NativeClipLutPanel(
             )
         }
         validationText?.let { Text(it, color = NcColors.secondary, fontSize = 9.sp) }
-        Text("引擎仅接受有效的 .cube 3D LUT（边长 2–64）；当前面板负责路径与强度编辑，不伪造内置预设。", color = NcColors.secondary, fontSize = 8.sp)
+        Text("导入副本保存在应用私有目录并供工程持续引用；引擎仍负责校验 .cube 3D LUT（边长 2–64）。", color = NcColors.secondary, fontSize = 8.sp)
     }
 }
 
