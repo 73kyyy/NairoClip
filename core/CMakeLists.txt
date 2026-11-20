@@ -30,6 +30,7 @@ add_library(nairoclip_core STATIC
     src/subtitle.cpp
     src/media_io.cpp
     src/effects.cpp
+    src/color_grade.cpp
     src/audio_mixer.cpp
     src/preview.cpp
     src/reference_style.cpp
