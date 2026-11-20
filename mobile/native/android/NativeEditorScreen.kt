@@ -112,7 +112,11 @@ fun NativeEditorScreen(
     clipFilter: NativeEditorCommandAdapter.ClipFilterState? = null,
     onClipFilterChanged: ((Int, Long, Int, Double) -> Unit)? = null,
     clipMask: NativeEditorCommandAdapter.ClipMaskState? = null,
-    onClipMaskChanged: ((Int, Long, NativeEditorCommandAdapter.ClipMaskState) -> Unit)? = null
+    onClipMaskChanged: ((Int, Long, NativeEditorCommandAdapter.ClipMaskState) -> Unit)? = null,
+    clipTransitions: List<NativeEditorCommandAdapter.TransitionState> = emptyList(),
+    transitionTypes: List<Pair<Int, String>> = emptyList(),
+    onAddTransition: ((Int, Long, Long, Int, Long) -> Unit)? = null,
+    onRemoveTransition: ((Int, Long) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -353,6 +357,28 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "特效" && activeSubTool == "转场" && selectedTarget != null) {
+                val track = timelineTracks.firstOrNull { it.engineIndex == selectedTarget.first }
+                val nextClipId = track?.clips
+                    ?.sortedBy { it.startUs }
+                    ?.let { sorted ->
+                        val current = sorted.firstOrNull { it.id == selectedTarget.second }
+                        current?.let { clip ->
+                            sorted.firstOrNull { it.startUs >= clip.startUs + clip.durationUs }?.id
+                        }
+                    }
+                NativeClipTransitionPanel(
+                    transitions = clipTransitions,
+                    types = transitionTypes,
+                    trackIndex = selectedTarget.first,
+                    fromClipId = selectedTarget.second,
+                    toClipId = nextClipId,
+                    onAdd = onAddTransition,
+                    onRemove = onRemoveTransition,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             if (activeTool == "特效" && activeSubTool == "蒙版" && selectedTarget != null) {
                 if (clipMask != null && onClipMaskChanged != null) {
                     NativeClipMaskPanel(
@@ -445,10 +471,115 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = subTool
                         }
+                        tool == "特效" && subTool == "转场" &&
+                            selectedTarget != null && onAddTransition != null &&
+                            onRemoveTransition != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         else -> onOpenLegacy()
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun NativeClipTransitionPanel(
+    transitions: List<NativeEditorCommandAdapter.TransitionState>,
+    types: List<Pair<Int, String>>,
+    trackIndex: Int,
+    fromClipId: Long,
+    toClipId: Long?,
+    onAdd: ((Int, Long, Long, Int, Long) -> Unit)?,
+    onRemove: ((Int, Long) -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    var selectedType by remember { mutableStateOf(types.firstOrNull()?.first ?: 0) }
+    var durationText by remember { mutableStateOf("500000") }
+    val focusManager = LocalFocusManager.current
+    val current = transitions.filter { it.fromClipId == fromClipId || it.toClipId == fromClipId }
+    Column(
+        modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("转场", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (types.isEmpty()) {
+            Text("正在等待宿主读取引擎转场类型库…", color = NcColors.secondary, fontSize = 9.sp)
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                types.forEach { (type, name) ->
+                    val selected = selectedType == type
+                    Text(
+                        name,
+                        color = if (selected) NcColors.background else NcColors.text,
+                        fontSize = 9.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(7.dp))
+                            .background(if (selected) NcColors.text else NcColors.stage)
+                            .clickable { selectedType = type }
+                            .padding(horizontal = 9.dp, vertical = 7.dp)
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("时长（微秒）", color = NcColors.text, fontSize = 9.sp, modifier = Modifier.weight(1f))
+                BasicTextField(
+                    value = durationText,
+                    onValueChange = { input ->
+                        if (input.length <= 12 && input.all(Char::isDigit)) durationText = input
+                    },
+                    modifier = Modifier.width(100.dp).background(NcColors.stage, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 6.dp),
+                    singleLine = true,
+                    textStyle = TextStyle(color = NcColors.text, fontSize = 10.sp, textAlign = TextAlign.End),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+                )
+            }
+            val duration = durationText.toLongOrNull()
+            val canAdd = toClipId != null && duration != null && duration > 0L && onAdd != null
+            Text(
+                if (toClipId == null) "当前片段后没有可连接的片段" else "添加到当前片段与后续片段之间",
+                color = NcColors.secondary,
+                fontSize = 8.sp
+            )
+            Text(
+                "添加转场",
+                color = if (canAdd) NcColors.text else NcColors.secondary,
+                fontSize = 10.sp,
+                modifier = Modifier.clip(RoundedCornerShape(7.dp))
+                    .background(NcColors.stage)
+                    .clickable(enabled = canAdd) {
+                        onAdd?.invoke(trackIndex, fromClipId, toClipId!!, selectedType, duration!!)
+                    }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
+        if (current.isEmpty()) {
+            Text("当前片段没有关联转场", color = NcColors.secondary, fontSize = 9.sp)
+        } else {
+            current.forEach { transition ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${transition.name} · ${transition.durationUs} μs",
+                        color = NcColors.text,
+                        fontSize = 9.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "删除",
+                        color = NcColors.secondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.clickable(enabled = onRemove != null) {
+                            onRemove?.invoke(trackIndex, transition.id)
+                        }.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+            }
         }
     }
 }
