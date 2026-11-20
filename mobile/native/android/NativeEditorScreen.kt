@@ -804,8 +804,11 @@ private fun ParameterSlider(
             sliderBounds = minOf(low, safeValue) to maxOf(high, safeValue)
         }
     }
-    val effectiveLow = sliderBounds.first
-    val effectiveHigh = sliderBounds.second
+    // Outside a gesture, derive the range synchronously so a newly entered
+    // 900% value is never rendered for one frame against the old 400% range.
+    // On gesture start, snapshot this effective range and keep it fixed.
+    val effectiveLow = if (sliderDragging) sliderBounds.first else minOf(low, safeValue)
+    val effectiveHigh = if (sliderDragging) sliderBounds.second else maxOf(high, safeValue)
     val valueFormat = when (parameter) {
         NativeParameter.X, NativeParameter.Y -> "%.3f"
         NativeParameter.SCALE, NativeParameter.ROTATION -> "%.1f"
@@ -843,6 +846,7 @@ private fun ParameterSlider(
         Slider(
             value = safeValue,
             onValueChange = { next ->
+                sliderBounds = effectiveLow to effectiveHigh
                 sliderDragging = true
                 onValueChange(next)
             },
