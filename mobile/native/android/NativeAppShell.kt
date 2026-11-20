@@ -100,6 +100,7 @@ fun NativeHomeScreen(
     LaunchedEffect(projects) {
         val existingFiles = projects.mapTo(mutableSetOf()) { it.file }
         selectedFiles = selectedFiles.intersect(existingFiles)
+        if (selectedFiles.isEmpty()) confirmDelete = false
     }
 
     val filtered = remember(projects, query) {
@@ -257,8 +258,7 @@ fun NativeHomeScreen(
                 item {
                     Button(
                         onClick = {
-                            val selected = projects.filter { it.file in selectedFiles }
-                            confirmDelete = true
+                            confirmDelete = selectedFiles.isNotEmpty()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
