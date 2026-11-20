@@ -553,6 +553,25 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                   "\",\"strength\":" + Num(strength) + "}");
         return true;
     }
+    if (op == "lut_validate") {
+        const std::string path = JStrField(a, "path");
+        int32_t size = 0;
+        char* title = nullptr;
+        char* message = nullptr;
+        const int32_t rc = nc_lut_validate_file(path.c_str(), &size, &title, &message);
+        const std::string titleValue = title ? title : "";
+        const std::string messageValue = message ? message : "";
+        if (title) nc_free_string(title);
+        if (message) nc_free_string(message);
+        if (rc != NC_OK) {
+            *out = Err(messageValue.empty() ? "LUT 文件校验失败" : messageValue);
+            return true;
+        }
+        *out = Ok("{\"size\":" + std::to_string(size) +
+                  ",\"title\":\"" + JEsc(titleValue) +
+                  "\",\"message\":\"" + JEsc(messageValue) + "\"}");
+        return true;
+    }
     if (op == "mask_get") {
         if (ti < 0 || cid == 0) {
             *out = Err("缺少蒙版目标片段");
