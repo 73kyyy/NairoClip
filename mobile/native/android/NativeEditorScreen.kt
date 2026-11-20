@@ -299,7 +299,7 @@ fun NativeEditorScreen(
                             activeSubTool = subTool
                         }
                         tool == "剪辑" && subTool == "变速曲线" && selectedTarget != null &&
-                            onSpeedCurvePreset != null -> {
+                            (onSpeedCurvePreset != null || onSpeedCurveChanged != null) -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
