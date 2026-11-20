@@ -25,4 +25,12 @@ internal object NativeKeyframeValueRules {
         }
     }
 
+    /** Keyframe channels must be strictly time-ordered and contain no negative local times. */
+    fun validateTimes(timesUs: List<Long>): String? {
+        if (timesUs.any { it < 0L }) return "关键帧时间不能为负数"
+        if (timesUs.zipWithNext().any { (left, right) -> right <= left }) {
+            return "关键帧时间必须严格递增且不能重复"
+        }
+        return null
+    }
 }
