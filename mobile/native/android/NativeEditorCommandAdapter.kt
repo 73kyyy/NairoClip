@@ -915,7 +915,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         path: String,
         strength: Double
     ): Result<ClipLutState> {
-        if (path.any { it == '\\u0000' } || !strength.isFinite() || strength !in 0.0..1.0) {
+        if (path.indexOf(0.toChar()) >= 0 || !strength.isFinite() || strength !in 0.0..1.0) {
             return Result(false, error = "LUT 路径或强度参数非法")
         }
         return bridge.withEditorStateLock {
