@@ -124,6 +124,15 @@ std::uint64_t mixClipVisuals(std::uint64_t h, const Clip& clip) {
         h = fnvMixDouble(h, effect.value);
         h = fnvMix(h, effect.enabled ? 1u : 0u);
     }
+    const ColorCurve* gradeCurves[] = {&clip.colorGrade.master, &clip.colorGrade.red,
+                                       &clip.colorGrade.green, &clip.colorGrade.blue};
+    for (const ColorCurve* curve : gradeCurves) {
+        h = fnvMix(h, static_cast<std::uint64_t>(curve->points.size()));
+        for (const auto& point : curve->points) {
+            h = fnvMixDouble(h, point.input);
+            h = fnvMixDouble(h, point.output);
+        }
+    }
 
     // 8 槽几何变换：只混启用且有值的槽（关掉的槽不影响像素）
     for (int i = 0; i < static_cast<int>(XformKind::Count); ++i) {
@@ -822,6 +831,11 @@ bool PreviewRenderer::renderClipLayer(const Clip& clip, const Time& timelineTime
                                 clip.effects, frameIndex,
                                 RenderQuality::previewQuality(),
                                 timelineTime.toDouble());
+    }
+    if (!clip.colorGrade.isIdentity()) {
+        applyColorGradeToRgba(out.rgba.data(),
+                              static_cast<std::size_t>(out.width) * out.height,
+                              clip.colorGrade);
     }
     if (clip.filterStyle != FilterStyle::None && clip.filterIntensity > 0.0) {
         applyFilterToRgba(out.rgba.data(), out.width, out.height,
