@@ -70,6 +70,7 @@ data class NativeTimelineSnapshot(
                     val trackId = sourceTrack.longField("id")?.takeIf { it > 0L } ?: return null
                     val hidden = sourceTrack.longField("hidden")?.takeIf { it in 0L..1L } ?: return null
                     val muted = sourceTrack.longField("muted")?.takeIf { it in 0L..1L } ?: return null
+                    val locked = sourceTrack.longField("locked")?.takeIf { it in 0L..1L } ?: return null
                     val sourceClips = sourceTrack.optJSONArray("clips") ?: return null
 
                     val clips = ArrayList<NativeTimelineClip>(sourceClips.length())
@@ -100,7 +101,8 @@ data class NativeTimelineSnapshot(
                         clips = clips,
                         visible = hidden == 0L,
                         muted = muted != 0L,
-                        engineIndex = trackIndex
+                        engineIndex = trackIndex,
+                        locked = locked != 0L
                     )
                 }
                 NativeTimelineSnapshot(projectName, duration, tracks)
