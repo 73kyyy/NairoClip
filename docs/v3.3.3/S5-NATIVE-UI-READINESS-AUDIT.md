@@ -433,3 +433,13 @@
 - `NativeEditorScreen` 增加“剪辑 → 变速曲线”预设面板。所有选项通过可选宿主回调提交；未提供回调时不展示可操作面板，也不假装执行成功。选择预设会替换当前片段曲线，这是 C ABI 的既定语义。
 
 **尚未完成：** 当前切片只覆盖引擎内置预设应用，不是自由曲线编辑器；曲线控制点的原生读回、拖动/插入/删除、每点缓动编辑，以及预设名称从引擎动态读取仍待实现。Activity/ViewModel 尚未接入回调。没有执行 Gradle/NDK 构建、自动化测试或真机验证。
+
+## 25. 原生速度曲线控制点读写与编辑控件（2026-11-20）
+
+- JNI 新增 `nc_clip_speed_curve_count` / `nc_clip_speed_curve_get` 只读分发，按引擎 C ABI 读取控制点数量、源时间秒数、速度和缓动类型；响应 JSON 作为结构化结果返回。
+- `nc_set_clip_speed_curve_points` 复用既有 `nc_set_clip_speed_curve` C ABI。数组分别传入 `times[]`、`speeds[]`、`easings[]`；JNI 校验数组长度一致、缓动为 0–4 整数，兼容旧版单一 `easing` 字段。
+- `NativeEditorCommandAdapter.readSpeedCurve()` 限制最多 256 个点，校验源时间严格递增、速度在引擎合同 0.1–10 范围、缓动 0–4；`setSpeedCurveAndReadEditorState()` 在 editor state lock 下验证轨道/片段及锁定状态，调用引擎并回读状态。
+- `NativeEditorScreen` 增加原生控制点列表：显示源时间、速度、缓动；可添加中间点、删除控制点、调节速度、循环切换缓动类型。时间仍按引擎源时间坐标排序，当前控件尚未提供时间拖拽/曲线画布。
+- 预设面板继续复用引擎预设 API。预设应用与手动点编辑是两条不同路径，均通过可选宿主回调执行；没有 Activity/ViewModel 接线，不宣称正式入口已启用。
+
+**剩余缺口：** 曲线画布、控制点二维拖动、时间数值精调、撤销/重做 UI 状态刷新，以及宿主回调接线仍待完成。JNI/Compose 修改尚未经过 Android/NDK 编译或测试；没有真机验证。
