@@ -641,3 +641,13 @@
 - 返回 `ClipColorGradeMutationResult`，同时包含引擎确认后的四通道曲线和编辑器历史快照，宿主可用同一结果刷新曲线面板与顶部撤销/重做状态，避免曲线更新成功但历史按钮滞后的状态分裂。
 - 原 `setClipColorGradeAndRead` 保留兼容签名，内部复用新事务接口并只返回曲线值。
 - 该接口仍是 Adapter 层能力；Activity/ViewModel 尚未接入，当前没有运行时宿主调用。未运行 Kotlin/Gradle 编译或测试。
+
+
+## 47. 原生编辑器宿主状态归约契约（2026-11-20）
+
+- 新增 `NativeEditorHostState.kt`，将原生编辑器宿主需要发布的不可变状态集中为时间轴快照、Undo/Redo 历史、选中片段、播放头、刷新状态和错误状态。
+- 新增纯函数 `NativeEditorHostReducer` 与事件类型：刷新开始/成功/失败、选择/清除片段、播放头变化、命令提交/失败和错误清除。宿主负责执行 Adapter I/O，再将成功回读结果作为一个事件分发。
+- 时间轴刷新失败时保留最后一次有效快照；刷新/命令成功时，时间轴与 Undo/Redo 从同一 `EditorStateSnapshot` 一起更新，避免 UI 只更新一半。
+- 选择状态会在快照更新后重新校验：轨道必须仍存在且可见，片段必须存在且启用；播放头被限制在当前工程时长内。重复/分割等命令可通过引擎返回的新片段 ID 指定后续选择。
+- 该状态归约器不持有 Activity、View、JNI 或引擎生命周期，不改 MainActivity/正式入口，供后续 S5 宿主接线使用。它是 Android 宿主层状态契约，不替代未来 iOS/桌面各自的 UI 状态实现；跨平台编辑语义仍由共享核心和 C ABI 定义。
+- 本轮仅完成源码新增和审计记录；未执行 Kotlin/Gradle/Compose 编译、单元测试或真机验证，也未将该 reducer 接入当前 WebView 运行入口。
