@@ -900,6 +900,26 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val strength: Double
     )
 
+    data class LutValidationState(
+        val size: Int,
+        val title: String,
+        val message: String
+    )
+
+    /** Validates a .cube file using the core parser without mutating the project. */
+    fun validateLutFile(path: String): Result<LutValidationState> {
+        if (path.isBlank() || path.indexOf(0.toChar()) >= 0) {
+            return Result(false, error = "请填写有效的 LUT 文件路径")
+        }
+        return invoke("lut_validate", JSONObject().put("path", path)) { payload ->
+            LutValidationState(
+                size = payload.getInt("size"),
+                title = payload.optString("title", ""),
+                message = payload.optString("message", "")
+            ).also { require(it.size in 2..64) { "引擎返回的 LUT 边长无效" } }
+        }
+    }
+
     /** Reads the selected clip's persisted .cube LUT path and blend strength. */
     fun readClipLut(target: ClipTarget): Result<ClipLutState> =
         invoke("lut_get", targetArgs(target)) { payload ->
