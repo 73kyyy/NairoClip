@@ -4,9 +4,12 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.Bundle
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.SeekBar
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -215,6 +218,55 @@ class NativeTimelineView(context: Context) : View(context) {
         super.onSizeChanged(w, h, oldw, oldh)
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
         verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        // Expose the custom-drawn playhead as an adjustable timeline control.
+        // Use seconds for RangeInfo: Float cannot represent microsecond timestamps
+        // across normal project lengths with useful precision.
+        val durationSeconds = (durationUs.toDouble() / 1_000_000.0).toFloat()
+        val playheadSeconds = (playheadUs.toDouble() / 1_000_000.0).toFloat()
+        info.className = SeekBar::class.java.name
+        info.contentDescription =
+            "时间轴播放位置，当前 ${formatTime(playheadUs / 1_000_000L)}，" +
+                "总长 ${formatTime(durationUs / 1_000_000L)}，包含 ${tracks.size} 条轨道"
+        info.isScrollable = true
+        info.rangeInfo = AccessibilityNodeInfo.RangeInfo.obtain(
+            AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT,
+            0f,
+            durationSeconds.coerceAtLeast(0.001f),
+            playheadSeconds.coerceIn(0f, durationSeconds.coerceAtLeast(0.001f))
+        )
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+    }
+
+    override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
+        val stepUs = 1_000_000L
+        val targetUs = when (action) {
+            AccessibilityNodeInfo.ACTION_SET_PROGRESS -> {
+                val seconds = arguments?.getFloat(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE,
+                    Float.NaN
+                ) ?: Float.NaN
+                if (!seconds.isFinite()) return false
+                (seconds.toDouble() * 1_000_000.0)
+                    .coerceIn(0.0, durationUs.toDouble())
+                    .toLong()
+            }
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ->
+                (playheadUs + stepUs).coerceAtMost(durationUs)
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD ->
+                (playheadUs - stepUs).coerceAtLeast(0L)
+            else -> return super.performAccessibilityAction(action, arguments)
+        }
+        playheadUs = targetUs
+        onPlayheadChanged?.invoke(targetUs)
+        invalidate()
+        sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED)
+        return true
     }
 
     override fun onDraw(canvas: Canvas) {
