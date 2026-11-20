@@ -2,6 +2,7 @@ package com.nairoclip.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -179,7 +181,7 @@ fun NativeFeedbackScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("反馈类型", color = Color(0xFFB9BEC1), fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 types.forEach { (value, label) ->
                     TextButton(onClick = { selectedType = value }) {
                         Text(label, color = if (selectedType == value) Color.White else Color(0xFF858B8F))
