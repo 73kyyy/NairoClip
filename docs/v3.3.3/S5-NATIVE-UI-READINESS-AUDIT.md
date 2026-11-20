@@ -154,3 +154,17 @@
 - Anchor grid accessibility follow-up: the nine native presets are now grouped with Compose `selectableGroup()` and each cell retains `Role.RadioButton` selected semantics. This makes the nine choices one coherent accessibility group without changing the C ABI index mapping. Source-level verification only; Compose compilation and TalkBack testing remain pending.
 
 - Core animation property specifications now source X/Y and rotation limits from `transform_limits.h`, matching `ClipTransform::clamp()` rather than duplicating literals. `tests/test_animation.cpp` now asserts Scale, PositionX, PositionY and Rotation property specs against those shared constants. Changes are committed; native test execution remains pending.
+
+
+## 7. 变换控件范围统一策略（2026-11-20）
+
+根据产品交互要求，变换面板的滑块范围与数值输入范围统一，不再采用“滑块常用范围较窄、数值输入范围较宽”的双范围设计：
+
+| 参数 | 滑块范围 | 数值输入范围 | 引擎硬范围 |
+|---|---:|---:|---:|
+| X / Y | -10..10 | -10..10 | -10..10 |
+| 缩放 | 5%..1000% | 5%..1000% | 0.05..10.0 |
+| 旋转 | -3600°..3600° | -3600°..3600° | -3600°..3600° |
+| 锚点 | 九宫格 0..8 | 九宫格 0..8 | 0..8 |
+
+滑块用于粗略定位，数值输入用于相同范围内精细定位。滑块边界固定，不因当前值或拖动过程动态改变。该修改仅调整控件交互域，不改变 C++ 核心参数范围、序列化格式或 C ABI。
