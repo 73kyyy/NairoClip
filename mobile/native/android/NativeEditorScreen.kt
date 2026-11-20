@@ -280,17 +280,6 @@ private fun EditorTopBar(projectName: String, onOpenLegacy: () -> Unit) {
             modifier = Modifier.weight(1f)
         )
         Text(
-            text = "旧版功能",
-            color = NcColors.text,
-            fontSize = 11.sp,
-            modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.dp, NcColors.secondary, RoundedCornerShape(16.dp))
-                .clickable(onClick = onOpenLegacy)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
             text = "完整编辑器",
             color = NcColors.text,
             fontSize = 12.sp,
