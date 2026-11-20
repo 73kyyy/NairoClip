@@ -330,19 +330,31 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         readAnimationState(target)
     }
 
-    fun insertKeyframe(target: ClipTarget, property: Int, timeUs: Long, value: Double): Result<Unit> {
-        if (property !in 0..5 || timeUs < 0L || !value.isFinite()) {
+    /**
+     * Inserts at a clip-local timestamp, not the project timeline playhead.
+     * Callers must convert project time using the selected clip's start and
+     * playback speed before invoking this API.
+     */
+    fun insertKeyframe(
+        target: ClipTarget,
+        property: Int,
+        clipLocalTimeUs: Long,
+        value: Double
+    ): Result<Unit> {
+        if (property !in 0..5 || clipLocalTimeUs < 0L || !value.isFinite()) {
             return Result(false, error = "关键帧参数非法")
         }
         return invoke(
             "nc_insert_keyframe",
-            targetArgs(target).put("property", property).put("time_us", timeUs).put("value", value)
+            targetArgs(target).put("property", property).put("time_us", clipLocalTimeUs).put("value", value)
         ) { Unit }
     }
 
 
     /**
-     * Inserts the current native transform value at the supplied project time.
+     * Inserts the current native transform value at a clip-local timestamp.
+     * Do not pass the project playhead directly: subtract the clip's timeline
+     * start and account for its playback speed before calling this method.
      * The engine stores scale as a unit multiplier while the native panel uses
      * percentages, so scale is normalized before crossing the JNI boundary.
      */
@@ -350,7 +362,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         target: ClipTarget,
         parameter: NativeParameter,
         transform: NativeTransform,
-        playheadUs: Long
+        clipLocalTimeUs: Long
     ): Result<Unit> {
         val value = when (parameter) {
             NativeParameter.SCALE -> {
@@ -366,7 +378,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             NativeParameter.Y -> transform.y
             NativeParameter.ROTATION -> transform.rotation
         }
-        return insertKeyframe(target, parameter.engineProperty, playheadUs, value.toDouble())
+        return insertKeyframe(target, parameter.engineProperty, clipLocalTimeUs, value.toDouble())
     }
 
     data class Keyframe(
@@ -429,31 +441,32 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         return Result(true, frames)
     }
 
+    /** Removes a keyframe by its clip-local timestamp. */
     fun removeKeyframe(
         target: ClipTarget,
         parameter: NativeParameter,
-        timeUs: Long
+        clipLocalTimeUs: Long
     ): Result<Unit> {
-        if (timeUs < 0L) return Result(false, error = "关键帧时间不能为负数")
+        if (clipLocalTimeUs < 0L) return Result(false, error = "关键帧时间不能为负数")
         return invoke(
             "nc_remove_keyframe",
             targetArgs(target)
                 .put("property", parameter.engineProperty)
-                .put("time_us", timeUs)
+                .put("time_us", clipLocalTimeUs)
         ) { Unit }
     }
 
     fun setKeyframeEasing(
         target: ClipTarget,
         parameter: NativeParameter,
-        timeUs: Long,
+        clipLocalTimeUs: Long,
         easing: Int,
         c1x: Double = 0.0,
         c1y: Double = 0.0,
         c2x: Double = 1.0,
         c2y: Double = 1.0
     ): Result<Unit> {
-        if (timeUs < 0L || easing !in 0..5 ||
+        if (clipLocalTimeUs < 0L || easing !in 0..5 ||
             !c1x.isFinite() || !c1y.isFinite() || !c2x.isFinite() || !c2y.isFinite() ||
             !c1x.toFloat().isFinite() || !c1y.toFloat().isFinite() ||
             !c2x.toFloat().isFinite() || !c2y.toFloat().isFinite()
@@ -467,7 +480,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             "nc_set_keyframe_easing",
             targetArgs(target)
                 .put("property", parameter.engineProperty)
-                .put("time_us", timeUs)
+                .put("time_us", clipLocalTimeUs)
                 .put("easing", easing)
                 .put("c1x", c1x)
                 .put("c1y", c1y)
