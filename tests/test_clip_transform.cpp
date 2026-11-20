@@ -210,6 +210,21 @@ NC_TEST(ClipTransformMatrix, RotationChangesMatrix) {
     NC_CHECK(std::abs(b.m[0] - 1.0) < 1e-6);
 }
 
+NC_TEST(ClipTransformMatrix, EveryGridAnchorRemainsTheScaleRotationPivot) {
+    constexpr int canvasW = 64;
+    constexpr int canvasH = 48;
+    for (int anchor = 0; anchor < 9; ++anchor) {
+        const double px = static_cast<double>(anchor % 3) * canvasW / 2.0;
+        const double py = static_cast<double>(anchor / 3) * canvasH / 2.0;
+        const Affine2D matrix =
+            clipTransformMatrix(0.5, 0.0, 0.0, 37.0, anchor, canvasW, canvasH);
+        const double mappedX = matrix.m[0] * px + matrix.m[1] * py + matrix.m[2];
+        const double mappedY = matrix.m[3] * px + matrix.m[4] * py + matrix.m[5];
+        NC_CHECK(std::abs(mappedX - px) < 1e-6);
+        NC_CHECK(std::abs(mappedY - py) < 1e-6);
+    }
+}
+
 // =============================================================================
 // 渲染真的消费了 transform（G3 的核心断言）
 // =============================================================================
