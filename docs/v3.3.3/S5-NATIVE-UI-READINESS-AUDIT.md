@@ -135,3 +135,9 @@
 - Static source verification only; no Android build, Kotlin unit tests, CI, or device test was run.
 
 - Follow-up interaction fix: when a selected clip loads a transform value outside the common slider window, the expanded slider domain is now captured per selected clip/parameter and remains stable for the entire drag. It is recalculated only when the selected clip or control domain changes, preventing a moving-boundary/thumb-chasing effect during pointer input.
+
+
+### Native anchor selector navigation fix (2026-11-20)
+- Connected the existing nine-point anchor selector to the native `画面 → 锚点` subtool route. The selector is now shown only in the anchor panel, and transform keyframe controls are hidden there because anchor is not yet a keyframe channel in the current engine contract.
+- The native screen exposes the selected anchor value and a required `onAnchorChanged(trackIndex, clipId, anchor)` callback; persistence remains the host's responsibility through `NativeEditorCommandAdapter.setTransform` and must retain the current transform/enabled state when updating the anchor.
+- Touch targets remain 48 dp and use radio-button semantics. Static source inspection only; no Compose build, accessibility service, or device test was run.
