@@ -113,6 +113,30 @@ NC_TEST(Preview, AppliesAnimationOpacity) {
     const PreviewFrame frame = renderer.renderAt(Rational::make(2));
     NC_CHECK(std::abs(frame.opacity - 0.5) < 1e-6);
 }
+NC_TEST(Preview, OpacityKeyframesPreserveStaticTransform) {
+    Fixture f;
+    const ClipId clipId = f.addClip(Rational::make(0), Rational::make(2));
+    Track* track = f.project.mainSequence()->findTrack(f.videoTrack);
+    NC_CHECK(track != nullptr);
+    Clip* clip = track->findClip(clipId);
+    NC_CHECK(clip != nullptr);
+    clip->transform.enabled = true;
+    clip->transform.scale = 0.5;
+
+    Keyframe opacityStart;
+    opacityStart.time = Rational::make(0);
+    opacityStart.value = 1.0;
+    Keyframe opacityEnd;
+    opacityEnd.time = Rational::make(2);
+    opacityEnd.value = 1.0;
+    NC_CHECK(clip->animation.curve(ClipProperty::Opacity).insert(opacityStart).isOk());
+    NC_CHECK(clip->animation.curve(ClipProperty::Opacity).insert(opacityEnd).isOk());
+
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame frame = renderer.renderAt(Rational::make(1));
+    NC_CHECK(std::abs(frame.scale - 0.5) < 1e-9);
+}
 NC_TEST(Preview, HiddenTrackSkipped) {
     Fixture f;
     f.addClip(Rational::make(0), Rational::make(2));
