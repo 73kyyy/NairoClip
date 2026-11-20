@@ -497,6 +497,7 @@ private fun NativeClipFilterPanel(
                     }
                 },
                 singleLine = true,
+                enabled = state.style != 0,
                 textStyle = TextStyle(color = NcColors.text, fontSize = 10.sp, textAlign = TextAlign.End),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
