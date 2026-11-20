@@ -210,6 +210,32 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val history: HistoryState
     )
 
+    data class TextClipMutationResult(val clipId: Long, val editorState: EditorStateSnapshot)
+
+    /** Creates a text clip through the existing native C ABI/JNI operation and
+     * returns the authoritative timeline/history snapshot from the same lock.
+     * Initial style uses the engine's documented defaults. */
+    fun addTextClipAndReadEditorState(text: String, startUs: Long, durationUs: Long = 3_000_000L): Result<TextClipMutationResult> {
+        if (text.isBlank()) return Result(false, error = "文字内容不能为空")
+        if (text.toByteArray(Charsets.UTF_8).size > 16 * 1024) return Result(false, error = "文字内容过长")
+        if (startUs < 0L || durationUs <= 0L || startUs > Long.MAX_VALUE - durationUs) return Result(false, error = "文字片段时间范围无效")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val projectDuration = before.value?.durationUs ?: return@withEditorStateLock Result(false, error = "工程时长缺失")
+            if (startUs >= projectDuration) return@withEditorStateLock Result(false, error = "播放头已超出工程有效时长")
+            val created = invoke("nc_add_text_clip", JSONObject()
+                .put("text", text).put("start_us", startUs).put("duration_us", durationUs)
+                .put("font_size", 48.0).put("color", "#FFFFFF").put("alignment", 1)
+                .put("anchor_x", 0.5).put("anchor_y", 0.5)) { payload ->
+                payload.getLong("value").also { require(it > 0L) }
+            }
+            if (!created.ok) return@withEditorStateLock Result(false, error = created.error ?: "创建文字片段失败")
+            val state = readEditorStateSnapshotLocked()
+            if (!state.ok) return@withEditorStateLock Result(false, error = state.error ?: "文字已创建，但读取时间轴失败")
+            Result(true, TextClipMutationResult(created.value!!, state.value!!))
+        }
+    }
     data class ClipMutationResult(
         val editorState: EditorStateSnapshot,
         val newClipId: Long? = null
