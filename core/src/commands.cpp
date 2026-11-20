@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <iterator>
 #include <utility>
 
@@ -1348,6 +1349,14 @@ InsertKeyframeCommand::InsertKeyframeCommand(SequenceId sequenceId, TrackId trac
       keyframe_(std::move(keyframe)) {}
 
 Result InsertKeyframeCommand::apply(Project& project) {
+    if (!std::isfinite(keyframe_.value)) {
+        return Result::fail(ErrorCode::InvalidArgument, "关键帧数值必须为有限值");
+    }
+    const PropertySpec spec = propertySpec(property_);
+    if (keyframe_.value < spec.minValue || keyframe_.value > spec.maxValue) {
+        return Result::fail(ErrorCode::OutOfRange,
+                            std::string(propertyName(property_)) + "关键帧超出允许范围");
+    }
     Clip* clip = findClip(project, sequenceId_, trackId_, clipId_);
     if (clip == nullptr) {
         return Result::fail(ErrorCode::NotFound, "片段不存在");
