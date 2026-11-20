@@ -70,21 +70,21 @@ fun NativeEditorScreen(
     timelineTracks: List<NativeTimelineTrack> = emptyList(),
     timelineDurationUs: Long = 30_000_000L,
     playheadUs: Long = 0L,
-    onPlayheadChanged: (Long) -> Unit = {},
-    onClipSelected: (Int, Long) -> Unit = { _, _ -> },
+    onPlayheadChanged: (Long) -> Unit,
+    onClipSelected: (Int, Long) -> Unit,
     onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null,
     onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null,
     transform: NativeTransform = NativeTransform(),
     keyedParameters: Set<NativeParameter> = emptySet(),
     keyframes: Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>> = emptyMap(),
-    onTransformChanged: (Int, Long, NativeTransform) -> Unit = { _, _, _ -> },
-    onInsertKeyframe: (Int, Long, NativeParameter) -> Unit = { _, _, _ -> },
-    onRemoveKeyframe: (Int, Long, NativeParameter, Long) -> Unit = { _, _, _, _ -> },
-    onSetKeyframeEasing: (Int, Long, NativeParameter, Long, Int, Double, Double, Double, Double) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    onTransformChanged: (Int, Long, NativeTransform) -> Unit,
+    onInsertKeyframe: (Int, Long, NativeParameter) -> Unit,
+    onRemoveKeyframe: (Int, Long, NativeParameter, Long) -> Unit,
+    onSetKeyframeEasing: (Int, Long, NativeParameter, Long, Int, Double, Double, Double, Double) -> Unit,
     canUndo: Boolean = false,
     canRedo: Boolean = false,
-    onUndo: () -> Unit = {},
-    onRedo: () -> Unit = {},
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     onOpenLegacy: () -> Unit
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
@@ -343,50 +343,59 @@ private fun QuickActionStrip(
     onRedo: () -> Unit,
     onOpenLegacy: () -> Unit
 ) {
-    val actions = listOf("＋", "⌂", "‹", "◇", "渲染", "◆", "＃", "▧", "AI", "↶", "↷")
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(50.dp)
             .background(NcColors.stage)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 5.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        actions.forEachIndexed { index, label ->
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(NcColors.panel)
-                    .border(1.dp, NcColors.line, CircleShape)
-                    .clickable(
-                        enabled = when (label) {
-                            "↶" -> canUndo
-                            "↷" -> canRedo
-                            else -> true
-                        },
-                        onClick = when (label) {
-                            "↶" -> onUndo
-                            "↷" -> onRedo
-                            else -> onOpenLegacy
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = label,
-                    color = when (label) {
-                        "↶" -> if (canUndo) NcColors.text else NcColors.muted
-                        "↷" -> if (canRedo) NcColors.text else NcColors.muted
-                        else -> NcColors.text
-                    },
-                    fontSize = if (label == "渲染") 9.sp else 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
+        HistoryAction(
+            label = "撤销",
+            symbol = "↶",
+            enabled = canUndo,
+            onClick = onUndo
+        )
+        HistoryAction(
+            label = "重做",
+            symbol = "↷",
+            enabled = canRedo,
+            onClick = onRedo
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = "更多功能在完整编辑器中",
+            color = NcColors.secondary,
+            fontSize = 10.sp,
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .clickable(onClick = onOpenLegacy)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun HistoryAction(
+    label: String,
+    symbol: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(NcColors.panel)
+            .border(1.dp, NcColors.line, RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(symbol, color = if (enabled) NcColors.text else NcColors.muted, fontSize = 14.sp)
+        Text(label, color = if (enabled) NcColors.text else NcColors.muted, fontSize = 10.sp)
     }
 }
 
