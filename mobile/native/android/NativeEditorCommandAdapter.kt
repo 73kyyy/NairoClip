@@ -900,6 +900,77 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val strength: Double
     )
 
+    data class ColorCurveState(val points: List<Pair<Double, Double>>) {
+        fun isValid(): Boolean = points.size in 2..32 &&
+            points.first() == (0.0 to 0.0) && points.last() == (1.0 to 1.0) &&
+            points.all { (x, y) -> x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 } &&
+            points.zipWithNext().all { (a, b) -> b.first > a.first }
+    }
+
+    data class ClipColorGradeState(
+        val master: ColorCurveState,
+        val red: ColorCurveState,
+        val green: ColorCurveState,
+        val blue: ColorCurveState
+    ) {
+        fun isValid(): Boolean = master.isValid() && red.isValid() && green.isValid() && blue.isValid()
+        companion object {
+            fun identity() = ColorCurveState(listOf(0.0 to 0.0, 1.0 to 1.0))
+        }
+    }
+
+    /** Reads authoritative clip-level master/RGB curves from the native core. */
+    fun readClipColorGrade(target: ClipTarget): Result<ClipColorGradeState> =
+        invoke("color_grade_get", targetArgs(target)) { payload ->
+            fun readCurve(name: String): ColorCurveState {
+                val raw = payload.optJSONArray(name) ?: throw IllegalArgumentException("缺少 $name 曲线")
+                require(raw.length() in 4..64 && raw.length() % 2 == 0)
+                val points = buildList {
+                    for (i in 0 until raw.length() step 2) {
+                        add(raw.getDouble(i) to raw.getDouble(i + 1))
+                    }
+                }
+                return ColorCurveState(points).also {
+                    require(it.isValid()) { "$name 曲线数据不合法" }
+                }
+            }
+            ClipColorGradeState(readCurve("master"), readCurve("red"),
+                readCurve("green"), readCurve("blue")).also {
+                require(it.isValid()) { "引擎返回的 RGB 曲线无效" }
+            }
+        }
+
+    /** Applies all four curves atomically as one undoable clip edit. */
+    fun setClipColorGradeAndRead(
+        target: ClipTarget,
+        grade: ClipColorGradeState
+    ): Result<ClipColorGradeState> {
+        if (!grade.isValid()) return Result(false, error = "RGB 曲线必须包含 2–32 个合法控制点")
+        return bridge.withEditorStateLock {
+            val snapshot = readTimelineSnapshotLocked()
+            if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error ?: "读取工程时间轴失败")
+            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
+            if (track.clips.none { it.id == target.clipId }) {
+                return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            }
+            fun flatten(curve: ColorCurveState) = org.json.JSONArray().also { array ->
+                curve.points.forEach { (x, y) -> array.put(x).put(y) }
+            }
+            val changed = invoke(
+                "color_grade_set",
+                targetArgs(target)
+                    .put("master", flatten(grade.master))
+                    .put("red", flatten(grade.red))
+                    .put("green", flatten(grade.green))
+                    .put("blue", flatten(grade.blue))
+            ) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置 RGB 曲线失败")
+            readClipColorGrade(target)
+        }
+    }
+
     data class LutValidationState(
         val size: Int,
         val title: String,
