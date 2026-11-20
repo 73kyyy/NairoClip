@@ -6,8 +6,8 @@ import org.json.JSONObject
  * Converts the existing NativeEngineBridge.state() envelope into the small,
  * immutable model consumed by the native timeline renderer.
  *
- * The engine remains the source of truth. Unknown or malformed records are
- * skipped rather than fabricating clips or durations.
+ * The engine remains the source of truth. An incomplete track/clip record
+ * rejects the whole snapshot rather than silently hiding timeline content.
  */
 data class NativeTimelineSnapshot(
     val projectName: String,
