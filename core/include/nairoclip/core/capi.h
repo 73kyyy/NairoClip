@@ -1797,7 +1797,7 @@ int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint
 /// - pos_x/pos_y：归一化 -10..10（0 = 居中；1 = 右移一个画布宽）
 /// - rotation_degrees：-3600..3600（正值顺时针）
 /// - anchor：0..8 九宫格（4 = 中心）
-/// 越界钳制，不报错（与 XformParams::clamp 一致）。
+/// 有限数值越界时钳制到合法范围；非有限值恢复为中性值。
 /// 与原值完全相同时不产生撤销步（幂等）。
 int32_t nc_set_clip_transform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                               int32_t enabled, double scale,
