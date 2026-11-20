@@ -126,3 +126,10 @@
 - The Android app's current MainActivity still launches the WebView editor and does not instantiate NativeEditorScreen. This UI change therefore establishes the native screen contract and interaction only; it does not claim that anchor edits are already wired to the running app. S5 runtime-host and entrypoint approval gates remain in force.
 - C++ `clipTransformMatrix` maps indices as row-major 3×3: 0 top-left, 1 top-center, 2 top-right, 3 middle-left, 4 center, 5 middle-right, 6 bottom-left, 7 bottom-center, 8 bottom-right. The pivot should remain fixed under combined scale and rotation. Added a native unit test covering all nine pivot positions; test execution is pending.
 - No C ABI or project serialization change was needed for the existing nine-point preset model. Free-coordinate anchors remain a separate future versioned core/ABI migration.
+
+
+### Transform keyframe boundary consistency (2026-11-20)
+- Closed a bypass in the generic keyframe adapter: transform-property values are now validated at the shared generic insertion boundary as well as in the transform-specific helper. Engine scale keyframes are checked in multiplier units (0.05..10.0), while X/Y and rotation use their shared normalized/degrees domains.
+- Keyframe reads now reject out-of-domain transform values instead of accepting any finite number into the Compose model. This prevents corrupted or stale engine keyframes from being rendered as valid UI state.
+- Non-transform channels retain their existing property-specific semantics; this change does not impose transform bounds on opacity/audio or other channels.
+- Static source verification only; no Android build, Kotlin unit tests, CI, or device test was run.
