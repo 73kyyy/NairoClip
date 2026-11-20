@@ -531,6 +531,28 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                   ",\"enabled\":" + std::to_string(enabled) + "}");
         return true;
     }
+    if (op == "lut") {
+        const std::string path = JStrField(a, "path");
+        const int32_t rc = nc_set_clip_lut(ed, ti, cid, path.c_str(),
+                                            JNum(a, "strength", 1.0));
+        *out = rc == NC_OK ? Ok("") : Err("设置 LUT 失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "lut_get") {
+        char* path = nullptr;
+        double strength = 1.0;
+        const int32_t rc = nc_get_clip_lut(ed, ti, cid, &path, &strength);
+        if (rc != NC_OK) {
+            if (path) nc_free_string(path);
+            *out = Err("读取 LUT 状态失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        const std::string value = path ? path : "";
+        if (path) nc_free_string(path);
+        *out = Ok("{\"path\":\"" + JEsc(value) +
+                  "\",\"strength\":" + Num(strength) + "}");
+        return true;
+    }
     if (op == "mask_get") {
         if (ti < 0 || cid == 0) {
             *out = Err("缺少蒙版目标片段");
