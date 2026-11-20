@@ -492,5 +492,6 @@
 - Android JNI 新增只读 `mask_get` 分发，直接调用现有 C ABI `nc_get_clip_mask`，返回形状、中心、旋转、宽高、羽化、圆角、反转和启用状态；目标片段/轨道缺失时明确失败。
 - `NativeEditorCommandAdapter` 新增 `ClipMaskState`、`readClipMask` 与 `setClipMaskAndRead`：在 editor state lock 内验证目标片段存在且轨道可编辑；写入整组蒙版参数后立即回读引擎状态。适配器拒绝缺失、非数值、非有限或超出核心已声明域的状态。
 - 参数校验严格遵循 `core/include/nairoclip/core/mask.h`：形状枚举 0..6；羽化与圆角 0..0.5。宽高属于形状相关归一化尺寸，不擅自限制在 0..1；中心/旋转/尺寸只要求有限数值，不在 UI 适配层发明核心未声明的硬范围。
-- 未实现蒙版面板写入/交互，也未把“蒙版”工具从旧编辑器回退路径切换到原生；本节只代表 JNI 读取与 Kotlin 适配器切片。
+- `NativeEditorScreen` 新增原生蒙版参数面板：形状（关闭/线性/镜面/圆形/矩形/星形/爱心）、反转、归一化中心 X/Y、羽化、圆角、旋转和宽高数值输入；滑块在拖动结束时提交，数值字段在完成/失焦时校验提交。工具栏“特效 → 蒙版”仅在宿主提供 `clipMask` 与 `onClipMaskChanged` 时进入原生面板，否则保持旧编辑器回退路径。
+- 蒙版面板、JNI 和 Kotlin 适配器尚未接入 Activity/ViewModel；目前属于可接线的原生 UI/API 切片，不代表运行时已启用。
 - 尚未运行 Android Gradle/Compose/NDK 编译、单元/仪器测试或真机验证；正式宿主接线仍受 S5 前置门约束。
