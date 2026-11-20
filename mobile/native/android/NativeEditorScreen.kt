@@ -320,6 +320,42 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "调节" && activeSubTool == "基础" && selectedTarget != null) {
+                val selectedEffects = selectedItem?.effects.orEmpty()
+                if (onAddClipEffect != null && onUpdateClipEffect != null &&
+                    onSetClipEffectEnabled != null && onMoveClipEffect != null &&
+                    onRemoveClipEffect != null
+                ) {
+                    NativeClipEffectsPanel(
+                        effects = selectedEffects.filter { it.type in setOf(1, 2, 3, 4, 5, 9, 10, 11) },
+                        specs = clipEffectSpecs,
+                        onAdd = { type -> onAddClipEffect.invoke(selectedTarget.first, selectedTarget.second, type) },
+                        onUpdate = { effect, value ->
+                            onUpdateClipEffect.invoke(selectedTarget.first, selectedTarget.second, effect, value)
+                        },
+                        onEnabled = { effectId, enabled ->
+                            onSetClipEffectEnabled.invoke(selectedTarget.first, selectedTarget.second, effectId, enabled)
+                        },
+                        onMove = { effectId, direction ->
+                            onMoveClipEffect.invoke(selectedTarget.first, selectedTarget.second, effectId, direction)
+                        },
+                        onRemove = { effectId ->
+                            onRemoveClipEffect.invoke(selectedTarget.first, selectedTarget.second, effectId)
+                        },
+                        panelTitle = "基础画面调节 · 效果栈",
+                        options = listOf(
+                            NativeEffectOption(1, "亮度"), NativeEffectOption(2, "对比度"),
+                            NativeEffectOption(3, "饱和度"), NativeEffectOption(4, "色温"),
+                            NativeEffectOption(5, "色调"), NativeEffectOption(10, "锐化"),
+                            NativeEffectOption(9, "暗角"), NativeEffectOption(11, "颗粒")
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("基础调节面板等待宿主接入真实引擎命令与参数规格", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
+
             if (activeTool == "特效" && activeSubTool == "视频特效" && selectedTarget != null) {
                 val selectedEffects = selectedItem?.effects.orEmpty()
                 if (onAddClipEffect != null && onUpdateClipEffect != null &&
@@ -484,6 +520,13 @@ fun NativeEditorScreen(
                         }
                         tool == "特效" && subTool == "滤镜" &&
                             selectedTarget != null && onClipFilterChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
+                        tool == "调节" && subTool == "基础" &&
+                            selectedTarget != null && onAddClipEffect != null &&
+                            onUpdateClipEffect != null && onSetClipEffectEnabled != null &&
+                            onMoveClipEffect != null && onRemoveClipEffect != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
@@ -1004,9 +1047,9 @@ private fun NativeClipEffectsPanel(
     onEnabled: (Long, Boolean) -> Unit,
     onMove: (Long, Int) -> Unit,
     onRemove: (Long) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val options = listOf(
+    modifier: Modifier = Modifier,
+    panelTitle: String = "视频特效 · 效果栈",
+    options: List<NativeEffectOption> = listOf(
         NativeEffectOption(13, "故障"), NativeEffectOption(14, "分屏"),
         NativeEffectOption(15, "镜像"), NativeEffectOption(16, "旋转模糊"),
         NativeEffectOption(17, "扫描线"), NativeEffectOption(18, "RGB分离"),
@@ -1021,11 +1064,12 @@ private fun NativeClipEffectsPanel(
         NativeEffectOption(35, "发光轮廓"), NativeEffectOption(36, "震动"),
         NativeEffectOption(37, "泛光"), NativeEffectOption(38, "镜头光晕")
     )
+) {
     Column(
         modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("视频特效 · 效果栈", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(panelTitle, color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         if (effects.isEmpty()) Text("当前片段尚未添加特效", color = NcColors.secondary, fontSize = 10.sp)
         effects.forEach { effect ->
             var draftValue by remember(effect.id, effect.value) {
