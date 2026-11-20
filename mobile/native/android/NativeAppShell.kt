@@ -32,6 +32,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +95,12 @@ fun NativeHomeScreen(
     var managing by remember { mutableStateOf(false) }
     var selectedFiles by remember { mutableStateOf(setOf<String>()) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    LaunchedEffect(projects) {
+        val existingFiles = projects.mapTo(mutableSetOf()) { it.file }
+        selectedFiles = selectedFiles.intersect(existingFiles)
+    }
 
     val filtered = remember(projects, query) {
         if (query.isBlank()) projects
@@ -251,8 +258,7 @@ fun NativeHomeScreen(
                     Button(
                         onClick = {
                             val selected = projects.filter { it.file in selectedFiles }
-                            onDeleteProjects(selected)
-                            selectedFiles = emptySet()
+                            confirmDelete = true
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -263,13 +269,29 @@ fun NativeHomeScreen(
         }
     }
 
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("删除所选草稿？") },
+            text = { Text("将请求平台层删除所选的 ${selectedFiles.size} 个工程。此操作可能无法撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val selected = projects.filter { it.file in selectedFiles }
+                    confirmDelete = false
+                    onDeleteProjects(selected)
+                }) { Text("确认删除", color = Color(0xFFFFB4AB)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } }
+        )
+    }
+
     if (showCreateDialog) {
         NativeCreateProjectDialog(
             presets = presets,
             onDismiss = { showCreateDialog = false },
             onCreate = { name, preset ->
                 showCreateDialog = false
-                onCreateProject(name, preset)
+                onCreateProject(name.ifBlank { "未命名工程" }, preset)
             }
         )
     }
