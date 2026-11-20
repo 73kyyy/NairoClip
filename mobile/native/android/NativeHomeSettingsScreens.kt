@@ -112,7 +112,7 @@ fun NativeHomeScreen(
                 color = Color.White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable(onClick = onOpenMe).padding(8.dp)
+                modifier = Modifier.padding(8.dp)
             )
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { searching = !searching; if (!searching) query = "" }) {
@@ -196,11 +196,14 @@ fun NativeHomeScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("我的草稿", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text(projects.size.toString(), color = Color(0xFF858B8F), fontSize = 11.sp)
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = {
-                        managing = !managing
-                        selectedFiles = emptySet()
-                    }) { Text(if (managing) "完成" else "管理") }
+                    if (projects.isNotEmpty()) {
+                        TextButton(onClick = {
+                            managing = !managing
+                            selectedFiles = emptySet()
+                        }) { Text(if (managing) "完成" else "管理") }
+                    }
                 }
             }
             if (loading) {
