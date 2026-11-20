@@ -388,3 +388,14 @@
 **下一批原生命令候选必须先核对路由能力：** 删除、复制、波纹删除目前只在旧 `DispatchEdit` 短操作名分支可见；`NativeEngineBridge.call()` 只接受 `nc_*` 前缀，而结构化 `applyCommand` 目前只支持 `clip.move`、`clip.split`、`clip.remove`，没有复制/波纹删除。不得直接把短操作名塞进 `call()`，也不得伪造 typed command 类型。下一步先确认稳定 track/sequence/project ID 与 revision 的可读契约，再决定删除接入路径。
 
 **验收边界：** 本次没有修改 JNI/C ABI、`MainActivity` 或正式导航入口；没有执行 Android Gradle/Compose 编译、自动化测试或真机验证。
+
+## 21. 原生片段分割的目标与时间边界校验（2026-11-20）
+
+在第 20 节的分割 API 切片上补充了执行前校验：
+
+- splitClipAndReadEditorState() 现在先在 NativeEngineBridge 同一状态锁内读取权威时间轴快照。
+- 必须同时匹配当前 trackIndex 与 clipId；目标轨道或片段已失效时直接拒绝，不向 JNI 发出编辑命令。
+- 分割时间必须严格位于所选片段的 [startUs, startUs + durationUs] 内部，不允许在片段起点/终点分割；计算片段终点前检查 Long 溢出。
+- 校验、原生分割和编辑后 timeline + undo/redo 快照读取保持在同一可重入状态锁中，避免 UI 选择或并发编辑在校验与提交之间改变目标。
+
+**边界：** 这项修正只加固现有 nc_split_clip 路径，不修改 C ABI/JNI、Activity、Manifest 或正式入口。UI callback 仍待宿主接线；没有执行 Gradle 构建、自动化测试或真机验证。
