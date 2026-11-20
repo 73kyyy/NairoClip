@@ -199,7 +199,7 @@ class NativeEngineBridge(
         clipId: Long,
         transform: NativeTransform,
         enabled: Boolean = true,
-        anchor: Int = 4
+        anchor: Int = NativeTransformRange.ANCHOR_CENTER
     ): String = synchronized(stateLock) {
         if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
         val scale = transform.scale / 100.0f
