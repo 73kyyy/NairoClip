@@ -457,7 +457,11 @@ private fun NativeTimelinePanel(
     )
 }
 
-/** Presentation inputs; the host must persist changes through the engine command API. */
+/**
+ * Presentation inputs; the host must persist changes through the engine command API.
+ * X/Y are normalized canvas offsets (1.0 = one full canvas width/height),
+ * scale is expressed as a percentage, and rotation is in degrees.
+ */
 data class NativeTransform(val x: Float = 0f, val y: Float = 0f, val scale: Float = 100f, val rotation: Float = 0f)
 enum class NativeParameter(val engineProperty: Int) {
     SCALE(1),
@@ -558,8 +562,13 @@ private fun NativeParameterPanel(
             Text("关键帧 ${activeFrames.size}", color = NcColors.secondary, fontSize = 9.sp)
         }
         if (activeSubTool == "位置") {
-            ParameterSlider("X", draftTransform.x, -1000f, 1000f, NativeParameter.X, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.X, it) }, onValueChangeFinished = ::commitDraft)
-            ParameterSlider("Y", draftTransform.y, -1000f, 1000f, NativeParameter.Y, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.Y, it) }, onValueChangeFinished = ::commitDraft)
+            Text(
+                "位置偏移按画布尺寸比例计量（1.0 = 一个画布宽度/高度）",
+                color = NcColors.muted,
+                fontSize = 9.sp
+            )
+            ParameterSlider("X", draftTransform.x, -10f, 10f, NativeParameter.X, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.X, it) }, onValueChangeFinished = ::commitDraft)
+            ParameterSlider("Y", draftTransform.y, -10f, 10f, NativeParameter.Y, keyedParameters, onInsertKeyframe, onValueChange = { updateDraft(NativeParameter.Y, it) }, onValueChangeFinished = ::commitDraft)
         }
         if (activeSubTool == "缩放") {
             ParameterSlider("缩放", draftTransform.scale, 1f, 400f, NativeParameter.SCALE, keyedParameters, onInsertKeyframe, "%", onValueChange = { updateDraft(NativeParameter.SCALE, it) }, onValueChangeFinished = ::commitDraft)
