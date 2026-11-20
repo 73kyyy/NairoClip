@@ -599,3 +599,13 @@
 - 新增曲线插值、非法控制点、主曲线与 RGB 顺序、RGBA Alpha 保留、工程 round-trip 与非法序列化输入测试。
 - **仍未完成**：编辑命令/撤销重做与 C ABI/JNI 接口、Compose 曲线控件、宿主状态回读写入、iOS/桌面 UI；色轮模型和调色 UI 未实现。当前是核心模型、持久化和预览/导出接入切片，不是完整的专业调色面板。
 - 本轮未在本环境执行 CMake/Android Gradle 编译、测试运行或真机预览导出；静态回读检查不能替代构建和测试。
+
+
+## 42. RGB 曲线撤销命令与跨平台 ABI/JNI 对接（2026-11-20）
+
+- `TimelineEditor::setClipColorGrade` 将四条曲线作为完整片段状态，通过既有 `SetClipCommand` 一次提交；一次修改只生成一条“调节颜色曲线”撤销记录，Undo/Redo 恢复完整曲线组。
+- 新增 C ABI `nc_set_clip_color_grade` / `nc_get_clip_color_grade`。读写采用每通道扁平 XY 数组，明确 2–32 点、[0,1]、输入严格递增、固定端点校验；读取缓冲容量不足返回错误码。
+- Android JNI 新增 `color_grade_set` / `color_grade_get` 分发，Kotlin Adapter 增加曲线模型、严格响应校验、轨道锁定/片段存在检查，以及修改后权威状态回读。该 Adapter 尚未接入 Compose 面板或 Activity/ViewModel。
+- 新增 C ABI 测试源码覆盖设置/读取、Undo/Redo 和非法控制点拒绝。
+- iOS/桌面可复用相同 C ABI 数据契约；当前尚未完成 Swift/Qt 绑定。
+- 本轮没有执行 CMake/NDK/Gradle 编译、测试运行或真机验证。不能据此声称 JNI 运行时已验证，也不能声称曲线控件 UI 已完成。
