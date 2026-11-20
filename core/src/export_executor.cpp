@@ -482,10 +482,16 @@ ExportStats executeExport(
                                                 frameIndex, RenderQuality::exportQuality(),
                                                 t.toDouble());
                     }
+                    if (!fromClip->colorGrade.isIdentity()) {
+                        applyColorGradeToRgba(bufA.data(), pixelBytes / 4, fromClip->colorGrade);
+                    }
                     if (!toClip->effects.empty()) {
                         applyEffectStackToFrame(bufB.data(), w, h, toClip->effects,
                                                 frameIndex, RenderQuality::exportQuality(),
                                                 t.toDouble());
+                    }
+                    if (!toClip->colorGrade.isIdentity()) {
+                        applyColorGradeToRgba(bufB.data(), pixelBytes / 4, toClip->colorGrade);
                     }
                     frame.rgba.assign(pixelBytes, 0);
                     blendDone = TransitionRenderer::renderFrame(
@@ -718,6 +724,11 @@ ExportStats executeExport(
                                                     RenderQuality::exportQuality(),
                                                     t.toDouble());
                         }
+                        if (!active->colorGrade.isIdentity()) {
+                            applyColorGradeToRgba(frame.rgba.data(),
+                                static_cast<std::size_t>(plan.width) * plan.height,
+                                active->colorGrade);
+                        }
                         // 应用片段蒙版（文档「✂️剪辑 → 蒙版」）：
                         // 多层场景 → Transparent（蒙版外 alpha=0，供下方逐像素混合透出下层）；
                         // 单层场景 → Background（直接合成序列背景色，导出像素有效）。
@@ -836,6 +847,11 @@ ExportStats executeExport(
                                                                 lower->effects, frameIndex,
                                                                 RenderQuality::exportQuality(),
                                                                 t.toDouble());
+                                                        }
+                                                        if (!lower->colorGrade.isIdentity()) {
+                                                            applyColorGradeToRgba(writable,
+                                                                static_cast<std::size_t>(plan.width) * plan.height,
+                                                                lower->colorGrade);
                                                         }
                                                     }
                                                 }
