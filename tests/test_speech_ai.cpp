@@ -187,6 +187,18 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     NC_CHECK(!failure.empty());
 }
 
+NC_TEST(SpeechAI, UnloadClearsTokenizerState) {
+    SpeechRecognizer recognizer;
+    std::string failure;
+    const std::string tokenizer =
+        R"({"model":{"vocab":{"Hello":15496}},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
+    NC_CHECK(recognizer.loadTokenizerJson(tokenizer, &failure));
+    NC_CHECK(recognizer.tokenizerLoaded());
+    recognizer.unload();
+    NC_CHECK(!recognizer.tokenizerLoaded());
+    NC_CHECK(recognizer.decodeTokens({15496}).empty());
+}
+
 NC_TEST(SpeechAI, MemoryModelLoadRejectsEmptyBuffers) {
     SpeechRecognizer recognizer;
     std::string failure;
