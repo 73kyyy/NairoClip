@@ -186,8 +186,8 @@ std::string JEsc(const std::string& in) {
     o.reserve(in.size() + 8);
     for (char c : in) {
         switch (c) {
-            case '"':  o += "\\\""; break;
-            case '\\': o += "\\\\"; break;
+            case '"':  o += "\\""; break;
+            case '\\': o += "\\\"; break;
             case '\n': o += "\\n";  break;
             case '\r': o += "\\r";  break;
             case '\t': o += "\\t";  break;
@@ -693,7 +693,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const std::string text = JStrField(a, "text");
         if (text.empty() || startUs < 0 || durationUs <= 0) { *out = Err("字幕文本或时间范围无效"); return true; }
         const uint64_t id = nc_upsert_subtitle(ed, startUs, durationUs, text.c_str());
-        *out = id > 0 ? Ok("{\\"subtitle_id\\":" + std::to_string(id) + "}") : Err("添加字幕失败");
+        *out = id > 0 ? Ok("{\"subtitle_id\":" + std::to_string(id) + "}") : Err("添加字幕失败");
         return true;
     }
     if (op == "subtitle_remove") {
@@ -717,10 +717,10 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
             const std::string text = rawText;
             nc_free_string(rawText);
             if (index) items += ",";
-            items += "{\\"index\\":" + std::to_string(index) + ",\\"subtitle_id\\":" + std::to_string(subtitleId) + ",\\"start_us\\":" + std::to_string(startUs) +
-                     ",\\"duration_us\\":" + std::to_string(durationUs) + ",\\"text\\":\\""+ JEsc(text) + "\\"}";
+            items += "{\"index\":" + std::to_string(index) + ",\"subtitle_id\":" + std::to_string(subtitleId) + ",\"start_us\":" + std::to_string(startUs) +
+                     ",\"duration_us\":" + std::to_string(durationUs) + ",\"text\":\""+ JEsc(text) + "\"}";
         }
-        *out = Ok("{\\"items\\":" + items + "]}");
+        *out = Ok("{\"items\":" + items + "]}");
         return true;
     }
     if (op == "nc_set_clip_text") {
