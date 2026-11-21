@@ -87,21 +87,21 @@ class NativeSpeechSessionWorker(
     ): CompletableFuture<JSONObject> {
         cancellationRequested.set(false)
         return submit {
-        require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
-        require(frameCount > 0L && sampleRate > 0) { "PCM 帧数或采样率无效" }
-        require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
-            "PCM 剩余容量不足"
-        }
-        try {
-            JSONObject(bridge.transcribeSpeechSession(session, pcm, frameCount, sampleRate, language)).also {
-                check(it.optBoolean("ok", false)) {
-                    it.optString("message").ifBlank { "语音识别失败" }
-                }
+            require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
+            require(frameCount > 0L && sampleRate > 0) { "PCM 帧数或采样率无效" }
+            require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
+                "PCM 剩余容量不足"
             }
-        } finally {
-            if (clearPcmAfterUse) zeroRemaining(pcm)
+            try {
+                JSONObject(bridge.transcribeSpeechSession(session, pcm, frameCount, sampleRate, language)).also {
+                    check(it.optBoolean("ok", false)) {
+                        it.optString("message").ifBlank { "语音识别失败" }
+                    }
+                }
+            } finally {
+                if (clearPcmAfterUse) zeroRemaining(pcm)
+            }
         }
-    }
     }
 
     /** Decode selected media, transcribe it, and insert all recognized cues as one undo step. */
