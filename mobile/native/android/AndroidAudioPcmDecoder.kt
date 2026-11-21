@@ -149,7 +149,8 @@ object AndroidAudioPcmDecoder {
                             }
                             if (resampler == null) resampler = StreamingMonoResampler(outputRate, TARGET_RATE)
                             resampler!!.push(mono)
-                            require(resampler!!.outputSize <= TARGET_RATE * (maxDurationMs / 1000L)) {
+                            val maxOutputFrames = (TARGET_RATE.toLong() * maxDurationMs / 1000L).coerceAtLeast(1L)
+                            require(resampler!!.outputSize.toLong() <= maxOutputFrames) {
                                 "重采样结果超过音频时长上限"
                             }
                         }
@@ -175,7 +176,7 @@ object AndroidAudioPcmDecoder {
         private var sourceIndex = 0L
         private var nextOutputPosition = 0.0
         private var previous: Float? = null
-        private var values = FloatArray(4096)
+        private var values = ByteBuffer.allocateDirect(4096 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
         var outputSize: Int = 0
             private set
 
@@ -201,16 +202,20 @@ object AndroidAudioPcmDecoder {
 
         private fun append(value: Float) {
             check(outputSize < outputRate * 600) { "重采样输出超过 10 分钟安全上限" }
-            if (outputSize == values.size) values = values.copyOf(max(values.size * 2, outputSize + 1))
-            values[outputSize++] = value
+            if (values.remaining() < Float.SIZE_BYTES) {
+                val expanded = ByteBuffer.allocateDirect(max(values.capacity() * 2, (outputSize + 1) * Float.SIZE_BYTES))
+                    .order(ByteOrder.nativeOrder())
+                values.flip()
+                expanded.put(values)
+                values = expanded
+            }
+            values.putFloat(value)
+            outputSize++
         }
 
         fun toDirectBuffer(): ByteBuffer {
-            val result = ByteBuffer.allocateDirect(outputSize * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
-            for (index in 0 until outputSize) result.putFloat(values[index])
-            result.flip()
-            values.fill(0.0f)
-            return result
+            values.flip()
+            return values
         }
     }
 }
