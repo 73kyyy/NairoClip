@@ -1,5 +1,7 @@
 package com.nairoclip.app
 
+import android.content.Context
+import android.net.Uri
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.util.concurrent.CompletableFuture
@@ -41,6 +43,7 @@ class NativeSpeechSessionWorker(
     private val closing = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
+    private val cancellationRequested = AtomicBoolean(false)
 
     init {
         require(pollIntervalMs in 100L..5000L) { "状态轮询间隔必须在 100–5000ms" }
@@ -57,6 +60,7 @@ class NativeSpeechSessionWorker(
         decoder: ByteBuffer,
         tokenizer: ByteBuffer
     ): CompletableFuture<JSONObject> = submit {
+        cancellationRequested.set(false)
         require(encoder.isDirect && decoder.isDirect && tokenizer.isDirect) {
             "模型缓冲区必须是 direct ByteBuffer"
         }
@@ -80,7 +84,9 @@ class NativeSpeechSessionWorker(
         sampleRate: Int = 16000,
         language: Int = 0,
         clearPcmAfterUse: Boolean = true
-    ): CompletableFuture<JSONObject> = submit {
+    ): CompletableFuture<JSONObject> {
+        cancellationRequested.set(false)
+        return submit {
         require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
         require(frameCount > 0L && sampleRate > 0) { "PCM 帧数或采样率无效" }
         require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
@@ -96,10 +102,62 @@ class NativeSpeechSessionWorker(
             if (clearPcmAfterUse) zeroRemaining(pcm)
         }
     }
+    }
+
+    /** Decode selected media, transcribe it, and insert all recognized cues as one undo step. */
+    fun decodeTranscribeAndInsert(
+        context: Context,
+        uri: Uri,
+        timelineStartUs: Long,
+        adapter: NativeEditorCommandAdapter,
+        language: Int = 0
+    ): CompletableFuture<NativeEditorCommandAdapter.EditorStateSnapshot> {
+        require(timelineStartUs >= 0L) { "字幕起始时间不能为负数" }
+        cancellationRequested.set(false)
+        return submit {
+            val decoded = AndroidAudioPcmDecoder.decodeToMono16k(context, uri, cancellationRequested)
+            try {
+                check(!cancellationRequested.get()) { "语音识别已取消" }
+                val response = JSONObject(bridge.transcribeSpeechSession(
+                    session, decoded.samples, decoded.frameCount, decoded.sampleRate, language
+                ))
+                check(response.optBoolean("ok", false)) {
+                    response.optString("message").ifBlank { "语音识别失败" }
+                }
+                val segments = response.optJSONArray("segments") ?: throw IllegalStateException("识别结果缺少 segments")
+                require(segments.length() in 1..10000) { "识别结果没有有效字幕或数量超限" }
+                val cues = ArrayList<NativeEditorCommandAdapter.SubtitleCueInput>(segments.length())
+                for (index in 0 until segments.length()) {
+                    val segment = segments.optJSONObject(index) ?: throw IllegalArgumentException("识别片段格式无效")
+                    val start = segment.optDouble("start", Double.NaN)
+                    val end = segment.optDouble("end", Double.NaN)
+                    val text = segment.optString("text").trim()
+                    require(start.isFinite() && end.isFinite() && start >= 0.0 && end > start && text.isNotEmpty()) {
+                        "识别片段时间或文本无效"
+                    }
+                    val startDelta = (start * 1_000_000.0).toLong()
+                    val endDelta = (end * 1_000_000.0).toLong()
+                    require(startDelta >= 0L && endDelta > startDelta && timelineStartUs <= Long.MAX_VALUE - endDelta) {
+                        "识别片段时间溢出"
+                    }
+                    cues.add(NativeEditorCommandAdapter.SubtitleCueInput(
+                        timelineStartUs + startDelta, endDelta - startDelta, text
+                    ))
+                }
+                check(!cancellationRequested.get()) { "字幕写入前任务已取消" }
+                val inserted = adapter.addSubtitlesBatchAndReadEditorState(cues)
+                check(inserted.ok) { inserted.error ?: "自动字幕写入失败" }
+                inserted.value ?: throw IllegalStateException("自动字幕写入后未返回工程快照")
+            } finally {
+                zeroRemaining(decoded.samples)
+            }
+        }
+    }
 
     /** Cooperative cancellation; returns false when native inference is not cancellable. */
     fun cancel(): Boolean {
         if (closing.get()) return false
+        cancellationRequested.set(true)
         return try {
             bridge.cancelSpeechSession(session)
         } catch (_: Throwable) {
@@ -173,6 +231,7 @@ class NativeSpeechSessionWorker(
     override fun close() {
         synchronized(lifecycleLock) {
             if (!closing.compareAndSet(false, true)) return
+            cancellationRequested.set(true)
             try { bridge.cancelSpeechSession(session) } catch (_: Throwable) {}
             poller.shutdownNow()
             try {
