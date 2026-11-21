@@ -748,3 +748,10 @@
 - `AiSession::unload()` 先销毁 ORT Session，再对持有的模型字节执行 volatile 覆写并释放容量；这属于尽力清理，不等同于可证明的安全内存擦除，也无法清除 ORT 内部副本、系统交换区或崩溃转储。
 - `loadFromMemory()` 先复制模型数据，再从受控副本创建 Session；失败路径复用 unload 清理。
 - 调用方仍应在 loadFromMemory()/loadTokenizerJson() 返回后尽快清零其自有解密缓冲。平台密钥获取、AES 解密调用和 Android JNI 接入仍未完成。
+
+## 第60节：Whisper 识别器释放语义
+
+- `SpeechRecognizer` 析构时显式调用 `unload()`，确保 encoder/decoder 的 `AiSession` 按序销毁并触发模型缓冲清理。
+- `SpeechRecognizer::unload()` 同时清空 tokenizer 的词表、反查表和 added-token 表，并重置 `tokenizerReady`，避免释放模型后仍保留可被误用的词表状态。
+- 新增 `UnloadClearsTokenizerState` 测试，验证卸载后 tokenizer 状态关闭、token 解码不再返回旧文本。
+- 注意：标准容器释放不保证底层 allocator 内存被密码学意义擦除；本改动保证对象生命周期和状态一致，不宣称完整安全擦除。
