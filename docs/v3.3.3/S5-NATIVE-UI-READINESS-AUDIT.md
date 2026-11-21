@@ -705,3 +705,10 @@
 - 编辑器“文本”工具新增独立“字幕”入口和原生 Compose 输入面板。此入口是人工创建/编辑字幕 cue，不宣称具备语音识别或自动转录；“自动字幕”仍需真实 ASR 任务管线，未伪装为已实现。
 - 字幕 C ABI 当前仅提供序列读取下标，没有在该 API 返回 subtitle ID 的读取 getter；本轮添加/删除适配器采用插入返回 ID、删除按 ID 的方式，列表用于展示时间与文本，不能用 index 冒充 ID。
 - UI 回调仍需 Activity/ViewModel 注入；未接正式运行时入口。未执行 Kotlin/Compose/NDK 编译、JUnit 或真机验证。
+
+## 55. 字幕稳定 ID 读取接口（2026-11-21）
+
+- 发现既有 `nc_subtitle_get` 只返回时间与文本，不返回字幕 ID；若用列表 index 删除，会在插入/排序/删除后误删其他字幕。
+- 新增跨平台 C ABI `nc_subtitle_get_id`，按字幕轨索引读取真实 `SubtitleId`；参数、越界均返回明确错误码。
+- JNI `subtitle_list` 现在返回 `subtitle_id`；Adapter 的 `SubtitleCueState` 持有稳定 ID，并拒绝零 ID 与重复 ID。删除命令只接受真实稳定 ID，不将 index 作为删除标识。
+- 未执行 C++/NDK/Kotlin 编译及测试。
