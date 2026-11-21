@@ -1109,6 +1109,32 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
                              int32_t sample_rate, int32_t language, char** out_segments_json,
                              char** out_error);
 
+/// 独立语音识别会话（不依赖 NcEditor；可在专用工作线程调用）。
+/// 生命周期约束：destroy 前必须 join 正在执行 transcribe 的工作线程。
+typedef struct NcSpeechSession NcSpeechSession;
+/// 创建独立会话；失败返回 NULL。
+NcSpeechSession* nc_speech_session_create(void);
+/// 销毁会话；调用方必须先等待识别线程结束。
+void nc_speech_session_destroy(NcSpeechSession* session);
+/// 从已解密内存加载 encoder/decoder/tokenizer；不写明文文件。
+/// 任何组件数据仅在调用期间借用，识别器自行管理其模型会话生命周期。
+int32_t nc_speech_session_load_memory(NcSpeechSession* session,
+    const uint8_t* encoder, int64_t encoder_size,
+    const uint8_t* decoder, int64_t decoder_size,
+    const char* tokenizer_json, int64_t tokenizer_size, char** out_error);
+/// 同步执行识别；平台层应放在专用工作线程。progress 可跨线程查询。
+/// PCM 为单声道 float32 [-1,1]；language 0=自动 1=中文 2=英语 3=日语 4=韩语。
+/// 成功时 out_segments_json 需 nc_free_string 释放。
+int32_t nc_speech_session_transcribe(NcSpeechSession* session,
+    const float* samples, int64_t frame_count, int32_t sample_rate, int32_t language,
+    char** out_segments_json, char** out_error);
+/// 请求取消；不会等待推理线程，也不会误报已完成。
+int32_t nc_speech_session_cancel(NcSpeechSession* session);
+/// 查询：0=空闲/未加载 1=已加载 2=识别中 3=成功 4=失败 5=已取消。
+/// out_progress 为 0..1；out_error 为最近一次失败说明（需 nc_free_string）。
+int32_t nc_speech_session_status(const NcSpeechSession* session,
+    int32_t* out_state, double* out_progress, char** out_error);
+
 /// 计算 Whisper Mel 频谱（供平台层/诊断；80 × frames）。
 /// - out_mel：出参（库分配；需 nc_free_buffer；浮点数组，长度 = 80 × frames）。
 int32_t nc_speech_mel(const float* samples, int64_t frame_count, int32_t sample_rate,
