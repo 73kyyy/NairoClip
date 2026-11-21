@@ -143,7 +143,7 @@ class NativeEngineBridge(
         decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer
     ): String {
         require(session != 0L && encoder.isDirect && decoder.isDirect && tokenizer.isDirect)
-        return nativeSpeechSessionLoad(session, encoder, decoder, tokenizer)
+        return nativeSpeechSessionLoad(session, encoder.slice(), decoder.slice(), tokenizer.slice())
     }
 
     /** PCM 为 mono float32 [-1,1]；必须在工作线程调用，禁止主线程推理。 */
@@ -153,7 +153,7 @@ class NativeEngineBridge(
     ): String {
         require(session != 0L && pcm.isDirect && frameCount > 0L)
         require(frameCount <= pcm.capacity().toLong() / 4L)
-        return nativeSpeechSessionTranscribe(session, pcm, frameCount, sampleRate, language)
+        return nativeSpeechSessionTranscribe(session, pcm.slice().order(java.nio.ByteOrder.nativeOrder()), frameCount, sampleRate, language)
     }
 
     fun cancelSpeechSession(session: Long): Boolean =
