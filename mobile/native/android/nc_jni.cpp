@@ -687,6 +687,39 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("创建文本失败");
         return true;
     }
+    if (op == "subtitle_upsert") {
+        const int64_t startUs = JInt(a, "start_us", -1);
+        const int64_t durationUs = JInt(a, "duration_us", 0);
+        const std::string text = JStrField(a, "text");
+        if (text.empty() || startUs < 0 || durationUs <= 0) { *out = Err("字幕文本或时间范围无效"); return true; }
+        const uint64_t id = nc_upsert_subtitle(ed, startUs, durationUs, text.c_str());
+        *out = id > 0 ? Ok("{\\"subtitle_id\\":" + std::to_string(id) + "}") : Err("添加字幕失败");
+        return true;
+    }
+    if (op == "subtitle_remove") {
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "subtitle_id", 0));
+        const int32_t rc = nc_remove_subtitle(ed, id);
+        *out = rc == NC_OK ? Ok("{}") : Err("删除字幕失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "subtitle_list") {
+        const int32_t count = nc_subtitle_count(ed);
+        if (count < 0 || count > 10000) { *out = Err("字幕数量超出安全范围"); return true; }
+        std::string items = "[";
+        for (int32_t index = 0; index < count; ++index) {
+            int64_t startUs = 0, durationUs = 0;
+            char* rawText = nullptr;
+            const int32_t rc = nc_subtitle_get(ed, index, &startUs, &durationUs, &rawText);
+            if (rc != NC_OK || rawText == nullptr) { if (rawText) nc_free_string(rawText); *out = Err("读取字幕记录失败"); return true; }
+            const std::string text = rawText;
+            nc_free_string(rawText);
+            if (index) items += ",";
+            items += "{\\"index\\":" + std::to_string(index) + ",\\"start_us\\":" + std::to_string(startUs) +
+                     ",\\"duration_us\\":" + std::to_string(durationUs) + ",\\"text\\":\\""+ JEsc(text) + "\\"}";
+        }
+        *out = Ok("{\\"items\\":" + items + "]}");
+        return true;
+    }
     if (op == "nc_set_clip_text") {
         const int32_t rc = nc_set_clip_text(ed, cid, JStrField(a, "text").c_str());
         if (rc != NC_OK) {
