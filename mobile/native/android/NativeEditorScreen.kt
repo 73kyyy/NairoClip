@@ -134,7 +134,8 @@ fun NativeEditorScreen(
     onAddTransition: ((Int, Long, Long, Int, Long) -> Unit)? = null,
     onRemoveTransition: ((Int, Long) -> Unit)? = null,
     onCreateTextClip: ((String, Long, Long) -> Unit)? = null,
-    onTextStyleChanged: ((Int, Long, NativeEditorCommandAdapter.TextStyleUpdate) -> Unit)? = null
+    onTextStyleChanged: ((Int, Long, NativeEditorCommandAdapter.TextStyleUpdate) -> Unit)? = null,
+    onCreateSubtitle: ((String, Long, Long) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -477,6 +478,17 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "文本" && activeSubTool == "字幕") {
+                if (onCreateSubtitle != null) {
+                    NativeSubtitleCreationPanel(
+                        playheadUs = playheadUs,
+                        onCreate = { value -> onCreateSubtitle.invoke(value, playheadUs.coerceAtLeast(0L), 3_000_000L) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("字幕编辑等待宿主接入原生字幕命令", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
             if (activeTool == "文本" && activeSubTool == "样式" && selectedTarget != null) {
                 if (onTextStyleChanged != null) {
                     NativeTextStylePanel(
@@ -519,6 +531,10 @@ fun NativeEditorScreen(
                 },
                 onSubToolSelected = { tool, subTool ->
                     when {
+                        tool == "文本" && subTool == "字幕" && onCreateSubtitle != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         tool == "文本" && subTool == "样式" && selectedTarget != null && onTextStyleChanged != null -> {
                             activeTool = tool
                             activeSubTool = subTool
@@ -615,6 +631,28 @@ fun NativeEditorScreen(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun NativeSubtitleCreationPanel(playheadUs: Long, onCreate: (String) -> Unit, modifier: Modifier = Modifier) {
+    var content by remember { mutableStateOf("") }
+    Column(modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp))
+        .border(1.dp, NcColors.line, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("添加字幕", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        BasicTextField(value = content,
+            onValueChange = { if (it.toByteArray(Charsets.UTF_8).size <= 16 * 1024) content = it },
+            modifier = Modifier.fillMaxWidth().background(NcColors.stage, RoundedCornerShape(8.dp)).padding(10.dp),
+            minLines = 2, textStyle = TextStyle(color = NcColors.text, fontSize = 12.sp),
+            decorationBox = { inner -> Box { if (content.isEmpty()) Text("输入字幕内容…", color = NcColors.secondary, fontSize = 11.sp); inner() } })
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("起始：${String.format(Locale.ROOT, "%.2f", playheadUs.coerceAtLeast(0L) / 1_000_000.0)}s · 默认 3 秒", color = NcColors.secondary, fontSize = 9.sp)
+            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (content.isNotBlank()) Color(0xFF303235) else NcColors.stage)
+                .clickable(enabled = content.isNotBlank()) { onCreate(content.trim()) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text("添加字幕", color = if (content.isNotBlank()) NcColors.text else NcColors.secondary, fontSize = 10.sp)
+            }
         }
     }
 }
@@ -2725,7 +2763,7 @@ private fun NativeToolBar(
     val tools = listOf(
         "剪辑" to listOf("分割", "删除", "波纹删除", "复制", "变速", "变速曲线", "动画"),
         "音频" to listOf("音量", "淡入淡出", "降噪", "人声分离"),
-        "文本" to listOf("添加文本", "自动字幕", "样式", "朗读"),
+        "文本" to listOf("添加文本", "字幕", "自动字幕", "样式", "朗读"),
         "贴纸" to listOf("贴纸库", "表情", "自定义"),
         "特效" to listOf("视频特效", "转场", "滤镜", "蒙版"),
         "画面" to listOf("位置", "缩放", "旋转", "锚点"),
