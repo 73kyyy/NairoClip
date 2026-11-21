@@ -786,3 +786,15 @@
 - **尚未完成**：Android Keystore 密钥获取与 AES 解密仍未接入；目前 load 接口要求平台传入已解密 direct buffer。MediaExtractor/MediaCodec 音频解码、16 kHz 单声道重采样、Kotlin 后台 Executor/协程封装、任务重试/生命周期托管、字幕结果批量事务回写尚未接通。
 - 风险边界：C ABI 要求 destroy 前 join 工作线程；当前 JNI 层不替调用方管理 worker 生命周期。取消为协作式，若推理内核暂时未回调进度，取消响应会延迟。direct buffer 明文由调用方持有，需在确认 C++ 已复制/装载后主动清理；本接口本身不承诺清除调用方缓冲区或 ONNX Runtime 内部副本。
 - 本节只证明接口与桥接源码已提交，不代表 Android/NDK/C++ 构建、CTest、JUnit、模型加载、真机识别或端到端自动字幕已验证。
+
+
+## 第63节：Android Whisper 后台会话工作器与销毁竞态保护（2026-11-21）
+
+- 新增 `mobile/native/android/NativeSpeechSessionWorker.kt`，为第62节的独立 `NcSpeechSession` JNI API 提供 Kotlin 异步封装。
+- 所有模型加载和 PCM 推理都通过专用单线程 Executor 执行；状态轮询使用独立 ScheduledExecutor，避免同步推理占用任务线程时 UI 状态读取被阻塞。
+- 暴露 `load()` / `transcribe()` 的 `CompletableFuture` 结果、协作式 `cancel()` 和状态监听；拒绝同一会话上的并发任务，状态进度限定在 0..1。
+- 修复提交/关闭竞态：任务提交与 close() 通过同一生命周期锁排序；close 先登记取消，再把 native destroy 排在工作队列末尾，确保不在 JNI 推理仍使用句柄时释放它。销毁前不强行中断 native 线程；若核心暂不响应取消，关闭会安全等待。
+- 模型 encoder/decoder/tokenizer direct buffer 在 native load 返回后执行 best-effort 清零；PCM 默认在推理返回后清零，可由调用方显式关闭 PCM 清理。该操作不保证清除 JVM/ORT/native 副本、分配器残留、交换区或崩溃转储。
+- Listener 在状态轮询线程回调，宿主必须自行切回主线程更新 Compose；此工作器尚未接入 Activity/ViewModel、媒体选择或编辑器“自动字幕”按钮。
+- 尚未实现 MediaExtractor/MediaCodec 音轨解码、声道混合与 16 kHz 重采样，也未实现模型服务端组件 nonce/密钥协议、Keystore 解密、字幕批量单次 Undo 事务。不能据此宣称端到端自动字幕已启用。
+- 该工作器源码已静态回读；未执行 Gradle/Kotlin 编译、JUnit、NDK/C++ 构建、CTest、真实模型推理或设备生命周期验证。
