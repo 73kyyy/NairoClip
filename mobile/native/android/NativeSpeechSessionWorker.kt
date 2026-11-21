@@ -60,10 +60,10 @@ class NativeSpeechSessionWorker(
         decoder: ByteBuffer,
         tokenizer: ByteBuffer
     ): CompletableFuture<JSONObject> = submit {
-        require(encoder.isDirect && decoder.isDirect && tokenizer.isDirect) {
-            "模型缓冲区必须是 direct ByteBuffer"
-        }
         try {
+            require(encoder.isDirect && decoder.isDirect && tokenizer.isDirect) {
+                "模型缓冲区必须是 direct ByteBuffer"
+            }
             JSONObject(bridge.loadSpeechSession(session, encoder, decoder, tokenizer)).also {
                 check(it.optBoolean("ok", false)) {
                     it.optString("message").ifBlank { "Whisper 模型加载失败" }
@@ -85,12 +85,12 @@ class NativeSpeechSessionWorker(
         clearPcmAfterUse: Boolean = true
     ): CompletableFuture<JSONObject> {
         return submit {
-            require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
-            require(frameCount > 0L && sampleRate > 0) { "PCM 帧数或采样率无效" }
-            require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
-                "PCM 剩余容量不足"
-            }
             try {
+                require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
+                require(frameCount > 0L && sampleRate > 0) { "PCM 帧数或采样率无效" }
+                require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
+                    "PCM 剩余容量不足"
+                }
                 JSONObject(bridge.transcribeSpeechSession(session, pcm, frameCount, sampleRate, language)).also {
                     check(it.optBoolean("ok", false)) {
                         it.optString("message").ifBlank { "语音识别失败" }
