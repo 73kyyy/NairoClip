@@ -212,6 +212,53 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     data class TextClipMutationResult(val clipId: Long, val editorState: EditorStateSnapshot)
 
+    data class SubtitleCueState(val index: Int, val startUs: Long, val durationUs: Long, val text: String)
+
+    /** Reads subtitle cues from the engine-owned sequence subtitle track. */
+    fun readSubtitles(): Result<List<SubtitleCueState>> = bridge.withEditorStateLock {
+        invoke("subtitle_list", JSONObject()) { payload ->
+            val items = payload.optJSONArray("items") ?: throw IllegalArgumentException("字幕列表缺失")
+            require(items.length() <= 10000)
+            buildList {
+                for (index in 0 until items.length()) {
+                    val item = items.optJSONObject(index) ?: throw IllegalArgumentException("字幕记录格式非法")
+                    val cue = SubtitleCueState(item.getInt("index"), item.getLong("start_us"), item.getLong("duration_us"), item.getString("text"))
+                    require(cue.index == index && cue.startUs >= 0L && cue.durationUs > 0L && cue.text.isNotBlank())
+                    require(cue.startUs <= Long.MAX_VALUE - cue.durationUs)
+                    if (isNotEmpty()) require(last().startUs <= cue.startUs) { "字幕必须按开始时间排序" }
+                    add(cue)
+                }
+            }
+        }
+    }
+
+    /** Adds a subtitle cue and returns the coherent post-edit timeline/history snapshot. */
+    fun addSubtitleAndReadEditorState(text: String, startUs: Long, durationUs: Long): Result<EditorStateSnapshot> {
+        if (text.isBlank()) return Result(false, error = "字幕内容不能为空")
+        if (text.toByteArray(Charsets.UTF_8).size > 16 * 1024) return Result(false, error = "字幕内容过长")
+        if (startUs < 0L || durationUs <= 0L || startUs > Long.MAX_VALUE - durationUs) return Result(false, error = "字幕时间范围无效")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val projectDuration = before.value?.durationUs ?: return@withEditorStateLock Result(false, error = "工程时长缺失")
+            if (startUs >= projectDuration) return@withEditorStateLock Result(false, error = "字幕开始时间超出工程时长")
+            val boundedDuration = minOf(durationUs, projectDuration - startUs)
+            val inserted = invoke("subtitle_upsert", JSONObject().put("text", text.trim()).put("start_us", startUs).put("duration_us", boundedDuration)) { it.getLong("subtitle_id") }
+            if (!inserted.ok || (inserted.value ?: 0L) <= 0L) return@withEditorStateLock Result(false, error = inserted.error ?: "字幕创建失败")
+            readEditorStateSnapshotLocked()
+        }
+    }
+
+    fun removeSubtitleAndReadEditorState(subtitleId: Long): Result<EditorStateSnapshot> {
+        if (subtitleId <= 0L) return Result(false, error = "字幕 ID 无效")
+        return bridge.withEditorStateLock {
+            val changed = invoke("subtitle_remove", JSONObject().put("subtitle_id", subtitleId)) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error)
+            readEditorStateSnapshotLocked()
+        }
+    }
+
+
     data class TextStyleUpdate(
         val fontSize: Double? = null,
         val color: String? = null,
