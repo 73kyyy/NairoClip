@@ -769,3 +769,20 @@
 - 因服务端密钥/组件格式尚未从仓库代码中得到证明，本轮不擅自改动现有加密格式、不新增猜测性的 manifest、不将密钥写入 JSON/日志/文件，也不生成明文临时模型文件。
 - 下一步先补齐并审查服务端组件清单与密钥交付契约；再实现 Android Keystore 密钥桥接和 native 内存解密；最后建立独立于编辑器锁的 ASR task handle、PCM 分块传递、取消/进度/失败/重试及字幕事务回写。音频解码统一采用系统解码器输出 16 kHz mono float32 PCM 的跨平台契约，Android/iOS/桌面分别调用平台能力。
 - 本节为源码审计结论，不代表密文模型推理或自动字幕已经接通；未执行 Android/NDK/C++ 构建、CTest、JUnit 或真机安全验证。
+
+## 第62节：独立 Whisper 会话 C ABI 与 Android direct-buffer 桥接（2026-11-21）
+
+- 新增 opaque `NcSpeechSession`，与 `NcEditor` 生命周期和编辑器状态锁分离；语音识别不再必须占用单个编辑器句柄。
+- 新增 C ABI：
+  - `nc_speech_session_create/destroy`：独立会话生命周期；销毁前调用方必须等待识别工作线程结束。
+  - `nc_speech_session_load_memory`：从已解密 encoder/decoder/tokenizer 内存加载，不创建明文临时模型文件。
+  - `nc_speech_session_transcribe`：单声道 float32 PCM 同步识别，平台必须在专用工作线程调用；返回字幕分段 JSON。
+  - `nc_speech_session_cancel`：原子登记取消，不等待推理线程；由 Whisper 进度回调协作式停止。
+  - `nc_speech_session_status`：原子读取状态/进度；会话忙碌时不等待推理互斥锁，避免 UI 轮询阻塞。
+- 状态枚举：0 未加载/空闲、1 已加载、2 识别中、3 成功、4 失败、5 已取消。进度单调由识别器回调更新，不伪造推理阶段。
+- 会话内部使用独立识别器和忙碌门禁；禁止并发重复识别或在识别过程中重新加载模型。取消请求与已取消状态分离，只有推理退出后才报告状态 5。
+- Android `NativeEngineBridge` 增加会话创建/释放、加载、识别、取消、状态接口；JNI 使用 direct `ByteBuffer` 传输模型和 PCM，不把大块数据编码成 JSON，也不经过编辑器的 `stateLock`。输入 buffer 按当前 position/remaining 切片，PCM 按 native float32 字节序读取。
+- 增加 C++ 单测覆盖会话创建、初始状态、非法模型/PCM 入参及空闲取消拒绝。
+- **尚未完成**：Android Keystore 密钥获取与 AES 解密仍未接入；目前 load 接口要求平台传入已解密 direct buffer。MediaExtractor/MediaCodec 音频解码、16 kHz 单声道重采样、Kotlin 后台 Executor/协程封装、任务重试/生命周期托管、字幕结果批量事务回写尚未接通。
+- 风险边界：C ABI 要求 destroy 前 join 工作线程；当前 JNI 层不替调用方管理 worker 生命周期。取消为协作式，若推理内核暂时未回调进度，取消响应会延迟。direct buffer 明文由调用方持有，需在确认 C++ 已复制/装载后主动清理；本接口本身不承诺清除调用方缓冲区或 ONNX Runtime 内部副本。
+- 本节只证明接口与桥接源码已提交，不代表 Android/NDK/C++ 构建、CTest、JUnit、模型加载、真机识别或端到端自动字幕已验证。
