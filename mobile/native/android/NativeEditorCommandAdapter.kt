@@ -212,7 +212,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     data class TextClipMutationResult(val clipId: Long, val editorState: EditorStateSnapshot)
 
-    data class SubtitleCueState(val index: Int, val startUs: Long, val durationUs: Long, val text: String)
+    data class SubtitleCueState(val index: Int, val subtitleId: Long, val startUs: Long, val durationUs: Long, val text: String)
 
     /** Reads subtitle cues from the engine-owned sequence subtitle track. */
     fun readSubtitles(): Result<List<SubtitleCueState>> = bridge.withEditorStateLock {
@@ -222,10 +222,11 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             buildList {
                 for (index in 0 until items.length()) {
                     val item = items.optJSONObject(index) ?: throw IllegalArgumentException("字幕记录格式非法")
-                    val cue = SubtitleCueState(item.getInt("index"), item.getLong("start_us"), item.getLong("duration_us"), item.getString("text"))
-                    require(cue.index == index && cue.startUs >= 0L && cue.durationUs > 0L && cue.text.isNotBlank())
+                    val cue = SubtitleCueState(item.getInt("index"), item.getLong("subtitle_id"), item.getLong("start_us"), item.getLong("duration_us"), item.getString("text"))
+                    require(cue.index == index && cue.subtitleId > 0L && cue.startUs >= 0L && cue.durationUs > 0L && cue.text.isNotBlank())
                     require(cue.startUs <= Long.MAX_VALUE - cue.durationUs)
                     if (isNotEmpty()) require(last().startUs <= cue.startUs) { "字幕必须按开始时间排序" }
+                    require(none { it.subtitleId == cue.subtitleId }) { "字幕 ID 重复" }
                     add(cue)
                 }
             }
