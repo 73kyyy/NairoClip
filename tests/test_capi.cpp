@@ -141,6 +141,17 @@ NC_TEST(Capi, SubtitleCrud) {
     NC_CHECK_EQ(readId, sid);
     NC_CHECK_EQ(nc_subtitle_get_id(editor, 0, nullptr), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_subtitle_get_id(editor, 5, &readId), NC_ERROR_OUT_OF_RANGE);
+    // 相同时间与相同文本也必须返回本次新分配的 ID，而不是按内容猜测。
+    const std::uint64_t duplicateSid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
+    NC_CHECK(duplicateSid != 0 && duplicateSid != sid);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 2);
+    bool foundDuplicateId = false;
+    for (int32_t index = 0; index < nc_subtitle_count(editor); ++index) {
+        std::uint64_t candidate = 0;
+        NC_CHECK_EQ(nc_subtitle_get_id(editor, index, &candidate), NC_OK);
+        if (candidate == duplicateSid) foundDuplicateId = true;
+    }
+    NC_CHECK(foundDuplicateId);
     // 读取
     std::int64_t start = 0;
     std::int64_t duration = 0;
@@ -155,6 +166,7 @@ NC_TEST(Capi, SubtitleCrud) {
     }
     // 删除
     NC_CHECK_EQ(nc_remove_subtitle(editor, sid), NC_OK);
+    NC_CHECK_EQ(nc_remove_subtitle(editor, duplicateSid), NC_OK);
     NC_CHECK_EQ(nc_subtitle_count(editor), 0);
     // 越界
     NC_CHECK_EQ(nc_subtitle_get(editor, 5, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
