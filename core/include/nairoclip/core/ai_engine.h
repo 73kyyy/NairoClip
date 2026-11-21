@@ -140,8 +140,8 @@ public:
               std::string* outputFailure = nullptr);
 
     /// 从内存中的 ONNX 字节加载会话；适用于模型密文仅在内存解密的安全分发流程。
-    /// modelData 在调用期间必须有效；ONNX Runtime 会在创建会话时解析模型，
-    /// 调用返回后无需保留调用方缓冲区。
+    /// 内部复制并持有模型字节至 unload()/析构，确保 ORT 内存模型数据生命周期安全；
+    /// 释放会话后会尽力清零该缓冲。调用方可在本函数返回后清零自己的解密缓冲。
     bool loadFromMemory(const void* modelData, std::size_t modelSize,
                         AiBackend backend = AiBackend::Cpu,
                         std::string* outputFailure = nullptr);
