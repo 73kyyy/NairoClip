@@ -711,5 +711,12 @@
 - 发现既有 `nc_subtitle_get` 只返回时间与文本，不返回字幕 ID；若用列表 index 删除，会在插入/排序/删除后误删其他字幕。
 - 新增跨平台 C ABI `nc_subtitle_get_id`，按字幕轨索引读取真实 `SubtitleId`；参数、越界均返回明确错误码。
 - JNI `subtitle_list` 现在返回 `subtitle_id`；Adapter 的 `SubtitleCueState` 持有稳定 ID，并拒绝零 ID 与重复 ID。删除命令只接受真实稳定 ID，不将 index 作为删除标识。
-- `tests/test_capi.cpp` 的 `Capi.SubtitleCrud` 补充稳定 ID 一致性、空输出指针与越界测试；原生字幕面板现可展示前 30 条字幕，并在宿主注入删除回调时按稳定 ID 删除。
+- `tests/test_capi.cpp` 的 `Capi.SubtitleCrud` 补充稳定 ID 一致性、空输出指针、越界及相同时间/相同文本重复插入仍返回不同精确 ID 的测试；修复 `nc_upsert_subtitle` 原先按时间+文本搜索返回 ID 的歧义。原生字幕面板可展示前 30 条字幕，并在宿主注入删除回调时按稳定 ID 删除。
 - 未执行 C++/NDK/Kotlin 编译及测试。
+
+## 56. 字幕 ID 精确返回与列表删除闭环补强（2026-11-21）
+
+- `nc_upsert_subtitle` 原实现通过时间戳和文本反查最后一条字幕 ID；同一时刻重复插入相同文本时可能返回错误记录 ID。现在在移动 cue 前捕获本次分配的 ID，成功后直接返回该 ID。
+- C API 测试覆盖相同时间、相同文本的重复插入，确认两次返回 ID 不同、列表均可读取到对应 ID，且两条均可按 ID 删除。
+- 原生字幕面板支持展示前 30 条字幕及按稳定 ID 删除；超过 30 条会显示提示。完整列表与删除回调由宿主注入，未声称 Activity/ViewModel 已接线。
+- 未执行 C++/NDK/Kotlin 编译、CTest/JUnit 或真机验证。
