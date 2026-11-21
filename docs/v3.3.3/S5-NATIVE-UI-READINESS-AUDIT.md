@@ -689,3 +689,11 @@
 - JNI 与核心 C ABI 的 `nc_add_text_clip` 已存在，本切片不新增底层协议、不修改 MainActivity/Manifest/正式入口。
 - Compose 面板通过可选 `onCreateTextClip` 回调交给宿主执行；当前仍未接入 Activity/ViewModel，因此没有声称正式运行时已启用。宿主需在成功后用返回的 `TextClipMutationResult.editorState` 更新时间轴/历史，并可按 `clipId` 定位新片段。
 - 未执行 Android Gradle/Compose/NDK 编译、JUnit 或真机验证；当前仅可做源码回读与静态检查。
+
+## 53. 原生文字样式局部编辑与 JNI 哨兵修复（2026-11-21）
+
+- “文本 → 样式”新增 Compose 原生样式面板：字号、描边宽度、填充色预设、左/中/右对齐。只在存在选中片段且宿主回调已注入时进入该面板。
+- Adapter 新增 `TextStyleUpdate` 与 `setTextStyleAndReadEditorState`：只提交用户明确修改的字段；字号 8–256 画布点、描边宽度 0–32 画布点、颜色严格接受 `#RRGGBB` / `#RRGGBBAA`、对齐 0–2。空修改拒绝；在状态锁内校验轨道/片段/锁定状态，提交后回读时间轴和撤销/重做状态。
+- 修复 JNI `nc_set_text_style` 的空描边颜色处理：此前 JNI 将空字符串强制替换为黑色，破坏 C ABI“空值表示保持原值”的哨兵契约；现在原样传递空字符串，且缺省描边宽度改为 -1 保持不变。这样局部修改字号/颜色/对齐不会意外重置描边颜色或宽度。
+- 核心 `SubtitleStyle` 使用画布点字号、归一化锚点与 0/1/2 对齐；本面板不擅自加入未定义的字体族、背景框或锚点精细拖动。C ABI 没有文本样式 getter，因此面板不伪造当前选中片段的样式回显，控件提交为明确的新值。
+- 回调仍需 Activity/ViewModel 注入；未接正式运行时入口。未执行 Kotlin/Compose/NDK 编译、JUnit 或真机验证。
