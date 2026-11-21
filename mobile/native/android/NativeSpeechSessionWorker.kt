@@ -60,7 +60,6 @@ class NativeSpeechSessionWorker(
         decoder: ByteBuffer,
         tokenizer: ByteBuffer
     ): CompletableFuture<JSONObject> = submit {
-        cancellationRequested.set(false)
         require(encoder.isDirect && decoder.isDirect && tokenizer.isDirect) {
             "模型缓冲区必须是 direct ByteBuffer"
         }
@@ -85,7 +84,6 @@ class NativeSpeechSessionWorker(
         language: Int = 0,
         clearPcmAfterUse: Boolean = true
     ): CompletableFuture<JSONObject> {
-        cancellationRequested.set(false)
         return submit {
             require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
             require(frameCount > 0L && sampleRate > 0) { "PCM 帧数或采样率无效" }
@@ -113,7 +111,6 @@ class NativeSpeechSessionWorker(
         language: Int = 0
     ): CompletableFuture<NativeEditorCommandAdapter.EditorStateSnapshot> {
         require(timelineStartUs >= 0L) { "字幕起始时间不能为负数" }
-        cancellationRequested.set(false)
         return submit {
             val decoded = AndroidAudioPcmDecoder.decodeToMono16k(context, uri, cancellationRequested)
             try {
@@ -176,6 +173,7 @@ class NativeSpeechSessionWorker(
                 result.completeExceptionally(IllegalStateException("Whisper 会话已有任务运行"))
                 return result
             }
+            cancellationRequested.set(false)
             try {
                 worker.execute {
                     try {
