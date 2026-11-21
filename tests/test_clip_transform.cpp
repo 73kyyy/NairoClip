@@ -3,6 +3,10 @@
 #include "nairoclip/core/editor.h"
 #include "nairoclip/core/xform.h"
 #include "nairoclip/core/serialization.h"
+
+#include <cmath>
+#include <limits>
+
 using namespace nairoclip::core;
 
 namespace {
@@ -128,6 +132,21 @@ NC_TEST(ClipTransform, ClampScaleFloor) {
     NC_CHECK(t.scale == 0.05);
 }
 
+NC_TEST(ClipTransform, NonFiniteInputsReturnToNeutralValues) {
+    ClipTransform t;
+    t.scale = std::numeric_limits<double>::quiet_NaN();
+    t.posX = std::numeric_limits<double>::infinity();
+    t.posY = -std::numeric_limits<double>::infinity();
+    t.rotation = std::numeric_limits<double>::quiet_NaN();
+    t.anchor = 9;
+    t.clamp();
+    NC_CHECK(t.scale == 1.0);
+    NC_CHECK(t.posX == 0.0);
+    NC_CHECK(t.posY == 0.0);
+    NC_CHECK(t.rotation == 0.0);
+    NC_CHECK(t.anchor == 4);
+}
+
 // =============================================================================
 // 命令可撤销
 // =============================================================================
@@ -208,6 +227,21 @@ NC_TEST(ClipTransformMatrix, RotationChangesMatrix) {
     // 旋转 90° 后 m[0]（cos）应接近 0，与单位阵明显不同
     NC_CHECK(std::abs(a.m[0] - 0.0) < 1e-6);
     NC_CHECK(std::abs(b.m[0] - 1.0) < 1e-6);
+}
+
+NC_TEST(ClipTransformMatrix, EveryGridAnchorRemainsTheScaleRotationPivot) {
+    constexpr int canvasW = 64;
+    constexpr int canvasH = 48;
+    for (int anchor = 0; anchor < 9; ++anchor) {
+        const double px = static_cast<double>(anchor % 3) * canvasW / 2.0;
+        const double py = static_cast<double>(anchor / 3) * canvasH / 2.0;
+        const Affine2D matrix =
+            clipTransformMatrix(0.5, 0.0, 0.0, 37.0, anchor, canvasW, canvasH);
+        const double mappedX = matrix.m[0] * px + matrix.m[1] * py + matrix.m[2];
+        const double mappedY = matrix.m[3] * px + matrix.m[4] * py + matrix.m[5];
+        NC_CHECK(std::abs(mappedX - px) < 1e-6);
+        NC_CHECK(std::abs(mappedY - py) < 1e-6);
+    }
 }
 
 // =============================================================================

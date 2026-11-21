@@ -11,7 +11,7 @@ namespace core {
 /// 片段可动画的属性通道。
 enum class ClipProperty {
     Opacity,    // 透明度 [0,1]，默认 1
-    Scale,      // 缩放倍数 [0.01, 100]，默认 1
+    Scale,      // 画面缩放倍数 [0.05, 10]，默认 1（与 ClipTransform 一致）
     PositionX,  // 归一化 x 偏移 [-10,10]，默认 0（单位：画面宽占比）
     PositionY,  // 归一化 y 偏移 [-10,10]，默认 0
     Rotation,   // 旋转角度 [-3600,3600] 度，默认 0

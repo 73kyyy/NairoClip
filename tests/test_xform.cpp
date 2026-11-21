@@ -1,9 +1,11 @@
 #include "test_framework.h"
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/xform.h"
+#include "nairoclip/core/transform_limits.h"
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 using namespace nairoclip::core;
@@ -313,6 +315,45 @@ NC_TEST(Xform, ClampKeepsValuesInRange) {
     NC_CHECK(p.gap <= 0.5);
     NC_CHECK(p.anchor >= 0 && p.anchor <= 8);
     NC_CHECK(p.edge >= 0 && p.edge <= 2);
+}
+
+NC_TEST(Xform, ClampNormalizesNonFiniteTransformInputs) {
+    XformParams p;
+    p.value = std::numeric_limits<double>::quiet_NaN();
+    p.angle = std::numeric_limits<double>::infinity();
+    p.phase = -std::numeric_limits<double>::infinity();
+    p.freq = std::numeric_limits<double>::quiet_NaN();
+    p.gap = std::numeric_limits<double>::quiet_NaN();
+    p.period = std::numeric_limits<double>::infinity();
+    p.anchor = transform_limits::kAnchorMax + 1;
+    p.clamp();
+
+    NC_CHECK(p.value == 0.0);
+    NC_CHECK(p.angle == 0.0);
+    NC_CHECK(p.phase == 0.0);
+    NC_CHECK(p.freq == 2.0);
+    NC_CHECK(p.gap == 0.0);
+    NC_CHECK(p.period == 2.0);
+    NC_CHECK(p.anchor == transform_limits::kAnchorCenter);
+    NC_CHECK(std::isfinite(p.value));
+    NC_CHECK(std::isfinite(p.angle));
+    NC_CHECK(std::isfinite(p.phase));
+    NC_CHECK(std::isfinite(p.freq));
+    NC_CHECK(std::isfinite(p.gap));
+    NC_CHECK(std::isfinite(p.period));
+}
+
+NC_TEST(Xform, AnchorUsesSharedClipTransformGridDomain) {
+    XformParams p;
+    p.anchor = transform_limits::kAnchorMin;
+    p.clamp();
+    NC_CHECK_EQ(p.anchor, transform_limits::kAnchorMin);
+    p.anchor = transform_limits::kAnchorMax;
+    p.clamp();
+    NC_CHECK_EQ(p.anchor, transform_limits::kAnchorMax);
+    p.anchor = transform_limits::kAnchorMax + 1;
+    p.clamp();
+    NC_CHECK_EQ(p.anchor, transform_limits::kAnchorCenter);
 }
 
 NC_TEST(Xform, DefaultsHavePositiveValue) {

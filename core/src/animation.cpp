@@ -1,4 +1,7 @@
 #include "nairoclip/core/animation.h"
+#include "nairoclip/core/transform_limits.h"
+
+#include <cmath>
 
 namespace nairoclip {
 namespace core {
@@ -8,13 +11,13 @@ PropertySpec propertySpec(ClipProperty property) {
         case ClipProperty::Opacity:
             return PropertySpec{1.0, 0.0, 1.0};
         case ClipProperty::Scale:
-            return PropertySpec{1.0, 0.01, 100.0};
+            return PropertySpec{1.0, transform_limits::kScaleMin, transform_limits::kScaleMax};
         case ClipProperty::PositionX:
-            return PropertySpec{0.0, -10.0, 10.0};
+            return PropertySpec{0.0, transform_limits::kPositionMin, transform_limits::kPositionMax};
         case ClipProperty::PositionY:
-            return PropertySpec{0.0, -10.0, 10.0};
+            return PropertySpec{0.0, transform_limits::kPositionMin, transform_limits::kPositionMax};
         case ClipProperty::Rotation:
-            return PropertySpec{0.0, -3600.0, 3600.0};
+            return PropertySpec{0.0, transform_limits::kRotationMinDegrees, transform_limits::kRotationMaxDegrees};
         case ClipProperty::Volume:
             return PropertySpec{1.0, 0.0, 4.0};
     }
@@ -42,6 +45,7 @@ const char* propertyName(ClipProperty property) {
 namespace {
 
 double clampToSpec(double value, const PropertySpec& spec) {
+    if (!std::isfinite(value)) return spec.defaultValue;
     if (value < spec.minValue) return spec.minValue;
     if (value > spec.maxValue) return spec.maxValue;
     return value;
@@ -128,7 +132,7 @@ bool ClipAnimation::invariantsHold() const {
         }
         const PropertySpec spec = propertySpec(properties[i]);
         for (const auto& k : track->keyframes()) {
-            if (k.value < spec.minValue || k.value > spec.maxValue) {
+            if (!std::isfinite(k.value) || k.value < spec.minValue || k.value > spec.maxValue) {
                 return false;
             }
         }

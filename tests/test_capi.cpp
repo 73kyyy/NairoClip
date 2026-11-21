@@ -135,6 +135,23 @@ NC_TEST(Capi, SubtitleCrud) {
     const std::uint64_t sid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
     NC_CHECK(sid != 0);
     NC_CHECK_EQ(nc_subtitle_count(editor), 1);
+    // 稳定 ID 必须与 upsert 返回值一致，不能用排序后的数组下标代替。
+    std::uint64_t readId = 0;
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 0, &readId), NC_OK);
+    NC_CHECK_EQ(readId, sid);
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 0, nullptr), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 5, &readId), NC_ERROR_OUT_OF_RANGE);
+    // 相同时间与相同文本也必须返回本次新分配的 ID，而不是按内容猜测。
+    const std::uint64_t duplicateSid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
+    NC_CHECK(duplicateSid != 0 && duplicateSid != sid);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 2);
+    bool foundDuplicateId = false;
+    for (int32_t index = 0; index < nc_subtitle_count(editor); ++index) {
+        std::uint64_t candidate = 0;
+        NC_CHECK_EQ(nc_subtitle_get_id(editor, index, &candidate), NC_OK);
+        if (candidate == duplicateSid) foundDuplicateId = true;
+    }
+    NC_CHECK(foundDuplicateId);
     // 读取
     std::int64_t start = 0;
     std::int64_t duration = 0;
@@ -149,11 +166,47 @@ NC_TEST(Capi, SubtitleCrud) {
     }
     // 删除
     NC_CHECK_EQ(nc_remove_subtitle(editor, sid), NC_OK);
+    NC_CHECK_EQ(nc_remove_subtitle(editor, duplicateSid), NC_OK);
     NC_CHECK_EQ(nc_subtitle_count(editor), 0);
     // 越界
     NC_CHECK_EQ(nc_subtitle_get(editor, 5, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
     nc_editor_destroy(editor);
 }
+NC_TEST(Capi, SubtitleBatchIsAtomicAndUndoable) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    const NcSubtitleCueInput cues[] = {
+        {0, 800000, "第一句"},
+        {900000, 700000, "第二句"},
+        {1700000, 600000, "第三句"},
+    };
+    std::uint64_t ids[3] = {};
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, cues, 3, ids), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+    NC_CHECK(ids[0] > 0 && ids[1] > 0 && ids[2] > 0);
+    NC_CHECK(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2]);
+    // 整批字幕必须只形成一条撤销记录。
+    NC_CHECK_EQ(nc_undo_count(editor), 1);
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 0);
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+
+    const NcSubtitleCueInput invalid[] = {
+        {2500000, 500000, "合法条目"},
+        {-1, 500000, "非法起点"},
+    };
+    std::uint64_t invalidIds[2] = {};
+    const int32_t beforeUndo = nc_undo_count(editor);
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, invalid, 2, invalidIds),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+    NC_CHECK_EQ(nc_undo_count(editor), beforeUndo);
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, cues, 0, ids),
+                NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(Capi, TransitionCrud) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
@@ -1972,5 +2025,52 @@ NC_TEST(Capi, HeartbeatLifecycle) {
     NC_CHECK_EQ(nc_heartbeat_status(nullptr, nullptr, nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_heartbeat_periodic_due(nullptr, 0, 0), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_heartbeat_clear_lock(nullptr), NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+
+NC_TEST(Capi, ClipColorGradeUndoRoundtrip) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t asset = nc_import_asset(editor, "curve.mp4", "/curve.mp4", 0, 10000000);
+    NC_CHECK(asset != 0);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clip = nc_insert_clip(editor, 0, asset, 0, 5000000);
+    NC_CHECK(clip != 0);
+    const double master[] = {0.0, 0.0, 0.5, 0.75, 1.0, 1.0};
+    const double identity[] = {0.0, 0.0, 1.0, 1.0};
+    const int32_t historyBefore = nc_undo_count(editor);
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        master, 3, identity, 2, identity, 2, identity, 2), NC_OK);
+    NC_CHECK_EQ(nc_undo_count(editor), historyBefore + 1);
+    // Re-applying an identical curve is a no-op and must not create a dead undo step.
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        master, 3, identity, 2, identity, 2, identity, 2), NC_OK);
+    NC_CHECK_EQ(nc_undo_count(editor), historyBefore + 1);
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        nullptr, 3, identity, 2, identity, 2, identity, 2), NC_ERROR_INVALID_ARGUMENT);
+    double readMaster[64] = {}, readRed[64] = {}, readGreen[64] = {}, readBlue[64] = {};
+    int32_t mc = 0, rc = 0, gc = 0, bc = 0;
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 3);
+    NC_CHECK(std::abs(readMaster[3] - 0.75) < 1e-9);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 2, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_ERROR_OUT_OF_RANGE);
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 2);
+    NC_CHECK(std::abs(readMaster[3] - 1.0) < 1e-9);
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 3);
+    const double invalid[] = {0.0, 0.0, 0.8, 0.6, 0.7, 0.9, 1.0, 1.0};
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        invalid, 4, identity, 2, identity, 2, identity, 2), NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
 }

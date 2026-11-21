@@ -113,6 +113,30 @@ NC_TEST(Preview, AppliesAnimationOpacity) {
     const PreviewFrame frame = renderer.renderAt(Rational::make(2));
     NC_CHECK(std::abs(frame.opacity - 0.5) < 1e-6);
 }
+NC_TEST(Preview, OpacityKeyframesPreserveStaticTransform) {
+    Fixture f;
+    const ClipId clipId = f.addClip(Rational::make(0), Rational::make(2));
+    Track* track = f.project.mainSequence()->findTrack(f.videoTrack);
+    NC_CHECK(track != nullptr);
+    Clip* clip = track->findClip(clipId);
+    NC_CHECK(clip != nullptr);
+    clip->transform.enabled = true;
+    clip->transform.scale = 0.5;
+
+    Keyframe opacityStart;
+    opacityStart.time = Rational::make(0);
+    opacityStart.value = 1.0;
+    Keyframe opacityEnd;
+    opacityEnd.time = Rational::make(2);
+    opacityEnd.value = 1.0;
+    NC_CHECK(clip->animation.curve(ClipProperty::Opacity).insert(opacityStart).isOk());
+    NC_CHECK(clip->animation.curve(ClipProperty::Opacity).insert(opacityEnd).isOk());
+
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame frame = renderer.renderAt(Rational::make(1));
+    NC_CHECK(std::abs(frame.scale - 0.5) < 1e-9);
+}
 NC_TEST(Preview, HiddenTrackSkipped) {
     Fixture f;
     f.addClip(Rational::make(0), Rational::make(2));
@@ -455,6 +479,44 @@ NC_TEST(Preview, CacheInvalidatedWhenClipEdited) {
     NC_CHECK_EQ(s2.frameMisses, std::size_t(2));   // 第二次也是 miss（重渲了）
     NC_CHECK(std::abs(after.opacity - 0.3) < 1e-6);
     NC_CHECK(std::abs(before.opacity - 1.0) < 1e-6);
+}
+
+NC_TEST(Preview, CacheInvalidatedWhenKeyframeEasingChanges) {
+    Fixture f;
+    const ClipId clip = f.addClip(Rational::make(0), Rational::make(2));
+
+    Keyframe start;
+    start.time = Rational::make(0);
+    start.value = 0.0;
+    Keyframe end;
+    end.time = Rational::make(2);
+    end.value = 1.0;
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, start).isOk());
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, end).isOk());
+
+    PreviewMockFactory factory;
+    PreviewRenderer renderer(f.project, factory);
+    const PreviewFrame linear = renderer.renderAt(Rational::make(1));
+    NC_CHECK(std::abs(linear.opacity - 0.5) < 1e-6);
+    NC_CHECK_EQ(renderer.cacheStats().frameMisses, std::size_t(1));
+
+    // Same keyframe time/value, different easing type and Bezier controls.
+    start.easing = Easing::bezier(0.25, 0.0, 0.75, 1.4);
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, start).isOk());
+    const PreviewFrame overshoot = renderer.renderAt(Rational::make(1));
+    NC_CHECK(overshoot.opacity > 0.6);
+    NC_CHECK_EQ(renderer.cacheStats().invalidatedByEdit, std::size_t(1));
+
+    // Keep the Bezier type but change its Y controls: this must also invalidate.
+    start.easing = Easing::bezier(0.25, 0.0, 0.75, 0.4);
+    NC_CHECK(f.editor.insertKeyframe(f.seqId, f.videoTrack, clip,
+                                     ClipProperty::Opacity, start).isOk());
+    const PreviewFrame softened = renderer.renderAt(Rational::make(1));
+    NC_CHECK(softened.opacity < 0.4);
+    NC_CHECK_EQ(renderer.cacheStats().invalidatedByEdit, std::size_t(2));
 }
 
 NC_TEST(Preview, OtherTimestampsSurviveEdit) {

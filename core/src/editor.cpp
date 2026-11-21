@@ -294,6 +294,36 @@ Result TimelineEditor::setClipLut(SequenceId sequenceId, TrackId trackId, ClipId
                                                       strength));
 }
 
+Result TimelineEditor::setClipColorGrade(SequenceId sequenceId, TrackId trackId,
+                                         ClipId clipId, const ColorGrade& grade) {
+    if (!grade.valid()) {
+        return Result::fail(ErrorCode::InvalidArgument, "RGB 曲线控制点无效");
+    }
+    const Track* track = findTrack(project_, sequenceId, trackId);
+    if (track == nullptr) return Result::fail(ErrorCode::NotFound, "轨道不存在");
+    if (track->locked) return Result::fail(ErrorCode::Locked, "轨道已锁定");
+    const Clip* current = track->findClip(clipId);
+    if (current == nullptr) return Result::fail(ErrorCode::NotFound, "片段不存在");
+    const auto sameCurve = [](const ColorCurve& a, const ColorCurve& b) {
+        if (a.points.size() != b.points.size()) return false;
+        for (std::size_t i = 0; i < a.points.size(); ++i) {
+            if (a.points[i].input != b.points[i].input ||
+                a.points[i].output != b.points[i].output) return false;
+        }
+        return true;
+    };
+    if (sameCurve(current->colorGrade.master, grade.master) &&
+        sameCurve(current->colorGrade.red, grade.red) &&
+        sameCurve(current->colorGrade.green, grade.green) &&
+        sameCurve(current->colorGrade.blue, grade.blue)) {
+        return Result::ok();
+    }
+    Clip after = *current;
+    after.colorGrade = grade;
+    return commit(std::make_unique<SetClipCommand>(sequenceId, trackId,
+                                                   std::move(after), "调节颜色曲线"));
+}
+
 Result TimelineEditor::setTrackSolo(SequenceId sequenceId, TrackId trackId, bool solo) {
     const Track* track = findTrack(project_, sequenceId, trackId);
     if (track == nullptr) {

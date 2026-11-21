@@ -70,6 +70,14 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true
+    }
+
+    /* Compose Compiler 1.5.14 is the exact compiler pairing for the
+       repository's existing Kotlin 1.9.24 toolchain. Keep AGP 8.5.2,
+       compileSdk 34 and Kotlin unchanged in this first UI slice. */
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     externalNativeBuild {
@@ -180,6 +188,14 @@ tasks.named("preBuild") { dependsOn(tasks.named("syncMobileUi")) }
    为让「结构是否真的正确」可自证，下面显式打印一次解析结果：
    如果 implementation 没生效，配置阶段就会失败，而不是拖到 AAPT。 */
 dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
+    implementation(composeBom)
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     /* OnBackPressedDispatcher / OnBackPressedCallback 来自 androidx.activity。
@@ -188,6 +204,9 @@ dependencies {
        Kotlin 编译阶段报 Unresolved reference。
        与 appcompat 1.7.0 配套的是 activity 1.8.x，这里锁 1.8.2。 */
     implementation("androidx.activity:activity-ktx:1.8.2")
+    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.webkit:webkit:1.11.0")
     implementation(files("libs/wechat-sdk-6.8.40.aar"))
     implementation(files("libs/open_sdk_3.5.19_r9483ffc7_lite.jar"))

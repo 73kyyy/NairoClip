@@ -53,7 +53,7 @@ struct SpeechSegment {
     std::string text;
 };
 
-/// 语音识别器（Whisper encoder + decoder 会话复用；单实例单线程）。
+/// 语音识别器（Whisper-tiny encoder + merged decoder 会话复用；单实例单线程）。
 class SpeechRecognizer {
 public:
     SpeechRecognizer();
@@ -64,6 +64,10 @@ public:
     /// 加载模型（encoder + decoder 路径）。
     bool load(const std::string& encoderPath, const std::string& decoderPath,
               std::string* outputFailure = nullptr);
+    /// 从解密后的 ONNX 内存缓冲加载；调用期间缓冲区必须有效，不写入明文临时文件。
+    bool loadFromMemory(const void* encoderData, std::size_t encoderSize,
+                        const void* decoderData, std::size_t decoderSize,
+                        std::string* outputFailure = nullptr);
     bool loaded() const { return loaded_; }
     void unload();
 
@@ -95,6 +99,9 @@ public:
     ///       未加载时 decodeTokens 返回空串（不伪造文本）。
     bool loadTokenizer(const std::string& tokenizerJsonPath,
                        std::string* outputFailure = nullptr);
+    /// 从内存 JSON 加载词表，供密文模型包解密后直接解析。
+    bool loadTokenizerJson(const std::string& tokenizerJson,
+                           std::string* outputFailure = nullptr);
     /// 是否已加载词表。
     bool tokenizerLoaded() const;
     /// token 序列 → 文本（BPE 字节级解码；未加载词表返回空串）。

@@ -74,9 +74,13 @@ extern "C" {
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <limits>
+#include <cmath>
 #include <fstream>
 #include <new>
 #include <vector>
+#include <atomic>
+#include <mutex>
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 // POSIX 目录列举（自动扫描查找重链候选；仅 FFmpeg 构建下使用）
@@ -85,6 +89,17 @@ extern "C" {
 #include <string>
 
 using namespace nairoclip::core;
+
+// 独立于编辑器句柄的语音识别会话。取消标志/进度可由 UI 线程无锁读取。
+struct NcSpeechSession {
+    nairoclip::core::SpeechRecognizer recognizer;
+    mutable std::mutex mutex;
+    std::atomic<bool> busy{false};
+    std::atomic<bool> cancelRequested{false};
+    std::atomic<int32_t> state{0};
+    std::atomic<double> progress{0.0};
+    std::string lastError;
+};
 
 // 不透明句柄的真实定义。
 struct NcEditor {
@@ -2455,6 +2470,57 @@ int32_t nc_remove_transition_keyframe(NcEditor* editor, int32_t track_index,
                                           static_cast<ClipProperty>(property), keyframeLocal));
 }
 
+int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cues,
+                                  int32_t count, uint64_t* out_subtitle_ids) {
+    if (editor == nullptr || cues == nullptr || out_subtitle_ids == nullptr ||
+        count <= 0 || count > 10000) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕参数无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "主序列不存在");
+    if (editor->editor->inTransaction()) {
+        return failNc(NC_ERROR_LOCKED, "编辑器已有事务，不能嵌套自动字幕批量写入");
+    }
+
+    std::vector<SubtitleCue> prepared;
+    prepared.reserve(static_cast<std::size_t>(count));
+    for (int32_t i = 0; i < count; ++i) {
+        if (cues[i].text == nullptr || cues[i].start_us < 0 || cues[i].duration_us <= 0 ||
+            cues[i].start_us > std::numeric_limits<int64_t>::max() - cues[i].duration_us) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕包含非法文本或时间范围");
+        }
+        const std::string text(cues[i].text);
+        if (text.empty() || text.size() > 16 * 1024) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "字幕文本不能为空且不得超过 16 KiB");
+        }
+        SubtitleCue cue;
+        cue.id = SubtitleId{editor->project.ids.next()};
+        cue.start = fromMicroseconds(cues[i].start_us);
+        cue.duration = fromMicroseconds(cues[i].duration_us);
+        cue.text = text;
+        if (!cue.valid()) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕时间参数校验失败");
+        }
+        prepared.push_back(std::move(cue));
+    }
+
+    editor->editor->beginTransaction("自动字幕");
+    for (std::size_t i = 0; i < prepared.size(); ++i) {
+        const uint64_t id = prepared[i].id.value;
+        const Result result = editor->editor->upsertSubtitle(main->id, std::move(prepared[i]));
+        if (!result.isOk()) {
+            const bool grouped = editor->editor->endTransaction();
+            if (grouped) (void)editor->editor->undo();
+            return failResult(result);
+        }
+        out_subtitle_ids[i] = id;
+    }
+    if (!editor->editor->endTransaction()) {
+        return failNc(NC_ERROR_INTERNAL, "自动字幕事务未形成历史记录");
+    }
+    return NC_OK;
+}
+
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
                             const char* text) {
     if (editor == nullptr || text == nullptr || start_us < 0 || duration_us <= 0) {
@@ -2466,6 +2532,7 @@ uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration
     }
     SubtitleCue cue;
     cue.id = SubtitleId{editor->project.ids.next()};
+    const uint64_t cueId = cue.id.value;
     cue.start = fromMicroseconds(start_us);
     cue.duration = fromMicroseconds(duration_us);
     cue.text = text;
@@ -2473,15 +2540,9 @@ uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration
     if (!r.isOk()) {
         return 0;
     }
-    const SubtitleTrack& subtitles = editor->project.mainSequence()->subtitles;
-    // 返回最新插入的字幕 ID（按时间匹配最后一条）
-    const SubtitleCue* found = nullptr;
-    for (const auto& c : subtitles.cues()) {
-        if (c.start == fromMicroseconds(start_us) && c.text == std::string(text)) {
-            found = &c;
-        }
-    }
-    return found != nullptr ? found->id.value : 0;
+    // Return the exact ID allocated for this operation. Searching by time/text
+    // is ambiguous when two identical cues are inserted at the same timestamp.
+    return cueId;
 }
 
 int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id) {
@@ -2516,6 +2577,18 @@ int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us
     if (start_us != nullptr) *start_us = toMicroseconds(cue.start);
     if (duration_us != nullptr) *duration_us = toMicroseconds(cue.duration);
     if (out_text != nullptr) *out_text = dupString(cue.text);
+    return NC_OK;
+}
+
+int32_t nc_subtitle_get_id(const NcEditor* editor, int32_t index, uint64_t* out_subtitle_id) {
+    if (editor == nullptr || index < 0 || out_subtitle_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "字幕 ID 查询参数无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(index) >= main->subtitles.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "字幕索引超出范围");
+    }
+    *out_subtitle_id = main->subtitles.cues()[static_cast<std::size_t>(index)].id.value;
     return NC_OK;
 }
 
@@ -3207,6 +3280,25 @@ int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_i
                          ->setClipAudio(main->id, trackId, ClipId{clip_id}, gain_db,
                                         fromMicroseconds(fade_in_us),
                                         fromMicroseconds(fade_out_us)));
+}
+
+int32_t nc_get_clip_audio(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          double* out_gain_db, int64_t* out_fade_in_us,
+                          int64_t* out_fade_out_us) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "clip 不存在");
+    if (out_gain_db != nullptr) *out_gain_db = clip->audioGainDb;
+    if (out_fade_in_us != nullptr) *out_fade_in_us = toMicroseconds(clip->audioFadeIn);
+    if (out_fade_out_us != nullptr) *out_fade_out_us = toMicroseconds(clip->audioFadeOut);
+    return NC_OK;
 }
 
 int32_t nc_set_clip_denoise(NcEditor* editor, int32_t track_index, uint64_t clip_id,
@@ -4417,6 +4509,76 @@ int32_t nc_get_clip_lut(const NcEditor* editor, int32_t track_index, uint64_t cl
     // 未设置时输出空串而不是 NULL：UI 侧统一按字符串处理，不用到处判空。
     if (out_path != nullptr) *out_path = dupString(clip->lutPath);
     if (out_strength != nullptr) *out_strength = clip->lutStrength;
+    return NC_OK;
+}
+
+
+int32_t nc_set_clip_color_grade(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                const double* master_xy, int32_t master_count,
+                                const double* red_xy, int32_t red_count,
+                                const double* green_xy, int32_t green_count,
+                                const double* blue_xy, int32_t blue_count) {
+    if (editor == nullptr || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 或片段 ID 无效");
+    }
+    const auto readCurve = [](const double* values, int32_t count, ColorCurve& out) {
+        if (values == nullptr || count < static_cast<int32_t>(ColorCurve::kMinPoints) ||
+            count > static_cast<int32_t>(ColorCurve::kMaxPoints)) return false;
+        out.points.clear();
+        out.points.reserve(static_cast<std::size_t>(count));
+        for (int32_t i = 0; i < count; ++i) {
+            out.points.push_back({values[i * 2], values[i * 2 + 1]});
+        }
+        return out.valid();
+    };
+    ColorGrade grade;
+    if (!readCurve(master_xy, master_count, grade.master) ||
+        !readCurve(red_xy, red_count, grade.red) ||
+        !readCurve(green_xy, green_count, grade.green) ||
+        !readCurve(blue_xy, blue_count, grade.blue)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "RGB 曲线必须为 2–32 个合法控制点");
+    }
+    SequenceId sequenceId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &sequenceId, &trackId, &code)) return code;
+    return failResult(editor->editor->setClipColorGrade(
+        sequenceId, trackId, ClipId{clip_id}, grade));
+}
+
+int32_t nc_get_clip_color_grade(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                double* master_xy, int32_t master_capacity, int32_t* master_count,
+                                double* red_xy, int32_t red_capacity, int32_t* red_count,
+                                double* green_xy, int32_t green_capacity, int32_t* green_count,
+                                double* blue_xy, int32_t blue_capacity, int32_t* blue_count) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 或片段目标无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "主序列不存在");
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size())
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引越界");
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    const auto writeCurve = [](const ColorCurve& curve, double* values,
+                               int32_t capacity, int32_t* count) {
+        if (count != nullptr) *count = static_cast<int32_t>(curve.points.size());
+        if (values == nullptr) return true;
+        if (capacity < static_cast<int32_t>(curve.points.size() * 2)) return false;
+        for (std::size_t i = 0; i < curve.points.size(); ++i) {
+            values[i * 2] = curve.points[i].input;
+            values[i * 2 + 1] = curve.points[i].output;
+        }
+        return true;
+    };
+    const ColorGrade& grade = clip->colorGrade;
+    if (!writeCurve(grade.master, master_xy, master_capacity, master_count) ||
+        !writeCurve(grade.red, red_xy, red_capacity, red_count) ||
+        !writeCurve(grade.green, green_xy, green_capacity, green_count) ||
+        !writeCurve(grade.blue, blue_xy, blue_capacity, blue_count)) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "RGB 曲线输出缓冲区容量不足");
+    }
     return NC_OK;
 }
 
@@ -7467,6 +7629,157 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
     }
     if (out_segments_json != nullptr) {
         *out_segments_json = dupString(toJsonString(array));
+    }
+    return NC_OK;
+}
+
+NcSpeechSession* nc_speech_session_create(void) {
+    return new (std::nothrow) NcSpeechSession();
+}
+
+void nc_speech_session_destroy(NcSpeechSession* session) {
+    // Contract: caller joins the worker before destroying the opaque handle.
+    delete session;
+}
+
+int32_t nc_speech_session_load_memory(NcSpeechSession* session,
+    const uint8_t* encoder, int64_t encoder_size,
+    const uint8_t* decoder, int64_t decoder_size,
+    const char* tokenizer_json, int64_t tokenizer_size, char** out_error) {
+    if (session == nullptr || encoder == nullptr || decoder == nullptr ||
+        encoder_size <= 0 || decoder_size <= 0 ||
+        tokenizer_json == nullptr || tokenizer_size <= 0 ||
+        tokenizer_size > 32 * 1024 * 1024) {
+        setDetail(out_error, "语音模型内存参数非法（tokenizer 必须提供且不超过 32 MiB）");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    bool expected = false;
+    if (!session->busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        setDetail(out_error, "语音识别会话正忙，不能重新加载模型");
+        return NC_ERROR_LOCKED;
+    }
+    struct LoadBusyReset {
+        NcSpeechSession* value;
+        ~LoadBusyReset() { value->busy.store(false, std::memory_order_release); }
+    } busyReset{session};
+    std::lock_guard<std::mutex> lock(session->mutex);
+    std::string failure;
+    if (!session->recognizer.loadFromMemory(encoder, static_cast<std::size_t>(encoder_size),
+            decoder, static_cast<std::size_t>(decoder_size), &failure)) {
+        session->lastError = failure.empty() ? "Whisper 模型加载失败" : failure;
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    if (!session->recognizer.loadTokenizerJson(
+            std::string(tokenizer_json, static_cast<std::size_t>(tokenizer_size)), &failure)) {
+        session->recognizer.unload();
+        session->lastError = failure.empty() ? "Whisper tokenizer 加载失败" : failure;
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    session->lastError.clear();
+    session->cancelRequested.store(false, std::memory_order_release);
+    session->progress.store(0.0, std::memory_order_release);
+    session->state.store(1, std::memory_order_release);
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_speech_session_transcribe(NcSpeechSession* session,
+    const float* samples, int64_t frame_count, int32_t sample_rate, int32_t language,
+    char** out_segments_json, char** out_error) {
+    if (out_segments_json != nullptr) *out_segments_json = nullptr;
+    if (session == nullptr || samples == nullptr || out_segments_json == nullptr ||
+        frame_count <= 0 || sample_rate < 8000 || sample_rate > 192000 ||
+        frame_count > static_cast<int64_t>(sample_rate) * 600LL) {
+        setDetail(out_error, "PCM 参数非法（采样率须为 8–192 kHz，时长不得超过 10 分钟，结果指针必需）");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    for (int64_t i = 0; i < frame_count; ++i) {
+        if (!std::isfinite(samples[i]) || samples[i] < -1.0f || samples[i] > 1.0f) {
+            setDetail(out_error, "PCM 必须是有限值且位于 [-1,1]");
+            return NC_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    bool expected = false;
+    if (!session->busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        setDetail(out_error, "当前语音识别会话正在运行");
+        return NC_ERROR_LOCKED;
+    }
+    struct BusyReset {
+        NcSpeechSession* value;
+        ~BusyReset() { value->busy.store(false, std::memory_order_release); }
+    } busyReset{session};
+    SpeechLanguage speechLanguage;
+    if (!speechLanguageFromInt(language, speechLanguage)) {
+        setDetail(out_error, "识别语言不受支持");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::unique_lock<std::mutex> lock(session->mutex);
+    if (!session->recognizer.loaded() || !session->recognizer.tokenizerLoaded()) {
+        session->lastError = "语音识别模型或 tokenizer 尚未完整加载";
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    session->cancelRequested.store(false, std::memory_order_release);
+    session->progress.store(0.0, std::memory_order_release);
+    session->lastError.clear();
+    session->state.store(2, std::memory_order_release);
+    std::vector<SpeechSegment> segments;
+    std::string failure;
+    const bool ok = session->recognizer.transcribe(samples,
+        static_cast<std::size_t>(frame_count), sample_rate, speechLanguage, segments,
+        [session](double value) {
+            session->progress.store(std::max(0.0, std::min(1.0, value)), std::memory_order_release);
+            return !session->cancelRequested.load(std::memory_order_acquire);
+        }, &failure);
+    if (!ok) {
+        const bool cancelled = session->cancelRequested.load(std::memory_order_acquire);
+        session->lastError = cancelled ? "用户已取消语音识别" :
+            (failure.empty() ? "语音识别失败" : failure);
+        session->state.store(cancelled ? 5 : 4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return cancelled ? NC_ERROR_CANCELLED : NC_ERROR_INTERNAL;
+    }
+    JsonValue array = JsonValue::array();
+    for (const auto& segment : segments) {
+        JsonValue item = JsonValue::object();
+        item.set("start", JsonValue::number(segment.startSeconds));
+        item.set("end", JsonValue::number(segment.endSeconds));
+        item.set("text", JsonValue::string(segment.text));
+        array.push(std::move(item));
+    }
+    if (out_segments_json != nullptr) *out_segments_json = dupString(toJsonString(array));
+    session->progress.store(1.0, std::memory_order_release);
+    session->state.store(3, std::memory_order_release);
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_speech_session_cancel(NcSpeechSession* session) {
+    if (session == nullptr) return NC_ERROR_INVALID_ARGUMENT;
+    if (!session->busy.load(std::memory_order_acquire) ||
+        session->state.load(std::memory_order_acquire) != 2) return NC_ERROR_NOT_FOUND;
+    session->cancelRequested.store(true, std::memory_order_release);
+    return NC_OK;
+}
+
+int32_t nc_speech_session_status(const NcSpeechSession* session,
+    int32_t* out_state, double* out_progress, char** out_error) {
+    if (session == nullptr) return NC_ERROR_INVALID_ARGUMENT;
+    if (out_state != nullptr) *out_state = session->state.load(std::memory_order_acquire);
+    if (out_progress != nullptr) *out_progress = session->progress.load(std::memory_order_acquire);
+    if (out_error != nullptr) {
+        // Never wait for the long-running inference mutex just to poll progress.
+        if (session->busy.load(std::memory_order_acquire)) {
+            *out_error = dupString(std::string());
+        } else {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            *out_error = dupString(session->lastError);
+        }
     }
     return NC_OK;
 }

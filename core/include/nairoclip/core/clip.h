@@ -5,6 +5,7 @@
 #include "nairoclip/core/background_fill.h"
 #include "nairoclip/core/blend_modes.h"
 #include "nairoclip/core/chroma_key.h"
+#include "nairoclip/core/color_grade.h"
 #include "nairoclip/core/effects.h"
 #include "nairoclip/core/filters.h"
 #include "nairoclip/core/mask.h"
@@ -41,7 +42,7 @@ struct ClipTransform {
     /// 是否启用。false = 完全不影响渲染（零改动保证）。
     bool enabled = false;
 
-    /// 钳制到合法范围（越界不报错，与 XformParams::clamp 一致）。
+    /// 钳制到合法范围；非有限缩放/位移/旋转恢复为中性值。
     void clamp();
 };
 
@@ -83,6 +84,8 @@ struct Clip {
     SpeedCurve speedCurve;
     /// 视频特效栈（按顺序应用；空间效果由渲染器处理）。
     EffectStack effects;
+    /// Primary/master and per-channel color grading curves (identity by default).
+    ColorGrade colorGrade;
     /// 片段蒙版（文档「✂️剪辑 → 蒙版：线性/镜面/圆形/矩形（羽化/反转）」）。
     /// hasMask 为 true 时导出/预览按蒙版裁剪可见区域；false = 不使用蒙版。
     bool hasMask = false;

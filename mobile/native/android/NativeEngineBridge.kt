@@ -129,6 +129,52 @@ class NativeEngineBridge(
             }
         }
 
+    /** 原子写入一批 ASR 字幕；所有条目作为一条撤销记录。 */
+    fun upsertSubtitlesBatch(
+        startsUs: LongArray,
+        durationsUs: LongArray,
+        texts: Array<String>
+    ): LongArray? {
+        require(startsUs.isNotEmpty() && startsUs.size == durationsUs.size &&
+            startsUs.size == texts.size && startsUs.size <= 10000)
+        synchronized(stateLock) {
+            return nativeUpsertSubtitlesBatch(startsUs, durationsUs, texts)
+        }
+    }
+
+    /** 创建独立 ASR 会话；调用方负责在线程结束后释放。 */
+    fun createSpeechSession(): Long = nativeSpeechSessionCreate()
+
+    fun destroySpeechSession(session: Long) {
+        require(session != 0L)
+        nativeSpeechSessionDestroy(session)
+    }
+
+    /** 所有 ByteBuffer 必须是 direct buffer；模型明文只在调用期间位于内存。 */
+    fun loadSpeechSession(
+        session: Long, encoder: java.nio.ByteBuffer,
+        decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer
+    ): String {
+        require(session != 0L && encoder.isDirect && decoder.isDirect && tokenizer.isDirect)
+        return nativeSpeechSessionLoad(session, encoder.slice(), decoder.slice(), tokenizer.slice())
+    }
+
+    /** PCM 为 mono float32 [-1,1]；必须在工作线程调用，禁止主线程推理。 */
+    fun transcribeSpeechSession(
+        session: Long, pcm: java.nio.ByteBuffer, frameCount: Long,
+        sampleRate: Int = 16000, language: Int = 0
+    ): String {
+        require(session != 0L && pcm.isDirect && frameCount > 0L)
+        require(frameCount <= pcm.capacity().toLong() / 4L)
+        return nativeSpeechSessionTranscribe(session, pcm.slice().order(java.nio.ByteOrder.nativeOrder()), frameCount, sampleRate, language)
+    }
+
+    fun cancelSpeechSession(session: Long): Boolean =
+        session != 0L && nativeSpeechSessionCancel(session) == 0
+
+    fun speechSessionStatus(session: Long): String =
+        if (session == 0L) "" else nativeSpeechSessionStatus(session)
+
     /**
      * 任意 C ABI 函数。fn 必须是 nc_ 开头的函数名，argsJson 为参数对象。
      * 失败也返回结构化 JSON，绝不把异常抛给 JS。
@@ -146,6 +192,93 @@ class NativeEngineBridge(
         }
     
         }}
+
+    /**
+     * Executes a multi-call editor read as one serialized snapshot. The monitor
+     * is reentrant, so bridge calls made inside the block keep their normal
+     * validation while no competing JNI mutation can interleave between them.
+     */
+    internal fun <T> withEditorStateLock(block: () -> T): T =
+        synchronized(stateLock) { block() }
+
+    /** Uses the exact short operation names implemented by DispatchEdit. */
+    fun editorUndo(): String = synchronized(stateLock) {
+        try {
+            nativeCall(ensure(), "undo", "{}")
+        } catch (error: Throwable) {
+            err("撤销失败：${error.message}")
+        }
+    }
+
+    fun editorRedo(): String = synchronized(stateLock) {
+        try {
+            nativeCall(ensure(), "redo", "{}")
+        } catch (error: Throwable) {
+            err("重做失败：${error.message}")
+        }
+    }
+
+    /**
+     * 专用原生变换读取入口。仅开放 JNI 已实现的 transform_get，
+     * 不放宽 call() 的 nc_* 函数名前缀限制。
+     */
+    fun editorTransformGet(trackIndex: Int, clipId: Long): String =
+        synchronized(stateLock) {
+            if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
+            try {
+                nativeCall(
+                    ensure(),
+                    "transform_get",
+                    JSONObject().put("track_index", trackIndex).put("clip_id", clipId).toString()
+                )
+            } catch (error: Throwable) {
+                err("读取片段变换失败：${error.message}")
+            }
+        }
+
+    /**
+     * 专用原生变换写入入口。仅开放 JNI 已实现的 transform_set，
+     * 所有数值在进入 C ABI 前进行有限值和范围校验。
+     */
+    fun editorTransformSet(
+        trackIndex: Int,
+        clipId: Long,
+        transform: NativeTransform,
+        enabled: Boolean = true,
+        anchor: Int = NativeTransformRange.ANCHOR_CENTER
+    ): String = synchronized(stateLock) {
+        if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
+        val scale = transform.scale / 100.0f
+        if (!transform.scale.isFinite() ||
+            transform.scale !in NativeTransformRange.SCALE_MIN_PERCENT..NativeTransformRange.SCALE_MAX_PERCENT ||
+            !scale.isFinite() ||
+            !transform.x.isFinite() ||
+            transform.x !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX ||
+            !transform.y.isFinite() ||
+            transform.y !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX ||
+            !transform.rotation.isFinite() ||
+            transform.rotation !in NativeTransformRange.ROTATION_MIN_DEGREES..NativeTransformRange.ROTATION_MAX_DEGREES ||
+            anchor !in NativeTransformRange.ANCHOR_MIN..NativeTransformRange.ANCHOR_MAX
+        ) return@synchronized err("变换参数超出引擎范围：缩放 5%–1000%，X/Y -10–10，旋转 -3600°–3600°，锚点 0–8")
+        try {
+            nativeCall(
+                ensure(),
+                "transform_set",
+                JSONObject()
+                    .put("track_index", trackIndex)
+                    .put("clip_id", clipId)
+                    .put("enabled", if (enabled) 1 else 0)
+                    .put("scale", scale.toDouble())
+                    .put("pos_x", transform.x.toDouble())
+                    .put("pos_y", transform.y.toDouble())
+                    .put("rotation", transform.rotation.toDouble())
+                    .put("anchor", anchor)
+                    .toString()
+            )
+        } catch (error: Throwable) {
+            err("写入片段变换失败：${error.message}")
+        }
+    }
 
     /**
      * 契约层统一命令入口（P1/P2）。
@@ -354,33 +487,43 @@ class NativeEngineBridge(
      * 返回 {"installed":1|0,"message":"…"}。
      */
     @JavascriptInterface
-        fun installModel(modelId: String, filePath: String): String {
-        synchronized(stateLock) {
-        val f = java.io.File(filePath)
-        if (!f.isFile) return err("文件不存在：$filePath")
+    fun installModel(modelId: String, filePath: String): String {
+        // File I/O and hashing can take a long time. Keep them outside the
+        // engine monitor so preview rendering, state reads and task heartbeats
+        // are not blocked while a model file is loaded.
+        val file = java.io.File(filePath)
+        if (!file.isFile) return err("文件不存在：$filePath")
 
         val bytes: ByteArray = try {
-            f.readBytes()
-        } catch (e: Throwable) {
-            return err("读取失败：${e.message}")
+            file.readBytes()
+        } catch (error: Throwable) {
+            return err("读取失败：${error.message}")
         }
         if (bytes.isEmpty()) return err("文件为空")
 
         val sha = try {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            md.digest(bytes).joinToString("") { "%02x".format(it) }
-        } catch (e: Throwable) {
-            return err("计算 SHA-256 失败：${e.message}")
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            digest.digest(bytes).joinToString("") { "%02x".format(it) }
+        } catch (error: Throwable) {
+            return err("计算 SHA-256 失败：${error.message}")
         }
 
-        return try {
-            nativeInstallModel(ensure(), modelId, bytes, f.absolutePath, sha,
-                               System.currentTimeMillis() / 1000)
-        } catch (e: Throwable) {
-            err("安装调用失败：${e.message}")
+        // Only the native mutation is serialized with the engine lifecycle.
+        return synchronized(stateLock) {
+            try {
+                nativeInstallModel(
+                    ensure(),
+                    modelId,
+                    bytes,
+                    file.absolutePath,
+                    sha,
+                    System.currentTimeMillis() / 1000
+                )
+            } catch (error: Throwable) {
+                err("安装调用失败：${error.message}")
+            }
         }
-    
-        }}
+    }
 
     /** 模型文件应放的目录（应用私有）。 */
     @JavascriptInterface
@@ -404,11 +547,24 @@ class NativeEngineBridge(
     private fun renderDataUrl(
         a: Long, width: Int, isThumb: Boolean, thumbIndex: Int
     ): String {
-        val raw: ByteArray = try {
-            if (isThumb) nativeThumb(ensure(), a, thumbIndex, width.coerceIn(16, 1024))
-            else nativeFrame(ensure(), a, width.coerceIn(16, 2048))
-        } catch (e: Throwable) {
-            ByteArray(0)
+        // Acquire the editor handle and execute JNI under the same lifecycle
+        // monitor used by release()/nativeDestroy(). Previously ensure() returned
+        // a handle before the JNI call, leaving a window in which release() could
+        // destroy it and the render path could then use a stale native handle.
+        // Keep bitmap allocation and PNG encoding outside the monitor.
+        val raw: ByteArray = synchronized(stateLock) {
+            try {
+                val handle = ensure()
+                if (handle == 0L) {
+                    ByteArray(0)
+                } else if (isThumb) {
+                    nativeThumb(handle, a, thumbIndex, width.coerceIn(16, 1024))
+                } else {
+                    nativeFrame(handle, a, width.coerceIn(16, 2048))
+                }
+            } catch (e: Throwable) {
+                ByteArray(0)
+            }
         }
         return rgbaToDataUrl(raw)
     }
@@ -471,6 +627,18 @@ class NativeEngineBridge(
             put("ok", false); put("code", -1); put("message", msg)
             put("result", JSONObject())
         }.toString()
+
+    private external fun nativeUpsertSubtitlesBatch(startsUs: LongArray, durationsUs: LongArray, texts: Array<String>): LongArray?
+
+    // Whisper session is independent from NcEditor and must run on a worker thread.
+    private external fun nativeSpeechSessionCreate(): Long
+    private external fun nativeSpeechSessionDestroy(session: Long)
+    private external fun nativeSpeechSessionLoad(session: Long, encoder: java.nio.ByteBuffer,
+        decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer): String
+    private external fun nativeSpeechSessionTranscribe(session: Long, pcm: java.nio.ByteBuffer,
+        frameCount: Long, sampleRate: Int, language: Int): String
+    private external fun nativeSpeechSessionCancel(session: Long): Int
+    private external fun nativeSpeechSessionStatus(session: Long): String
 
     private external fun nativeCreate(): Long
     private external fun nativeDestroy(handle: Long)
@@ -644,6 +812,29 @@ class NativeEngineBridge(
                 } catch (e: Throwable) {
                     false
                 }
+            }
+        }
+
+        /**
+         * Render one project timestamp into the currently attached native Surface.
+         * This is a synchronous frame render, not a playback clock or transport API.
+         */
+        fun renderPreviewFrame(
+            timeUs: Long,
+            isRequestCurrent: () -> Boolean = { true }
+        ): Boolean = synchronized(stateLock) {
+            if (timeUs < 0L || !isRequestCurrent()) return@synchronized false
+            val inst = instanceForSurface ?: return@synchronized false
+            val handle = inst.editor
+            if (handle == 0L) return@synchronized false
+            try {
+                // Validate the Surface generation while holding the same lock
+                // that serializes JNI rendering and Surface detach/release.
+                // This closes the check-then-enter-JNI race during Surface teardown.
+                if (!isRequestCurrent()) return@synchronized false
+                inst.nativeBlitFrame(handle, timeUs)
+            } catch (_: Throwable) {
+                false
             }
         }
 

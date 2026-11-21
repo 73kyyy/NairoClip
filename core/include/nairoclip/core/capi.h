@@ -396,10 +396,22 @@ const char* nc_filter_display_name(int32_t style);
 
 // ---- 字幕 ----
 
-/// 添加/更新字幕。返回 >0 成功（返回 SubtitleId），0 失败。
+/// 添加/更新单条字幕。返回 >0 成功（返回 SubtitleId），0 失败。
 /// start_us/duration_us 为微秒。
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
                             const char* text);
+typedef struct NcSubtitleCueInput {
+    int64_t start_us;
+    int64_t duration_us;
+    const char* text;  // UTF-8, borrowed for call duration only
+} NcSubtitleCueInput;
+
+/// 批量添加自动字幕：全部成功或全部回滚，整体只产生一条撤销记录。
+/// count 范围 1..10000；out_subtitle_ids 至少 count 个 uint64_t。
+/// 任一字幕参数非法或核心命令失败时不保留部分结果。
+int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cues,
+                                  int32_t count, uint64_t* out_subtitle_ids);
+
 
 /// 删除字幕，返回错误码。
 int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id);
@@ -411,6 +423,9 @@ int32_t nc_subtitle_count(const NcEditor* editor);
 /// out_text 需 nc_free_string。下标越界返回错误码。
 int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us,
                         int64_t* duration_us, char** out_text);
+
+/// 读取第 index 条字幕的稳定 ID；越界或参数错误返回错误码。
+int32_t nc_subtitle_get_id(const NcEditor* editor, int32_t index, uint64_t* out_subtitle_id);
 
 // ---- 转场 ----
 
@@ -1106,6 +1121,32 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
                              int32_t sample_rate, int32_t language, char** out_segments_json,
                              char** out_error);
 
+/// 独立语音识别会话（不依赖 NcEditor；可在专用工作线程调用）。
+/// 生命周期约束：destroy 前必须 join 正在执行 transcribe 的工作线程。
+typedef struct NcSpeechSession NcSpeechSession;
+/// 创建独立会话；失败返回 NULL。
+NcSpeechSession* nc_speech_session_create(void);
+/// 销毁会话；调用方必须先等待识别线程结束。
+void nc_speech_session_destroy(NcSpeechSession* session);
+/// 从已解密内存加载 encoder/decoder/tokenizer；三者均为必需，tokenizer 最大 32 MiB；
+/// 不写明文文件。输入缓冲仅在调用期间借用，识别器自行管理模型会话生命周期。
+int32_t nc_speech_session_load_memory(NcSpeechSession* session,
+    const uint8_t* encoder, int64_t encoder_size,
+    const uint8_t* decoder, int64_t decoder_size,
+    const char* tokenizer_json, int64_t tokenizer_size, char** out_error);
+/// 同步执行识别；平台层应放在专用工作线程。progress 可跨线程查询。
+/// PCM 为有限值的单声道 float32 [-1,1]；sample_rate 为 8–192 kHz，时长最多 10 分钟。
+/// language 0=自动 1=中文 2=英语 3=日语 4=韩语；out_segments_json 必须非空，成功后需 nc_free_string 释放。
+int32_t nc_speech_session_transcribe(NcSpeechSession* session,
+    const float* samples, int64_t frame_count, int32_t sample_rate, int32_t language,
+    char** out_segments_json, char** out_error);
+/// 请求取消；不会等待推理线程，也不会误报已完成。
+int32_t nc_speech_session_cancel(NcSpeechSession* session);
+/// 查询：0=空闲/未加载 1=已加载 2=识别中 3=成功 4=失败 5=已取消。
+/// out_progress 为 0..1；out_error 为最近一次失败说明（需 nc_free_string）。
+int32_t nc_speech_session_status(const NcSpeechSession* session,
+    int32_t* out_state, double* out_progress, char** out_error);
+
 /// 计算 Whisper Mel 频谱（供平台层/诊断；80 × frames）。
 /// - out_mel：出参（库分配；需 nc_free_buffer；浮点数组，长度 = 80 × frames）。
 int32_t nc_speech_mel(const float* samples, int64_t frame_count, int32_t sample_rate,
@@ -1230,6 +1271,8 @@ int32_t nc_adjustment_get(const NcEditor* editor, int32_t track_index,
 // ---- 关键帧 ----
 
 /// 插入关键帧（property 见 ClipProperty 枚举值：0=Opacity..5=Volume）。
+/// value 必须为有限数值，并符合对应 ClipProperty 的 propertySpec 范围；
+/// 画面变换通道 Scale 为 0.05..10，PositionX/Y 为 -10..10，Rotation 为 -3600..3600 度。
 int32_t nc_insert_keyframe(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                            int32_t property, int64_t time_us, double value);
 
@@ -1256,6 +1299,10 @@ int32_t nc_set_keyframe_easing(NcEditor* editor, int32_t track_index, uint64_t c
 /// 设置片段音频（增益 dB / 淡入微秒 / 淡出微秒）。
 int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_id, double gain_db,
                           int64_t fade_in_us, int64_t fade_out_us);
+/// 读取片段音频参数（任一输出可为 NULL）；淡入/淡出返回微秒。
+int32_t nc_get_clip_audio(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          double* out_gain_db, int64_t* out_fade_in_us,
+                          int64_t* out_fade_out_us);
 
 /// 设置片段降噪强度（文档「🎵音频 → 降噪 → 开关/强度(弱中强)」）。
 /// - strength：0=off 1=weak 2=medium 3=strong（非法返回 NC_ERROR_INVALID_ARGUMENT）；
@@ -1797,7 +1844,7 @@ int32_t nc_get_clip_blend_mode(const NcEditor* editor, int32_t track_index, uint
 /// - pos_x/pos_y：归一化 -10..10（0 = 居中；1 = 右移一个画布宽）
 /// - rotation_degrees：-3600..3600（正值顺时针）
 /// - anchor：0..8 九宫格（4 = 中心）
-/// 越界钳制，不报错（与 XformParams::clamp 一致）。
+/// 有限数值越界时钳制到合法范围；非有限值恢复为中性值。
 /// 与原值完全相同时不产生撤销步（幂等）。
 int32_t nc_set_clip_transform(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                               int32_t enabled, double scale,
@@ -1847,6 +1894,21 @@ int32_t nc_set_clip_lut(NcEditor* editor, int32_t track_index, uint64_t clip_id,
 /// 返回 NC_OK 或错误码（参数错误 / 片段不存在）。
 int32_t nc_get_clip_lut(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
                         char** out_path, double* out_strength);
+
+/// 设置片段 RGB 主曲线。每个通道使用扁平 [x0,y0,x1,y1,...] 数组，点数 2..32。
+/// 输入/输出均为 [0,1]；输入严格递增，端点必须为 (0,0)/(1,1)。
+/// 一次调用对应一条撤销记录。
+int32_t nc_set_clip_color_grade(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                const double* master_xy, int32_t master_count,
+                                const double* red_xy, int32_t red_count,
+                                const double* green_xy, int32_t green_count,
+                                const double* blue_xy, int32_t blue_count);
+/// 读取片段 RGB 曲线。每个输出数组容量至少 64 个 double；count 出参返回控制点数。
+int32_t nc_get_clip_color_grade(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                double* master_xy, int32_t capacity, int32_t* master_count,
+                                double* red_xy, int32_t red_capacity, int32_t* red_count,
+                                double* green_xy, int32_t green_capacity, int32_t* green_count,
+                                double* blue_xy, int32_t blue_capacity, int32_t* blue_count);
 
 /// 校验一个 .cube 文件能否被本库使用（供 UI 导入时即时反馈）。
 /// - 成功：*out_size 写 LUT 边长（2..64），*out_title 写文件里的 TITLE（无则空串，

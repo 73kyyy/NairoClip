@@ -284,7 +284,7 @@ struct SpeechRecognizer::Impl {
 };
 
 SpeechRecognizer::SpeechRecognizer() : impl_(new (std::nothrow) Impl()) {}
-SpeechRecognizer::~SpeechRecognizer() = default;
+SpeechRecognizer::~SpeechRecognizer() { unload(); }
 
 bool SpeechRecognizer::load(const std::string& encoderPath, const std::string& decoderPath,
                             std::string* outputFailure) {
@@ -306,6 +306,156 @@ bool SpeechRecognizer::load(const std::string& encoderPath, const std::string& d
         impl_->encoder.unload();
         return false;
     }
+
+    // This implementation is specifically the Whisper-tiny merged decoder:
+    // 4 transformer layers × (self K/V + cross K/V) = 16 cache inputs,
+    // plus input_ids, encoder_hidden_states and use_cache_branch.
+    // Whisper-small/base/large or split decoder exports have different tensor
+    // contracts; reject them before inference rather than failing mid-task.
+    const auto& encoderInputs = impl_->encoder.inputs();
+    const auto& encoderOutputs = impl_->encoder.outputs();
+    const auto& decoderInputs = impl_->decoder.inputs();
+    const auto& decoderOutputs = impl_->decoder.outputs();
+    const auto dimMatches = [](std::int64_t actual, std::int64_t expected) {
+        return actual < 0 || actual == expected;
+    };
+    if (encoderInputs.size() != 1 || encoderOutputs.empty() ||
+        encoderInputs[0].type != AiTensorType::Float32 || encoderOutputs[0].type != AiTensorType::Float32 ||
+        encoderInputs[0].shape.size() != 3 || encoderOutputs[0].shape.size() != 3 ||
+        !dimMatches(encoderInputs[0].shape[1], kMelBins) ||
+        !dimMatches(encoderInputs[0].shape[2], melFrames()) ||
+        !dimMatches(encoderOutputs[0].shape[2], 384)) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny encoder 张量契约不匹配（期望 [1,80,3000]）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    if (decoderInputs.size() != 19 || decoderOutputs.size() < 17 ||
+        decoderInputs[0].type != AiTensorType::Int64 ||
+        decoderInputs[0].name.find("input_ids") == std::string::npos ||
+        decoderInputs[1].type != AiTensorType::Float32 ||
+        decoderInputs[1].name.find("encoder_hidden_states") == std::string::npos ||
+        decoderInputs[18].type != AiTensorType::Bool ||
+        decoderInputs[1].shape.size() != 3 ||
+        !dimMatches(decoderInputs[1].shape[2], 384) ||
+        decoderInputs[18].name.find("use_cache_branch") == std::string::npos ||
+        decoderOutputs[0].shape.size() != 3 || decoderOutputs[0].type != AiTensorType::Float32) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny merged decoder 张量契约不匹配（期望 19 输入/至少 17 输出）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    for (std::size_t i = 2; i < 18; ++i) {
+        const auto& info = decoderInputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("past_key_values") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) ||
+            !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输入形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
+    for (std::size_t i = 1; i < 17; ++i) {
+        const auto& info = decoderOutputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("present") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) || !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输出形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
+    loaded_ = true;
+    return true;
+}
+
+bool SpeechRecognizer::loadFromMemory(const void* encoderData, std::size_t encoderSize,
+                                        const void* decoderData, std::size_t decoderSize,
+                                        std::string* outputFailure) {
+    loaded_ = false;
+    if (impl_ == nullptr) {
+        if (outputFailure != nullptr) *outputFailure = "内存分配失败";
+        return false;
+    }
+    if (!aiEngineAvailable()) {
+        if (outputFailure != nullptr) *outputFailure = "AI 推理引擎不可用（未链接 ONNX Runtime）";
+        return false;
+    }
+    if (!impl_->encoder.loadFromMemory(encoderData, encoderSize, AiBackend::Cpu, outputFailure)) {
+        return false;
+    }
+    if (!impl_->decoder.loadFromMemory(decoderData, decoderSize, AiBackend::Cpu, outputFailure)) {
+        impl_->encoder.unload();
+        return false;
+    }
+    // This implementation is specifically the Whisper-tiny merged decoder:
+    // 4 transformer layers × (self K/V + cross K/V) = 16 cache inputs,
+    // plus input_ids, encoder_hidden_states and use_cache_branch.
+    // Whisper-small/base/large or split decoder exports have different tensor
+    // contracts; reject them before inference rather than failing mid-task.
+    const auto& encoderInputs = impl_->encoder.inputs();
+    const auto& encoderOutputs = impl_->encoder.outputs();
+    const auto& decoderInputs = impl_->decoder.inputs();
+    const auto& decoderOutputs = impl_->decoder.outputs();
+    const auto dimMatches = [](std::int64_t actual, std::int64_t expected) {
+        return actual < 0 || actual == expected;
+    };
+    if (encoderInputs.size() != 1 || encoderOutputs.empty() ||
+        encoderInputs[0].type != AiTensorType::Float32 || encoderOutputs[0].type != AiTensorType::Float32 ||
+        encoderInputs[0].shape.size() != 3 || encoderOutputs[0].shape.size() != 3 ||
+        !dimMatches(encoderInputs[0].shape[1], kMelBins) ||
+        !dimMatches(encoderInputs[0].shape[2], melFrames()) ||
+        !dimMatches(encoderOutputs[0].shape[2], 384)) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny encoder 张量契约不匹配（期望 [1,80,3000]）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    if (decoderInputs.size() != 19 || decoderOutputs.size() < 17 ||
+        decoderInputs[0].type != AiTensorType::Int64 ||
+        decoderInputs[0].name.find("input_ids") == std::string::npos ||
+        decoderInputs[1].type != AiTensorType::Float32 ||
+        decoderInputs[1].name.find("encoder_hidden_states") == std::string::npos ||
+        decoderInputs[18].type != AiTensorType::Bool ||
+        decoderInputs[1].shape.size() != 3 ||
+        !dimMatches(decoderInputs[1].shape[2], 384) ||
+        decoderInputs[18].name.find("use_cache_branch") == std::string::npos ||
+        decoderOutputs[0].shape.size() != 3 || decoderOutputs[0].type != AiTensorType::Float32) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny merged decoder 张量契约不匹配（期望 19 输入/至少 17 输出）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    for (std::size_t i = 2; i < 18; ++i) {
+        const auto& info = decoderInputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("past_key_values") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) ||
+            !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输入形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
+    for (std::size_t i = 1; i < 17; ++i) {
+        const auto& info = decoderOutputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("present") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) || !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输出形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
     loaded_ = true;
     return true;
 }
@@ -314,14 +464,18 @@ void SpeechRecognizer::unload() {
     if (impl_ != nullptr) {
         impl_->encoder.unload();
         impl_->decoder.unload();
+        impl_->vocab.clear();
+        impl_->idToToken.clear();
+        impl_->addedTokens.clear();
+        impl_->tokenizerReady = false;
     }
     loaded_ = false;
 }
 
 bool SpeechRecognizer::loadTokenizer(const std::string& tokenizerJsonPath,
                                       std::string* outputFailure) {
-    if (impl_ == nullptr) {
-        if (outputFailure != nullptr) *outputFailure = "内存分配失败";
+    if (tokenizerJsonPath.empty()) {
+        if (outputFailure != nullptr) *outputFailure = "词表路径为空";
         return false;
     }
     std::ifstream file(tokenizerJsonPath, std::ios::binary);
@@ -331,9 +485,22 @@ bool SpeechRecognizer::loadTokenizer(const std::string& tokenizerJsonPath,
     }
     std::string text((std::istreambuf_iterator<char>(file)),
                      std::istreambuf_iterator<char>());
+    return loadTokenizerJson(text, outputFailure);
+}
+
+bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
+                                          std::string* outputFailure) {
+    if (impl_ == nullptr) {
+        if (outputFailure != nullptr) *outputFailure = "内存分配失败";
+        return false;
+    }
+    if (tokenizerJson.empty()) {
+        if (outputFailure != nullptr) *outputFailure = "词表 JSON 为空";
+        return false;
+    }
     JsonValue root;
     JsonParseError parseError;
-    if (!parseJson(text, root, parseError) || !root.isObject()) {
+    if (!parseJson(tokenizerJson, root, parseError) || !root.isObject()) {
         if (outputFailure != nullptr) {
             *outputFailure = "词表 JSON 解析失败：" + parseError.message;
         }
@@ -342,7 +509,6 @@ bool SpeechRecognizer::loadTokenizer(const std::string& tokenizerJsonPath,
     impl_->vocab.clear();
     impl_->idToToken.clear();
     impl_->addedTokens.clear();
-    // model.vocab：{token: id} 对象
     if (root.has("model")) {
         const JsonValue& model = root.get("model");
         if (model.has("vocab") && model.get("vocab").isObject()) {
@@ -356,7 +522,6 @@ bool SpeechRecognizer::loadTokenizer(const std::string& tokenizerJsonPath,
             }
         }
     }
-    // added_tokens：[{id, content}, ...]
     if (root.has("added_tokens") && root.get("added_tokens").isArray()) {
         const JsonValue& added = root.get("added_tokens");
         for (std::size_t i = 0; i < added.size(); ++i) {
@@ -648,7 +813,11 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
             generated.push_back(static_cast<std::int64_t>(best));
             tokenIds.push_back(static_cast<std::int64_t>(best));
             // 更新 KV cache（present.* → past）
-            if (decOuts.size() >= 17) {
+            if (decOuts.size() < 17) {
+                if (outputFailure != nullptr) *outputFailure = "Whisper-tiny decoder 未返回完整 KV cache（至少 17 个输出）";
+                return false;
+            }
+            {
                 for (int i = 0; i < 16; ++i) {
                     past[static_cast<std::size_t>(i)] = decOuts[static_cast<std::size_t>(i + 1)];
                 }

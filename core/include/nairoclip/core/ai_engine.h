@@ -139,6 +139,13 @@ public:
     bool load(const std::string& modelPath, AiBackend backend = AiBackend::Cpu,
               std::string* outputFailure = nullptr);
 
+    /// 从内存中的 ONNX 字节加载会话；适用于模型密文仅在内存解密的安全分发流程。
+    /// 内部复制并持有模型字节至 unload()/析构，确保 ORT 内存模型数据生命周期安全；
+    /// 释放会话后会尽力清零该缓冲。调用方可在本函数返回后清零自己的解密缓冲。
+    bool loadFromMemory(const void* modelData, std::size_t modelSize,
+                        AiBackend backend = AiBackend::Cpu,
+                        std::string* outputFailure = nullptr);
+
     /// 是否已加载（可推理）。
     bool loaded() const;
 
