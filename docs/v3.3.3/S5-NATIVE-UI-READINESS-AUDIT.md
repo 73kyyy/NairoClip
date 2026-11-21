@@ -873,3 +873,28 @@
 - 将最后一次取消/关闭检查与字幕批量事务提交放在同一生命周期锁内。若 cancel/close 先取得锁，识别结果不会再写入工程；若字幕事务先取得锁，则整批原子写入完成后 cancel/close 才能继续。
 - 这避免了“识别完成后刚检查完取消标志，用户随即关闭/取消，但字幕仍然落盘”的竞态；不在 native 推理期间持有生命周期锁，状态轮询与取消仍可响应。
 - 仅源码静态回读，未执行并发压力测试、JUnit、Gradle、NDK 或真机验证。
+
+
+## 71. Native timeline snapshot identity hardening (2026-11-21)
+
+- The strict timeline snapshot parser previously rejected duplicate clip IDs only within an individual track. The core model uses stable project-wide track/clip identities, so a duplicate clip ID on a different track could still be published to the native UI as an apparently valid snapshot.
+- The parser now rejects duplicate track IDs and duplicate clip IDs across the entire project. It also rejects duplicate asset IDs and any non-zero clip asset reference that does not resolve to the asset list; malformed asset records are no longer silently skipped.
+- Added `NativeTimelineSnapshotValidationTest` covering distinct identities, duplicate track IDs, cross-track duplicate clip IDs, and non-positive IDs.
+- This is defensive snapshot validation only. It does not change the C ABI, project serialization, rational-time contract, or host navigation.
+- Source files were read back after commit. No Kotlin/Gradle compile, JUnit, CI, Android runtime, or device validation was executed.
+
+## 72. Native editor toolbar accessibility semantics (2026-11-21)
+
+- Both first-level tool groups and expanded second-level tools now use Compose `Modifier.selectable` with `Role.Tab`, exposing their selected state to accessibility services rather than relying only on background color.
+- The horizontal expansion behavior is unchanged: second-level tools remain immediately to the right of their first-level group, clicking the active first-level group collapses it, and switching groups replaces the previous second-level row.
+- This change does not alter command routing or enable any legacy-fallback tool.
+- Source readback confirms the selected semantics are attached to both levels. TalkBack/Accessibility Service and physical-device interaction remain untested.
+
+## 73. Current S5 gate and CI status refresh (2026-11-21)
+
+- Current S5 branch: `work/v3.3.3-s5-native-editor-foundation`; PR #32 remains open and Draft, based on `development/v3.3.3`.
+- The repository CI workflow currently triggers on pushes to `main` and `development/v3.3.3`, but pull requests are filtered to `main` only. PR #32 therefore has no workflow run/check evidence for its current head. The successful main-branch CI run is not evidence for this S5 branch.
+- The user has explicitly instructed full-scope S5 implementation. This authorizes continued native UI implementation; it does not authorize deleting the WebView fallback. A-6 remains a separate approval gate for S5-8/S5-9.
+- S5-0B remains blocked until S1-3 and S3-1 are genuinely accepted. S5-1 remains blocked on S1-8D and the shared Manifest file. S5-5 still requires the accepted Rational time contract; S5-6/S5-7 still require the S1-2 command contract.
+- MainActivity still loads `pages/01-home.html`; NativeAppShell is not yet a live host. The 14 Compose page components and native editor panels are implementation assets, not proof of runtime migration. The six `nairoclip-*-*.html` static files are generated snapshots excluded from APK packaging; they are not six additional product screens.
+- No Activity/Manifest switch, WebView deletion, or legacy asset cleanup was performed in this update.
