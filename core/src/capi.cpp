@@ -77,6 +77,8 @@ extern "C" {
 #include <fstream>
 #include <new>
 #include <vector>
+#include <atomic>
+#include <mutex>
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 // POSIX 目录列举（自动扫描查找重链候选；仅 FFmpeg 构建下使用）
@@ -85,6 +87,17 @@ extern "C" {
 #include <string>
 
 using namespace nairoclip::core;
+
+// 独立于编辑器句柄的语音识别会话。取消标志/进度可由 UI 线程无锁读取。
+struct NcSpeechSession {
+    nairoclip::core::SpeechRecognizer recognizer;
+    mutable std::mutex mutex;
+    std::atomic<bool> busy{false};
+    std::atomic<bool> cancelRequested{false};
+    std::atomic<int32_t> state{0};
+    std::atomic<double> progress{0.0};
+    std::string lastError;
+};
 
 // 不透明句柄的真实定义。
 struct NcEditor {
@@ -7563,6 +7576,139 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
     }
     if (out_segments_json != nullptr) {
         *out_segments_json = dupString(toJsonString(array));
+    }
+    return NC_OK;
+}
+
+NcSpeechSession* nc_speech_session_create(void) {
+    return new (std::nothrow) NcSpeechSession();
+}
+
+void nc_speech_session_destroy(NcSpeechSession* session) {
+    // Contract: caller joins the worker before destroying the opaque handle.
+    delete session;
+}
+
+int32_t nc_speech_session_load_memory(NcSpeechSession* session,
+    const uint8_t* encoder, int64_t encoder_size,
+    const uint8_t* decoder, int64_t decoder_size,
+    const char* tokenizer_json, int64_t tokenizer_size, char** out_error) {
+    if (session == nullptr || encoder == nullptr || decoder == nullptr ||
+        encoder_size <= 0 || decoder_size <= 0 ||
+        (tokenizer_size > 0 && tokenizer_json == nullptr) || tokenizer_size < 0) {
+        setDetail(out_error, "语音模型内存参数非法");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    if (session->busy.load(std::memory_order_acquire)) {
+        setDetail(out_error, "语音识别正在运行，不能重新加载模型");
+        return NC_ERROR_LOCKED;
+    }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    std::string failure;
+    if (!session->recognizer.loadFromMemory(encoder, static_cast<std::size_t>(encoder_size),
+            decoder, static_cast<std::size_t>(decoder_size), &failure)) {
+        session->lastError = failure.empty() ? "Whisper 模型加载失败" : failure;
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    if (tokenizer_size > 0 &&
+        !session->recognizer.loadTokenizerJson(
+            std::string(tokenizer_json, static_cast<std::size_t>(tokenizer_size)), &failure)) {
+        session->recognizer.unload();
+        session->lastError = failure.empty() ? "Whisper tokenizer 加载失败" : failure;
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    session->lastError.clear();
+    session->cancelRequested.store(false, std::memory_order_release);
+    session->progress.store(0.0, std::memory_order_release);
+    session->state.store(1, std::memory_order_release);
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_speech_session_transcribe(NcSpeechSession* session,
+    const float* samples, int64_t frame_count, int32_t sample_rate, int32_t language,
+    char** out_segments_json, char** out_error) {
+    if (out_segments_json != nullptr) *out_segments_json = nullptr;
+    if (session == nullptr || samples == nullptr || frame_count <= 0 || sample_rate <= 0) {
+        setDetail(out_error, "PCM 参数非法");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    bool expected = false;
+    if (!session->busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        setDetail(out_error, "当前语音识别会话正在运行");
+        return NC_ERROR_LOCKED;
+    }
+    struct BusyReset {
+        NcSpeechSession* value;
+        ~BusyReset() { value->busy.store(false, std::memory_order_release); }
+    } busyReset{session};
+    SpeechLanguage speechLanguage;
+    if (!speechLanguageFromInt(language, speechLanguage)) {
+        setDetail(out_error, "识别语言不受支持");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::unique_lock<std::mutex> lock(session->mutex);
+    if (!session->recognizer.loaded() || !session->recognizer.tokenizerLoaded()) {
+        session->lastError = "语音识别模型或 tokenizer 尚未完整加载";
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    session->cancelRequested.store(false, std::memory_order_release);
+    session->progress.store(0.0, std::memory_order_release);
+    session->lastError.clear();
+    session->state.store(2, std::memory_order_release);
+    std::vector<SpeechSegment> segments;
+    std::string failure;
+    const bool ok = session->recognizer.transcribe(samples,
+        static_cast<std::size_t>(frame_count), sample_rate, speechLanguage, segments,
+        [session](double value) {
+            session->progress.store(std::max(0.0, std::min(1.0, value)), std::memory_order_release);
+            return !session->cancelRequested.load(std::memory_order_acquire);
+        }, &failure);
+    if (!ok) {
+        const bool cancelled = session->cancelRequested.load(std::memory_order_acquire);
+        session->lastError = cancelled ? "用户已取消语音识别" :
+            (failure.empty() ? "语音识别失败" : failure);
+        session->state.store(cancelled ? 5 : 4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return cancelled ? NC_ERROR_CANCELLED : NC_ERROR_INTERNAL;
+    }
+    JsonValue array = JsonValue::array();
+    for (const auto& segment : segments) {
+        JsonValue item = JsonValue::object();
+        item.set("start", JsonValue::number(segment.startSeconds));
+        item.set("end", JsonValue::number(segment.endSeconds));
+        item.set("text", JsonValue::string(segment.text));
+        array.push(std::move(item));
+    }
+    if (out_segments_json != nullptr) *out_segments_json = dupString(toJsonString(array));
+    session->progress.store(1.0, std::memory_order_release);
+    session->state.store(3, std::memory_order_release);
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_speech_session_cancel(NcSpeechSession* session) {
+    if (session == nullptr) return NC_ERROR_INVALID_ARGUMENT;
+    if (!session->busy.load(std::memory_order_acquire) ||
+        session->state.load(std::memory_order_acquire) != 2) return NC_ERROR_NOT_FOUND;
+    session->cancelRequested.store(true, std::memory_order_release);
+    return NC_OK;
+}
+
+int32_t nc_speech_session_status(const NcSpeechSession* session,
+    int32_t* out_state, double* out_progress, char** out_error) {
+    if (session == nullptr) return NC_ERROR_INVALID_ARGUMENT;
+    if (out_state != nullptr) *out_state = session->state.load(std::memory_order_acquire);
+    if (out_progress != nullptr) *out_progress = session->progress.load(std::memory_order_acquire);
+    if (out_error != nullptr) {
+        std::lock_guard<std::mutex> lock(session->mutex);
+        *out_error = dupString(session->lastError);
     }
     return NC_OK;
 }
