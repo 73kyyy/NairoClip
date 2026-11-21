@@ -709,12 +709,15 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         for (int32_t index = 0; index < count; ++index) {
             int64_t startUs = 0, durationUs = 0;
             char* rawText = nullptr;
+            uint64_t subtitleId = 0;
+            const int32_t idRc = nc_subtitle_get_id(ed, index, &subtitleId);
+            if (idRc != NC_OK || subtitleId == 0) { *out = Err("读取字幕 ID 失败"); return true; }
             const int32_t rc = nc_subtitle_get(ed, index, &startUs, &durationUs, &rawText);
             if (rc != NC_OK || rawText == nullptr) { if (rawText) nc_free_string(rawText); *out = Err("读取字幕记录失败"); return true; }
             const std::string text = rawText;
             nc_free_string(rawText);
             if (index) items += ",";
-            items += "{\\"index\\":" + std::to_string(index) + ",\\"start_us\\":" + std::to_string(startUs) +
+            items += "{\\"index\\":" + std::to_string(index) + ",\\"subtitle_id\\":" + std::to_string(subtitleId) + ",\\"start_us\\":" + std::to_string(startUs) +
                      ",\\"duration_us\\":" + std::to_string(durationUs) + ",\\"text\\":\\""+ JEsc(text) + "\\"}";
         }
         *out = Ok("{\\"items\\":" + items + "]}");
