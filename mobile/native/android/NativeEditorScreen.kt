@@ -640,11 +640,11 @@ private fun NativeTextStylePanel(onChange: (NativeEditorCommandAdapter.TextStyle
                 singleLine = true, textStyle = TextStyle(color = NcColors.text, fontSize = 11.sp, textAlign = TextAlign.End),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF303235))
-                .clickable {
-                    val size = sizeText.toDoubleOrNull()
-                    val outline = outlineText.toDoubleOrNull()
-                    if (size != null && outline != null) onChange(NativeEditorCommandAdapter.TextStyleUpdate(fontSize = size, outlineWidth = outline))
-                }.padding(horizontal = 10.dp, vertical = 7.dp)) { Text("应用", color = NcColors.text, fontSize = 10.sp) }
+                .clickable { sizeText.toDoubleOrNull()?.let { onChange(NativeEditorCommandAdapter.TextStyleUpdate(fontSize = it)) } }
+                .padding(horizontal = 8.dp, vertical = 7.dp)) { Text("设置字号", color = NcColors.text, fontSize = 9.sp) }
+            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF303235))
+                .clickable { outlineText.toDoubleOrNull()?.let { onChange(NativeEditorCommandAdapter.TextStyleUpdate(outlineWidth = it)) } }
+                .padding(horizontal = 8.dp, vertical = 7.dp)) { Text("设置描边", color = NcColors.text, fontSize = 9.sp) }
         }
         Text("文字颜色", color = NcColors.secondary, fontSize = 10.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
