@@ -121,6 +121,7 @@ class NativeSpeechSessionWorker(
             try {
                 worker.execute {
                     try {
+                        check(!closing.get()) { "Whisper 会话正在关闭" }
                         val value = operation()
                         busy.set(false)
                         publishStatus()
