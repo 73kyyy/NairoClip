@@ -2815,7 +2815,11 @@ private fun NativeToolBar(
                     .width(54.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (selected) Color(0xFF303235) else Color.Transparent)
-                    .clickable { onToolSelected(tool) }
+                    .selectable(
+                        selected = selected,
+                        role = Role.Tab,
+                        onClick = { onToolSelected(tool) }
+                    )
                     .padding(vertical = 7.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -2844,7 +2848,11 @@ private fun NativeToolBar(
                             .width(58.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (subSelected) Color(0xFF3A3D40) else NcColors.panel)
-                            .clickable { onSubToolSelected(tool, subTool) }
+                            .selectable(
+                                selected = subSelected,
+                                role = Role.Tab,
+                                onClick = { onSubToolSelected(tool, subTool) }
+                            )
                             .padding(vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(5.dp)
