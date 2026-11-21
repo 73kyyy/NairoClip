@@ -318,6 +318,35 @@ NC_TEST(SpeechAI, IndependentSessionLifecycleAndArgumentGuards) {
     if (error != nullptr) nc_free_string(error);
 
     NC_CHECK_EQ(nc_speech_session_cancel(session), NC_ERROR_NOT_FOUND);
+
+    float validPcm = 0.0f;
+    char* segments = nullptr;
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &validPcm, 1, 7999, 1,
+                                              &segments, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
+    float outOfRangePcm = 1.01f;
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &outOfRangePcm, 1, 16000, 1,
+                                              &segments, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
+    float nonFinitePcm = std::nanf("");
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &nonFinitePcm, 1, 16000, 1,
+                                              &segments, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &validPcm, 1, 16000, 1,
+                                              nullptr, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
     nc_speech_session_destroy(session);
 }
 
