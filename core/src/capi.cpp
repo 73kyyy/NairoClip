@@ -7595,8 +7595,9 @@ int32_t nc_speech_session_load_memory(NcSpeechSession* session,
     const char* tokenizer_json, int64_t tokenizer_size, char** out_error) {
     if (session == nullptr || encoder == nullptr || decoder == nullptr ||
         encoder_size <= 0 || decoder_size <= 0 ||
-        (tokenizer_size > 0 && tokenizer_json == nullptr) || tokenizer_size < 0) {
-        setDetail(out_error, "语音模型内存参数非法");
+        tokenizer_json == nullptr || tokenizer_size <= 0 ||
+        tokenizer_size > 32 * 1024 * 1024) {
+        setDetail(out_error, "语音模型内存参数非法（tokenizer 必须提供且不超过 32 MiB）");
         return NC_ERROR_INVALID_ARGUMENT;
     }
     bool expected = false;
@@ -7617,8 +7618,7 @@ int32_t nc_speech_session_load_memory(NcSpeechSession* session,
         setDetail(out_error, session->lastError);
         return NC_ERROR_UNSUPPORTED;
     }
-    if (tokenizer_size > 0 &&
-        !session->recognizer.loadTokenizerJson(
+    if (!session->recognizer.loadTokenizerJson(
             std::string(tokenizer_json, static_cast<std::size_t>(tokenizer_size)), &failure)) {
         session->recognizer.unload();
         session->lastError = failure.empty() ? "Whisper tokenizer 加载失败" : failure;
