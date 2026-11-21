@@ -2519,6 +2519,18 @@ int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us
     return NC_OK;
 }
 
+int32_t nc_subtitle_get_id(const NcEditor* editor, int32_t index, uint64_t* out_subtitle_id) {
+    if (editor == nullptr || index < 0 || out_subtitle_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "字幕 ID 查询参数无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(index) >= main->subtitles.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "字幕索引超出范围");
+    }
+    *out_subtitle_id = main->subtitles.cues()[static_cast<std::size_t>(index)].id.value;
+    return NC_OK;
+}
+
 uint64_t nc_add_transition(NcEditor* editor, int32_t track_index, int32_t transition_type,
                            int64_t duration_us, uint64_t from_clip_id, uint64_t to_clip_id) {
     if (editor == nullptr || track_index < 0 || duration_us <= 0) {
