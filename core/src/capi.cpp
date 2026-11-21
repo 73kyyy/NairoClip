@@ -2466,6 +2466,7 @@ uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration
     }
     SubtitleCue cue;
     cue.id = SubtitleId{editor->project.ids.next()};
+    const uint64_t cueId = cue.id.value;
     cue.start = fromMicroseconds(start_us);
     cue.duration = fromMicroseconds(duration_us);
     cue.text = text;
@@ -2473,15 +2474,9 @@ uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration
     if (!r.isOk()) {
         return 0;
     }
-    const SubtitleTrack& subtitles = editor->project.mainSequence()->subtitles;
-    // 返回最新插入的字幕 ID（按时间匹配最后一条）
-    const SubtitleCue* found = nullptr;
-    for (const auto& c : subtitles.cues()) {
-        if (c.start == fromMicroseconds(start_us) && c.text == std::string(text)) {
-            found = &c;
-        }
-    }
-    return found != nullptr ? found->id.value : 0;
+    // Return the exact ID allocated for this operation. Searching by time/text
+    // is ambiguous when two identical cues are inserted at the same timestamp.
+    return cueId;
 }
 
 int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id) {
