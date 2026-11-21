@@ -701,7 +701,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const std::string outline = JStrField(a, "outline_color");
         const int32_t rc = nc_set_text_style(
             ed, cid, JNum(a, "font_size", 48.0), JStrField(a, "color").c_str(),
-            outline.empty() ? "#000000" : outline.c_str(), JNum(a, "outline_width", 0.0),
+            outline.c_str(), JNum(a, "outline_width", -1.0),
             static_cast<int32_t>(JInt(a, "alignment", 1)), JNum(a, "anchor_x", 0.5),
             JNum(a, "anchor_y", 0.5));
         if (rc != NC_OK) {
