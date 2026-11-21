@@ -412,6 +412,9 @@ int32_t nc_subtitle_count(const NcEditor* editor);
 int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us,
                         int64_t* duration_us, char** out_text);
 
+/// 读取第 index 条字幕的稳定 ID；越界或参数错误返回错误码。
+int32_t nc_subtitle_get_id(const NcEditor* editor, int32_t index, uint64_t* out_subtitle_id);
+
 // ---- 转场 ----
 
 /// 在轨道上添加转场（type 枚举值同 core::TransitionType）。
