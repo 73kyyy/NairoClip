@@ -74,6 +74,7 @@ extern "C" {
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <limits>
 #include <cmath>
 #include <fstream>
 #include <new>
@@ -2485,7 +2486,7 @@ int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cu
     prepared.reserve(static_cast<std::size_t>(count));
     for (int32_t i = 0; i < count; ++i) {
         if (cues[i].text == nullptr || cues[i].start_us < 0 || cues[i].duration_us <= 0 ||
-            cues[i].start_us > INT64_MAX - cues[i].duration_us) {
+            cues[i].start_us > std::numeric_limits<int64_t>::max() - cues[i].duration_us) {
             return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕包含非法文本或时间范围");
         }
         const std::string text(cues[i].text);
