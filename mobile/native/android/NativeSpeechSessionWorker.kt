@@ -37,15 +37,20 @@ class NativeSpeechSessionWorker(
         Executors.newSingleThreadExecutor { r -> Thread(r, "nc-whisper-worker").apply { isDaemon = true } }
     private val poller: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "nc-whisper-status").apply { isDaemon = true } }
-    private val session: Long = bridge.createSpeechSession()
+    private val lifecycleLock = Any()
+    private var session: Long = 0L
     private val closing = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
     private val lastState = AtomicLong(0L)
 
     init {
-        require(session != 0L) { "无法创建 Whisper 会话" }
         require(pollIntervalMs in 100L..5000L) { "状态轮询间隔必须在 100–5000ms" }
+        session = bridge.createSpeechSession()
+        require(session != 0L) { "无法创建 Whisper 会话" }
+        poller.scheduleWithFixedDelay({
+            if (busy.get()) publishStatus()
+        }, 0L, pollIntervalMs, TimeUnit.MILLISECONDS)
     }
 
     /** Loads decrypted model bytes. All three buffers must be direct buffers. */
@@ -106,39 +111,32 @@ class NativeSpeechSessionWorker(
 
     private fun <T> submit(operation: () -> T): CompletableFuture<T> {
         val result = CompletableFuture<T>()
-        if (closing.get()) {
-            result.completeExceptionally(IllegalStateException("Whisper 会话正在关闭"))
-            return result
-        }
-        if (!busy.compareAndSet(false, true)) {
-            result.completeExceptionally(IllegalStateException("Whisper 会话已有任务运行"))
-            return result
-        }
-        startPolling()
-        try {
-            worker.execute {
-                try {
-                    if (closing.get()) throw IllegalStateException("Whisper 会话正在关闭")
-                    result.complete(operation())
-                } catch (t: Throwable) {
-                    result.completeExceptionally(t)
-                } finally {
-                    busy.set(false)
-                    publishStatus()
-                }
+        synchronized(lifecycleLock) {
+            if (closing.get()) {
+                result.completeExceptionally(IllegalStateException("Whisper 会话正在关闭"))
+                return result
             }
-        } catch (t: Throwable) {
-            busy.set(false)
-            result.completeExceptionally(t)
+            if (!busy.compareAndSet(false, true)) {
+                result.completeExceptionally(IllegalStateException("Whisper 会话已有任务运行"))
+                return result
+            }
+            try {
+                worker.execute {
+                    try {
+                        result.complete(operation())
+                    } catch (t: Throwable) {
+                        result.completeExceptionally(t)
+                    } finally {
+                        busy.set(false)
+                        publishStatus()
+                    }
+                }
+            } catch (t: Throwable) {
+                busy.set(false)
+                result.completeExceptionally(t)
+            }
         }
         return result
-    }
-
-    private fun startPolling() {
-        if (poller.isShutdown) return
-        poller.scheduleWithFixedDelay({
-            if (busy.get()) publishStatus()
-        }, 0L, pollIntervalMs, TimeUnit.MILLISECONDS)
     }
 
     private fun publishStatus() {
@@ -173,20 +171,21 @@ class NativeSpeechSessionWorker(
      * racing a live native call.
      */
     override fun close() {
-        if (!closing.compareAndSet(false, true)) return
-        try { bridge.cancelSpeechSession(session) } catch (_: Throwable) {}
-        poller.shutdownNow()
-        try {
-            worker.execute {
-                try {
-                    if (closed.compareAndSet(false, true)) bridge.destroySpeechSession(session)
-                } finally {
-                    worker.shutdown()
+        synchronized(lifecycleLock) {
+            if (!closing.compareAndSet(false, true)) return
+            try { bridge.cancelSpeechSession(session) } catch (_: Throwable) {}
+            poller.shutdownNow()
+            try {
+                worker.execute {
+                    try {
+                        if (closed.compareAndSet(false, true)) bridge.destroySpeechSession(session)
+                    } finally {
+                        worker.shutdown()
+                    }
                 }
+            } catch (_: Throwable) {
+                // Never destroy concurrently with a possible native operation.
             }
-        } catch (_: Throwable) {
-            // Executor rejection is only expected after an earlier close; do not destroy
-            // concurrently with a possible native operation.
         }
     }
 }
