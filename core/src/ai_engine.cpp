@@ -363,6 +363,73 @@ bool AiSession::load(const std::string& modelPath, AiBackend backend,
 #endif
 }
 
+bool AiSession::loadFromMemory(const void* modelData, std::size_t modelSize,
+                              AiBackend backend, std::string* outputFailure) {
+#ifdef NAIROCLIP_HAS_ONNX_RUNTIME
+    unload();
+    if (modelData == nullptr || modelSize == 0) {
+        if (outputFailure != nullptr) *outputFailure = "模型内存为空";
+        return false;
+    }
+    try {
+        Ort::SessionOptions options;
+        options.SetIntraOpNumThreads(2);
+        options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
+        const char* provider = ortProviderName(backend);
+        if (provider != nullptr) {
+            tryAppendExecutionProvider(options, backend);
+        }
+        // 使用 ORT 的内存构造入口：不会将解密后的模型写入文件系统。
+        impl_->session = std::make_unique<Ort::Session>(
+            impl_->env, modelData, modelSize, options);
+
+        const std::size_t inputCount = impl_->session->GetInputCount();
+        impl_->inputNames.clear();
+        impl_->inputInfos.clear();
+        for (std::size_t i = 0; i < inputCount; ++i) {
+            auto name = impl_->session->GetInputNameAllocated(i, impl_->allocator);
+            impl_->inputNames.push_back(name.get());
+            Ort::TypeInfo typeInfo = impl_->session->GetInputTypeInfo(i);
+            const auto info = typeInfo.GetTensorTypeAndShapeInfo();
+            TensorInfo tensor;
+            tensor.name = name.get();
+            tensor.shape = info.GetShape();
+            tensor.type = mapOrtType(info.GetElementType());
+            impl_->inputInfos.push_back(std::move(tensor));
+        }
+        const std::size_t outputCount = impl_->session->GetOutputCount();
+        impl_->outputNames.clear();
+        impl_->outputInfos.clear();
+        for (std::size_t i = 0; i < outputCount; ++i) {
+            auto name = impl_->session->GetOutputNameAllocated(i, impl_->allocator);
+            impl_->outputNames.push_back(name.get());
+            Ort::TypeInfo typeInfo = impl_->session->GetOutputTypeInfo(i);
+            const auto info = typeInfo.GetTensorTypeAndShapeInfo();
+            TensorInfo tensor;
+            tensor.name = name.get();
+            tensor.shape = info.GetShape();
+            tensor.type = mapOrtType(info.GetElementType());
+            impl_->outputInfos.push_back(std::move(tensor));
+        }
+        return true;
+    } catch (const std::exception& e) {
+        unload();
+        if (outputFailure != nullptr) {
+            *outputFailure = std::string("内存模型加载失败：") + e.what();
+        }
+        return false;
+    }
+#else
+    (void)modelData;
+    (void)modelSize;
+    (void)backend;
+    if (outputFailure != nullptr) {
+        *outputFailure = "此构建未链接 ONNX Runtime——AI 推理不可用（可选依赖）";
+    }
+    return false;
+#endif
+}
+
 bool AiSession::run(const std::vector<AiTensor>& inputs, std::vector<AiTensor>& outputs,
                     std::string* outputFailure) {
 #ifdef NAIROCLIP_HAS_ONNX_RUNTIME
