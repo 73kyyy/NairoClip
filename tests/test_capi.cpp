@@ -135,6 +135,12 @@ NC_TEST(Capi, SubtitleCrud) {
     const std::uint64_t sid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
     NC_CHECK(sid != 0);
     NC_CHECK_EQ(nc_subtitle_count(editor), 1);
+    // 稳定 ID 必须与 upsert 返回值一致，不能用排序后的数组下标代替。
+    std::uint64_t readId = 0;
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 0, &readId), NC_OK);
+    NC_CHECK_EQ(readId, sid);
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 0, nullptr), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 5, &readId), NC_ERROR_OUT_OF_RANGE);
     // 读取
     std::int64_t start = 0;
     std::int64_t duration = 0;
