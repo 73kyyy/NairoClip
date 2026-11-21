@@ -214,6 +214,49 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     data class SubtitleCueState(val index: Int, val subtitleId: Long, val startUs: Long, val durationUs: Long, val text: String)
 
+    data class SubtitleCueInput(val startUs: Long, val durationUs: Long, val text: String)
+
+    /**
+     * Writes ASR output in one engine transaction: one undo restores the pre-ASR subtitle track.
+     * Inputs are normalized/clamped against the current project duration before JNI dispatch.
+     */
+    fun addSubtitlesBatchAndReadEditorState(cues: List<SubtitleCueInput>): Result<EditorStateSnapshot> {
+        if (cues.isEmpty() || cues.size > 10000) return Result(false, error = "字幕数量必须在 1–10000 条")
+        val normalized = ArrayList<SubtitleCueInput>(cues.size)
+        for (cue in cues) {
+            val text = cue.text.trim()
+            if (text.isEmpty()) return Result(false, error = "字幕内容不能为空")
+            if (text.toByteArray(Charsets.UTF_8).size > 16 * 1024) return Result(false, error = "单条字幕内容过长")
+            if (cue.startUs < 0L || cue.durationUs <= 0L || cue.startUs > Long.MAX_VALUE - cue.durationUs) {
+                return Result(false, error = "字幕时间范围无效")
+            }
+            normalized.add(cue.copy(text = text))
+        }
+        normalized.sortBy { it.startUs }
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val projectDuration = before.value?.durationUs ?: return@withEditorStateLock Result(false, error = "工程时长缺失")
+            val bounded = normalized.mapNotNull { cue ->
+                if (cue.startUs >= projectDuration) null
+                else cue.copy(durationUs = minOf(cue.durationUs, projectDuration - cue.startUs))
+            }
+            if (bounded.isEmpty()) return@withEditorStateLock Result(false, error = "识别字幕均超出工程时长")
+            val starts = LongArray(bounded.size) { bounded[it].startUs }
+            val durations = LongArray(bounded.size) { bounded[it].durationUs }
+            val texts = Array(bounded.size) { bounded[it].text }
+            val ids = try {
+                bridge.upsertSubtitlesBatch(starts, durations, texts)
+            } catch (error: Exception) {
+                return@withEditorStateLock Result(false, error = error.message ?: "批量写入字幕失败")
+            } ?: return@withEditorStateLock Result(false, error = "批量写入字幕失败，工程未保留部分结果")
+            if (ids.size != bounded.size || ids.any { it <= 0L } || ids.toSet().size != ids.size) {
+                return@withEditorStateLock Result(false, error = "引擎返回的字幕 ID 数量或唯一性校验失败")
+            }
+            readEditorStateSnapshotLocked()
+        }
+    }
+
     /** Reads subtitle cues from the engine-owned sequence subtitle track. */
     fun readSubtitles(): Result<List<SubtitleCueState>> = bridge.withEditorStateLock {
         invoke("subtitle_list", JSONObject()) { payload ->
