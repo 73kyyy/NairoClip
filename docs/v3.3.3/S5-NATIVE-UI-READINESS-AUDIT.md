@@ -741,3 +741,10 @@
 - tests/test_speech_ai.cpp 增加内存词表解析/解码与空模型缓冲失败路径。
 - 这只是安全加载基础：尚未实现平台层读取密文文件、密钥获取、AES 解密后将三份缓冲传入 C ABI/JNI，也尚未实现后台 ASR 任务状态机和字幕回写；不能视为自动字幕已经接通。
 - 尚未运行 C++ 编译、CTest、Android 构建或真实设备推理。
+
+## 第59节：内存模型缓冲区生命周期与清理
+
+- 复核 ONNX Runtime 的内存 Session 生命周期时，不再假定调用方缓冲区在创建 Session 后即可立即释放；`AiSession` 现在保存自己的模型字节副本，确保缓冲区至少覆盖 Session 整个生命周期。
+- `AiSession::unload()` 先销毁 ORT Session，再对持有的模型字节执行 volatile 覆写并释放容量；这属于尽力清理，不等同于可证明的安全内存擦除，也无法清除 ORT 内部副本、系统交换区或崩溃转储。
+- `loadFromMemory()` 先复制模型数据，再从受控副本创建 Session；失败路径复用 unload 清理。
+- 调用方仍应在 loadFromMemory()/loadTokenizerJson() 返回后尽快清零其自有解密缓冲。平台密钥获取、AES 解密调用和 Android JNI 接入仍未完成。
