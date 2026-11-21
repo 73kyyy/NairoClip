@@ -755,3 +755,17 @@
 - `SpeechRecognizer::unload()` 同时清空 tokenizer 的词表、反查表和 added-token 表，并重置 `tokenizerReady`，避免释放模型后仍保留可被误用的词表状态。
 - 新增 `UnloadClearsTokenizerState` 测试，验证卸载后 tokenizer 状态关闭、token 解码不再返回旧文本。
 - 注意：标准容器释放不保证底层 allocator 内存被密码学意义擦除；本改动保证对象生命周期和状态一致，不宣称完整安全擦除。
+
+## 第61节：自动字幕密文模型接入安全审计（2026-11-21）
+
+- 复核 `ModelManager`、`crypto`、Android `NativeEngineBridge.installModel` 与 Whisper 内存加载接口，确认当前分层边界：
+  - Core 的 `verifyModelPayload` 校验密文长度/ SHA-256；`decryptModelPayload` 使用 AES-256-CTR 解密，但它只返回普通字节向量，不负责平台密钥获取或密钥生命周期。
+  - `SpeechRecognizer::loadFromMemory` 可接收已解密的 encoder/decoder 缓冲；`loadTokenizerJson` 可接收已解密的 tokenizer JSON。
+  - Android 现有 `installModel` 从传入路径读取完整文件并计算 SHA-256，再调用 `nativeInstallModel` 记录安装状态；这不是推理时的密文解密加载 API，也没有将模型明文缓冲交给 Whisper recognizer。
+  - 目前未发现 Android Keystore 密钥获取、模型密钥注入、AES 解密到受控 native 内存、SpeechRecognizer JNI 装载及 ASR 后台任务接口的完整闭环。
+- 发现必须在多组件模型包设计前解决的密码学约束：当前 `deriveModelCounter(modelId, version)` 仅由模型 ID 与版本确定 AES-CTR 初始计数器。如果多个密文组件使用相同 AES key，且复用相同 modelId/version，则会复用同一密钥流。不得在没有服务端协议证据的情况下，直接把 encoder、decoder、tokenizer 作为同一 ID/版本下的多个独立 CTR 密文文件接入。
+- 后续组件协议必须由服务端与客户端共同确认唯一性：每个加密组件使用独立密钥，或使用经过版本化、双方一致实现的组件级唯一 nonce/counter 派生标识；不得仅在客户端擅自更改派生规则。还需确认 SHA-256 摘要及组件清单来自可信的已认证元数据，并定义组件 ID、版本、量化等级、密文长度、摘要和模型结构标识。
+- AES-CTR 本身不提供密文完整性认证。当前 SHA-256 校验只有在期望摘要通过可信渠道认证时才能防止恶意替换；后续协议需明确摘要/清单的签名或认证来源，不能把“计算并比较 SHA-256”误称为 AEAD。
+- 因服务端密钥/组件格式尚未从仓库代码中得到证明，本轮不擅自改动现有加密格式、不新增猜测性的 manifest、不将密钥写入 JSON/日志/文件，也不生成明文临时模型文件。
+- 下一步先补齐并审查服务端组件清单与密钥交付契约；再实现 Android Keystore 密钥桥接和 native 内存解密；最后建立独立于编辑器锁的 ASR task handle、PCM 分块传递、取消/进度/失败/重试及字幕事务回写。音频解码统一采用系统解码器输出 16 kHz mono float32 PCM 的跨平台契约，Android/iOS/桌面分别调用平台能力。
+- 本节为源码审计结论，不代表密文模型推理或自动字幕已经接通；未执行 Android/NDK/C++ 构建、CTest、JUnit 或真机安全验证。
