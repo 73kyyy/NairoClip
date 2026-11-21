@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -202,7 +203,7 @@ NC_TEST(SpeechAI, RealInferenceChain) {
     const bool ok = recognizer.transcribe(pcm.data(), pcm.size(), sampleRate,
                                           SpeechLanguage::Chinese, segments, nullptr, &failure);
     if (!ok) {
-        // 断言：失败原因是明确的（不可用/需 KV cache 驱动），而非静默假成功
+        // 断言：模型契约或运行时失败必须给出明确原因，不允许静默假成功
         NC_CHECK(!failure.empty());
         NC_CHECK(failure.find("不可用") != std::string::npos ||
                  failure.find("不匹配") != std::string::npos ||
