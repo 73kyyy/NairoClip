@@ -808,3 +808,14 @@
 - 该控制器是可复用的任务执行基础，不代表已经接入 Activity/ViewModel、媒体解码、模型密钥/解密或自动字幕 UI；PCM 仍需上游提供 mono float32，推荐 16 kHz。加载模型时调用方仍须保证 direct buffers 在完成回调前有效，并在安全时机尽力清理自有明文缓冲。
 - 尚未实现 Android MediaExtractor/MediaCodec 解码与重采样、Android Keystore/AES 协议闭环、任务持久化/重试 UI、字幕批量单次撤销事务。关闭超时的保守策略可能暂时保留 native session，属于防止悬空指针的安全取舍。
 - 本轮只完成源码与静态回读；未执行 Gradle/Kotlin/NDK 编译、JUnit、CTest、模型加载、真实音频识别或真机生命周期验证。
+
+
+## 第64节：Android 系统音频解码与 16 kHz 单声道 PCM 管线（2026-11-21）
+
+- 新增 `AndroidAudioPcmDecoder.kt`，从 SAF/ContentResolver 可访问的 `Uri` 读取所选媒体，使用 Android 系统 `MediaExtractor` 选择音轨，并使用系统 `MediaCodec` 解码；不捆绑第三方音频/视频编解码实现。
+- 输出格式统一为 Whisper 所需的 mono float32、16 kHz、[-1,1] PCM direct ByteBuffer；对解码器交错 PCM 支持 8-bit、16-bit 和 float32，逐帧多声道平均下混。
+- 使用跨 MediaCodec 输出缓冲区连续状态的线性流式重采样器，保留前一输入采样点与全局源采样位置，避免按单个 codec buffer 分段重采样造成边界跳变。
+- 为防止异常长音频导致内存无界增长，默认最多 10 分钟；输出使用按需扩容的 direct ByteBuffer，解码有取消标志和 10 分钟墙钟超时。超过时长、PCM 位宽不支持、声道数/采样率非法或解码器输出帧不完整时明确失败，不静默截断。
+- 返回的 PCM direct buffer 由调用方持有，可直接交给第63节 `NativeSpeechSessionWorker.transcribe()`；该 worker 默认在推理结束后尽力清零 PCM。
+- 仍未将媒体解码、Whisper worker、项目选择状态及字幕事务回写接入 Activity/ViewModel；也未完成真实设备兼容矩阵验证。MediaCodec 实际 PCM 输出格式因设备/编解码器而异，当前对 24-bit packed / 32-bit integer PCM 明确拒绝，需通过设备实测决定是否扩展。
+- 仅完成源码提交与静态回读；未执行 Gradle/Kotlin 编译、JUnit、NDK/C++ 构建、CTest、真机音轨解码或 ASR 端到端验证。
