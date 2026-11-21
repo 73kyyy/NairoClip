@@ -21,7 +21,7 @@
 - 来源：https://github.com/openai/whisper
 - 许可：**MIT License**
 - 版权：Copyright (c) 2022 OpenAI
-- 说明：本应用使用 whisper.cpp 同源 ONNX 导出（onnx-community/whisper-small）。
+- 说明：本应用使用 whisper.cpp 同源 ONNX 导出（onnx-community/whisper-tiny）。
 
 ---
 
