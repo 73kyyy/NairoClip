@@ -129,6 +129,19 @@ class NativeEngineBridge(
             }
         }
 
+    /** 原子写入一批 ASR 字幕；所有条目作为一条撤销记录。 */
+    fun upsertSubtitlesBatch(
+        startsUs: LongArray,
+        durationsUs: LongArray,
+        texts: Array<String>
+    ): LongArray? {
+        require(startsUs.isNotEmpty() && startsUs.size == durationsUs.size &&
+            startsUs.size == texts.size && startsUs.size <= 10000)
+        synchronized(stateLock) {
+            return nativeUpsertSubtitlesBatch(startsUs, durationsUs, texts)
+        }
+    }
+
     /** 创建独立 ASR 会话；调用方负责在线程结束后释放。 */
     fun createSpeechSession(): Long = nativeSpeechSessionCreate()
 
@@ -614,6 +627,8 @@ class NativeEngineBridge(
             put("ok", false); put("code", -1); put("message", msg)
             put("result", JSONObject())
         }.toString()
+
+    private external fun nativeUpsertSubtitlesBatch(startsUs: LongArray, durationsUs: LongArray, texts: Array<String>): LongArray?
 
     // Whisper session is independent from NcEditor and must run on a worker thread.
     private external fun nativeSpeechSessionCreate(): Long
