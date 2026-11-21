@@ -53,7 +53,7 @@ struct SpeechSegment {
     std::string text;
 };
 
-/// 语音识别器（Whisper encoder + decoder 会话复用；单实例单线程）。
+/// 语音识别器（Whisper-tiny encoder + merged decoder 会话复用；单实例单线程）。
 class SpeechRecognizer {
 public:
     SpeechRecognizer();
