@@ -9,6 +9,7 @@
 //   5. 失败路径（未加载/空音频/文件缺失）。
 #include "test_framework.h"
 #include "nairoclip/core/speech_ai.h"
+#include "nairoclip/core/capi.h"
 
 #include <cmath>
 #include <cstdint>
@@ -287,3 +288,36 @@ NC_TEST(SpeechAI, ProgressCallback) {
                           &failure);
     NC_CHECK(monotonic);  // 进度单调不减（若回调被调用）
 }
+
+NC_TEST(SpeechAI, IndependentSessionLifecycleAndArgumentGuards) {
+    NcSpeechSession* session = nc_speech_session_create();
+    NC_CHECK(session != nullptr);
+    if (session == nullptr) return;
+
+    int32_t state = -1;
+    double progress = -1.0;
+    char* error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_status(session, &state, &progress, &error), NC_OK);
+    NC_CHECK_EQ(state, 0);
+    NC_CHECK_EQ(progress, 0.0);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_load_memory(session, nullptr, 0, nullptr, 0,
+                                               nullptr, 0, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, nullptr, 0, 16000, 1,
+                                              nullptr, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    NC_CHECK_EQ(nc_speech_session_cancel(session), NC_ERROR_NOT_FOUND);
+    nc_speech_session_destroy(session);
+}
+
