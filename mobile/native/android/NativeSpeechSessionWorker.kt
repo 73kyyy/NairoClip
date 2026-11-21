@@ -8,7 +8,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Owns one independent Whisper session and serializes every operation against its lifetime.
@@ -42,7 +41,6 @@ class NativeSpeechSessionWorker(
     private val closing = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
-    private val lastState = AtomicLong(0L)
 
     init {
         require(pollIntervalMs in 100L..5000L) { "状态轮询间隔必须在 100–5000ms" }
@@ -123,12 +121,14 @@ class NativeSpeechSessionWorker(
             try {
                 worker.execute {
                     try {
-                        result.complete(operation())
-                    } catch (t: Throwable) {
-                        result.completeExceptionally(t)
-                    } finally {
+                        val value = operation()
                         busy.set(false)
                         publishStatus()
+                        result.complete(value)
+                    } catch (t: Throwable) {
+                        busy.set(false)
+                        publishStatus()
+                        result.completeExceptionally(t)
                     }
                 }
             } catch (t: Throwable) {
@@ -144,7 +144,6 @@ class NativeSpeechSessionWorker(
             val json = JSONObject(bridge.speechSessionStatus(session))
             if (!json.optBoolean("ok", false)) return
             val state = json.optInt("state", 0)
-            lastState.set(state.toLong())
             listener?.onStatus(
                 state,
                 json.optDouble("progress", 0.0).coerceIn(0.0, 1.0),
