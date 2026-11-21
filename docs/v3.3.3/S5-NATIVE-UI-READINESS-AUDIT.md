@@ -849,3 +849,12 @@
 - 此链路尚未接入具体剪辑页的自动字幕按钮、媒体选择/素材 ID 状态、Activity/ViewModel 和 UI 线程回调；目前 worker API 需要宿主明确传入可访问 Uri、时间线偏移、已加载的 Whisper session 和 adapter。
 - 模型文件的服务端组件 nonce/密钥契约、Android Keystore 解密和模型下载/安装生命周期仍未解决；当前 worker 接收已解密 direct buffers，不能视为已完成生产级模型安全交付。
 - 本节所有改动均为源码级实现和静态回读；未执行 CMake/NDK、CTest、Gradle/Kotlin 编译、JUnit、设备解码或真实模型端到端验证。
+
+
+## 第68节：ASR worker 取消竞态与缓冲区生命周期复核（2026-11-21）
+
+- 将取消标志复位移动到任务通过单会话 busy gate 之后；此前并发的第二次任务提交即使被拒绝，也可能提前清除第一项正在执行任务的取消标志。现在未获准进入队列的请求不会改动当前任务的取消状态。
+- 将 Whisper 状态 JNI 查询和取消 JNI 调用纳入同一生命周期锁。close() 设置关闭状态后，状态轮询不会再启动新的 native 句柄访问；若查询先获得锁，close 会等它退出后再安排销毁。
+- 将模型缓冲区与 PCM 参数校验放入清理保护范围；已提交任务即使因非 direct buffer 或容量不足被拒绝，也会对可写 direct buffer 执行 best-effort 清零。
+- 以上调整仅强化 Kotlin worker 生命周期，不代表能清除 ORT 内部张量、MediaCodec 内部缓冲或系统分配器副本。
+- 静态回读确认 worker 的生命周期锁、任务准入复位和缓冲区 finally 路径存在；仍未运行 Kotlin 编译、JUnit、Android 设备测试或 C++ 构建。
