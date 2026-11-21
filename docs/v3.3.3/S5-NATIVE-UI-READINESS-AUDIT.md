@@ -798,3 +798,13 @@
 - Listener 在状态轮询线程回调，宿主必须自行切回主线程更新 Compose；此工作器尚未接入 Activity/ViewModel、媒体选择或编辑器“自动字幕”按钮。
 - 尚未实现 MediaExtractor/MediaCodec 音轨解码、声道混合与 16 kHz 重采样，也未实现模型服务端组件 nonce/密钥协议、Keystore 解密、字幕批量单次 Undo 事务。不能据此宣称端到端自动字幕已启用。
 - 该工作器源码已静态回读；未执行 Gradle/Kotlin 编译、JUnit、NDK/C++ 构建、CTest、真实模型推理或设备生命周期验证。
+
+## 第63节：Android Whisper 会话后台工作线程与安全释放（2026-11-21）
+
+- 新增 `NativeSpeechSessionController`，将独立 Whisper 会话的模型加载与转录操作串行投递到专用 daemon Executor；两类工作均不占用 Compose 主线程，也不持有编辑器状态锁。
+- 控制器在进入任务前检查 direct ByteBuffer、当前 position/remaining、PCM 帧数、采样率及语言枚举；保留切片后的 buffer 引用直到对应任务结束，避免调用方提前释放底层缓冲。
+- 提供状态/进度读取、协作式取消和结构化结果回调；转录结果仍为带 start/end/text 的 JSON 分段，供后续字幕事务适配器消费。回调运行在 ASR worker 线程，UI 宿主必须切回 Main dispatcher 更新 Compose。
+- 生命周期关闭时先请求取消，再关闭 Executor 并等待工作线程退出，只有确认线程终止后才调用 native destroy。若 30 秒内无法终止，控制器选择保留 native handle 并记录错误，而不是销毁仍可能被 JNI 使用的对象造成 use-after-free。
+- 该控制器是可复用的任务执行基础，不代表已经接入 Activity/ViewModel、媒体解码、模型密钥/解密或自动字幕 UI；PCM 仍需上游提供 mono float32，推荐 16 kHz。加载模型时调用方仍须保证 direct buffers 在完成回调前有效，并在安全时机尽力清理自有明文缓冲。
+- 尚未实现 Android MediaExtractor/MediaCodec 解码与重采样、Android Keystore/AES 协议闭环、任务持久化/重试 UI、字幕批量单次撤销事务。关闭超时的保守策略可能暂时保留 native session，属于防止悬空指针的安全取舍。
+- 本轮只完成源码与静态回读；未执行 Gradle/Kotlin/NDK 编译、JUnit、CTest、模型加载、真实音频识别或真机生命周期验证。
