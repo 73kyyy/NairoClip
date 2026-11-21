@@ -2469,6 +2469,57 @@ int32_t nc_remove_transition_keyframe(NcEditor* editor, int32_t track_index,
                                           static_cast<ClipProperty>(property), keyframeLocal));
 }
 
+int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cues,
+                                  int32_t count, uint64_t* out_subtitle_ids) {
+    if (editor == nullptr || cues == nullptr || out_subtitle_ids == nullptr ||
+        count <= 0 || count > 10000) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕参数无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "主序列不存在");
+    if (editor->editor->inTransaction()) {
+        return failNc(NC_ERROR_LOCKED, "编辑器已有事务，不能嵌套自动字幕批量写入");
+    }
+
+    std::vector<SubtitleCue> prepared;
+    prepared.reserve(static_cast<std::size_t>(count));
+    for (int32_t i = 0; i < count; ++i) {
+        if (cues[i].text == nullptr || cues[i].start_us < 0 || cues[i].duration_us <= 0 ||
+            cues[i].start_us > INT64_MAX - cues[i].duration_us) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕包含非法文本或时间范围");
+        }
+        const std::string text(cues[i].text);
+        if (text.empty() || text.size() > 16 * 1024) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "字幕文本不能为空且不得超过 16 KiB");
+        }
+        SubtitleCue cue;
+        cue.id = SubtitleId{editor->project.ids.next()};
+        cue.start = fromMicroseconds(cues[i].start_us);
+        cue.duration = fromMicroseconds(cues[i].duration_us);
+        cue.text = text;
+        if (!cue.valid()) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕时间参数校验失败");
+        }
+        prepared.push_back(std::move(cue));
+    }
+
+    editor->editor->beginTransaction("自动字幕");
+    for (std::size_t i = 0; i < prepared.size(); ++i) {
+        const uint64_t id = prepared[i].id.value;
+        const Result result = editor->editor->upsertSubtitle(main->id, std::move(prepared[i]));
+        if (!result.isOk()) {
+            const bool grouped = editor->editor->endTransaction();
+            if (grouped) (void)editor->editor->undo();
+            return failResult(result);
+        }
+        out_subtitle_ids[i] = id;
+    }
+    if (!editor->editor->endTransaction()) {
+        return failNc(NC_ERROR_INTERNAL, "自动字幕事务未形成历史记录");
+    }
+    return NC_OK;
+}
+
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
                             const char* text) {
     if (editor == nullptr || text == nullptr || start_us < 0 || duration_us <= 0) {
