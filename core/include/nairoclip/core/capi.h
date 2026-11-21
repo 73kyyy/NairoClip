@@ -396,8 +396,10 @@ const char* nc_filter_display_name(int32_t style);
 
 // ---- 字幕 ----
 
-/// 添加/更新字幕。返回 >0 成功（返回 SubtitleId），0 失败。
+/// 添加/更新单条字幕。返回 >0 成功（返回 SubtitleId），0 失败。
 /// start_us/duration_us 为微秒。
+uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
+                            const char* text);
 typedef struct NcSubtitleCueInput {
     int64_t start_us;
     int64_t duration_us;
