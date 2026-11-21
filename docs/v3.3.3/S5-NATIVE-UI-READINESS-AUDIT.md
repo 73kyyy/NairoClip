@@ -836,3 +836,16 @@
 - 成功返回时 PCM 所有权明确交给调用方，由第63节 worker 在识别完成后负责尽力清理；解码失败时不会把未完成 PCM 留作可复用对象。
 - 该清理仍是 best-effort，不构成密码学安全擦除，也无法控制 MediaCodec 内部缓冲、系统媒体服务副本、JVM/ART direct-buffer 回收时机或设备崩溃转储。
 - 仅源码静态回读，未执行 Android 编译或真机内存/取消验证。
+
+
+## 第67节：自动字幕端到端写回与单步撤销事务（2026-11-21）
+
+- 新增 C ABI `NcSubtitleCueInput` 与 `nc_upsert_subtitles_batch`：先完整校验批量字幕参数，再在 `TimelineEditor` 事务内逐条 upsert；成功时形成名称为“自动字幕”的单条历史记录，任一核心命令失败时结束事务并撤销已应用部分，避免留下半批字幕。拒绝空批次、超过 10000 条、空文本、单条超过 16 KiB、负起点、非正时长和 int64 时间溢出；拒绝与已有编辑事务嵌套。
+- 新增 Android JNI `nativeUpsertSubtitlesBatch`，以 LongArray / String[] 传递字幕，不把大批字幕拼成 JSON；Kotlin `NativeEngineBridge.upsertSubtitlesBatch` 在引擎生命周期锁下执行。
+- 新增 `NativeEditorCommandAdapter.addSubtitlesBatchAndReadEditorState`：读取工程时长、排序和清理字幕文本、将超出工程末尾的字幕丢弃并将尾部时长钳制到工程边界，成功后刷新时间轴与历史快照。
+- `NativeSpeechSessionWorker.decodeTranscribeAndInsert` 把系统音频解码、Whisper 推理、识别片段时间转换和批量字幕事务写回连成单个后台任务；以选中素材时间线起点作为偏移。取消标志同时覆盖解码阶段与推理阶段，并在写入前再次检查，避免取消后才开始写入。
+- 复核会话销毁竞态：状态轮询与取消 JNI 调用现在与 close() 使用同一生命周期锁，close 标记后不再发起新的状态查询；native 销毁仍排在 worker 队列末尾。
+- 新增 `tests/test_capi.cpp` 覆盖批量插入、唯一稳定 ID、单次 undo/redo、非法批次失败原子性和空批次拒绝。测试源码已提交但尚未执行。
+- 此链路尚未接入具体剪辑页的自动字幕按钮、媒体选择/素材 ID 状态、Activity/ViewModel 和 UI 线程回调；目前 worker API 需要宿主明确传入可访问 Uri、时间线偏移、已加载的 Whisper session 和 adapter。
+- 模型文件的服务端组件 nonce/密钥契约、Android Keystore 解密和模型下载/安装生命周期仍未解决；当前 worker 接收已解密 direct buffers，不能视为已完成生产级模型安全交付。
+- 本节所有改动均为源码级实现和静态回读；未执行 CMake/NDK、CTest、Gradle/Kotlin 编译、JUnit、设备解码或真实模型端到端验证。
