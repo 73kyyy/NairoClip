@@ -1123,8 +1123,8 @@ int32_t nc_speech_session_load_memory(NcSpeechSession* session,
     const uint8_t* decoder, int64_t decoder_size,
     const char* tokenizer_json, int64_t tokenizer_size, char** out_error);
 /// 同步执行识别；平台层应放在专用工作线程。progress 可跨线程查询。
-/// PCM 为单声道 float32 [-1,1]；language 0=自动 1=中文 2=英语 3=日语 4=韩语。
-/// 成功时 out_segments_json 需 nc_free_string 释放。
+/// PCM 为有限值的单声道 float32 [-1,1]；sample_rate 为 8–192 kHz，时长最多 10 分钟。
+/// language 0=自动 1=中文 2=英语 3=日语 4=韩语；out_segments_json 必须非空，成功后需 nc_free_string 释放。
 int32_t nc_speech_session_transcribe(NcSpeechSession* session,
     const float* samples, int64_t frame_count, int32_t sample_rate, int32_t language,
     char** out_segments_json, char** out_error);
