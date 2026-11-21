@@ -254,7 +254,7 @@ struct AiSession::Impl {
 #endif
 
 AiSession::AiSession() : impl_(std::make_unique<Impl>()) {}
-AiSession::~AiSession() = default;
+AiSession::~AiSession() { unload(); }
 
 bool AiSession::loaded() const {
 #ifdef NAIROCLIP_HAS_ONNX_RUNTIME
@@ -276,8 +276,7 @@ void AiSession::unload() {
     volatile std::uint8_t* bytes = impl_->modelBytes.empty()
         ? nullptr : impl_->modelBytes.data();
     for (std::size_t i = 0; i < impl_->modelBytes.size(); ++i) bytes[i] = 0;
-    impl_->modelBytes.clear();
-    impl_->modelBytes.shrink_to_fit();
+    std::vector<std::uint8_t>().swap(impl_->modelBytes);
 }
 
 const std::vector<AiSession::TensorInfo>& AiSession::inputs() const {
