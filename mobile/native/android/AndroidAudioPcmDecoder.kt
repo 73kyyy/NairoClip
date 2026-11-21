@@ -36,6 +36,8 @@ object AndroidAudioPcmDecoder {
         require(maxDurationMs in 1L..MAX_DURATION_MS) { "音频时长上限必须在 1ms–10min" }
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
+        var resampler: StreamingMonoResampler? = null
+        var handedOff = false
         val startedAt = SystemClock.elapsedRealtime()
         try {
             extractor.setDataSource(context, uri, null)
@@ -67,7 +69,6 @@ object AndroidAudioPcmDecoder {
             var outputRate = declaredRate
             var outputChannels = declaredChannels
             var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
-            var resampler: StreamingMonoResampler? = null
             val info = MediaCodec.BufferInfo()
 
             while (!outputEos) {
@@ -149,7 +150,7 @@ object AndroidAudioPcmDecoder {
                                 mono[frame] = (sum / outputChannels).toFloat().coerceIn(-1.0f, 1.0f)
                             }
                             if (resampler == null) resampler = StreamingMonoResampler(outputRate, TARGET_RATE)
-                            resampler!!.push(mono)
+                            try { resampler!!.push(mono) } finally { mono.fill(0.0f) }
                             val maxOutputFrames = (TARGET_RATE.toLong() * maxDurationMs / 1000L).coerceAtLeast(1L)
                             require(resampler!!.outputSize.toLong() <= maxOutputFrames) {
                                 "重采样结果超过音频时长上限"
@@ -164,8 +165,10 @@ object AndroidAudioPcmDecoder {
             val samples = resampler?.toDirectBuffer() ?: throw IllegalStateException("解码器没有输出音频样本")
             val frames = samples.remaining() / Float.SIZE_BYTES
             require(frames > 0) { "解码后的音频为空" }
+            handedOff = true
             return AndroidSpeechPcm(samples, frames.toLong())
         } finally {
+            if (!handedOff) resampler?.clear()
             try { codec?.stop() } catch (_: Throwable) {}
             try { codec?.release() } catch (_: Throwable) {}
             try { extractor.release() } catch (_: Throwable) {}
@@ -217,6 +220,16 @@ object AndroidAudioPcmDecoder {
         fun toDirectBuffer(): ByteBuffer {
             values.flip()
             return values
+        }
+
+        fun clear() {
+            try {
+                val view = values.duplicate()
+                view.clear()
+                while (view.hasRemaining()) view.put(0)
+            } catch (_: Throwable) {}
+            outputSize = 0
+            previous = null
         }
     }
 }
