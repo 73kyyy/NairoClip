@@ -224,8 +224,10 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
             val projectDuration = before.value?.durationUs ?: return@withEditorStateLock Result(false, error = "工程时长缺失")
             if (startUs >= projectDuration) return@withEditorStateLock Result(false, error = "播放头已超出工程有效时长")
+            val boundedDurationUs = minOf(durationUs, projectDuration - startUs)
+            if (boundedDurationUs <= 0L) return@withEditorStateLock Result(false, error = "工程剩余时长不足，无法创建文字片段")
             val created = invoke("nc_add_text_clip", JSONObject()
-                .put("text", text).put("start_us", startUs).put("duration_us", durationUs)
+                .put("text", text).put("start_us", startUs).put("duration_us", boundedDurationUs)
                 .put("font_size", 48.0).put("color", "#FFFFFF").put("alignment", 1)
                 .put("anchor_x", 0.5).put("anchor_y", 0.5)) { payload ->
                 payload.getLong("value").also { require(it > 0L) }
