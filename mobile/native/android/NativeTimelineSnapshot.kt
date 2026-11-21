@@ -50,14 +50,14 @@ data class NativeTimelineSnapshot(
                 val sourceTracks = state.optJSONArray("tracks") ?: return null
 
                 val assetNames = HashMap<Long, String>()
+                val assetIds = HashSet<Long>()
                 val assets = state.optJSONArray("assets")
                 if (assets != null) {
                     for (index in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(index) ?: continue
-                        val id = asset.longField("id") ?: continue
-                        if (id > 0L) {
-                            assetNames[id] = asset.optString("name", "").ifBlank { "素材 $id" }
-                        }
+                        val asset = assets.optJSONObject(index) ?: return null
+                        val id = asset.longField("id")?.takeIf { it > 0L } ?: return null
+                        if (!assetIds.add(id)) return null
+                        assetNames[id] = asset.optString("name", "").ifBlank { "素材 $id" }
                     }
                 }
 
@@ -74,11 +74,11 @@ data class NativeTimelineSnapshot(
                     val sourceClips = sourceTrack.optJSONArray("clips") ?: return null
 
                     val clips = ArrayList<NativeTimelineClip>(sourceClips.length())
-                    val clipIds = HashSet<Long>()
                     for (clipIndex in 0 until sourceClips.length()) {
                         val sourceClip = sourceClips.optJSONObject(clipIndex) ?: return null
                         val clipId = sourceClip.longField("id")?.takeIf { it > 0L } ?: return null
                         val assetId = sourceClip.longField("asset_id")?.takeIf { it >= 0L } ?: return null
+                        if (assetId > 0L && assetId !in assetIds) return null
                         val startUs = sourceClip.longField("start_us")?.takeIf { it >= 0L } ?: return null
                         val clipDurationUs = sourceClip.longField("duration_us")?.takeIf { it > 0L } ?: return null
                         val enabledValue = sourceClip.longField("enabled")?.takeIf { it in 0L..1L } ?: return null
@@ -86,9 +86,7 @@ data class NativeTimelineSnapshot(
                         val speedDenominator = sourceClip.longField("speed_den")?.takeIf { it > 0L } ?: return null
                         val speed = speedNumerator.toDouble() / speedDenominator.toDouble()
                         if (!speed.isFinite() || speed !in 0.1..100.0) return null
-                        if (startUs > Long.MAX_VALUE - clipDurationUs || !clipIds.add(clipId)) {
-                            return null
-                        }
+                        if (startUs > Long.MAX_VALUE - clipDurationUs) return null
                         val sourceEffects = sourceClip.optJSONArray("effects") ?: return null
                         val effects = ArrayList<NativeClipEffect>(sourceEffects.length())
                         val effectIds = HashSet<Long>()
@@ -131,11 +129,28 @@ data class NativeTimelineSnapshot(
                         locked = locked != 0L
                     )
                 }
+                if (!hasUniqueNativeTimelineIdentities(tracks)) return null
                 NativeTimelineSnapshot(projectName, duration, tracks)
             } catch (_: Exception) {
                 null
             }
         }
 
+    }
+}
+
+
+/**
+ * The C++ project model assigns globally unique track and clip IDs. A duplicate
+ * clip ID on another track is still corrupt state: native commands and subtitle
+ * writeback use stable IDs, so publishing an ambiguous snapshot is unsafe.
+ */
+internal fun hasUniqueNativeTimelineIdentities(tracks: List<NativeTimelineTrack>): Boolean {
+    val trackIds = HashSet<Long>()
+    val clipIds = HashSet<Long>()
+    return tracks.all { track ->
+        track.id > 0L && trackIds.add(track.id) && track.clips.all { clip ->
+            clip.id > 0L && clipIds.add(clip.id)
+        }
     }
 }
