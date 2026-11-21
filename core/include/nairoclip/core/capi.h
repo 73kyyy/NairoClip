@@ -1116,8 +1116,8 @@ typedef struct NcSpeechSession NcSpeechSession;
 NcSpeechSession* nc_speech_session_create(void);
 /// 销毁会话；调用方必须先等待识别线程结束。
 void nc_speech_session_destroy(NcSpeechSession* session);
-/// 从已解密内存加载 encoder/decoder/tokenizer；不写明文文件。
-/// 任何组件数据仅在调用期间借用，识别器自行管理其模型会话生命周期。
+/// 从已解密内存加载 encoder/decoder/tokenizer；三者均为必需，tokenizer 最大 32 MiB；
+/// 不写明文文件。输入缓冲仅在调用期间借用，识别器自行管理模型会话生命周期。
 int32_t nc_speech_session_load_memory(NcSpeechSession* session,
     const uint8_t* encoder, int64_t encoder_size,
     const uint8_t* decoder, int64_t decoder_size,
