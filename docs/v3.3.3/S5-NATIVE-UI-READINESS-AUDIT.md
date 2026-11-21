@@ -819,3 +819,12 @@
 - 返回的 PCM direct buffer 由调用方持有，可直接交给第63节 `NativeSpeechSessionWorker.transcribe()`；该 worker 默认在推理结束后尽力清零 PCM。
 - 仍未将媒体解码、Whisper worker、项目选择状态及字幕事务回写接入 Activity/ViewModel；也未完成真实设备兼容矩阵验证。MediaCodec 实际 PCM 输出格式因设备/编解码器而异，当前对 24-bit packed / 32-bit integer PCM 明确拒绝，需通过设备实测决定是否扩展。
 - 仅完成源码提交与静态回读；未执行 Gradle/Kotlin 编译、JUnit、NDK/C++ 构建、CTest、真机音轨解码或 ASR 端到端验证。
+
+
+## 第65节：Whisper C ABI PCM 输入边界防御（2026-11-21）
+
+- 复核 Android 系统解码输出与共享核心重采样入口后，发现独立会话 C ABI 原先只检查 sample_rate 为正数，且没有验证 PCM 是否为有限值及是否遵守 [-1,1] 归一化契约。
+- `nc_speech_session_transcribe` 现在限制采样率 8–192 kHz、单次音频最多 10 分钟、结果 JSON 输出指针必需；逐样本拒绝 NaN/Infinity 和超出 [-1,1] 的输入，避免非法浮点进入 Mel/FFT/ONNX 推理。
+- C ABI 头文件同步记录输入约束；`tests/test_speech_ai.cpp` 增加非法采样率、超范围幅值、NaN 和空结果指针的拒绝测试。
+- 该防御会对最多 10 分钟 PCM 做一次线性扫描；Android 解码器输出已经做有限值与幅值钳制，C ABI 校验作为跨平台调用边界的二次保护。
+- 测试源码尚未执行；未进行 C++/NDK 编译、CTest、Gradle/JUnit、真实模型推理或设备性能测量。
