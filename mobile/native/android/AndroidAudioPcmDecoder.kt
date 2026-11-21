@@ -143,7 +143,8 @@ object AndroidAudioPcmDecoder {
                                         AudioFormat.ENCODING_PCM_8BIT -> ((view.get().toInt() and 0xff) - 128) / 128.0f
                                         else -> 0.0f
                                     }
-                                    sum += sample.toDouble()
+                                    val safeSample = if (sample.isFinite()) sample.coerceIn(-1.0f, 1.0f) else 0.0f
+                                    sum += safeSample.toDouble()
                                 }
                                 mono[frame] = (sum / outputChannels).toFloat().coerceIn(-1.0f, 1.0f)
                             }
