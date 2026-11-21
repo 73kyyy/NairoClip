@@ -78,16 +78,18 @@ class NativeSpeechSessionController(
                     )
                     if (response.optBoolean("ok", false)) {
                         loaded = true
-                        listener.onLoaded()
+                        if (!closed.get()) listener.onLoaded()
                         publishStatus()
                     } else {
                         loaded = false
-                        listener.onFailure(response.optString("message", "Whisper 模型加载失败"), true)
+                        if (!closed.get()) {
+                            listener.onFailure(response.optString("message", "Whisper 模型加载失败"), true)
+                        }
                         publishStatus()
                     }
                 } catch (error: Throwable) {
                     loaded = false
-                    listener.onFailure(error.message ?: "Whisper 模型加载异常", true)
+                    if (!closed.get()) listener.onFailure(error.message ?: "Whisper 模型加载异常", true)
                 } finally {
                     inferenceActive = false
                 }
@@ -119,18 +121,18 @@ class NativeSpeechSessionController(
                         bridge.transcribeSpeechSession(session, pcmView, frameCount, sampleRate, language)
                     )
                     if (response.optBoolean("ok", false)) {
-                        listener.onResult(response.optJSONArray("segments")?.toString() ?: "[]")
+                        if (!closed.get()) listener.onResult(response.optJSONArray("segments")?.toString() ?: "[]")
                     } else {
                         val state = readStatus()
-                        if (state.state == STATE_CANCELLED) listener.onCancelled()
-                        else listener.onFailure(
+                        if (!closed.get() && state.state == STATE_CANCELLED) listener.onCancelled()
+                        else if (!closed.get()) listener.onFailure(
                             response.optString("message", "语音识别失败"),
                             retryable = state.state != STATE_CANCELLED
                         )
                     }
                     publishStatus()
                 } catch (error: Throwable) {
-                    listener.onFailure(error.message ?: "语音识别异常", true)
+                    if (!closed.get()) listener.onFailure(error.message ?: "语音识别异常", true)
                 } finally {
                     inferenceActive = false
                 }
