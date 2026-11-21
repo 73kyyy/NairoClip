@@ -284,7 +284,7 @@ struct SpeechRecognizer::Impl {
 };
 
 SpeechRecognizer::SpeechRecognizer() : impl_(new (std::nothrow) Impl()) {}
-SpeechRecognizer::~SpeechRecognizer() = default;
+SpeechRecognizer::~SpeechRecognizer() { unload(); }
 
 bool SpeechRecognizer::load(const std::string& encoderPath, const std::string& decoderPath,
                             std::string* outputFailure) {
@@ -464,6 +464,10 @@ void SpeechRecognizer::unload() {
     if (impl_ != nullptr) {
         impl_->encoder.unload();
         impl_->decoder.unload();
+        impl_->vocab.clear();
+        impl_->idToToken.clear();
+        impl_->addedTokens.clear();
+        impl_->tokenizerReady = false;
     }
     loaded_ = false;
 }
