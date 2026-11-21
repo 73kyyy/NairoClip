@@ -155,10 +155,10 @@ class NativeSpeechSessionWorker(
     }
 
     /** Cooperative cancellation; returns false when native inference is not cancellable. */
-    fun cancel(): Boolean {
-        if (closing.get()) return false
+    fun cancel(): Boolean = synchronized(lifecycleLock) {
+        if (closing.get()) return@synchronized false
         cancellationRequested.set(true)
-        return try {
+        try {
             bridge.cancelSpeechSession(session)
         } catch (_: Throwable) {
             false
@@ -200,7 +200,11 @@ class NativeSpeechSessionWorker(
 
     private fun publishStatus() {
         try {
-            val json = JSONObject(bridge.speechSessionStatus(session))
+            val raw = synchronized(lifecycleLock) {
+                if (closing.get() || closed.get()) return
+                bridge.speechSessionStatus(session)
+            }
+            val json = JSONObject(raw)
             if (!json.optBoolean("ok", false)) return
             val state = json.optInt("state", 0)
             listener?.onStatus(
