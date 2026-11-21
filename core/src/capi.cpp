@@ -7713,7 +7713,7 @@ int32_t nc_speech_session_status(const NcSpeechSession* session,
     if (out_progress != nullptr) *out_progress = session->progress.load(std::memory_order_acquire);
     if (out_error != nullptr) {
         // Never wait for the long-running inference mutex just to poll progress.
-        if (session->state.load(std::memory_order_acquire) == 2) {
+        if (session->busy.load(std::memory_order_acquire)) {
             *out_error = dupString(std::string());
         } else {
             std::lock_guard<std::mutex> lock(session->mutex);
