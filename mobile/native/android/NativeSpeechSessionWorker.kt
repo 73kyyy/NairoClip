@@ -122,6 +122,8 @@ class NativeSpeechSessionWorker(
                     response.optString("message").ifBlank { "语音识别失败" }
                 }
                 val segments = response.optJSONArray("segments") ?: throw IllegalStateException("识别结果缺少 segments")
+                val audioDurationSeconds = decoded.frameCount.toDouble() / decoded.sampleRate.toDouble()
+                require(audioDurationSeconds.isFinite() && audioDurationSeconds > 0.0)
                 require(segments.length() in 1..10000) { "识别结果没有有效字幕或数量超限" }
                 val cues = ArrayList<NativeEditorCommandAdapter.SubtitleCueInput>(segments.length())
                 for (index in 0 until segments.length()) {
@@ -129,11 +131,13 @@ class NativeSpeechSessionWorker(
                     val start = segment.optDouble("start", Double.NaN)
                     val end = segment.optDouble("end", Double.NaN)
                     val text = segment.optString("text").trim()
-                    require(start.isFinite() && end.isFinite() && start >= 0.0 && end > start && text.isNotEmpty()) {
-                        "识别片段时间或文本无效"
+                    require(start.isFinite() && end.isFinite() && start >= 0.0 && end > start &&
+                        start < audioDurationSeconds && end <= audioDurationSeconds + 0.05 && text.isNotEmpty()) {
+                        "识别片段时间超出音频长度或文本无效"
                     }
+                    val boundedEnd = minOf(end, audioDurationSeconds)
                     val startDelta = (start * 1_000_000.0).toLong()
-                    val endDelta = (end * 1_000_000.0).toLong()
+                    val endDelta = (boundedEnd * 1_000_000.0).toLong()
                     require(startDelta >= 0L && endDelta > startDelta && timelineStartUs <= Long.MAX_VALUE - endDelta) {
                         "识别片段时间溢出"
                     }
