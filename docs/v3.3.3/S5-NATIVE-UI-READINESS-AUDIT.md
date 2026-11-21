@@ -775,7 +775,7 @@
 - 新增 opaque `NcSpeechSession`，与 `NcEditor` 生命周期和编辑器状态锁分离；语音识别不再必须占用单个编辑器句柄。
 - 新增 C ABI：
   - `nc_speech_session_create/destroy`：独立会话生命周期；销毁前调用方必须等待识别工作线程结束。
-  - `nc_speech_session_load_memory`：从已解密 encoder/decoder/tokenizer 内存加载，不创建明文临时模型文件。
+  - `nc_speech_session_load_memory`：从已解密 encoder/decoder/tokenizer 内存加载，三件套均为必需，tokenizer 限制 32 MiB；不创建明文临时模型文件。
   - `nc_speech_session_transcribe`：单声道 float32 PCM 同步识别，平台必须在专用工作线程调用；返回字幕分段 JSON。
   - `nc_speech_session_cancel`：原子登记取消，不等待推理线程；由 Whisper 进度回调协作式停止。
   - `nc_speech_session_status`：原子读取状态/进度；会话忙碌时不等待推理互斥锁，避免 UI 轮询阻塞。
