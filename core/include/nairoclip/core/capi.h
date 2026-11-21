@@ -398,8 +398,18 @@ const char* nc_filter_display_name(int32_t style);
 
 /// 添加/更新字幕。返回 >0 成功（返回 SubtitleId），0 失败。
 /// start_us/duration_us 为微秒。
-uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
-                            const char* text);
+typedef struct NcSubtitleCueInput {
+    int64_t start_us;
+    int64_t duration_us;
+    const char* text;  // UTF-8, borrowed for call duration only
+} NcSubtitleCueInput;
+
+/// 批量添加自动字幕：全部成功或全部回滚，整体只产生一条撤销记录。
+/// count 范围 1..10000；out_subtitle_ids 至少 count 个 uint64_t。
+/// 任一字幕参数非法或核心命令失败时不保留部分结果。
+int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cues,
+                                  int32_t count, uint64_t* out_subtitle_ids);
+
 
 /// 删除字幕，返回错误码。
 int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id);
