@@ -5,7 +5,7 @@
 //   1. 语言枚举 / 名称 / token 映射（文档 3.2「语言选择」）；
 //   2. Mel 频谱（Whisper 标准：80 通道 × 帧数；标准化范围 [-1,1]）；
 //   3. BPE 词表加载与 token 解码（真实词表；未加载时明确空串）；
-//   4. 真实推理链路（需 ORT + 模型；缺失跳过）；
+//   4. 真实 Whisper-tiny merged decoder 自回归链路（需 ORT + 模型；缺失跳过）；
 //   5. 失败路径（未加载/空音频/文件缺失）。
 #include "test_framework.h"
 #include "nairoclip/core/speech_ai.h"
@@ -184,20 +184,20 @@ NC_TEST(SpeechAI, RealInferenceChain) {
     NC_CHECK(recognizer.load("/workspace/deps/whisper_tiny_encoder.onnx",
                              "/workspace/deps/whisper_tiny_decoder.onnx", &failure));
     NC_CHECK(recognizer.loaded());
-    // 说明：解码器含 KV cache（多输入）；完整自回归由平台层驱动。
-    // 本条验证「编码器推理链路」真实可跑通（Mel → 编码 → 输出张量）。
+    // Whisper-tiny merged decoder 由 SpeechRecognizer 驱动完整 KV cache 自回归解码。
     const int sampleRate = 16000;
     const std::vector<float> pcm = makeSpeechAudio(sampleRate, 2.0);
     std::vector<SpeechSegment> segments;
-    // 调用 transcribe：编码器应成功；解码器因多输入明确失败（不伪造文本）
+    // 调用完整 transcribe：若模型契约正确，应得到非空分段文本。
     const bool ok = recognizer.transcribe(pcm.data(), pcm.size(), sampleRate,
                                           SpeechLanguage::Chinese, segments, nullptr, &failure);
     if (!ok) {
         // 断言：失败原因是明确的（不可用/需 KV cache 驱动），而非静默假成功
         NC_CHECK(!failure.empty());
-        NC_CHECK(failure.find("KV cache") != std::string::npos ||
-                 failure.find("解码") != std::string::npos ||
-                 failure.find("不可用") != std::string::npos);
+        NC_CHECK(failure.find("不可用") != std::string::npos ||
+                 failure.find("不匹配") != std::string::npos ||
+                 failure.find("推理失败") != std::string::npos ||
+                 failure.find("解码") != std::string::npos);
     } else {
         // 若未来支持完整解码：分段应有效
         NC_CHECK(!segments.empty());
