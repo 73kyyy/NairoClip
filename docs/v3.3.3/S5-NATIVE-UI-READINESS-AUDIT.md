@@ -697,3 +697,11 @@
 - 修复 JNI `nc_set_text_style` 的空描边颜色处理：此前 JNI 将空字符串强制替换为黑色，破坏 C ABI“空值表示保持原值”的哨兵契约；现在原样传递空字符串，且缺省描边宽度改为 -1 保持不变。这样局部修改字号/颜色/对齐不会意外重置描边颜色或宽度。
 - 核心 `SubtitleStyle` 使用画布点字号、归一化锚点与 0/1/2 对齐；本面板不擅自加入未定义的字体族、背景框或锚点精细拖动。C ABI 没有文本样式 getter，因此面板不伪造当前选中片段的样式回显，控件提交为明确的新值。
 - 回调仍需 Activity/ViewModel 注入；未接正式运行时入口。未执行 Kotlin/Compose/NDK 编译、JUnit 或真机验证。
+
+## 54. 原生字幕轨 CRUD 与字幕编辑入口（2026-11-21）
+
+- 为既有字幕 C ABI 增加 JNI DispatchEdit 路由：`subtitle_upsert`、`subtitle_remove`、`subtitle_list`。列表读取逐条调用 `nc_subtitle_get`，并对每个 `char*` 使用 `nc_free_string`，避免字幕文本内存泄漏；文本通过 JSON 转义后返回。
+- Adapter 新增字幕列表模型、读取、添加和删除操作。添加时校验 UTF-8 16 KiB 上限、非负起始时间、正时长及工程时长，并将字幕时长裁到工程剩余时长；写入后回读权威时间轴/历史状态。
+- 编辑器“文本”工具新增独立“字幕”入口和原生 Compose 输入面板。此入口是人工创建/编辑字幕 cue，不宣称具备语音识别或自动转录；“自动字幕”仍需真实 ASR 任务管线，未伪装为已实现。
+- 字幕 C ABI 当前仅提供序列读取下标，没有在该 API 返回 subtitle ID 的读取 getter；本轮添加/删除适配器采用插入返回 ID、删除按 ID 的方式，列表用于展示时间与文本，不能用 index 冒充 ID。
+- UI 回调仍需 Activity/ViewModel 注入；未接正式运行时入口。未执行 Kotlin/Compose/NDK 编译、JUnit 或真机验证。
