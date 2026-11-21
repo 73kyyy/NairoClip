@@ -20,30 +20,41 @@ using namespace nairoclip::core;
 
 namespace {
 
+std::string findModelFile(const char* workspacePath, const char* repositoryPath) {
+    for (const char* candidate : {workspacePath, repositoryPath}) {
+        FILE* file = std::fopen(candidate, "rb");
+        if (file != nullptr) {
+            std::fclose(file);
+            return candidate;
+        }
+    }
+    return {};
+}
+
+const std::string& whisperEncoderPath() {
+    static const std::string path = findModelFile(
+        "/workspace/deps/whisper_tiny_encoder.onnx", "models/whisper_zh/encoder_model.onnx");
+    return path;
+}
+
+const std::string& whisperDecoderPath() {
+    static const std::string path = findModelFile(
+        "/workspace/deps/whisper_tiny_decoder.onnx", "models/whisper_zh/decoder_model_merged.onnx");
+    return path;
+}
+
+const std::string& whisperTokenizerPath() {
+    static const std::string path = findModelFile(
+        "/workspace/deps/whisper_tiny_tokenizer.json", "models/whisper_zh/tokenizer.json");
+    return path;
+}
+
 bool whisperModelsAvailable() {
-    if (!aiEngineAvailable()) {
-        return false;
-    }
-    FILE* enc = std::fopen("/workspace/deps/whisper_tiny_encoder.onnx", "rb");
-    if (enc == nullptr) {
-        return false;
-    }
-    std::fclose(enc);
-    FILE* dec = std::fopen("/workspace/deps/whisper_tiny_decoder.onnx", "rb");
-    if (dec == nullptr) {
-        return false;
-    }
-    std::fclose(dec);
-    return true;
+    return aiEngineAvailable() && !whisperEncoderPath().empty() && !whisperDecoderPath().empty();
 }
 
 bool tokenizerAvailable() {
-    FILE* f = std::fopen("/workspace/deps/whisper_tiny_tokenizer.json", "rb");
-    if (f == nullptr) {
-        return false;
-    }
-    std::fclose(f);
-    return true;
+    return !whisperTokenizerPath().empty();
 }
 
 /// 合成音频（语音类：440Hz 调制 + 静音间隙）。
@@ -146,7 +157,7 @@ NC_TEST(SpeechAI, TokenizerLoadAndDecode) {
     if (!tokenizerAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
-    NC_CHECK(recognizer.loadTokenizer("/workspace/deps/whisper_tiny_tokenizer.json", &failure));
+    NC_CHECK(recognizer.loadTokenizer(whisperTokenizerPath(), &failure));
     NC_CHECK(recognizer.tokenizerLoaded());
     // 已知 token 解码：Whisper BPE 中 15496="Hello" 相关词；验证非空
     const std::vector<int> tokens = {15496, 11, 50257};
@@ -181,8 +192,7 @@ NC_TEST(SpeechAI, RealInferenceChain) {
     if (!whisperModelsAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
-    NC_CHECK(recognizer.load("/workspace/deps/whisper_tiny_encoder.onnx",
-                             "/workspace/deps/whisper_tiny_decoder.onnx", &failure));
+    NC_CHECK(recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure));
     NC_CHECK(recognizer.loaded());
     // Whisper-tiny merged decoder 由 SpeechRecognizer 驱动完整 KV cache 自回归解码。
     const int sampleRate = 16000;
@@ -217,8 +227,7 @@ NC_TEST(SpeechAI, FailurePaths) {
     // 不存在的模型 → 失败
     NC_CHECK(!recognizer.load("/tmp/no_encoder.onnx", "/tmp/no_decoder.onnx", &failure));
     // 加载后空音频 → 失败
-    NC_CHECK(recognizer.load("/workspace/deps/whisper_tiny_encoder.onnx",
-                             "/workspace/deps/whisper_tiny_decoder.onnx", &failure));
+    NC_CHECK(recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure));
     NC_CHECK(!recognizer.transcribe(nullptr, 0, 16000, SpeechLanguage::Auto, segments, nullptr,
                                     &failure));
 }
@@ -227,8 +236,7 @@ NC_TEST(SpeechAI, ProgressCallback) {
     if (!whisperModelsAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
-    if (!recognizer.load("/workspace/deps/whisper_tiny_encoder.onnx",
-                         "/workspace/deps/whisper_tiny_decoder.onnx", &failure)) {
+    if (!recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure)) {
         return;
     }
     const std::vector<float> pcm = makeSpeechAudio(16000, 1.0);
