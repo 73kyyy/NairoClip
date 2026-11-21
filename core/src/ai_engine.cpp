@@ -239,6 +239,8 @@ struct AiSession::Impl {
     std::vector<std::string> outputNames;
     std::vector<TensorInfo> inputInfos;
     std::vector<TensorInfo> outputInfos;
+    // ORT 内存模型可能在 Session 生命周期内引用输入字节；保留私有副本直到 session 销毁。
+    std::vector<std::uint8_t> modelBytes;
 };
 
 #else  // 无 ONNX Runtime
@@ -246,6 +248,7 @@ struct AiSession::Impl {
 struct AiSession::Impl {
     std::vector<TensorInfo> inputInfos;
     std::vector<TensorInfo> outputInfos;
+    std::vector<std::uint8_t> modelBytes;
 };
 
 #endif
@@ -269,6 +272,12 @@ void AiSession::unload() {
     impl_->inputInfos.clear();
     impl_->outputInfos.clear();
 #endif
+    // 尽力清除解密后的模型副本（volatile 防止普通优化器删除写入）。
+    volatile std::uint8_t* bytes = impl_->modelBytes.empty()
+        ? nullptr : impl_->modelBytes.data();
+    for (std::size_t i = 0; i < impl_->modelBytes.size(); ++i) bytes[i] = 0;
+    impl_->modelBytes.clear();
+    impl_->modelBytes.shrink_to_fit();
 }
 
 const std::vector<AiSession::TensorInfo>& AiSession::inputs() const {
@@ -372,6 +381,8 @@ bool AiSession::loadFromMemory(const void* modelData, std::size_t modelSize,
         return false;
     }
     try {
+        const auto* source = static_cast<const std::uint8_t*>(modelData);
+        impl_->modelBytes.assign(source, source + modelSize);
         Ort::SessionOptions options;
         options.SetIntraOpNumThreads(2);
         options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
@@ -381,7 +392,7 @@ bool AiSession::loadFromMemory(const void* modelData, std::size_t modelSize,
         }
         // 使用 ORT 的内存构造入口：不会将解密后的模型写入文件系统。
         impl_->session = std::make_unique<Ort::Session>(
-            impl_->env, modelData, modelSize, options);
+            impl_->env, impl_->modelBytes.data(), impl_->modelBytes.size(), options);
 
         const std::size_t inputCount = impl_->session->GetInputCount();
         impl_->inputNames.clear();
