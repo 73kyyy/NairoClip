@@ -3408,4 +3408,85 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewGetCacheBudget(JNIEnv*, j
     });
 }
 
+
+JNIEXPORT jlong JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionCreate(JNIEnv*, jobject) {
+    return reinterpret_cast<jlong>(nc_speech_session_create());
+}
+
+JNIEXPORT void JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionDestroy(
+    JNIEnv*, jobject, jlong handle) {
+    nc_speech_session_destroy(reinterpret_cast<NcSpeechSession*>(handle));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionLoad(
+    JNIEnv* env, jobject, jlong handle, jobject encoder, jobject decoder, jobject tokenizer) {
+    auto* session = reinterpret_cast<NcSpeechSession*>(handle);
+    auto* enc = static_cast<const uint8_t*>(env->GetDirectBufferAddress(encoder));
+    auto* dec = static_cast<const uint8_t*>(env->GetDirectBufferAddress(decoder));
+    auto* tok = static_cast<const char*>(env->GetDirectBufferAddress(tokenizer));
+    const jlong encSize = env->GetDirectBufferCapacity(encoder);
+    const jlong decSize = env->GetDirectBufferCapacity(decoder);
+    const jlong tokSize = env->GetDirectBufferCapacity(tokenizer);
+    if (session == nullptr || enc == nullptr || dec == nullptr || tok == nullptr ||
+        encSize <= 0 || decSize <= 0 || tokSize <= 0) {
+        return ToJStr(env, "{\"ok\":false,\"message\":\"模型必须使用非空 direct ByteBuffer\"}");
+    }
+    char* error = nullptr;
+    const int32_t rc = nc_speech_session_load_memory(session, enc, encSize, dec, decSize,
+                                                       tok, tokSize, &error);
+    const std::string message = error != nullptr ? error : "";
+    if (error != nullptr) nc_free_string(error);
+    return ToJStr(env, rc == NC_OK ? "{\"ok\":true}" :
+        "{\"ok\":false,\"code\":" + std::to_string(rc) +
+        ",\"message\":\"" + JEsc(message) + "\"}");
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionTranscribe(
+    JNIEnv* env, jobject, jlong handle, jobject pcm, jlong frameCount,
+    jint sampleRate, jint language) {
+    auto* session = reinterpret_cast<NcSpeechSession*>(handle);
+    auto* samples = static_cast<const float*>(env->GetDirectBufferAddress(pcm));
+    const jlong capacity = env->GetDirectBufferCapacity(pcm);
+    if (session == nullptr || samples == nullptr || frameCount <= 0 ||
+        capacity < 0 || frameCount > capacity / static_cast<jlong>(sizeof(float))) {
+        return ToJStr(env, "{\"ok\":false,\"message\":\"PCM direct buffer 或帧数非法\"}");
+    }
+    char* segments = nullptr;
+    char* error = nullptr;
+    const int32_t rc = nc_speech_session_transcribe(session, samples, frameCount,
+        sampleRate, language, &segments, &error);
+    const std::string message = error != nullptr ? error : "";
+    const std::string result = segments != nullptr ? segments : "[]";
+    if (segments != nullptr) nc_free_string(segments);
+    if (error != nullptr) nc_free_string(error);
+    return ToJStr(env, rc == NC_OK ? "{\"ok\":true,\"segments\":" + result + "}" :
+        "{\"ok\":false,\"code\":" + std::to_string(rc) +
+        ",\"message\":\"" + JEsc(message) + "\"}");
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionCancel(
+    JNIEnv*, jobject, jlong handle) {
+    return nc_speech_session_cancel(reinterpret_cast<NcSpeechSession*>(handle));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionStatus(
+    JNIEnv* env, jobject, jlong handle) {
+    int32_t state = 0;
+    double progress = 0.0;
+    char* error = nullptr;
+    const int32_t rc = nc_speech_session_status(reinterpret_cast<NcSpeechSession*>(handle),
+                                                 &state, &progress, &error);
+    const std::string message = error != nullptr ? error : "";
+    if (error != nullptr) nc_free_string(error);
+    return ToJStr(env, "{\"ok\":" + std::string(rc == NC_OK ? "true" : "false") +
+        ",\"state\":" + std::to_string(state) + ",\"progress\":" +
+        std::to_string(progress) + ",\"message\":\"" + JEsc(message) + "\"}");
+}
+
 }  // extern "C"
