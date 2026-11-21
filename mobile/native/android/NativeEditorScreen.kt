@@ -133,7 +133,8 @@ fun NativeEditorScreen(
     transitionTypes: List<Pair<Int, String>> = emptyList(),
     onAddTransition: ((Int, Long, Long, Int, Long) -> Unit)? = null,
     onRemoveTransition: ((Int, Long) -> Unit)? = null,
-    onCreateTextClip: ((String, Long, Long) -> Unit)? = null
+    onCreateTextClip: ((String, Long, Long) -> Unit)? = null,
+    onTextStyleChanged: ((Int, Long, NativeEditorCommandAdapter.TextStyleUpdate) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -476,6 +477,16 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "文本" && activeSubTool == "样式" && selectedTarget != null) {
+                if (onTextStyleChanged != null) {
+                    NativeTextStylePanel(
+                        onChange = { update -> onTextStyleChanged.invoke(selectedTarget.first, selectedTarget.second, update) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("文字样式等待宿主接入原生引擎命令", color = NcColors.secondary, fontSize = 10.sp)
+                }
+            }
             if (activeTool == "文本" && activeSubTool == "添加文本") {
                 if (onCreateTextClip != null) {
                     NativeTextCreationPanel(
@@ -508,6 +519,10 @@ fun NativeEditorScreen(
                 },
                 onSubToolSelected = { tool, subTool ->
                     when {
+                        tool == "文本" && subTool == "样式" && selectedTarget != null && onTextStyleChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         tool == "文本" && subTool == "添加文本" && onCreateTextClip != null -> {
                             activeTool = tool
                             activeSubTool = subTool
@@ -601,6 +616,52 @@ fun NativeEditorScreen(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun NativeTextStylePanel(onChange: (NativeEditorCommandAdapter.TextStyleUpdate) -> Unit, modifier: Modifier = Modifier) {
+    var sizeText by remember { mutableStateOf("48") }
+    var outlineText by remember { mutableStateOf("2") }
+    val colors = listOf("#FFFFFF", "#000000", "#FFD54F", "#FF5252", "#40C4FF")
+    Column(modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp))
+        .border(1.dp, NcColors.line, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("文字样式", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("字号", color = NcColors.secondary, fontSize = 10.sp)
+            BasicTextField(value = sizeText, onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) sizeText = it },
+                modifier = Modifier.width(64.dp).background(NcColors.stage, RoundedCornerShape(6.dp)).padding(7.dp),
+                singleLine = true, textStyle = TextStyle(color = NcColors.text, fontSize = 11.sp, textAlign = TextAlign.End),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            Text("描边", color = NcColors.secondary, fontSize = 10.sp)
+            BasicTextField(value = outlineText, onValueChange = { if (it.length <= 2 && it.all(Char::isDigit)) outlineText = it },
+                modifier = Modifier.width(52.dp).background(NcColors.stage, RoundedCornerShape(6.dp)).padding(7.dp),
+                singleLine = true, textStyle = TextStyle(color = NcColors.text, fontSize = 11.sp, textAlign = TextAlign.End),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF303235))
+                .clickable {
+                    val size = sizeText.toDoubleOrNull()
+                    val outline = outlineText.toDoubleOrNull()
+                    if (size != null && outline != null) onChange(NativeEditorCommandAdapter.TextStyleUpdate(fontSize = size, outlineWidth = outline))
+                }.padding(horizontal = 10.dp, vertical = 7.dp)) { Text("应用", color = NcColors.text, fontSize = 10.sp) }
+        }
+        Text("文字颜色", color = NcColors.secondary, fontSize = 10.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            colors.forEach { hex ->
+                Box(modifier = Modifier.size(27.dp).clip(CircleShape).background(runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.White))
+                    .border(1.dp, NcColors.line, CircleShape).clickable { onChange(NativeEditorCommandAdapter.TextStyleUpdate(color = hex)) })
+            }
+        }
+        Text("对齐方式", color = NcColors.secondary, fontSize = 10.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("左对齐" to 0, "居中" to 1, "右对齐" to 2).forEach { (label, value) ->
+                Box(modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(NcColors.stage)
+                    .clickable { onChange(NativeEditorCommandAdapter.TextStyleUpdate(alignment = value)) }
+                    .padding(horizontal = 12.dp, vertical = 7.dp)) { Text(label, color = NcColors.text, fontSize = 10.sp) }
+            }
+        }
+        Text("字号 8–256 点 · 描边 0–32 点；每次只提交所选字段，其余样式保持不变", color = NcColors.secondary, fontSize = 9.sp)
     }
 }
 
