@@ -129,6 +129,39 @@ class NativeEngineBridge(
             }
         }
 
+    /** 创建独立 ASR 会话；调用方负责在线程结束后释放。 */
+    fun createSpeechSession(): Long = nativeSpeechSessionCreate()
+
+    fun destroySpeechSession(session: Long) {
+        require(session != 0L)
+        nativeSpeechSessionDestroy(session)
+    }
+
+    /** 所有 ByteBuffer 必须是 direct buffer；模型明文只在调用期间位于内存。 */
+    fun loadSpeechSession(
+        session: Long, encoder: java.nio.ByteBuffer,
+        decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer
+    ): String {
+        require(session != 0L && encoder.isDirect && decoder.isDirect && tokenizer.isDirect)
+        return nativeSpeechSessionLoad(session, encoder, decoder, tokenizer)
+    }
+
+    /** PCM 为 mono float32 [-1,1]；必须在工作线程调用，禁止主线程推理。 */
+    fun transcribeSpeechSession(
+        session: Long, pcm: java.nio.ByteBuffer, frameCount: Long,
+        sampleRate: Int = 16000, language: Int = 0
+    ): String {
+        require(session != 0L && pcm.isDirect && frameCount > 0L)
+        require(frameCount <= pcm.capacity().toLong() / 4L)
+        return nativeSpeechSessionTranscribe(session, pcm, frameCount, sampleRate, language)
+    }
+
+    fun cancelSpeechSession(session: Long): Boolean =
+        session != 0L && nativeSpeechSessionCancel(session) == 0
+
+    fun speechSessionStatus(session: Long): String =
+        if (session == 0L) "" else nativeSpeechSessionStatus(session)
+
     /**
      * 任意 C ABI 函数。fn 必须是 nc_ 开头的函数名，argsJson 为参数对象。
      * 失败也返回结构化 JSON，绝不把异常抛给 JS。
@@ -581,6 +614,16 @@ class NativeEngineBridge(
             put("ok", false); put("code", -1); put("message", msg)
             put("result", JSONObject())
         }.toString()
+
+    // Whisper session is independent from NcEditor and must run on a worker thread.
+    private external fun nativeSpeechSessionCreate(): Long
+    private external fun nativeSpeechSessionDestroy(session: Long)
+    private external fun nativeSpeechSessionLoad(session: Long, encoder: java.nio.ByteBuffer,
+        decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer): String
+    private external fun nativeSpeechSessionTranscribe(session: Long, pcm: java.nio.ByteBuffer,
+        frameCount: Long, sampleRate: Int, language: Int): String
+    private external fun nativeSpeechSessionCancel(session: Long): Int
+    private external fun nativeSpeechSessionStatus(session: Long): String
 
     private external fun nativeCreate(): Long
     private external fun nativeDestroy(handle: Long)
