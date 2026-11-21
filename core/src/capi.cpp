@@ -7599,10 +7599,15 @@ int32_t nc_speech_session_load_memory(NcSpeechSession* session,
         setDetail(out_error, "语音模型内存参数非法");
         return NC_ERROR_INVALID_ARGUMENT;
     }
-    if (session->busy.load(std::memory_order_acquire)) {
-        setDetail(out_error, "语音识别正在运行，不能重新加载模型");
+    bool expected = false;
+    if (!session->busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        setDetail(out_error, "语音识别会话正忙，不能重新加载模型");
         return NC_ERROR_LOCKED;
     }
+    struct LoadBusyReset {
+        NcSpeechSession* value;
+        ~LoadBusyReset() { value->busy.store(false, std::memory_order_release); }
+    } busyReset{session};
     std::lock_guard<std::mutex> lock(session->mutex);
     std::string failure;
     if (!session->recognizer.loadFromMemory(encoder, static_cast<std::size_t>(encoder_size),
@@ -7707,8 +7712,13 @@ int32_t nc_speech_session_status(const NcSpeechSession* session,
     if (out_state != nullptr) *out_state = session->state.load(std::memory_order_acquire);
     if (out_progress != nullptr) *out_progress = session->progress.load(std::memory_order_acquire);
     if (out_error != nullptr) {
-        std::lock_guard<std::mutex> lock(session->mutex);
-        *out_error = dupString(session->lastError);
+        // Never wait for the long-running inference mutex just to poll progress.
+        if (session->state.load(std::memory_order_acquire) == 2) {
+            *out_error = dupString(std::string());
+        } else {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            *out_error = dupString(session->lastError);
+        }
     }
     return NC_OK;
 }
