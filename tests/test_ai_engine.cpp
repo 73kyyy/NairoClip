@@ -268,6 +268,40 @@ NC_TEST(AiEngine, SessionFailsClosedWithoutModel) {
     NC_CHECK(session.outputs().empty());
 }
 
+NC_TEST(AiEngine, SessionMemoryLoadRejectsEmptyInput) {
+    AiSession session;
+    std::string failure;
+    NC_CHECK(!session.loadFromMemory(nullptr, 0, AiBackend::Cpu, &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!session.loaded());
+}
+
+NC_TEST(AiEngine, SessionMemoryLoadMatchesPathInference) {
+    if (!aiEngineAvailable() || !tinyModelExists()) return;
+    std::ifstream file(kTinyModelPath, std::ios::binary);
+    std::vector<std::uint8_t> bytes(
+        (std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    NC_CHECK(!bytes.empty());
+    AiSession session;
+    std::string failure;
+    NC_CHECK(session.loadFromMemory(bytes.data(), bytes.size(), AiBackend::Cpu, &failure));
+    NC_CHECK(session.loaded());
+    NC_CHECK_EQ(session.inputs().size(), std::size_t(1));
+    NC_CHECK_EQ(session.outputs().size(), std::size_t(1));
+    AiTensor input;
+    input.type = AiTensorType::Float32;
+    input.shape = {1, 2};
+    input.dataFloat = {1.0f, 2.0f};
+    std::vector<AiTensor> outputs;
+    NC_CHECK(session.run({input}, outputs, &failure));
+    NC_CHECK_EQ(outputs.size(), std::size_t(1));
+    NC_CHECK(outputs[0].dataFloat.size() >= 2);
+    NC_CHECK(std::fabs(outputs[0].dataFloat[0] - 2.1f) < 1e-4);
+    NC_CHECK(std::fabs(outputs[0].dataFloat[1] - 2.4f) < 1e-4);
+    session.unload();
+    NC_CHECK(!session.loaded());
+}
+
 NC_TEST(AiEngine, SessionRealInferenceOnTinyModel) {
     if (!aiEngineAvailable()) {
         return;  // 无 ORT：跳过（无 ORT 构建的正确行为见 SessionFailsClosedWithoutModel）
