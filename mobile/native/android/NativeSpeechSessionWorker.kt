@@ -112,7 +112,7 @@ class NativeSpeechSessionWorker(
     ): CompletableFuture<NativeEditorCommandAdapter.EditorStateSnapshot> {
         require(timelineStartUs >= 0L) { "字幕起始时间不能为负数" }
         return submit {
-            val decoded = AndroidAudioPcmDecoder.decodeToMono16k(context, uri, cancellationRequested)
+            val decoded = AndroidAudioPcmDecoder.decodeToMono16k(context.applicationContext, uri, cancellationRequested)
             try {
                 check(!cancellationRequested.get()) { "语音识别已取消" }
                 val response = JSONObject(bridge.transcribeSpeechSession(
