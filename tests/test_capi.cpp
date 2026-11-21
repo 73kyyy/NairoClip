@@ -172,6 +172,41 @@ NC_TEST(Capi, SubtitleCrud) {
     NC_CHECK_EQ(nc_subtitle_get(editor, 5, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
     nc_editor_destroy(editor);
 }
+NC_TEST(Capi, SubtitleBatchIsAtomicAndUndoable) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    const NcSubtitleCueInput cues[] = {
+        {0, 800000, "第一句"},
+        {900000, 700000, "第二句"},
+        {1700000, 600000, "第三句"},
+    };
+    std::uint64_t ids[3] = {};
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, cues, 3, ids), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+    NC_CHECK(ids[0] > 0 && ids[1] > 0 && ids[2] > 0);
+    NC_CHECK(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2]);
+    // 整批字幕必须只形成一条撤销记录。
+    NC_CHECK_EQ(nc_undo_count(editor), 1);
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 0);
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+
+    const NcSubtitleCueInput invalid[] = {
+        {2500000, 500000, "合法条目"},
+        {-1, 500000, "非法起点"},
+    };
+    std::uint64_t invalidIds[2] = {};
+    const int32_t beforeUndo = nc_undo_count(editor);
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, invalid, 2, invalidIds),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+    NC_CHECK_EQ(nc_undo_count(editor), beforeUndo);
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, cues, 0, ids),
+                NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(Capi, TransitionCrud) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
