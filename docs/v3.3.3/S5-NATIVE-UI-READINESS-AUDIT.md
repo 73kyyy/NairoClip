@@ -720,3 +720,13 @@
 - C API 测试覆盖相同时间、相同文本的重复插入，确认两次返回 ID 不同、列表均可读取到对应 ID，且两条均可按 ID 删除。
 - 原生字幕面板支持展示前 30 条字幕及按稳定 ID 删除；超过 30 条会显示提示。完整列表与删除回调由宿主注入，未声称 Activity/ViewModel 已接线。
 - 未执行 C++/NDK/Kotlin 编译、CTest/JUnit 或真机验证。
+
+## 57. Whisper 自动字幕模型契约与推理门禁修复（2026-11-21）
+
+- 发现模型下载脚本提供 `whisper-small`，但 `SpeechRecognizer` 的 KV cache 结构固定为 Whisper-tiny 的 4 层 × 6 heads × 64 dim（16 个 cache 输入）；small 模型结构不匹配，可能在推理时失败。
+- 模型下载源统一改为 `onnx-community/whisper-tiny`，使用 encoder + `decoder_model_merged.onnx` + tokenizer，和现有单 decoder 自回归实现对齐。
+- `SpeechRecognizer::load` 现在在模型加载阶段检查 encoder 输入形状 `[1,80,3000]`、decoder 19 输入/至少 17 输出、Int64 token / Float32 encoder / Bool cache 分支，以及 16 个 KV cache 的 rank/head/head_dim；错误模型立即拒绝并释放会话。
+- 解码期间若没有返回完整 KV cache，不再静默沿用旧 cache，而是明确失败。
+- 修正旧 `RealInferenceChain` 测试注释：现有核心代码已有完整 KV cache 自回归循环；实际 ONNX 模型推理仍需具备 ORT 和模型文件的环境验证。
+- Android JNI 尚未提供 PCM `FloatArray` 直传及 ASR 后台执行入口，编辑器“自动字幕”尚未运行时接通；本切片只修复模型/推理契约，不宣称自动字幕已可用。
+- 未执行 C++ 构建、CTest、模型下载或真实语音推理。
