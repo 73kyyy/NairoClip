@@ -3409,6 +3409,55 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewGetCacheBudget(JNIEnv*, j
 }
 
 
+JNIEXPORT jlongArray JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeUpsertSubtitlesBatch(
+    JNIEnv* env, jobject, jlongArray starts, jlongArray durations, jobjectArray texts) {
+    if (starts == nullptr || durations == nullptr || texts == nullptr) return nullptr;
+    const jsize count = env->GetArrayLength(starts);
+    if (count <= 0 || count > 10000 || env->GetArrayLength(durations) != count ||
+        env->GetArrayLength(texts) != count) return nullptr;
+
+    std::vector<jlong> startValues(static_cast<std::size_t>(count));
+    std::vector<jlong> durationValues(static_cast<std::size_t>(count));
+    env->GetLongArrayRegion(starts, 0, count, startValues.data());
+    env->GetLongArrayRegion(durations, 0, count, durationValues.data());
+    if (env->ExceptionCheck()) return nullptr;
+
+    std::vector<std::string> textValues;
+    std::vector<NcSubtitleCueInput> cues;
+    std::vector<uint64_t> ids(static_cast<std::size_t>(count), 0);
+    textValues.reserve(static_cast<std::size_t>(count));
+    cues.reserve(static_cast<std::size_t>(count));
+    for (jsize i = 0; i < count; ++i) {
+        auto value = static_cast<jstring>(env->GetObjectArrayElement(texts, i));
+        if (value == nullptr) return nullptr;
+        const char* utf = env->GetStringUTFChars(value, nullptr);
+        if (utf == nullptr) {
+            env->DeleteLocalRef(value);
+            return nullptr;
+        }
+        textValues.emplace_back(utf);
+        env->ReleaseStringUTFChars(value, utf);
+        env->DeleteLocalRef(value);
+        cues.push_back(NcSubtitleCueInput{
+            static_cast<int64_t>(startValues[static_cast<std::size_t>(i)]),
+            static_cast<int64_t>(durationValues[static_cast<std::size_t>(i)]),
+            textValues.back().c_str()
+        });
+    }
+
+    const int32_t rc = withCurrentEditor([&](NcEditor* editor) -> int32_t {
+        return editor == nullptr ? NC_ERROR_NOT_FOUND :
+            nc_upsert_subtitles_batch(editor, cues.data(), count, ids.data());
+    });
+    if (rc != NC_OK) return nullptr;
+    jlongArray result = env->NewLongArray(count);
+    if (result == nullptr) return nullptr;
+    std::vector<jlong> output(ids.begin(), ids.end());
+    env->SetLongArrayRegion(result, 0, count, output.data());
+    return env->ExceptionCheck() ? nullptr : result;
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionCreate(JNIEnv*, jobject) {
     return reinterpret_cast<jlong>(nc_speech_session_create());
