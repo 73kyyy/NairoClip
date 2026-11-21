@@ -145,8 +145,10 @@ class NativeSpeechSessionWorker(
                         timelineStartUs + startDelta, endDelta - startDelta, text
                     ))
                 }
-                check(!cancellationRequested.get()) { "字幕写入前任务已取消" }
-                val inserted = adapter.addSubtitlesBatchAndReadEditorState(cues)
+                val inserted = synchronized(lifecycleLock) {
+                    check(!closing.get() && !cancellationRequested.get()) { "字幕写入前任务已取消或会话正在关闭" }
+                    adapter.addSubtitlesBatchAndReadEditorState(cues)
+                }
                 check(inserted.ok) { inserted.error ?: "自动字幕写入失败" }
                 inserted.value ?: throw IllegalStateException("自动字幕写入后未返回工程快照")
             } finally {
