@@ -135,7 +135,9 @@ fun NativeEditorScreen(
     onRemoveTransition: ((Int, Long) -> Unit)? = null,
     onCreateTextClip: ((String, Long, Long) -> Unit)? = null,
     onTextStyleChanged: ((Int, Long, NativeEditorCommandAdapter.TextStyleUpdate) -> Unit)? = null,
-    onCreateSubtitle: ((String, Long, Long) -> Unit)? = null
+    onCreateSubtitle: ((String, Long, Long) -> Unit)? = null,
+    subtitleCues: List<NativeEditorCommandAdapter.SubtitleCueState> = emptyList(),
+    onRemoveSubtitle: ((Long) -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -482,7 +484,9 @@ fun NativeEditorScreen(
                 if (onCreateSubtitle != null) {
                     NativeSubtitleCreationPanel(
                         playheadUs = playheadUs,
+                        cues = subtitleCues,
                         onCreate = { value -> onCreateSubtitle.invoke(value, playheadUs.coerceAtLeast(0L), 3_000_000L) },
+                        onRemove = onRemoveSubtitle,
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
@@ -636,7 +640,13 @@ fun NativeEditorScreen(
 }
 
 @Composable
-private fun NativeSubtitleCreationPanel(playheadUs: Long, onCreate: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun NativeSubtitleCreationPanel(
+    playheadUs: Long,
+    cues: List<NativeEditorCommandAdapter.SubtitleCueState>,
+    onCreate: (String) -> Unit,
+    onRemove: ((Long) -> Unit)?,
+    modifier: Modifier = Modifier
+) {
     var content by remember { mutableStateOf("") }
     Column(modifier = modifier.background(NcColors.panel, RoundedCornerShape(12.dp))
         .border(1.dp, NcColors.line, RoundedCornerShape(12.dp)).padding(12.dp),
@@ -647,6 +657,24 @@ private fun NativeSubtitleCreationPanel(playheadUs: Long, onCreate: (String) -> 
             modifier = Modifier.fillMaxWidth().background(NcColors.stage, RoundedCornerShape(8.dp)).padding(10.dp),
             minLines = 2, textStyle = TextStyle(color = NcColors.text, fontSize = 12.sp),
             decorationBox = { inner -> Box { if (content.isEmpty()) Text("输入字幕内容…", color = NcColors.secondary, fontSize = 11.sp); inner() } })
+        if (cues.isNotEmpty()) {
+            Text("工程字幕（${cues.size}）", color = NcColors.secondary, fontSize = 10.sp)
+            cues.take(30).forEach { cue ->
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(cue.text, color = NcColors.text, fontSize = 10.sp, maxLines = 2)
+                        Text("${String.format(Locale.ROOT, "%.2f", cue.startUs / 1_000_000.0)}s · ${String.format(Locale.ROOT, "%.2f", cue.durationUs / 1_000_000.0)}s",
+                            color = NcColors.secondary, fontSize = 9.sp)
+                    }
+                    if (onRemove != null) {
+                        Text("删除", color = NcColors.secondary, fontSize = 10.sp,
+                            modifier = Modifier.clickable { onRemove.invoke(cue.subtitleId) }.padding(8.dp))
+                    }
+                }
+            }
+            if (cues.size > 30) Text("仅显示前 30 条；字幕总数：${cues.size}", color = NcColors.secondary, fontSize = 9.sp)
+        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("起始：${String.format(Locale.ROOT, "%.2f", playheadUs.coerceAtLeast(0L) / 1_000_000.0)}s · 默认 3 秒", color = NcColors.secondary, fontSize = 9.sp)
             Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (content.isNotBlank()) Color(0xFF303235) else NcColors.stage)
