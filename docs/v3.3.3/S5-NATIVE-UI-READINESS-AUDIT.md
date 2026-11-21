@@ -730,3 +730,14 @@
 - 修正旧 `RealInferenceChain` 测试注释：现有核心代码已有完整 KV cache 自回归循环；测试可从 `/workspace/deps` 或仓库 `models/whisper_zh` 查找 tiny 模型文件。实际 ONNX 模型推理仍需具备 ORT 和模型文件的环境验证。
 - Android JNI 尚未提供 PCM `FloatArray` 直传及 ASR 后台执行入口，编辑器“自动字幕”尚未运行时接通；本切片只修复模型/推理契约，不宣称自动字幕已可用。
 - 未执行 C++ 构建、CTest、模型下载或真实语音推理。
+
+## 第58节：Whisper 密文模型的内存加载基础
+
+- 已确认模型管理契约要求模型文件磁盘态始终为 AES 密文、密钥只在内存，推理前才解密；旧版 AiSession 和 SpeechRecognizer 仅接受 ONNX/Tokenizer 文件路径，不能直接满足该安全契约。
+- AiSession::loadFromMemory 新增 ONNX Runtime 内存构造路径，允许从解密后的字节缓冲创建 Session，不写出明文模型文件；原路径加载接口保持不变。
+- SpeechRecognizer::loadFromMemory 新增 Whisper-tiny encoder/merged decoder 内存加载，并复用同一套张量结构门禁（encoder [1,80,3000]、decoder 19 输入/至少17输出、16组 KV cache）。
+- SpeechRecognizer::loadTokenizerJson 新增内存 JSON 词表加载；文件路径接口改为读取后委托内存解析，原行为保持兼容。
+- tests/test_ai_engine.cpp 增加内存 ONNX 空缓冲失败路径和真实微型 ONNX 模型内存加载/推理测试（需要 ORT 与测试模型时执行）。
+- tests/test_speech_ai.cpp 增加内存词表解析/解码与空模型缓冲失败路径。
+- 这只是安全加载基础：尚未实现平台层读取密文文件、密钥获取、AES 解密后将三份缓冲传入 C ABI/JNI，也尚未实现后台 ASR 任务状态机和字幕回写；不能视为自动字幕已经接通。
+- 尚未运行 C++ 编译、CTest、Android 构建或真实设备推理。
