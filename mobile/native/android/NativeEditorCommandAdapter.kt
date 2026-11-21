@@ -212,6 +212,40 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     data class TextClipMutationResult(val clipId: Long, val editorState: EditorStateSnapshot)
 
+    data class TextStyleUpdate(
+        val fontSize: Double? = null,
+        val color: String? = null,
+        val outlineWidth: Double? = null,
+        val alignment: Int? = null
+    )
+
+    /** Updates only explicitly supplied text-style fields; null preserves the engine value. */
+    fun setTextStyleAndReadEditorState(target: ClipTarget, update: TextStyleUpdate): Result<EditorStateSnapshot> {
+        if (update.fontSize != null && (!update.fontSize.isFinite() || update.fontSize !in 8.0..256.0)) return Result(false, error = "字号必须在 8–256 画布点范围内")
+        if (update.color != null && !update.color.matches(Regex("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))) return Result(false, error = "文字颜色必须为 #RRGGBB 或 #RRGGBBAA")
+        if (update.outlineWidth != null && (!update.outlineWidth.isFinite() || update.outlineWidth !in 0.0..32.0)) return Result(false, error = "描边宽度必须在 0–32 画布点范围内")
+        if (update.alignment != null && update.alignment !in 0..2) return Result(false, error = "文字对齐方式无效")
+        if (update.fontSize == null && update.color == null && update.outlineWidth == null && update.alignment == null) return Result(false, error = "没有可提交的文字样式修改")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val track = before.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改文字样式")
+            if (track.clips.none { it.id == target.clipId }) return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            val args = targetArgs(target)
+                .put("font_size", update.fontSize ?: -1.0)
+                .put("color", update.color ?: "")
+                .put("outline_color", "")
+                .put("outline_width", update.outlineWidth ?: -1.0)
+                .put("alignment", update.alignment ?: -1)
+                .put("anchor_x", -1.0).put("anchor_y", -1.0)
+            val changed = invoke("nc_set_text_style", args) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置文字样式失败；请确认选中的是文字片段")
+            readEditorStateSnapshotLocked()
+        }
+    }
+
     /** Creates a text clip through the existing native C ABI/JNI operation and
      * returns the authoritative timeline/history snapshot from the same lock.
      * Initial style uses the engine's documented defaults. */
