@@ -74,6 +74,7 @@ extern "C" {
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <new>
 #include <vector>
@@ -7638,9 +7639,17 @@ int32_t nc_speech_session_transcribe(NcSpeechSession* session,
     const float* samples, int64_t frame_count, int32_t sample_rate, int32_t language,
     char** out_segments_json, char** out_error) {
     if (out_segments_json != nullptr) *out_segments_json = nullptr;
-    if (session == nullptr || samples == nullptr || frame_count <= 0 || sample_rate <= 0) {
-        setDetail(out_error, "PCM 参数非法");
+    if (session == nullptr || samples == nullptr || out_segments_json == nullptr ||
+        frame_count <= 0 || sample_rate < 8000 || sample_rate > 192000 ||
+        frame_count > static_cast<int64_t>(sample_rate) * 600LL) {
+        setDetail(out_error, "PCM 参数非法（采样率须为 8–192 kHz，时长不得超过 10 分钟，结果指针必需）");
         return NC_ERROR_INVALID_ARGUMENT;
+    }
+    for (int64_t i = 0; i < frame_count; ++i) {
+        if (!std::isfinite(samples[i]) || samples[i] < -1.0f || samples[i] > 1.0f) {
+            setDetail(out_error, "PCM 必须是有限值且位于 [-1,1]");
+            return NC_ERROR_INVALID_ARGUMENT;
+        }
     }
     bool expected = false;
     if (!session->busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
