@@ -350,7 +350,8 @@ std::string BuildState(NcEditor* ed) {
                 j += ",\"enabled\":" + std::to_string(een) + "}";
                 ++enWritten;
             }
-            j += "]}";
+            // 这里只结束 effects 数组；clip 对象还要继续承载 xforms 等字段。
+            j += "]";
             // 几何变换 8 槽：前端靠 enabled 决定宫格「已添加」小圆点。
             // 只下发启用的槽（未启用的用默认值也没意义，省带宽）。
             j += ",\"xforms\":[";
