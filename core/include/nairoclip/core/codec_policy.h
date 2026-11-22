@@ -30,12 +30,9 @@
 // 本模块职责：
 //   · 编码器「许可分级」：把 FFmpeg 编码器名映射到许可类别（硬件 / 宽松软件 /
 //     GPL 传染 / 未知）；
-//   · 合规选择：按「硬件优先 → 宽松软件兜底 → （仅开发构建）GPL」的顺序，
-//     从可用编码器列表中选出合规实现；找不到任何合规实现时 fail-closed
-//     （返回空名 = 拒绝编码），不静默降级到 GPL；
-//   · 开发构建开关：沙箱/CI 环境只有 libx264 可用，允许开发构建显式打开
-//     「开发例外」（默认由 CMake 选项 NAIROCLIP_DEVELOPMENT_GPL_OK 决定；
-//     发布构建必须关闭）。
+//   · 合规选择：硬件优先，其次宽松许可的非 H.264 软件实现；
+//     GPL、软件 H.264、HEVC 与未知编码器在所有构建中一律拒绝。
+//   · CI 测试素材/导出使用 VP9/AV1，不为测试环境开放产品编解码后门。
 //
 // 与全项目架构一致：本模块为纯逻辑（零 FFmpeg 依赖），可在任意环境单测；
 // FFmpegMediaWriter 在打开编码器时消费本策略。
@@ -53,25 +50,12 @@
 namespace nairoclip {
 namespace core {
 
-/// 构建期开发开关（CMake 选项 NAIROCLIP_DEVELOPMENT_GPL_OK；默认 ON）。
-/// 发布构建（-DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF）下，EncoderPolicy 的默认值
-/// 为「拒绝 GPL」，即使调用方未显式设置也合规。
-///
-/// **为什么是函数而不是 constexpr 常量**：
-/// 原来是 `constexpr bool kBuildAllowsGplForDevelopment = ...`，
-/// 由 `#ifdef NAIROCLIP_DEVELOPMENT_GPL_OK` 决定取值。这有个隐蔽的 ODR 问题：
-/// 该宏只在编译 `nairoclip_core` 时由 target_compile_definitions 注入，
-/// **使用方（测试程序、平台层）没有这个宏** —— 于是同一个 `constexpr`
-/// 在库里算 true，在测试里算 false，两边的 EncoderPolicy 默认值不同。
-/// 表现出来就是「库内部能选到软件 H.264，测试侧却认为一个都没有」，
-/// 极难定位（实测踩过：库里逻辑全对，测试仍报无可用编码器）。
-///
-/// 改为导出函数：取值由库内部编译决定，只有一处定义，不存在歧义。
-/// 保留旧名字作为内联包装，避免调用方改动。
+/// 旧版兼容查询：保留符号以兼容既有 C++ 调用方，但所有构建均返回 false。
+/// NairoClip 不允许任何开发/发布构建启用 GPL 编码器。
 bool buildAllowsGplForDevelopment();
 
-/// 兼容别名（内联转发到函数，不再依赖宏）。
-inline bool kBuildAllowsGplForDevelopmentFn() { return buildAllowsGplForDevelopment(); }
+/// 兼容别名；始终返回 false。
+inline bool kBuildAllowsGplForDevelopmentFn() { return false; }
 
 /// 编码器许可分级（合规判定的单一事实来源）。
 ///
@@ -114,10 +98,9 @@ EncoderLicenseClass classifyEncoderLicense(const std::string& encoderName);
 
 /// 编码策略（默认值 = 合规首选）。
 struct EncoderPolicy {
-    /// 开发例外：允许选择 GPL 编码器（仅开发构建可用；发布构建置 false）。
-    /// 说明：默认跟随构建期开关（kBuildAllowsGplForDevelopment）——沙箱/CI
-    /// 只有 libx264 时测试可跑；发布构建默认合规（fail-closed）。
-    bool allowGplForDevelopment = buildAllowsGplForDevelopment();
+    /// 旧版兼容字段：保留以避免破坏既有 C++ 源码；当前实现忽略此值，
+    /// GPL 编码器在所有构建中一律拒绝。测试必须使用 VP9/AV1。
+    bool allowGplForDevelopment = false;
 
     /// 是否优先硬件编码器（文档：三端统一优先级最高）。恒为 true 时才尝试硬件；
     /// 提供开关仅供平台层在特定设备上强制软件路径（如硬件编码器有已知缺陷）。
@@ -130,7 +113,7 @@ struct EncoderSelection {
     std::string name;
     /// 选中项的许可分级（供日志/诊断）。
     EncoderLicenseClass license = EncoderLicenseClass::Unknown;
-    /// 是否由「开发例外」放行（GPL 编码器；须在日志中显著记录）。
+    /// 旧版兼容字段；现行策略下始终为 false。
     bool usedDevelopmentException = false;
     /// 说明（可直接展示/记录）。
     std::string note;
@@ -140,9 +123,8 @@ struct EncoderSelection {
 
 /// 选择视频编码器（合规优先序）：
 ///   1. 硬件实现（文档：H.264 硬件编码三端统一优先级最高）；
-///   2. 宽松软件实现（OpenH264 / libaom / libsvpx 等）；
-///   3. GPL 实现 —— 仅当 policy.allowGplForDevelopment（开发构建/开发模式）；
-///   4. 都没有 → 返回 invalid（fail-closed，绝不静默用 GPL）。
+///   2. 宽松软件实现（仅非 H.264，如 AV1/VP9）；
+///   3. 都没有 → 返回 invalid（fail-closed）；GPL/软件 H.264/HEVC 永不参与选择。
 /// - codec：目标格式（"h264" 默认；"av1"/"vp9" 为 royalty-free 选项）；
 /// - available：后端探测到的可用编码器列表。
 /// 说明：同优先级内按「平台常见度」固定顺序（不依赖列表输入顺序，保证确定性）。

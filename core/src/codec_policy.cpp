@@ -164,11 +164,7 @@ int preferenceRank(const std::string& lower, bool hardware) {
 // =============================================================================
 
 bool buildAllowsGplForDevelopment() {
-#ifdef NAIROCLIP_DEVELOPMENT_GPL_OK
-    return true;
-#else
     return false;
-#endif
 }
 
 const char* encoderLicenseClassName(EncoderLicenseClass cls) {
@@ -257,21 +253,22 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     if (lower == "hevc" || lower == "h265" || lower == "libx265") {
         return {};  // H.265 全线禁止
     }
-    // 归档：硬件（按优先序）→ 宽松软件（按优先序）→ GPL（仅开发例外）
+    // 归档：硬件（按优先序）→ 宽松软件（按优先序）；GPL 与软件 H.264 均拒绝。
     struct Scored {
         EncoderSelection selection;
         int rank = 100;
     };
     std::vector<Scored> hardware;
     std::vector<Scored> permissive;
-    std::vector<Scored> gpl;
     for (const auto& candidate : available) {
         if (!candidate.codec.empty() && toLower(candidate.codec) != lower) {
             continue;
         }
         const std::string nameLower = toLower(candidate.name);
         const EncoderLicenseClass cls = classifyEncoderLicense(candidate.name);
-        if (cls == EncoderLicenseClass::Unknown) {
+        if (cls == EncoderLicenseClass::Unknown ||
+            cls == EncoderLicenseClass::GplInfectious ||
+            cls == EncoderLicenseClass::SoftwareH264) {
             continue;
         }
         /* 软件 H.264：**只在开发构建里**作为最后手段保留。
@@ -299,8 +296,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
             hardware.push_back(std::move(scored));
         } else if (cls == EncoderLicenseClass::Permissive) {
             permissive.push_back(std::move(scored));
-        } else {
-            gpl.push_back(std::move(scored));
         }
     }
     const auto byRank = [](const Scored& a, const Scored& b) {
@@ -309,7 +304,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     };
     std::sort(hardware.begin(), hardware.end(), byRank);
     std::sort(permissive.begin(), permissive.end(), byRank);
-    std::sort(gpl.begin(), gpl.end(), byRank);
 
     std::vector<EncoderSelection> result;
     if (policy.preferHardware) {
@@ -319,13 +313,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     }
     for (auto& s : permissive) {
         result.push_back(std::move(s.selection));
-    }
-    if (policy.allowGplForDevelopment) {
-        for (auto& s : gpl) {
-            s.selection.usedDevelopmentException = true;
-            s.selection.note = "开发例外候选：" + s.selection.name;
-            result.push_back(std::move(s.selection));
-        }
     }
     return result;
 }
@@ -338,7 +325,7 @@ bool encoderAllowed(const std::string& encoderName, const EncoderPolicy& policy)
         case EncoderLicenseClass::Permissive:
             return true;
         case EncoderLicenseClass::GplInfectious:
-            return policy.allowGplForDevelopment;
+            return false;  // GPL 编码器在开发与发布构建中均禁止。
         case EncoderLicenseClass::SoftwareH264:
             /* **无论如何都不允许**，包括开发构建。
                软件 H.264 的风险是 AVC 专利费（不是 GPL），

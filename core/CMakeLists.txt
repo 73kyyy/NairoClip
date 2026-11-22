@@ -106,14 +106,8 @@ target_include_directories(nairoclip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# 编解码合规：开发例外开关（见根 CMakeLists 注释与 docs/COMPLIANCE.md）。
-if(NAIROCLIP_DEVELOPMENT_GPL_OK)
-    target_compile_definitions(nairoclip_core PUBLIC NAIROCLIP_DEVELOPMENT_GPL_OK=1)
-    message(STATUS "NairoClip: DEVELOPMENT build — GPL encoder exception ENABLED "
-                   "(release builds must set -DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF)")
-else()
-    message(STATUS "NairoClip: RELEASE compliance mode — GPL encoders denied")
-endif()
+# 编解码合规由 codec_policy.cpp 在所有构建中统一执行；
+# 不提供开发期 GPL 例外或编译期开关。
 
 # ---- FFmpeg 集成 ----
 #
