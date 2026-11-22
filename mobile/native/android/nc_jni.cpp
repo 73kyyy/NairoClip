@@ -382,7 +382,8 @@ std::string BuildState(NcEditor* ed) {
                     ++xfWritten;
                 }
             }
-            j += "]";
+            // 结束 xforms 数组并关闭当前 clip 对象；随后由外层关闭 clips 数组和 track 对象。
+            j += "]}";
         }
         j += "]}";
     }
