@@ -183,9 +183,26 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     NC_CHECK(recognizer.tokenizerLoaded());
     NC_CHECK(!recognizer.decodeTokens({15496}).empty());
     NC_CHECK(recognizer.decodeTokens({50257}).empty());
+
+    // Added tokens alone are not a BPE vocabulary.
+    failure.clear();
+    NC_CHECK(!recognizer.loadTokenizerJson(
+        R"({"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})", &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
+    NC_CHECK(recognizer.decodeTokens({15496}).empty());
+
     failure.clear();
     NC_CHECK(!recognizer.loadTokenizerJson("{}", &failure));
     NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
+
+    // Duplicate IDs make reverse lookup ambiguous and must be rejected.
+    failure.clear();
+    NC_CHECK(!recognizer.loadTokenizerJson(
+        R"({"model":{"vocab":{"alpha":10,"beta":10}}})", &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
 }
 
 NC_TEST(SpeechAI, UnloadClearsTokenizerState) {
