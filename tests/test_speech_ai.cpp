@@ -183,6 +183,7 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     NC_CHECK(recognizer.tokenizerLoaded());
     NC_CHECK(!recognizer.decodeTokens({15496}).empty());
     NC_CHECK(recognizer.decodeTokens({50257}).empty());
+    NC_CHECK(recognizer.decodeTokens({999999}).empty());
 
     // Added tokens alone are not a BPE vocabulary.
     failure.clear();
