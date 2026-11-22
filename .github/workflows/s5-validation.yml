@@ -87,7 +87,7 @@ jobs:
 
       - name: Run targeted JNI and C ABI CTest coverage
         env:
-          NC_TEST_INCLUDE: S1_2.,Capi.
+          NC_TEST_INCLUDE: S1_2.,Capi.,AudioDenoise.
         run: ctest --test-dir build-ctest --output-on-failure -R '^nairoclip_tests$'
 
   android-native-core:
