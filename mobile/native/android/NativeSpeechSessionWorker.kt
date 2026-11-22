@@ -63,10 +63,17 @@ class NativeSpeechSessionWorker(
         tokenizer: ByteBuffer
     ): CompletableFuture<JSONObject> = submit {
         try {
-            require(encoder.isDirect && decoder.isDirect && tokenizer.isDirect) {
-                "模型缓冲区必须是 direct ByteBuffer"
+            require(
+                encoder.isDirect && decoder.isDirect && tokenizer.isDirect &&
+                    encoder.hasRemaining() && decoder.hasRemaining() && tokenizer.hasRemaining()
+            ) {
+                "模型缓冲区必须是非空 direct ByteBuffer"
             }
-            JSONObject(bridge.loadSpeechSession(session, encoder, decoder, tokenizer)).also {
+            // JNI GetDirectBufferAddress points at the buffer view's base address,
+            // not its current position. Slice so native sees exactly the remaining bytes.
+            JSONObject(bridge.loadSpeechSession(
+                session, encoder.slice(), decoder.slice(), tokenizer.slice()
+            )).also {
                 check(it.optBoolean("ok", false)) {
                     it.optString("message").ifBlank { "Whisper 模型加载失败" }
                 }
@@ -95,7 +102,10 @@ class NativeSpeechSessionWorker(
                 require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
                     "PCM 剩余容量不足"
                 }
-                JSONObject(bridge.transcribeSpeechSession(session, pcm, frameCount, sampleRate, language)).also {
+                // JNI GetDirectBufferAddress ignores ByteBuffer.position(); pass a
+                // zero-based view whose capacity equals the caller's remaining PCM bytes.
+                val pcmView = pcm.slice().order(java.nio.ByteOrder.nativeOrder())
+                JSONObject(bridge.transcribeSpeechSession(session, pcmView, frameCount, sampleRate, language)).also {
                     check(it.optBoolean("ok", false)) {
                         it.optString("message").ifBlank { "语音识别失败" }
                     }
