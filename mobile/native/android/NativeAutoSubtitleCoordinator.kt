@@ -29,7 +29,7 @@ class NativeAutoSubtitleCoordinator(
     private val stateVersion = AtomicLong(0L)
     private val lock = Any()
     private var sourceUri: Uri? = null
-    private var timelineStartUs: Long = 0L
+    private var sourceRange: NativeSpeechSourceRange? = null
     private var sessionReady = false
     private var running = false
     private var progress: Double? = null
@@ -40,21 +40,37 @@ class NativeAutoSubtitleCoordinator(
         publish()
     }
 
-    /** Set only from the host's authoritative selected timeline clip. */
-    fun setSource(uri: Uri?, clipTimelineStartUs: Long) {
-        require(clipTimelineStartUs >= 0L) { "素材时间线起点不能为负数" }
+    /** Set from the host's authoritative selected clip and its native source mapping. */
+    fun setSource(uri: Uri?, range: NativeSpeechSourceRange?) {
         synchronized(lock) {
             check(!closed.get()) { "自动字幕协调器已关闭" }
             check(!running) { "识别过程中不能切换素材" }
             sourceUri = uri
-            timelineStartUs = clipTimelineStartUs
-            errorMessage = null
+            sourceRange = range
             progress = null
-            statusMessage = if (uri == null) "请选择时间轴中的视频或音频素材"
-                else if (sessionReady) "素材已就绪，可以开始识别"
-                else "素材已选择，等待语音模型加载"
+            val mappingError = range?.validationError()
+            errorMessage = if (uri != null && mappingError != null) mappingError else null
+            statusMessage = when {
+                uri == null -> "请选择时间轴中的视频或音频素材"
+                range == null -> "缺少片段源区间，暂不能安全生成字幕"
+                mappingError != null -> mappingError
+                sessionReady -> "所选片段已就绪，可以开始识别"
+                else -> "所选片段已选择，等待语音模型加载"
+            }
         }
         publish()
+    }
+
+    /**
+     * Compatibility overload for older hosts. A timeline offset alone is not
+     * sufficient: without source in/out and speed metadata the old whole-file
+     * decode path could place captions outside a trimmed clip. Keep it disabled
+     * rather than silently generating incorrect subtitle timestamps.
+     */
+    @Deprecated("Pass NativeSpeechSourceRange from the selected timeline clip")
+    fun setSource(uri: Uri?, clipTimelineStartUs: Long) {
+        require(clipTimelineStartUs >= 0L) { "素材时间线起点不能为负数" }
+        setSource(uri, null)
     }
 
     /** Host calls this only after the worker's model-load future succeeds. */
@@ -74,7 +90,8 @@ class NativeAutoSubtitleCoordinator(
 
     fun state(): NativeAutoSubtitleUiState = synchronized(lock) {
         NativeAutoSubtitleUiState(
-            available = !closed.get() && sourceUri != null && sessionReady && !running,
+            available = !closed.get() && sourceUri != null &&
+                sourceRange?.validationError() == null && sessionReady && !running,
             running = running,
             progress = progress,
             statusMessage = statusMessage,
@@ -87,8 +104,13 @@ class NativeAutoSubtitleCoordinator(
         val request = synchronized(lock) {
             if (closed.get() || running || !sessionReady) return false
             val uri = sourceUri
+            val range = sourceRange
             if (uri == null) {
                 statusMessage = "请先选择时间轴中的视频或音频素材"
+                null
+            } else if (range == null || range.validationError() != null) {
+                errorMessage = range?.validationError() ?: "缺少片段源区间，暂不能安全生成字幕"
+                statusMessage = errorMessage ?: "片段源区间无效"
                 null
             } else {
                 running = true
@@ -96,8 +118,8 @@ class NativeAutoSubtitleCoordinator(
                 // Use an indeterminate indicator rather than presenting a fake 0%.
                 progress = null
                 errorMessage = null
-                statusMessage = "正在解码音频并准备识别…"
-                uri to timelineStartUs
+                statusMessage = "正在解码所选片段音频并准备识别…"
+                uri to range
             }
         }
         if (request == null) {
