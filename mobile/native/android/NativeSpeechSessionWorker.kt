@@ -189,8 +189,14 @@ class NativeSpeechSessionWorker(
                         start < audioDurationSeconds && end <= audioDurationSeconds + 0.05 && text.isNotEmpty()) {
                         "识别片段时间超出所选音频区间或文本无效"
                     }
-                    val mapped = sourceRange.mapSegment(start, minOf(end, audioDurationSeconds), audioDurationUs)
-                        ?: throw IllegalArgumentException("识别片段无法映射到所选时间轴区间")
+                    val audioStartOffsetUs = pcm.startTimeUs - sourceRange.sourceInUs
+                    require(audioStartOffsetUs >= 0L) { "裁剪后 PCM 起始时间早于所选源入点" }
+                    val mapped = sourceRange.mapSegment(
+                        start,
+                        minOf(end, audioDurationSeconds),
+                        audioDurationUs,
+                        audioStartOffsetUs
+                    ) ?: throw IllegalArgumentException("识别片段无法映射到所选时间轴区间")
                     cues.add(NativeEditorCommandAdapter.SubtitleCueInput(mapped.first, mapped.second, text))
                 }
                 val inserted = synchronized(lifecycleLock) {
