@@ -683,7 +683,9 @@ std::string SpeechRecognizer::decodeTokens(const std::vector<int>& tokens) const
         }
         const auto it = impl_->idToToken.find(token);
         if (it == impl_->idToToken.end()) {
-            continue;
+            // Unknown IDs indicate a model/tokenizer mismatch. Never silently
+            // drop them and publish a plausible but truncated subtitle.
+            return std::string();
         }
         merged += it->second;
     }
@@ -879,13 +881,26 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
                 }
             }
         }
-        // tokenizer 在进入推理前已强制加载；这里只返回真实 BPE 解码文本。
+        // tokenizer 在进入推理前已强制加载；任何未知 ID 都表示模型/词表不匹配。
+        for (const std::int64_t token : generated) {
+            if (token < 0 || token > std::numeric_limits<int>::max() ||
+                impl_->idToToken.find(static_cast<int>(token)) == impl_->idToToken.end()) {
+                if (outputFailure != nullptr) *outputFailure = "Whisper 输出了当前 tokenizer 不认识的 token ID，拒绝生成不完整字幕";
+                return false;
+            }
+        }
         const std::string text = decodeTokens(std::vector<int>(generated.begin(), generated.end()));
-        SpeechSegment segment;
-        segment.startSeconds = static_cast<double>(startFrame) / sampleRate;
-        segment.endSeconds = segment.startSeconds + static_cast<double>(count) / sampleRate;
-        segment.text = text;
-        outSegments.push_back(std::move(segment));
+        if (!generated.empty() && text.empty()) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper token 解码结果为空，拒绝写入无效字幕";
+            return false;
+        }
+        if (!text.empty()) {
+            SpeechSegment segment;
+            segment.startSeconds = static_cast<double>(startFrame) / sampleRate;
+            segment.endSeconds = segment.startSeconds + static_cast<double>(count) / sampleRate;
+            segment.text = text;
+            outSegments.push_back(std::move(segment));
+        }
         if (progress != nullptr && !progress(1.0)) {
             if (outputFailure != nullptr) *outputFailure = "用户取消";
             return false;
