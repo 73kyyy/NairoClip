@@ -1048,3 +1048,17 @@
 - 已修复为只关闭 `effects` 数组，片段对象保持打开，待 `xforms` 数组完成后再由原有闭合逻辑关闭片段对象。
 - 该问题说明仅靠 Kotlin 解析器单测不足以覆盖 JNI 手工 JSON 拼接；后续需增加 BuildState 的真实 JNI/Android 集成测试，对含空/非空 effects、空/非空 xforms 及源映射字段的返回 JSON 做解析断言。
 - 仅源码回读确认拼接顺序；必须由后续 Android NDK/Kotlin 工作流和真机工程快照验证。
+
+## 92. S5 远程验证链路建立与首轮编译缺陷修复（2026-11-22）
+
+- 将主 CI 的 PR 目标分支扩展到 `development/v3.3.3`，使当前 S5 Draft PR 不再因为只监听 main 而缺少自动验证。
+- 新增 `.github/workflows/s5-validation.yml`：Android Kotlin 编译 + JVM 单元测试；Android NDK arm64-v8a 核心库交叉编译；JNI 桥接翻译单元语法编译。该工作流不发布 APK 或 Release 资产。
+- 首轮真实编译暴露并修复：
+  - `RenderClip` 漏掉 `ColorGrade` 快照字段，导致导出执行器编译失败；已补字段、`compileClip()` 复制和导出计划测试。
+  - `tests/test_serialization.cpp` 新增调色测试的 JSON 字符串转义多了一层反斜杠；已修复为合法 C++ 字符串字面量。
+  - Kotlin 编译发现快照读取函数表达式体内非法 return、EditorStateSnapshot 轨道访问层级错误、Compose KeyboardActions/KeyboardOptions 导入包错误、选中片段变量作用域错误、曲线面板缺少 @Composable、曲线 identity 工厂放错类型、时间轴进度无障碍 action ID 使用错误，以及 Double/Float max 参数不匹配；均已逐项修复。
+  - Kotlin 编译另发现 NumericField 把普通 `() -> Unit` 直接传给带 KeyboardActionScope receiver 的回调；已改为显式 lambda 适配。
+  - NDK JNI 语法检查发现 `JEsc()` 两个转义分支的 C++ 字符串字面量本身无法编译；已修正引号和反斜杠输出。
+  - Android SDK setup 误安装已移除的 legacy `tools` 包；工作流已限定安装 platform-tools。
+- 验证状态：在提交 `20e89a6e14f17936cae3ebca4549e7cebec674af` 上，Android NDK arm64-v8a 核心库构建与 JNI 桥接 `-fsyntax-only` 检查已通过。该提交的 Kotlin 编译/JVM 测试与桌面 C++ Release/ASAN/UBSan/CTest 仍在运行，尚不能记为通过。
+- 以上均以实际 Actions 日志为准；失败的旧提交运行保留为历史证据，不用新提交结果覆盖或伪装。
