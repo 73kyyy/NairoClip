@@ -65,7 +65,9 @@ class NativeSpeechSessionController(
         tokenizerJson: ByteBuffer
     ): Boolean = synchronized(lock) {
         if (closed.get() || session == 0L || inferenceActive) return false
-        if (!encoder.isDirect || !decoder.isDirect || !tokenizerJson.isDirect) return false
+        if (!encoder.isDirect || !decoder.isDirect || !tokenizerJson.isDirect ||
+            encoder.isReadOnly || decoder.isReadOnly || tokenizerJson.isReadOnly ||
+            !encoder.hasRemaining() || !decoder.hasRemaining() || !tokenizerJson.hasRemaining()) return false
         inferenceActive = true
         val encoderView = encoder.slice()
         val decoderView = decoder.slice()
@@ -91,6 +93,9 @@ class NativeSpeechSessionController(
                     loaded = false
                     if (!closed.get()) listener.onFailure(error.message ?: "Whisper 模型加载异常", true)
                 } finally {
+                    zeroBuffer(encoder)
+                    zeroBuffer(decoder)
+                    zeroBuffer(tokenizerJson)
                     inferenceActive = false
                 }
             }
@@ -109,8 +114,8 @@ class NativeSpeechSessionController(
         language: Int = LANGUAGE_AUTO
     ): Boolean = synchronized(lock) {
         if (closed.get() || session == 0L || inferenceActive || !loaded) return false
-        if (!pcm.isDirect || frameCount <= 0L || sampleRate <= 0 ||
-            frameCount > pcm.remaining().toLong() / 4L ||
+        if (!pcm.isDirect || pcm.isReadOnly || frameCount <= 0L || sampleRate != 16000 ||
+            frameCount > pcm.remaining().toLong() / Float.SIZE_BYTES ||
             language !in LANGUAGE_AUTO..LANGUAGE_KOREAN) return false
         inferenceActive = true
         val pcmView = pcm.slice().order(java.nio.ByteOrder.nativeOrder())
@@ -134,6 +139,7 @@ class NativeSpeechSessionController(
                 } catch (error: Throwable) {
                     if (!closed.get()) listener.onFailure(error.message ?: "语音识别异常", true)
                 } finally {
+                    zeroBuffer(pcm)
                     inferenceActive = false
                 }
             }
@@ -141,6 +147,18 @@ class NativeSpeechSessionController(
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             inferenceActive = false
             false
+        }
+    }
+
+    /** Best-effort overwrite of the complete caller-owned direct-buffer view. */
+    private fun zeroBuffer(buffer: ByteBuffer) {
+        if (!buffer.isDirect || buffer.isReadOnly) return
+        try {
+            val view = buffer.duplicate()
+            view.clear()
+            while (view.hasRemaining()) view.put(0)
+        } catch (_: Throwable) {
+            // Native/runtime copies and allocator remnants are outside this buffer's ownership.
         }
     }
 
