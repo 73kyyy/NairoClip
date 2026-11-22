@@ -276,6 +276,22 @@ NC_TEST(Capi, ClipSourceInfo) {
     NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId + 999, &sourceIn, nullptr,
                                     nullptr, nullptr, nullptr), NC_ERROR_NOT_FOUND);
 
+    // Trim must advance sourceIn while preserving the source out-point.
+    NC_CHECK_EQ(nc_trim_clip_start(editor, 0, clipId, 1500000), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, std::int64_t(500000));
+    NC_CHECK_EQ(sourceOut, std::int64_t(2500000));
+    // Changing constant speed changes timeline duration, not the source interval.
+    NC_CHECK_EQ(nc_set_clip_speed(editor, 0, clipId, 2, 1), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, std::int64_t(500000));
+    NC_CHECK_EQ(sourceOut, std::int64_t(2500000));
+    NC_CHECK_EQ(reversed, 0);
+    NC_CHECK_EQ(frozen, 0);
+    NC_CHECK_EQ(hasSpeedCurve, 0);
+
     NC_CHECK_EQ(nc_reverse_clip(editor, 0, clipId), NC_OK);
     NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
                                     &reversed, &frozen, &hasSpeedCurve), NC_OK);
