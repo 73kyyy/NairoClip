@@ -94,4 +94,50 @@ class NativeSpeechSourceRangeTest {
         assertNotNull(range.validationError())
         assertNull(range.mapSegment(0.0, 0.5, 1_000_000L))
     }
+
+    @Test
+    fun mapsExactClipBoundariesWithoutMovingCaptionsOutsideTheClip() {
+        val range = NativeSpeechSourceRange(
+            timelineStartUs = 7_000_000L,
+            timelineDurationUs = 1_000_000L,
+            sourceInUs = 3_000_000L,
+            sourceOutUs = 4_000_000L,
+            speedNumerator = 1L,
+            speedDenominator = 1L
+        )
+        assertEquals(7_000_000L to 1_000_000L, range.mapSegment(0.0, 1.0, 1_000_000L))
+        assertNull(range.mapSegment(1.0, 1.1, 1_000_000L))
+        assertNull(range.mapSegment(0.0, 1.000003, 1_000_000L))
+    }
+
+    @Test
+    fun rejectsTimelineEndOverflowBeforeMapping() {
+        val range = NativeSpeechSourceRange(
+            timelineStartUs = Long.MAX_VALUE - 99L,
+            timelineDurationUs = 100L,
+            sourceInUs = 0L,
+            sourceOutUs = 100L,
+            speedNumerator = 1L,
+            speedDenominator = 1L
+        )
+        assertNotNull(range.validationError())
+        assertNull(range.mapSegment(0.0, 0.00005, 100L))
+    }
+
+    @Test
+    fun safelyMapsLargeValidMicrosecondRanges() {
+        val range = NativeSpeechSourceRange(
+            timelineStartUs = Long.MAX_VALUE - 1_000_000L,
+            timelineDurationUs = 1_000_000L,
+            sourceInUs = 0L,
+            sourceOutUs = 1_000_000L,
+            speedNumerator = 1L,
+            speedDenominator = 1L
+        )
+        assertNull(range.validationError())
+        assertEquals(
+            (Long.MAX_VALUE - 500_000L) to 250_000L,
+            range.mapSegment(0.5, 0.75, 1_000_000L)
+        )
+    }
 }
