@@ -89,9 +89,10 @@ class NativeAutoSubtitleCoordinator(
     }
 
     fun state(): NativeAutoSubtitleUiState = synchronized(lock) {
+        val selectedRange = sourceRange
         NativeAutoSubtitleUiState(
-            available = !closed.get() && sourceUri != null && sourceRange != null &&
-                sourceRange.validationError() == null && sessionReady && !running,
+            available = !closed.get() && sourceUri != null && selectedRange != null &&
+                selectedRange.validationError() == null && sessionReady && !running,
             running = running,
             progress = progress,
             statusMessage = statusMessage,
