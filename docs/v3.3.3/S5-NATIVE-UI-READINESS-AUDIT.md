@@ -1142,3 +1142,9 @@
 - 已改为调用开始时清零输出 ID，使用局部数组收集新 ID，并且仅在整个事务成功结束后一次性发布。
 - 扩展 `Capi.SubtitleBatchIsAtomicAndUndoable`：失败输入使用非零哨兵 ID，断言失败后所有输出 ID 均为零，同时确认字幕数量和撤销栈未变化。
 - 这补齐了 C ABI 的结果输出原子性，不改变函数签名和成功路径语义；等待新的 CTest/全量 C++ 回归验证。
+
+## 95. BuildState JSON 测试覆盖非空嵌套数组
+
+- 扩展 `S1_2.BuildStateClipJsonIsWellFormed`：除原先空 effects/xforms 数组外，现在先通过真实 C ABI 为测试片段添加一条 effect 和一个启用的 xform，再解析 JNI `BuildState()` 返回值。
+- 断言两组数组各有一个元素，且元素均为 JSON 对象，覆盖嵌套对象、逗号和数组/对象闭合的非空分支。
+- 该用例将随新的主机 CTest 工作流执行；当前尚未收到新提交的测试结果。
