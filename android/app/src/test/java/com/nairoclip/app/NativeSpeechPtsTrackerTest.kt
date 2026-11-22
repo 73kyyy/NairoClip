@@ -28,12 +28,24 @@ class NativeSpeechPtsTrackerTest {
     }
 
     @Test
-    fun rejectsNegativeOrOverflowingTimestampInput() {
+    fun rejectsNegativeTimestampInput() {
         val tracker = NativeSpeechPtsTracker(16000)
         try {
             tracker.accept(-1L, 160L)
             throw AssertionError("negative PTS must be rejected")
         } catch (_: IllegalArgumentException) {
+            // Expected.
+        }
+    }
+
+    @Test
+    fun rejectsCumulativeTimestampOverflow() {
+        val tracker = NativeSpeechPtsTracker(16000)
+        tracker.accept(Long.MAX_VALUE - 100L, 160L)
+        try {
+            tracker.accept(Long.MAX_VALUE - 50L, 160L)
+            throw AssertionError("overflowing expected PTS must be rejected")
+        } catch (_: IllegalStateException) {
             // Expected.
         }
     }
