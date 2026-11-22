@@ -1,14 +1,6 @@
 name: S5 Android Validation
 
 on:
-  push:
-    branches: [ 'work/**' ]
-    paths:
-      - 'android/**'
-      - 'core/**'
-      - 'mobile/native/android/**'
-      - 'tests/**'
-      - '.github/workflows/s5-validation.yml'
   pull_request:
     branches: [ development/v3.3.3 ]
     paths:
