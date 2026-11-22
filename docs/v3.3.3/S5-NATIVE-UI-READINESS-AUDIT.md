@@ -1032,3 +1032,11 @@
 - PCM 输入现在强制 16 kHz、可写 direct buffer、正帧数且剩余容量足够；被 worker 接受后在 finally 清理原始缓冲区。
 - 该 Controller 的取消/关闭与 handle 生命周期策略未改变；只对成功入队的任务执行清理，未接受的调用仍由调用方持有缓冲区。
 - 仅静态源码回读；未运行 Kotlin 编译、JUnit 或设备测试。
+
+## 90. 远程 C++ 编译发现并修复 RenderClip 调色快照缺失
+
+- S5 验证工作流首次运行时，C++ 编译器与条件编译检查均发现 `export_executor.cpp` 多处读取 `RenderClip::colorGrade`，但导出 IR 结构没有该成员，导致桌面构建和 ASAN/UBSan 构建失败。
+- 根因是 `Clip` 已有完整 `ColorGrade`，导出执行器也已实现单片段、转场两侧和多层下层的调色消费，但 `RenderClip` 与 `compileClip()` 漏掉了这份调色快照。
+- 已在 `RenderClip` 增加显式 `ColorGrade` 字段，并在 `compileClip()` 从源 `Clip` 复制；新增导出计划测试验证非恒等主曲线会完整进入 IR。
+- 此修复恢复导出计划与渲染执行器之间的结构契约，不改调色算法或工程序列化格式。
+- 修复后必须等待新的 C++ Release/ASAN/UBSan/CTest 结果，以及 Android NDK/Kotlin 工作流结果；旧提交的失败记录不会被追溯改写。
