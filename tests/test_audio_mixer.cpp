@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "nairoclip/core/audio_mixer.h"
 #include "nairoclip/core/editor.h"
+#include <algorithm>
 #include <cmath>
 using namespace nairoclip::core;
 namespace {
