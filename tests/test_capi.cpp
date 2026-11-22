@@ -196,12 +196,14 @@ NC_TEST(Capi, SubtitleBatchIsAtomicAndUndoable) {
         {2500000, 500000, "合法条目"},
         {-1, 500000, "非法起点"},
     };
-    std::uint64_t invalidIds[2] = {};
+    std::uint64_t invalidIds[2] = {99, 100};
     const int32_t beforeUndo = nc_undo_count(editor);
     NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, invalid, 2, invalidIds),
                 NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_subtitle_count(editor), 3);
     NC_CHECK_EQ(nc_undo_count(editor), beforeUndo);
+    NC_CHECK_EQ(invalidIds[0], std::uint64_t(0));
+    NC_CHECK_EQ(invalidIds[1], std::uint64_t(0));
     NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, cues, 0, ids),
                 NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
