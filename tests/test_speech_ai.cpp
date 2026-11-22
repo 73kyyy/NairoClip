@@ -178,7 +178,7 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     SpeechRecognizer recognizer;
     std::string failure;
     const std::string tokenizer =
-        R"({"model":{"vocab":{"Hello":15496,"<|endoftext|>":50257}},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
+        R"({"model":{"type":"BPE","vocab":{"Hello":15496}},"decoder":{"type":"ByteLevel"},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
     NC_CHECK(recognizer.loadTokenizerJson(tokenizer, &failure));
     NC_CHECK(recognizer.tokenizerLoaded());
     NC_CHECK(!recognizer.decodeTokens({15496}).empty());
@@ -198,11 +198,10 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     NC_CHECK(!failure.empty());
     NC_CHECK(!recognizer.tokenizerLoaded());
 
-    // Special-token IDs must not collide with ordinary BPE entries: decodeTokens
-    // skips added-token IDs, so accepting a collision would silently drop text.
+    // Special-token IDs must not collide with ordinary BPE entries.
     failure.clear();
     NC_CHECK(!recognizer.loadTokenizerJson(
-        R"({"model":{"vocab":{"ordinary":42}},"added_tokens":[{"id":42,"content":"<|special|>"}]})",
+        R"({"model":{"type":"BPE","vocab":{"ordinary":42}},"decoder":{"type":"ByteLevel"},"added_tokens":[{"id":42,"content":"<|special|>"}]})",
         &failure));
     NC_CHECK(!failure.empty());
     NC_CHECK(!recognizer.tokenizerLoaded());
@@ -210,15 +209,14 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     // Duplicate IDs make reverse lookup ambiguous and must be rejected.
     failure.clear();
     NC_CHECK(!recognizer.loadTokenizerJson(
-        R"({"model":{"vocab":{"alpha":10,"beta":10}}})", &failure));
+        R"({"model":{"type":"BPE","vocab":{"alpha":10,"beta":10}},"decoder":{"type":"ByteLevel"}})", &failure));
     NC_CHECK(!failure.empty());
     NC_CHECK(!recognizer.tokenizerLoaded());
 
-    // GPT-2 byte-level BPE encodes spaces as Ġ (U+0120); decoding must restore
-    // the original byte stream rather than expose tokenizer-internal glyphs.
+    // GPT-2 byte-level BPE encodes spaces as Ġ (U+0120).
     failure.clear();
     NC_CHECK(recognizer.loadTokenizerJson(
-        R"({"model":{"vocab":{"helloĠworld":1}}})", &failure));
+        R"({"model":{"type":"BPE","vocab":{"helloĠworld":1}},"decoder":{"type":"ByteLevel"}})", &failure));
     NC_CHECK(recognizer.decodeTokens({1}) == "hello world");
 }
 
@@ -226,7 +224,7 @@ NC_TEST(SpeechAI, UnloadClearsTokenizerState) {
     SpeechRecognizer recognizer;
     std::string failure;
     const std::string tokenizer =
-        R"({"model":{"vocab":{"Hello":15496}},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
+        R"({"model":{"type":"BPE","vocab":{"Hello":15496}},"decoder":{"type":"ByteLevel"},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
     NC_CHECK(recognizer.loadTokenizerJson(tokenizer, &failure));
     NC_CHECK(recognizer.tokenizerLoaded());
     recognizer.unload();
