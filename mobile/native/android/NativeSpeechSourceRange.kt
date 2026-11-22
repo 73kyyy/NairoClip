@@ -86,6 +86,24 @@ data class NativeSpeechSourceRange(
         return (timelineStartUs + timelineStartDelta) to boundedDuration
     }
 
+    companion object {
+        /** Builds a range only from a snapshot carrying complete source metadata. */
+        fun fromTimelineClip(timelineStartUs: Long, clip: NativeTimelineClip): NativeSpeechSourceRange? {
+            if (!clip.sourceRangeKnown) return null
+            return NativeSpeechSourceRange(
+                timelineStartUs = timelineStartUs,
+                timelineDurationUs = clip.durationUs,
+                sourceInUs = clip.sourceInUs,
+                sourceOutUs = clip.sourceOutUs,
+                speedNumerator = clip.speedNumerator,
+                speedDenominator = clip.speedDenominator,
+                reversed = clip.reversed,
+                frozen = clip.frozen,
+                hasSpeedCurve = clip.hasSpeedCurve
+            )
+        }
+    }
+
     private fun roundedRatio(numerator: BigInteger, denominator: BigInteger): Long? {
         if (denominator.signum() <= 0 || numerator.signum() < 0) return null
         return try {
