@@ -30,6 +30,8 @@ typedef struct _jobject* jobject;
 typedef jobject jstring;
 typedef jobject jclass;
 typedef jobject jbyteArray;
+typedef jobject jlongArray;
+typedef jobject jobjectArray;
 typedef jobject jthrowable;
 typedef void*   jmethodID;
 typedef void*   jfieldID;
@@ -70,6 +72,12 @@ struct JNIEnv_ {
     void        GetByteArrayRegion(jbyteArray, jsize, jsize, jbyte*) {}
     void        SetByteArrayRegion(jbyteArray, jsize, jsize, const jbyte*) {}
     jbyteArray  NewByteArray(jsize) { return nullptr; }
+    jobject     GetObjectArrayElement(jobjectArray, jsize) { return nullptr; }
+    jlongArray  NewLongArray(jsize) { return nullptr; }
+    void        GetLongArrayRegion(jlongArray, jsize, jsize, jlong*) {}
+    void        SetLongArrayRegion(jlongArray, jsize, jsize, const jlong*) {}
+    void*       GetDirectBufferAddress(jobject) { return nullptr; }
+    jlong       GetDirectBufferCapacity(jobject) { return 0; }
     jint        GetJavaVM(JavaVM**) { return 0; }
     jobject     CallObjectMethod(jobject, void*, ...) { return nullptr; }
     void*       GetMethodID(jclass, const char*, const char*) { return nullptr; }
