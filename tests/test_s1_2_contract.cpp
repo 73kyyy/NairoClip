@@ -73,6 +73,13 @@ NC_TEST(S1_2, BuildStateClipJsonIsWellFormed) {
     NC_CHECK(f.ed != nullptr);
     if (f.ed == nullptr) return;
 
+    // Exercise non-empty arrays as well as the empty-array case: the bridge
+    // manually serializes both nested effect and transform objects.
+    NC_CHECK(nc_add_effect(f.ed, 0, f.clipId, 1, 0.5) != 0);
+    double xformArgs[NC_XFORM_ARG_COUNT] = {};
+    xformArgs[0] = 12.0;
+    NC_CHECK_EQ(nc_set_clip_xform(f.ed, 0, f.clipId, 0, xformArgs), NC_OK);
+
     nairoclip::core::JsonValue root;
     nairoclip::core::JsonParseError error;
     const bool parsed = nairoclip::core::parseJson(BuildState(f.ed), root, error);
@@ -93,7 +100,11 @@ NC_TEST(S1_2, BuildStateClipJsonIsWellFormed) {
     NC_CHECK(clip.has("effects"));
     NC_CHECK(clip.has("xforms"));
     NC_CHECK(clip.get("effects").isArray());
+    NC_CHECK(clip.get("effects").size() == 1);
     NC_CHECK(clip.get("xforms").isArray());
+    NC_CHECK(clip.get("xforms").size() == 1);
+    NC_CHECK(clip.get("effects").at(0).isObject());
+    NC_CHECK(clip.get("xforms").at(0).isObject());
 }
 
 // ===================== D-1 关键帧参数映射兼容 =====================
