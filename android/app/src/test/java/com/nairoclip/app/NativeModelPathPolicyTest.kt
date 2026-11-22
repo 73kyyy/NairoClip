@@ -4,8 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.nio.file.Files
-import java.nio.file.LinkOption
-import java.nio.file.Path
 
 class NativeModelPathPolicyTest {
     @Test
