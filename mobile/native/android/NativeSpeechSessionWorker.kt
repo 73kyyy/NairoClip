@@ -61,8 +61,8 @@ class NativeSpeechSessionWorker(
         encoder: ByteBuffer,
         decoder: ByteBuffer,
         tokenizer: ByteBuffer
-    ): CompletableFuture<JSONObject> = submit {
-        try {
+    ): CompletableFuture<JSONObject> {
+        val future = submit {
             require(
                 encoder.isDirect && decoder.isDirect && tokenizer.isDirect &&
                     encoder.hasRemaining() && decoder.hasRemaining() && tokenizer.hasRemaining()
@@ -78,14 +78,16 @@ class NativeSpeechSessionWorker(
                     it.optString("message").ifBlank { "Whisper 模型加载失败" }
                 }
             }
-        } finally {
+        }
+        // Also wipe buffers when submit() rejects the task before its body can run.
+        return future.whenComplete { _, _ ->
             zeroRemaining(encoder)
             zeroRemaining(decoder)
             zeroRemaining(tokenizer)
         }
     }
 
-    /** Runs mono float32 PCM inference. Input is cleared best-effort after native returns. */
+    /** Runs mono float32 PCM inference. Input is cleared best-effort after completion. */
     fun transcribe(
         pcm: ByteBuffer,
         frameCount: Long,
@@ -93,26 +95,29 @@ class NativeSpeechSessionWorker(
         language: Int = 0,
         clearPcmAfterUse: Boolean = true
     ): CompletableFuture<JSONObject> {
-        return submit {
-            try {
-                require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
-                require(frameCount > 0L) { "PCM 帧数必须大于 0" }
-                require(sampleRate == 16000) { "Whisper 输入必须为 16 kHz 单声道 PCM" }
-                require(language in 0..4) { "语音识别语言代码无效" }
-                require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
-                    "PCM 剩余容量不足"
-                }
-                // JNI GetDirectBufferAddress ignores ByteBuffer.position(); pass a
-                // zero-based view whose capacity equals the caller's remaining PCM bytes.
-                val pcmView = pcm.slice().order(java.nio.ByteOrder.nativeOrder())
-                JSONObject(bridge.transcribeSpeechSession(session, pcmView, frameCount, sampleRate, language)).also {
-                    check(it.optBoolean("ok", false)) {
-                        it.optString("message").ifBlank { "语音识别失败" }
-                    }
-                }
-            } finally {
-                if (clearPcmAfterUse) zeroRemaining(pcm)
+        val future = submit {
+            require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
+            require(frameCount > 0L) { "PCM 帧数必须大于 0" }
+            require(sampleRate == 16000) { "Whisper 输入必须为 16 kHz 单声道 PCM" }
+            require(language in 0..4) { "语音识别语言代码无效" }
+            require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
+                "PCM 剩余容量不足"
             }
+            // JNI GetDirectBufferAddress ignores ByteBuffer.position(); pass a
+            // zero-based view whose capacity equals the caller's remaining PCM bytes.
+            val pcmView = pcm.slice().order(java.nio.ByteOrder.nativeOrder())
+            JSONObject(bridge.transcribeSpeechSession(session, pcmView, frameCount, sampleRate, language)).also {
+                check(it.optBoolean("ok", false)) {
+                    it.optString("message").ifBlank { "语音识别失败" }
+                }
+            }
+        }
+        // The completion hook also runs for busy/closing rejection, where the worker
+        // operation body never starts and an in-body finally would not be reached.
+        return if (clearPcmAfterUse) {
+            future.whenComplete { _, _ -> zeroRemaining(pcm) }
+        } else {
+            future
         }
     }
 
