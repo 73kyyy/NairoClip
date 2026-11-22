@@ -273,6 +273,14 @@ NC_TEST(Capi, ClipSourceInfo) {
                                     nullptr, nullptr, nullptr), NC_OK);
     NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId + 999, &sourceIn, nullptr,
                                     nullptr, nullptr, nullptr), NC_ERROR_NOT_FOUND);
+
+    const std::uint64_t frozenId = nc_freeze_frame(editor, 0, clipId, 1500000, 1000000);
+    NC_CHECK(frozenId != 0);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, frozenId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, sourceOut);  // Frozen frames expose an unknown-range sentinel.
+    NC_CHECK_EQ(frozen, 1);
+    NC_CHECK_EQ(hasSpeedCurve, 0);
     nc_editor_destroy(editor);
 }
 
