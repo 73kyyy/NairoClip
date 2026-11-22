@@ -87,7 +87,9 @@ class NativeSpeechSessionWorker(
         return submit {
             try {
                 require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
-                require(frameCount > 0L && sampleRate > 0) { "PCM 帧数或采样率无效" }
+                require(frameCount > 0L) { "PCM 帧数必须大于 0" }
+                require(sampleRate == 16000) { "Whisper 输入必须为 16 kHz 单声道 PCM" }
+                require(language in 0..4) { "语音识别语言代码无效" }
                 require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES) {
                     "PCM 剩余容量不足"
                 }
@@ -224,7 +226,10 @@ class NativeSpeechSessionWorker(
     private fun zeroRemaining(buffer: ByteBuffer) {
         if (!buffer.isDirect || buffer.isReadOnly) return
         try {
+            // Wipe the entire view, not only its current remaining range:
+            // JNI/codec code may advance the caller's position before returning.
             val view = buffer.duplicate()
+            view.clear()
             while (view.hasRemaining()) view.put(0)
         } catch (_: Throwable) {
             // Best effort only; JVM/ORT/native copies and allocator remnants cannot be erased here.
