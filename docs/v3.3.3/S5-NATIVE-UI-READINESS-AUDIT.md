@@ -908,3 +908,12 @@
 - 当前 `NativeSpeechSessionWorker.decodeTranscribeAndInsert` 已具备系统音频解码、识别、时间戳换算及字幕批量事务写回的工作器接口，但 MainActivity/ViewModel 尚未提供选中素材 URI、精确时间线偏移、已加载会话和主线程状态发布。因此本节只完成剪辑页 UI 入口与宿主状态契约，**不代表自动字幕已经在运行时可用**。
 - Android Keystore/模型组件加密协议及 S1-3/S3-1/S1-8D 前置门仍未解除；本轮未改 Activity、Manifest、WebView 回退或模型安全协议。
 - 本轮仅完成 GitHub 源码静态回读；未执行 Gradle/Compose 编译、JUnit、NDK/CTest、真实模型推理或真机验证。
+
+
+## 75. 自动字幕 PCM 输入契约与缓冲区清理修复（2026-11-22）
+
+- 检查 \`NativeSpeechSessionWorker.transcribe()\`：原实现仅校验采样率大于 0，但该 Whisper Android 会话契约是 16 kHz 单声道 float32 PCM；现在明确要求 16 kHz，并校验语言代码为支持范围 0–4，避免不匹配的输入进入 JNI。
+- 修复 \`zeroRemaining()\` 的清理边界：原实现从 ByteBuffer 当前 position 清到 limit；若 JNI/解码调用推进了 position，前段 PCM/模型明文可能残留。现在对 duplicate 调用 clear()，清理当前 buffer view 的整个 capacity。
+- 该清理是 best-effort：不能保证抹除 JNI、运行时或底层分配器中的副本；不应对外宣称达到密码学安全擦除。
+- 未改变模型格式、精度、模型下载或 Activity 入口；没有绕过 S1-3/S3-1 等前置审批。
+- 本轮为源码静态审查与 GitHub 文件回读；未执行 Gradle 编译、单元测试、NDK 测试、模型推理或 Android 真机验证。
