@@ -83,7 +83,7 @@ object NativeEditorHostReducer {
 
         is NativeEditorHostEvent.SelectClip -> {
             val candidate = current.copy(selectedClip = event.target).normalized()
-            if (candidate.selectedClip == event.target) candidate
+            if (candidate.selectedClip == event.target) candidate.copy(errorMessage = null)
             else current.copy(errorMessage = "所选片段已不存在、已禁用或所属轨道已隐藏")
         }
 
