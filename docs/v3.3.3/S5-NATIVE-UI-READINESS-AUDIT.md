@@ -898,3 +898,13 @@
 - S5-0B remains blocked until S1-3 and S3-1 are genuinely accepted. S5-1 remains blocked on S1-8D and the shared Manifest file. S5-5 still requires the accepted Rational time contract; S5-6/S5-7 still require the S1-2 command contract.
 - MainActivity still loads `pages/01-home.html`; NativeAppShell is not yet a live host. The 14 Compose page components and native editor panels are implementation assets, not proof of runtime migration. The six `nairoclip-*-*.html` static files are generated snapshots excluded from APK packaging; they are not six additional product screens.
 - No Activity/Manifest switch, WebView deletion, or legacy asset cleanup was performed in this update.
+
+
+## 74. 原生自动字幕工具栏入口与状态面板（2026-11-22）
+
+- 新增 `NativeAutoSubtitlePanel.kt`，为剪辑页“文本 → 自动字幕”提供原生 Compose 状态面板：显示服务状态、有限进度、错误信息、开始与取消入口。
+- `NativeEditorScreen` 新增宿主注入的 `NativeAutoSubtitleUiState`、`onStartAutoSubtitle` 和 `onCancelAutoSubtitle`；自动字幕二级工具现在进入原生面板，不再因缺少专用路由而直接落入旧编辑器回退。
+- 面板只调用宿主回调，不自行访问媒体 URI、加载模型、调用 JNI 或写入字幕。未提供可用宿主时开始按钮保持禁用，并明确显示服务尚未接入；不展示虚构进度或识别成功。
+- 当前 `NativeSpeechSessionWorker.decodeTranscribeAndInsert` 已具备系统音频解码、识别、时间戳换算及字幕批量事务写回的工作器接口，但 MainActivity/ViewModel 尚未提供选中素材 URI、精确时间线偏移、已加载会话和主线程状态发布。因此本节只完成剪辑页 UI 入口与宿主状态契约，**不代表自动字幕已经在运行时可用**。
+- Android Keystore/模型组件加密协议及 S1-3/S3-1/S1-8D 前置门仍未解除；本轮未改 Activity、Manifest、WebView 回退或模型安全协议。
+- 本轮仅完成 GitHub 源码静态回读；未执行 Gradle/Compose 编译、JUnit、NDK/CTest、真实模型推理或真机验证。
