@@ -953,3 +953,12 @@
 - 已增加 \`subtitleCommitStarted\` 阶段标记。进入批量引擎事务前在同一生命周期锁内设置；提交阶段的取消请求返回 \`false\)，不再声称已接受。任务成功、失败或执行器拒绝任务时都会复位标记。
 - 协调器同步调整拒绝文案为“当前阶段无法接受取消请求，正在等待任务结束”，避免把拒绝请求表述成已发起取消。
 - 仍需真机/集成测试覆盖“取消与事务开始同时发生”“事务提交成功后立即取消”“事务失败后再次启动”等时序；本轮仅静态检查与代码回读。
+
+
+## 80. Direct ByteBuffer position 与 JNI 地址语义（2026-11-22）
+
+- 复核 Android JNI 语音接口后确认：\`GetDirectBufferAddress()\` 返回 direct buffer 视图的基址，不会自动按 Java \`ByteBuffer.position()\` 前移；JNI 侧容量检查也以传入视图容量为准。
+- \`NativeSpeechSessionWorker.transcribe()\` 和 \`load()\` 原先直接把调用方 buffer 传给 JNI。调用方若传入 position 非零的 direct buffer，native 可能从错误偏移读取模型/PCM，且按 remaining 做的 Kotlin 校验与 JNI 实际读取范围不一致。
+- 已修复：模型缓冲区要求 direct 且 remaining 非空，传 JNI 前分别创建 \`slice()\`；PCM 传 JNI 前创建从当前 position 开始的 zero-based slice，并设置 native byte order。原始缓冲区仍由 worker 在 finally 中做 best-effort 清理。
+- 自动字幕解码器输出 position 为 0 的 direct PCM，行为不变；修复同时让通用 worker API 对 position 非零的调用方缓冲区符合 Java ByteBuffer 语义。
+- 已核对 JNI 实现确实使用 \`GetDirectBufferAddress\` 与 \`GetDirectBufferCapacity\`。本轮未运行 Kotlin/JNI 编译或设备测试；建议增加 position 非零的 direct-buffer 集成测试，验证模型加载与 PCM 推理只读取 remaining 区间。
