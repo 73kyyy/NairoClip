@@ -9,6 +9,30 @@ import org.junit.Test
 
 class NativeSpeechSourceRangeTest {
     @Test
+    fun buildsOnlyFromCompleteNativeClipSourceMetadata() {
+        val clip = NativeTimelineClip(
+            id = 7L,
+            startUs = 2_000_000L,
+            durationUs = 2_000_000L,
+            label = "素材",
+            speedNumerator = 2L,
+            speedDenominator = 1L,
+            sourceInUs = 1_000_000L,
+            sourceOutUs = 5_000_000L,
+            sourceRangeKnown = true
+        )
+        val range = NativeSpeechSourceRange.fromTimelineClip(clip.startUs, clip)
+        assertNotNull(range)
+        assertNull(range!!.validationError())
+        assertNull(
+            NativeSpeechSourceRange.fromTimelineClip(
+                clip.startUs,
+                clip.copy(sourceRangeKnown = false)
+            )
+        )
+    }
+
+    @Test
     fun mapsTwoTimesSourceAudioBackToHalfSpeedTimelineDuration() {
         val range = NativeSpeechSourceRange(
             timelineStartUs = 3_000_000L,
