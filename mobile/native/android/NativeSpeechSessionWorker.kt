@@ -113,10 +113,20 @@ class NativeSpeechSessionWorker(
         language: Int = 0
     ): CompletableFuture<NativeEditorCommandAdapter.EditorStateSnapshot> {
         require(timelineStartUs >= 0L) { "字幕起始时间不能为负数" }
+        require(language in 0..4) { "语音识别语言代码无效" }
         return submit {
             val decoded = AndroidAudioPcmDecoder.decodeToMono16k(context.applicationContext, uri, cancellationRequested)
             try {
                 check(!cancellationRequested.get()) { "语音识别已取消" }
+                require(decoded.samples.isDirect && !decoded.samples.isReadOnly) {
+                    "解码 PCM 必须是可写 direct ByteBuffer"
+                }
+                require(decoded.sampleRate == 16000 && decoded.frameCount > 0L) {
+                    "解码 PCM 必须为非空 16 kHz 单声道音频"
+                }
+                require(decoded.frameCount <= decoded.samples.remaining().toLong() / Float.SIZE_BYTES) {
+                    "解码 PCM 帧数与缓冲区容量不一致"
+                }
                 val response = JSONObject(bridge.transcribeSpeechSession(
                     session, decoded.samples, decoded.frameCount, decoded.sampleRate, language
                 ))
