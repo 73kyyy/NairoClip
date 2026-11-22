@@ -77,7 +77,9 @@ public:
     /// - outSegments：出参识别分段（文本 + 时间）；
     /// - progress：进度回调（0..1；返回 false 取消；可空）；
     /// - outputFailure：失败说明（可空）。
-    /// 返回 false：未加载 / 音频为空 / 推理失败 / 用户取消。
+    /// 前置条件：模型与 tokenizer.json 均须成功加载；缺少词表时拒绝推理，
+    /// 不返回 token ID 占位文本。
+    /// 返回 false：未加载 / 词表缺失 / 音频为空 / 推理失败 / 用户取消。
     bool transcribe(const float* samples, std::size_t frameCount, int sampleRate,
                     SpeechLanguage language, std::vector<SpeechSegment>& outSegments,
                     const std::function<bool(double)>& progress = nullptr,
