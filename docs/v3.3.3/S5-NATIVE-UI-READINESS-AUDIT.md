@@ -987,3 +987,11 @@
 - 已修复：自动字幕专用路径现在传递 `decoded.samples.slice().order(ByteOrder.nativeOrder())`，JNI 看到的 capacity 与校验使用的 remaining 范围一致；原始 direct buffer 仍在 finally 中整体 best-effort 清零。
 - 本修复不解决第82节记录的 sourceIn/sourceOut/变速映射缺口；自动字幕仍不能宣称支持所有裁剪与变速片段。
 - 仅静态源码修改与回读；未运行 Kotlin/Gradle、JNI、NDK/CTest 或真机测试。
+
+## 84. 片段源素材映射元数据 C API 与 JNI 快照扩展（2026-11-22）
+
+- 第82节缺口进一步拆解：仅增加 sourceIn/sourceOut 仍不足以让 ASR 安全映射。核心片段还可能倒放、定格或启用非恒速曲线；宿主必须知道这些标志，不能把所有片段误当作 1x 正放。
+- 新增独立 C ABI `nc_clip_source_info`，不改变既有 `nc_clip_info` 签名；读取源入点、按基础速度计算的源区间终点，以及 reversed/frozen/has_speed_curve 标志。输出指针可选，错误身份会返回明确错误码。
+- JNI `BuildState()` 现在把上述字段写入每个片段快照；Kotlin `NativeTimelineClip` 和严格解析器保留这些字段，并对源区间范围与标志位做校验。为兼容旧快照，完全缺少新字段时将 `sourceRangeKnown` 设为 false；部分字段缺失或值非法则拒绝快照。
+- 重要边界：`sourceOut` 是核心 Clip 的基础速度源区间终点；存在速度曲线时不能据此推断线性时间映射。倒放、定格和变速曲线仍必须由 ASR 宿主显式拒绝或实现相应映射。此提交只补齐元数据，不宣称完成裁剪/变速自动字幕。
+- 本轮只做源码修改与 GitHub 静态回读；未执行 CMake/NDK、CTest、Gradle/Kotlin 编译、JUnit、CI 或真机测试。
