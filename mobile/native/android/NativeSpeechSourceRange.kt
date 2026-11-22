@@ -22,9 +22,9 @@ data class NativeSpeechSourceRange(
     val hasSpeedCurve: Boolean = false
 ) {
     fun validationError(): String? {
-        if (timelineStartUs < 0L || timelineDurationUs <= 0L ||
-            sourceInUs < 0L || sourceOutUs <= sourceInUs
-        ) return "自动字幕源区间无效"
+        if (timelineStartUs < 0L || timelineDurationUs <= 0L || sourceInUs < 0L) {
+            return "自动字幕源区间无效"
+        }
         if (timelineStartUs > Long.MAX_VALUE - timelineDurationUs) {
             return "自动字幕时间轴区间溢出"
         }
@@ -34,6 +34,7 @@ data class NativeSpeechSourceRange(
         if (reversed || frozen || hasSpeedCurve) {
             return "自动字幕暂不支持倒放、定格或变速曲线片段"
         }
+        if (sourceOutUs <= sourceInUs) return "自动字幕源区间无效"
         val expectedSourceSpan = roundedRatio(
             BigInteger.valueOf(timelineDurationUs).multiply(BigInteger.valueOf(speedNumerator)),
             BigInteger.valueOf(speedDenominator)
