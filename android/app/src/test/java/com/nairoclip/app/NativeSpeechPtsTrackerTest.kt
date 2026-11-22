@@ -14,6 +14,31 @@ class NativeSpeechPtsTrackerTest {
     }
 
     @Test
+    fun measuresFortyFourKhzTimestampAgainstCumulativeFramesWithoutRoundingDrift() {
+        val tracker = NativeSpeechPtsTracker(44100)
+        tracker.accept(2_000_000L, 441L)
+        tracker.accept(2_010_023L, 441L) // 23us timestamp quantization.
+        tracker.accept(2_020_001L, 441L) // Expected from first PTS + 882 frames, not prior PTS.
+        assertEquals(2_000_000L, tracker.firstPresentationTimeUs())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsZeroFrameOutputBuffer() {
+        NativeSpeechPtsTracker(16000).accept(0L, 0L)
+    }
+
+    @Test
+    fun rejectsNegativeOrOverflowingTimestampInput() {
+        val tracker = NativeSpeechPtsTracker(16000)
+        try {
+            tracker.accept(-1L, 160L)
+            throw AssertionError("negative PTS must be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected.
+        }
+    }
+
+    @Test
     fun rejectsPositiveGapLargerThanCodecQuantizationTolerance() {
         val tracker = NativeSpeechPtsTracker(48000)
         tracker.accept(0L, 480L)
