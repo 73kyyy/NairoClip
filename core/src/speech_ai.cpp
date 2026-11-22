@@ -568,6 +568,13 @@ bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
                 return false;
             }
             const int id = static_cast<int>(rawId);
+            if (impl_->idToToken.find(id) != impl_->idToToken.end()) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens ID 与 BPE vocab 冲突";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
             if (!impl_->addedTokens.emplace(id, content).second) {
                 if (outputFailure != nullptr) *outputFailure = "added_tokens 包含重复 token ID";
                 impl_->vocab.clear();
@@ -575,9 +582,7 @@ bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
                 impl_->addedTokens.clear();
                 return false;
             }
-            if (impl_->idToToken.find(id) == impl_->idToToken.end()) {
-                impl_->idToToken.emplace(id, content);
-            }
+            impl_->idToToken.emplace(id, content);
         }
     }
     impl_->tokenizerReady = true;
