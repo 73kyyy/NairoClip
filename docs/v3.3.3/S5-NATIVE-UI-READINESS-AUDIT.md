@@ -1024,3 +1024,11 @@
 - 模型 encoder/decoder/tokenizer 缓冲区现在必须是可写 direct buffer；通用 PCM 推理在 `clearPcmAfterUse=true` 时也要求可写。调用方显式选择 `clearPcmAfterUse=false` 时仍允许只读 PCM。
 - 这让清理承诺与输入约束一致；仍只属于 JVM 可见 direct buffer 的 best-effort 清理，不覆盖共享副本、JNI/ORT 张量或系统分配器残留。
 - 仅静态源码回读；未运行 Kotlin 编译或设备验证。
+
+## 89. 旧版 ASR Controller 输入契约与缓冲区生命周期统一
+
+- 仓库还保留独立的 `NativeSpeechSessionController`，不能只修复新 Worker 而遗漏旧 Controller 的 JNI 调用路径。
+- 已统一模型输入约束：三个模型缓冲区必须是非空、可写 direct ByteBuffer；被 worker 接受后，无论推理成功还是异常，均 best-effort 清理原始缓冲区。
+- PCM 输入现在强制 16 kHz、可写 direct buffer、正帧数且剩余容量足够；被 worker 接受后在 finally 清理原始缓冲区。
+- 该 Controller 的取消/关闭与 handle 生命周期策略未改变；只对成功入队的任务执行清理，未接受的调用仍由调用方持有缓冲区。
+- 仅静态源码回读；未运行 Kotlin 编译、JUnit 或设备测试。
