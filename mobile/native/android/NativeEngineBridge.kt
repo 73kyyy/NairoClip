@@ -539,6 +539,7 @@ class NativeEngineBridge(
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             digest.digest(bytes).joinToString("") { "%02x".format(it) }
         } catch (error: Throwable) {
+            bytes.fill(0)
             return err("计算 SHA-256 失败：${error.message}")
         }
 
