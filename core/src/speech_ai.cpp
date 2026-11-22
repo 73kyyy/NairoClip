@@ -282,6 +282,11 @@ bool SpeechRecognizer::load(const std::string& encoderPath, const std::string& d
         if (outputFailure != nullptr) *outputFailure = "内存分配失败";
         return false;
     }
+    // A new model must never inherit the previous model's tokenizer.
+    impl_->vocab.clear();
+    impl_->idToToken.clear();
+    impl_->addedTokens.clear();
+    impl_->tokenizerReady = false;
     if (!aiEngineAvailable()) {
         if (outputFailure != nullptr) {
             *outputFailure = "AI 推理引擎不可用（未链接 ONNX Runtime）";
@@ -371,6 +376,11 @@ bool SpeechRecognizer::loadFromMemory(const void* encoderData, std::size_t encod
         if (outputFailure != nullptr) *outputFailure = "内存分配失败";
         return false;
     }
+    // A new model must never inherit the previous model's tokenizer.
+    impl_->vocab.clear();
+    impl_->idToToken.clear();
+    impl_->addedTokens.clear();
+    impl_->tokenizerReady = false;
     if (!aiEngineAvailable()) {
         if (outputFailure != nullptr) *outputFailure = "AI 推理引擎不可用（未链接 ONNX Runtime）";
         return false;
