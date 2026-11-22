@@ -146,7 +146,8 @@ class NativeSpeechSourceRangeTest {
         )
         assertEquals(7_000_000L to 1_000_000L, range.mapSegment(0.0, 1.0, 1_000_000L))
         assertNull(range.mapSegment(1.0, 1.1, 1_000_000L))
-        assertNull(range.mapSegment(0.0, 1.000003, 1_000_000L))
+        // A sub-frame timestamp tail is quantization, not extra clip duration.
+        assertEquals(7_000_000L to 1_000_000L, range.mapSegment(0.0, 1.000003, 1_000_000L))
     }
 
     @Test
