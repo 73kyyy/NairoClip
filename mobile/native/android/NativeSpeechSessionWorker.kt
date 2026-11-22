@@ -44,6 +44,8 @@ class NativeSpeechSessionWorker(
     private val closed = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
     private val cancellationRequested = AtomicBoolean(false)
+    // Once the engine transaction begins it cannot be cancelled safely; report that boundary honestly.
+    private val subtitleCommitStarted = AtomicBoolean(false)
 
     init {
         require(pollIntervalMs in 100L..5000L) { "状态轮询间隔必须在 100–5000ms" }
@@ -159,6 +161,8 @@ class NativeSpeechSessionWorker(
                 }
                 val inserted = synchronized(lifecycleLock) {
                     check(!closing.get() && !cancellationRequested.get()) { "字幕写入前任务已取消或会话正在关闭" }
+                    // The batch is atomic but not interruptible once dispatched to the engine.
+                    subtitleCommitStarted.set(true)
                     adapter.addSubtitlesBatchAndReadEditorState(cues)
                 }
                 check(inserted.ok) { inserted.error ?: "自动字幕写入失败" }
@@ -171,9 +175,9 @@ class NativeSpeechSessionWorker(
 
     /** Cooperative cancellation; returns false when native inference is not cancellable. */
     fun cancel(): Boolean = synchronized(lifecycleLock) {
-        if (closing.get() || !busy.get()) return@synchronized false
-        // The cooperative token also cancels MediaCodec decoding and prevents
-        // subtitle insertion, even when native inference has not started yet.
+        if (closing.get() || !busy.get() || subtitleCommitStarted.get()) return@synchronized false
+        // The cooperative token cancels MediaCodec decoding and prevents subtitle
+        // insertion. Once the engine batch starts, cancellation is no longer accepted.
         cancellationRequested.set(true)
         try { bridge.cancelSpeechSession(session) } catch (_: Throwable) {}
         // A request is accepted once the worker has recorded the token. Native
@@ -193,22 +197,26 @@ class NativeSpeechSessionWorker(
                 return result
             }
             cancellationRequested.set(false)
+            subtitleCommitStarted.set(false)
             try {
                 worker.execute {
                     try {
                         check(!closing.get()) { "Whisper 会话正在关闭" }
                         val value = operation()
                         busy.set(false)
+                        subtitleCommitStarted.set(false)
                         publishStatus()
                         result.complete(value)
                     } catch (t: Throwable) {
                         busy.set(false)
+                        subtitleCommitStarted.set(false)
                         publishStatus()
                         result.completeExceptionally(t)
                     }
                 }
             } catch (t: Throwable) {
                 busy.set(false)
+                subtitleCommitStarted.set(false)
                 result.completeExceptionally(t)
             }
         }
