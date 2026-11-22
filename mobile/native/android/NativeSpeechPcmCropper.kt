@@ -3,6 +3,7 @@ package com.nairoclip.app
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.ceil
+import kotlin.math.roundToLong
 
 /**
  * Crops decoder seek-preroll and samples after the selected clip source out-point.
@@ -52,11 +53,19 @@ object NativeSpeechPcmCropper {
             .order(ByteOrder.nativeOrder())
         output.asFloatBuffer().put(sourceFloats)
         output.position(0)
+        // ceil() selects the first sample at or after the source in-point.
+        // Preserve that sample's actual media timestamp instead of relabelling it
+        // as the exact in-point (which can shift captions by almost one PCM frame).
+        val croppedStartOffsetUs =
+            (startFrame.toDouble() * 1_000_000.0 / decoded.sampleRate.toDouble()).roundToLong()
+        require(decoded.startTimeUs <= Long.MAX_VALUE - croppedStartOffsetUs) {
+            "裁剪后音频起始时间戳溢出"
+        }
         return AndroidSpeechPcm(
             samples = output,
             frameCount = frameCount,
             sampleRate = decoded.sampleRate,
-            startTimeUs = sourceRange.sourceInUs
+            startTimeUs = decoded.startTimeUs + croppedStartOffsetUs
         )
     }
     private fun ceilFrameIndex(deltaUs: Long, sampleRate: Int): Long {
