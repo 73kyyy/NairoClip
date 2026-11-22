@@ -1050,7 +1050,7 @@ private fun NativeMaskNumberField(
             singleLine = true,
             textStyle = TextStyle(color = NcColors.text, fontSize = 9.sp, textAlign = TextAlign.End),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = onCommit)
+            keyboardActions = KeyboardActions(onDone = { onCommit() })
         )
     }
 }
