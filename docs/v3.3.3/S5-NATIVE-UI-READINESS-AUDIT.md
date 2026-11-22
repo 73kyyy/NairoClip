@@ -979,3 +979,11 @@
 - 自动字幕 worker 当前仅接收 URI 与时间轴起点，解码器从媒体开头解码整段音频，且识别时间按 1x 直接平移；它没有应用片段源入点、片段源出点或变速映射。
 - 因此当前实现只适用于“URI 对应的音频内容本身就是所选片段范围、且按 1x 放置”的情况；对已裁剪、变速或 URI 指向完整原素材的片段，不能保证字幕时间准确。宿主在未取得完整片段区间之前不应将其包装为全场景可用。
 - 下一轮需先扩展并测试 C API 源区间读取契约，再同步 JNI 快照和 Kotlin 时间轴模型，最后实现按源区间解码及时间轴映射。该跨层契约需同步检查 ABI 调用点和现有时间轴测试，不能只在 Kotlin 层猜测源入点。
+
+## 83. 自动字幕专用 PCM JNI 视图对齐（2026-11-22）
+
+- 复核自动字幕专用路径时发现：通用 `transcribe()` 已将 direct ByteBuffer 按当前 position/limit 转成 zero-based slice，并显式设置 native byte order；但 `decodeTranscribeAndInsert()` 仍把解码器原始 ByteBuffer 直接传入 JNI。
+- 当前系统解码器返回的缓冲区 position 通常为 0，因此常规路径不一定触发错误；但专用路径没有维持 JNI 地址语义与通用入口一致的契约，未来缓冲区视图或解码器实现调整后可能读取错误起点，且没有显式保证 float32 的 native byte order。
+- 已修复：自动字幕专用路径现在传递 `decoded.samples.slice().order(ByteOrder.nativeOrder())`，JNI 看到的 capacity 与校验使用的 remaining 范围一致；原始 direct buffer 仍在 finally 中整体 best-effort 清零。
+- 本修复不解决第82节记录的 sourceIn/sourceOut/变速映射缺口；自动字幕仍不能宣称支持所有裁剪与变速片段。
+- 仅静态源码修改与回读；未运行 Kotlin/Gradle、JNI、NDK/CTest 或真机测试。
