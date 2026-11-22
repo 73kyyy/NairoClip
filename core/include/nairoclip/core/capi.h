@@ -1110,7 +1110,7 @@ int32_t nc_person_effect_apply(uint8_t* rgba, const uint8_t* alpha, int32_t widt
                                int32_t effect, double intensity);
 
 /// 加载语音识别模型（Whisper encoder + decoder + BPE 词表）。
-/// - tokenizer_path：词表 JSON 路径（可空 = 不加载词表，解码返回 token 占位）；
+/// - tokenizer_path：必需的 Whisper tokenizer.json 路径；缺失或加载失败时整个加载失败；
 /// - out_error：出参（可 NULL）失败原因（**需 nc_free_string**）。
 int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* decoder_path,
                        const char* tokenizer_path, char** out_error);
