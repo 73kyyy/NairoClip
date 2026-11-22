@@ -155,7 +155,12 @@ class NativeEngineBridge(
         session: Long, encoder: java.nio.ByteBuffer,
         decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer
     ): String {
-        require(session != 0L && encoder.isDirect && decoder.isDirect && tokenizer.isDirect)
+        require(session != 0L)
+        require(
+            listOf(encoder, decoder, tokenizer).all {
+                it.isDirect && !it.isReadOnly && it.hasRemaining()
+            }
+        ) { "Whisper 模型缓冲区必须是非空、可写 direct ByteBuffer" }
         return nativeSpeechSessionLoad(session, encoder.slice(), decoder.slice(), tokenizer.slice())
     }
 
@@ -164,9 +169,18 @@ class NativeEngineBridge(
         session: Long, pcm: java.nio.ByteBuffer, frameCount: Long,
         sampleRate: Int = 16000, language: Int = 0
     ): String {
-        require(session != 0L && pcm.isDirect && frameCount > 0L)
-        require(frameCount <= pcm.capacity().toLong() / 4L)
-        return nativeSpeechSessionTranscribe(session, pcm.slice().order(java.nio.ByteOrder.nativeOrder()), frameCount, sampleRate, language)
+        require(session != 0L && pcm.isDirect && !pcm.isReadOnly && frameCount > 0L)
+        require(sampleRate == 16000 && language in 0..4)
+        // slice() below exposes only the caller's remaining range. Validate
+        // against that same range, never against the original buffer capacity.
+        require(frameCount <= pcm.remaining().toLong() / java.nio.Float.BYTES)
+        return nativeSpeechSessionTranscribe(
+            session,
+            pcm.slice().order(java.nio.ByteOrder.nativeOrder()),
+            frameCount,
+            sampleRate,
+            language
+        )
     }
 
     fun cancelSpeechSession(session: Long): Boolean =
