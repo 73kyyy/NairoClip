@@ -96,6 +96,45 @@ class NativeSpeechSourceRangeTest {
     }
 
     @Test
+    fun clampsFinalPcmFrameRoundingTailToClipOutPoint() {
+        val range = NativeSpeechSourceRange(
+            timelineStartUs = 2_000_000L,
+            timelineDurationUs = 500_000L,
+            sourceInUs = 250_030L,
+            sourceOutUs = 750_030L,
+            speedNumerator = 1L,
+            speedDenominator = 1L
+        )
+        val mapped = range.mapSegment(
+            startSeconds = 0.0,
+            endSeconds = 0.5,
+            audioDurationUs = 500_000L,
+            audioStartOffsetUs = 33L
+        )
+        assertEquals(2_000_033L to 499_967L, mapped)
+    }
+
+    @Test
+    fun rejectsAudioMappingThatExceedsClipByMoreThanOnePcmFrame() {
+        val range = NativeSpeechSourceRange(
+            timelineStartUs = 2_000_000L,
+            timelineDurationUs = 500_000L,
+            sourceInUs = 250_030L,
+            sourceOutUs = 750_030L,
+            speedNumerator = 1L,
+            speedDenominator = 1L
+        )
+        assertNull(
+            range.mapSegment(
+                startSeconds = 0.0,
+                endSeconds = 0.5,
+                audioDurationUs = 500_000L,
+                audioStartOffsetUs = 100L
+            )
+        )
+    }
+
+    @Test
     fun mapsExactClipBoundariesWithoutMovingCaptionsOutsideTheClip() {
         val range = NativeSpeechSourceRange(
             timelineStartUs = 7_000_000L,
