@@ -53,4 +53,15 @@ class NativeSpeechPcmCropperTest {
     fun rejectsDecoderThatDidNotCoverTheRequestedSourceOutPoint() {
         NativeSpeechPcmCropper.trim(pcm(8_000, 0L), range())
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsPcmThatMissesTheOutPointByOnlyOneFrame() {
+        NativeSpeechPcmCropper.trim(pcm(11_999, 0L), range())
+    }
+
+    @Test
+    fun acceptsExactFrameAlignedOutPointWithoutFloatingPointDrift() {
+        val cropped = NativeSpeechPcmCropper.trim(pcm(12_000, 0L), range())
+        assertEquals(8_000L, cropped.frameCount)
+    }
 }
