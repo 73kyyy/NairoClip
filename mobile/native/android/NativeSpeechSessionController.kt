@@ -235,7 +235,6 @@ class NativeSpeechSessionController(
                 worker.shutdown()
                 return
             }
-            current
         }
         try {
             if (!worker.awaitTermination(CLOSE_WAIT_SECONDS, TimeUnit.SECONDS)) {
