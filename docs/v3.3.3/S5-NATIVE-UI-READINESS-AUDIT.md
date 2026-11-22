@@ -1135,3 +1135,10 @@
 - 新作业在 Ubuntu 主机安装 FFmpeg 开发依赖，配置 CMake 测试构建，编译 `nairoclip_tests`，再通过 `ctest --test-dir build-ctest` 运行 `S1_2.` 与 `Capi.` 前缀测试。
 - 该定向 CTest 覆盖 JNI BuildState JSON 契约、DispatchEdit 契约和 C ABI 字幕批量事务等相关测试；它与 Android NDK arm64 交叉编译、Kotlin/JVM 测试互补，不替代主 CI 全量回归。
 - 新作业已提交，等待 GitHub Actions 实际执行；尚不能标记为通过。
+
+## 94. C ABI 字幕批量写入失败时的输出 ID 原子性
+
+- 继续审查 `nc_upsert_subtitles_batch` 发现：项目状态虽会在 cue 写入失败时撤销，但输出 ID 数组此前逐项写入；若后续 cue 失败，调用方仍会收到一部分看似有效的 ID。
+- 已改为调用开始时清零输出 ID，使用局部数组收集新 ID，并且仅在整个事务成功结束后一次性发布。
+- 扩展 `Capi.SubtitleBatchIsAtomicAndUndoable`：失败输入使用非零哨兵 ID，断言失败后所有输出 ID 均为零，同时确认字幕数量和撤销栈未变化。
+- 这补齐了 C ABI 的结果输出原子性，不改变函数签名和成功路径语义；等待新的 CTest/全量 C++ 回归验证。
