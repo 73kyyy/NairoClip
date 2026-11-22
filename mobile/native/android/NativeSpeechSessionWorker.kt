@@ -43,6 +43,7 @@ class NativeSpeechSessionWorker(
     private val closing = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
+    private val modelLoaded = AtomicBoolean(false)
     private val cancellationRequested = AtomicBoolean(false)
     // Once the engine transaction begins it cannot be cancelled safely; report that boundary honestly.
     private val subtitleCommitStarted = AtomicBoolean(false)
@@ -72,12 +73,14 @@ class NativeSpeechSessionWorker(
             }
             // JNI GetDirectBufferAddress points at the buffer view's base address,
             // not its current position. Slice so native sees exactly the remaining bytes.
+            modelLoaded.set(false)
             JSONObject(bridge.loadSpeechSession(
                 session, encoder.slice(), decoder.slice(), tokenizer.slice()
             )).also {
                 check(it.optBoolean("ok", false)) {
                     it.optString("message").ifBlank { "Whisper 模型加载失败" }
                 }
+                modelLoaded.set(true)
             }
         }
         // Also wipe buffers when submit() rejects the task before its body can run.
@@ -97,6 +100,7 @@ class NativeSpeechSessionWorker(
         clearPcmAfterUse: Boolean = true
     ): CompletableFuture<JSONObject> {
         val future = submit {
+            check(modelLoaded.get()) { "Whisper 模型尚未成功加载" }
             require(pcm.isDirect && (!clearPcmAfterUse || !pcm.isReadOnly)) {
                 "PCM 必须是 direct ByteBuffer；启用清理时还必须可写"
             }
@@ -137,6 +141,7 @@ class NativeSpeechSessionWorker(
         }
         require(language in 0..4) { "语音识别语言代码无效" }
         return submit {
+            check(modelLoaded.get()) { "Whisper 模型尚未成功加载" }
             val decoded = AndroidAudioPcmDecoder.decodeToMono16k(
                 context.applicationContext,
                 uri,
