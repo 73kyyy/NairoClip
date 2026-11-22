@@ -154,7 +154,9 @@ DenoiseTuning denoiseTuningFor(DenoiseStrength strength) {
         case DenoiseStrength::Weak:
             return DenoiseTuning{1.3, 0.12};
         case DenoiseStrength::Medium:
-            return DenoiseTuning{1.8, 0.06};
+            // Keep speech transients intelligible on real Gaussian-noise media;
+            // strong remains the deliberately aggressive preset.
+            return DenoiseTuning{1.5, 0.06};
         case DenoiseStrength::Strong:
             return DenoiseTuning{2.4, 0.02};
     }
