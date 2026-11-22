@@ -82,8 +82,12 @@ internal class NativeSpeechResampler(
             val expanded = ByteBuffer.allocateDirect(
                 max(values.capacity() * 2, (outputSize + 1) * Float.SIZE_BYTES)
             ).order(ByteOrder.nativeOrder())
-            values.flip()
-            expanded.put(values)
+            val previousBuffer = values
+            previousBuffer.flip()
+            expanded.put(previousBuffer)
+            // Direct buffers can contain audio plaintext. Clear the old allocation
+            // before dropping the final reference after capacity growth.
+            wipe(previousBuffer)
             values = expanded
         }
         values.putFloat(value)
@@ -95,12 +99,16 @@ internal class NativeSpeechResampler(
         return values.duplicate().apply { flip() }
     }
 
-    fun clear() {
+    private fun wipe(buffer: ByteBuffer) {
         try {
-            val view = values.duplicate()
+            val view = buffer.duplicate()
             view.clear()
             while (view.hasRemaining()) view.put(0)
         } catch (_: Throwable) {}
+    }
+
+    fun clear() {
+        wipe(values)
         outputSize = 0
         previous = null
         sourceIndex = 0L
