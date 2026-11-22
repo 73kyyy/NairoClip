@@ -89,6 +89,8 @@ object AndroidAudioPcmDecoder {
             var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
             var firstOutputPresentationTimeUs: Long? = null
             var expectedNextOutputPresentationTimeUs: Long? = null
+            val maxOutputFrames = (TARGET_RATE.toLong() * (maxDurationMs + 5000L) / 1000L)
+                .coerceAtLeast(1L)
             val info = MediaCodec.BufferInfo()
 
             while (!outputEos) {
@@ -191,8 +193,6 @@ object AndroidAudioPcmDecoder {
                             // Seeking to the previous sync sample may decode a short preroll
                             // before sourceInUs; allow up to 5 seconds for that data, then the
                             // worker trims by the first output PTS before inference.
-                            val maxOutputFrames = (TARGET_RATE.toLong() * (maxDurationMs + 5000L) / 1000L)
-                                .coerceAtLeast(1L)
                             require(resampler!!.outputSize.toLong() <= maxOutputFrames) {
                                 "重采样结果超过音频时长上限（含 seek preroll）"
                             }
@@ -205,6 +205,9 @@ object AndroidAudioPcmDecoder {
 
             val completedResampler = resampler ?: throw IllegalStateException("解码器没有输出音频样本")
             completedResampler.finish()
+            require(completedResampler.outputSize.toLong() <= maxOutputFrames) {
+                "重采样结束帧超过音频时长上限（含 seek preroll）"
+            }
             val samples = completedResampler.toDirectBuffer()
             val frames = samples.remaining() / Float.SIZE_BYTES
             require(frames > 0) { "解码后的音频为空" }
