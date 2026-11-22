@@ -11,10 +11,10 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Lifecycle-neutral host adapter for the native automatic-subtitle panel.
  *
- * The Activity/ViewModel supplies the selected source URI, its timeline offset,
- * and whether the speech session has completed model loading. All state
- * notifications are marshalled onto the main looper; decoding/inference and
- * subtitle insertion remain inside NativeSpeechSessionWorker.
+ * The Activity/ViewModel supplies the selected source URI, the authoritative
+ * clip source/timeline mapping, and whether the speech session has completed
+ * model loading. All state notifications are marshalled onto the main looper;
+ * decoding/inference and subtitle insertion remain inside NativeSpeechSessionWorker.
  */
 class NativeAutoSubtitleCoordinator(
     context: Context,
