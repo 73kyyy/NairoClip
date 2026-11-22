@@ -137,7 +137,10 @@ fun NativeEditorScreen(
     onTextStyleChanged: ((Int, Long, NativeEditorCommandAdapter.TextStyleUpdate) -> Unit)? = null,
     onCreateSubtitle: ((String, Long, Long) -> Unit)? = null,
     subtitleCues: List<NativeEditorCommandAdapter.SubtitleCueState> = emptyList(),
-    onRemoveSubtitle: ((Long) -> Unit)? = null
+    onRemoveSubtitle: ((Long) -> Unit)? = null,
+    autoSubtitleState: NativeAutoSubtitleUiState = NativeAutoSubtitleUiState(),
+    onStartAutoSubtitle: (() -> Unit)? = null,
+    onCancelAutoSubtitle: (() -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -480,6 +483,14 @@ fun NativeEditorScreen(
                 }
             }
 
+            if (activeTool == "文本" && activeSubTool == "自动字幕") {
+                NativeAutoSubtitlePanel(
+                    state = autoSubtitleState,
+                    onStart = onStartAutoSubtitle,
+                    onCancel = onCancelAutoSubtitle,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             if (activeTool == "文本" && activeSubTool == "字幕") {
                 if (onCreateSubtitle != null) {
                     NativeSubtitleCreationPanel(
@@ -535,6 +546,10 @@ fun NativeEditorScreen(
                 },
                 onSubToolSelected = { tool, subTool ->
                     when {
+                        tool == "文本" && subTool == "自动字幕" -> {
+                            activeTool = tool
+                            activeSubTool = subTool
+                        }
                         tool == "文本" && subTool == "字幕" && onCreateSubtitle != null -> {
                             activeTool = tool
                             activeSubTool = subTool
