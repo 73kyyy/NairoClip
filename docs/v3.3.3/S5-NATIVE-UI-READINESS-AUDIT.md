@@ -1040,3 +1040,11 @@
 - 已在 `RenderClip` 增加显式 `ColorGrade` 字段，并在 `compileClip()` 从源 `Clip` 复制；新增导出计划测试验证非恒等主曲线会完整进入 IR。
 - 此修复恢复导出计划与渲染执行器之间的结构契约，不改调色算法或工程序列化格式。
 - 修复后必须等待新的 C++ Release/ASAN/UBSan/CTest 结果，以及 Android NDK/Kotlin 工作流结果；旧提交的失败记录不会被追溯改写。
+
+## 91. JNI BuildState 片段 JSON 提前闭合对象缺陷
+
+- 对照新增的源区间字段继续审查 `BuildState()`，发现原有 `effects` 数组结束处拼接的是 `"]}"`，这会同时关闭片段对象；后续仍继续拼接同一片段的 `xforms` 字段，导致生成的工程状态 JSON 结构非法。
+- 这会使严格的 `NativeTimelineSnapshot.tryFromEngineState()` 无法解析状态，原生时间轴宿主即使拿到 JNI 返回值也无法构建完整快照。
+- 已修复为只关闭 `effects` 数组，片段对象保持打开，待 `xforms` 数组完成后再由原有闭合逻辑关闭片段对象。
+- 该问题说明仅靠 Kotlin 解析器单测不足以覆盖 JNI 手工 JSON 拼接；后续需增加 BuildState 的真实 JNI/Android 集成测试，对含空/非空 effects、空/非空 xforms 及源映射字段的返回 JSON 做解析断言。
+- 仅源码回读确认拼接顺序；必须由后续 Android NDK/Kotlin 工作流和真机工程快照验证。
