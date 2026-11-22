@@ -1087,3 +1087,10 @@
 - 同一编译还发现 `nc_jni.cpp` 使用 `std::isfinite/std::floor` 却未显式包含 `<cmath>`；已补齐生产 include。
 - 已扩展仅供主机测试使用的 JNI 桩头，增加缺失类型别名和方法占位实现；这些 stub 不进入 Android 产品构建，S1-2 测试仍只调用纯 C++ `DispatchEdit`，不会执行桩 JNI 方法。
 - 需要等待新的 Release/ASAN/UBSan 构建和 CTest 结果验证。
+
+## 96. 片段 PCM 裁剪器拆分与单元测试
+
+- 将 Worker 内部的 seek-preroll/source-out 裁剪逻辑提取为纯 Kotlin `NativeSpeechPcmCropper`，使时间戳边界逻辑可在 JVM 中独立验证。
+- 新增测试覆盖：从完整文件 PCM 裁出指定源区间、按非零首个 PTS 正确裁掉 seek preroll、解码器跳过源入点时拒绝、解码器未覆盖源出点时拒绝。
+- Worker 现在只调用该裁剪器，解码原始缓冲区在裁剪成功或失败后均 best-effort 清零；识别用裁剪后的 direct buffer 在推理/写回结束后清零。
+- 本节测试尚待最新 GitHub Actions 运行验证；Android MediaCodec 实际 seek/PTS 连续性仍需真机验证。
