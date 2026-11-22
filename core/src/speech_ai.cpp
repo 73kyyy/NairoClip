@@ -482,6 +482,11 @@ bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
         if (outputFailure != nullptr) *outputFailure = "内存分配失败";
         return false;
     }
+    // A failed replacement must not leave stale tokenizer readiness or tokens.
+    impl_->vocab.clear();
+    impl_->idToToken.clear();
+    impl_->addedTokens.clear();
+    impl_->tokenizerReady = false;
     if (tokenizerJson.empty()) {
         if (outputFailure != nullptr) *outputFailure = "词表 JSON 为空";
         return false;
@@ -494,42 +499,77 @@ bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
         }
         return false;
     }
-    impl_->vocab.clear();
-    impl_->idToToken.clear();
-    impl_->addedTokens.clear();
-    if (root.has("model")) {
-        const JsonValue& model = root.get("model");
-        if (model.has("vocab") && model.get("vocab").isObject()) {
-            const JsonValue& vocab = model.get("vocab");
-            for (const auto& member : vocab.members()) {
-                const int id = static_cast<int>(member.second.asInteger(-1));
-                if (id >= 0) {
-                    impl_->vocab[member.first] = id;
-                    impl_->idToToken[id] = member.first;
-                }
-            }
-        }
+    if (!root.has("model") || !root.get("model").isObject() ||
+        !root.get("model").has("vocab") || !root.get("model").get("vocab").isObject()) {
+        if (outputFailure != nullptr) *outputFailure = "词表缺少 model.vocab BPE 词典";
+        return false;
     }
-    if (root.has("added_tokens") && root.get("added_tokens").isArray()) {
+    const JsonValue& vocab = root.get("model").get("vocab");
+    for (const auto& member : vocab.members()) {
+        const std::int64_t rawId = member.second.asInteger(-1);
+        if (member.first.empty() || rawId < 0 ||
+            rawId > static_cast<std::int64_t>(std::numeric_limits<int>::max())) {
+            if (outputFailure != nullptr) *outputFailure = "BPE 词表包含无效 token 或 token ID";
+            impl_->vocab.clear();
+            impl_->idToToken.clear();
+            return false;
+        }
+        const int id = static_cast<int>(rawId);
+        if (impl_->idToToken.find(id) != impl_->idToToken.end()) {
+            if (outputFailure != nullptr) *outputFailure = "BPE 词表包含重复 token ID";
+            impl_->vocab.clear();
+            impl_->idToToken.clear();
+            return false;
+        }
+        impl_->vocab.emplace(member.first, id);
+        impl_->idToToken.emplace(id, member.first);
+    }
+    if (impl_->vocab.empty()) {
+        if (outputFailure != nullptr) *outputFailure = "BPE 词表为空";
+        impl_->idToToken.clear();
+        return false;
+    }
+    if (root.has("added_tokens")) {
+        if (!root.get("added_tokens").isArray()) {
+            if (outputFailure != nullptr) *outputFailure = "added_tokens 必须是数组";
+            impl_->vocab.clear();
+            impl_->idToToken.clear();
+            return false;
+        }
         const JsonValue& added = root.get("added_tokens");
         for (std::size_t i = 0; i < added.size(); ++i) {
             const JsonValue& entry = added.at(i);
-            if (!entry.isObject()) continue;
-            const int id = static_cast<int>(entry.get("id").asInteger(-1));
+            if (!entry.isObject()) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens 包含非法条目";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
+            const std::int64_t rawId = entry.get("id").asInteger(-1);
             const std::string content = entry.get("content").asString();
-            if (id >= 0 && !content.empty()) {
-                impl_->addedTokens[id] = content;
-                if (impl_->idToToken.find(id) == impl_->idToToken.end()) {
-                    impl_->idToToken[id] = content;
-                }
+            if (rawId < 0 || rawId > static_cast<std::int64_t>(std::numeric_limits<int>::max()) ||
+                content.empty()) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens 包含无效 ID 或内容";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
+            const int id = static_cast<int>(rawId);
+            if (!impl_->addedTokens.emplace(id, content).second) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens 包含重复 token ID";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
+            if (impl_->idToToken.find(id) == impl_->idToToken.end()) {
+                impl_->idToToken.emplace(id, content);
             }
         }
     }
-    impl_->tokenizerReady = !impl_->idToToken.empty();
-    if (!impl_->tokenizerReady) {
-        if (outputFailure != nullptr) *outputFailure = "词表为空（model.vocab 缺失）";
-        return false;
-    }
+    impl_->tokenizerReady = true;
     return true;
 }
 
