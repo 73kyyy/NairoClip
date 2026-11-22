@@ -10,7 +10,9 @@ import kotlin.math.roundToLong
  * and speed-curve clips must be rejected until their audio transformation is
  * implemented; silently treating them as 1x would place captions incorrectly.
  */
-private const val MAX_PCM_FRAME_ROUNDING_US = 63L\n\ndata class NativeSpeechSourceRange(
+private const val MAX_PCM_FRAME_ROUNDING_US = 63L
+
+data class NativeSpeechSourceRange(
     val timelineStartUs: Long,
     val timelineDurationUs: Long,
     val sourceInUs: Long,
