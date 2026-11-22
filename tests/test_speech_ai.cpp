@@ -279,30 +279,29 @@ NC_TEST(SpeechAI, TokenizerFailurePaths) {
 // ---------------------------------------------------------------------------
 
 NC_TEST(SpeechAI, RealInferenceChain) {
-    if (!whisperModelsAvailable()) return;
+    // Model-only runs must not masquerade as a successful inference test:
+    // require encoder, decoder, ORT and the real tokenizer fixture together.
+    if (!whisperModelsAvailable() || !tokenizerAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
     NC_CHECK(recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure));
     NC_CHECK(recognizer.loaded());
-    // Whisper-tiny merged decoder 由 SpeechRecognizer 驱动完整 KV cache 自回归解码。
+    NC_CHECK(recognizer.loadTokenizer(whisperTokenizerPath(), &failure));
+    NC_CHECK(recognizer.tokenizerLoaded());
+
+    // Whisper-tiny merged decoder is exercised through the full KV-cache path.
     const int sampleRate = 16000;
     const std::vector<float> pcm = makeSpeechAudio(sampleRate, 2.0);
     std::vector<SpeechSegment> segments;
-    // 调用完整 transcribe：若模型契约正确，应得到非空分段文本。
     const bool ok = recognizer.transcribe(pcm.data(), pcm.size(), sampleRate,
                                           SpeechLanguage::Chinese, segments, nullptr, &failure);
-    if (!ok) {
-        // 断言：模型契约或运行时失败必须给出明确原因，不允许静默假成功
-        NC_CHECK(!failure.empty());
-        NC_CHECK(failure.find("不可用") != std::string::npos ||
-                 failure.find("不匹配") != std::string::npos ||
-                 failure.find("推理失败") != std::string::npos ||
-                 failure.find("解码") != std::string::npos ||
-                 failure.find("tokenizer") != std::string::npos ||
-                 failure.find("词表") != std::string::npos);
-    } else {
-        // 若未来支持完整解码：分段应有效
-        NC_CHECK(!segments.empty());
+    NC_CHECK(ok);
+    for (const auto& segment : segments) {
+        NC_CHECK(std::isfinite(segment.startSeconds));
+        NC_CHECK(std::isfinite(segment.endSeconds));
+        NC_CHECK(segment.startSeconds >= 0.0);
+        NC_CHECK(segment.endSeconds > segment.startSeconds);
+        NC_CHECK(!segment.text.empty());
     }
 }
 
@@ -325,24 +324,32 @@ NC_TEST(SpeechAI, FailurePaths) {
 }
 
 NC_TEST(SpeechAI, ProgressCallback) {
-    if (!whisperModelsAvailable()) return;
+    if (!whisperModelsAvailable() || !tokenizerAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
-    if (!recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure)) {
-        return;
-    }
+    NC_CHECK(recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure));
+    NC_CHECK(recognizer.loadTokenizer(whisperTokenizerPath(), &failure));
+    NC_CHECK(recognizer.tokenizerLoaded());
+
     const std::vector<float> pcm = makeSpeechAudio(16000, 1.0);
     std::vector<SpeechSegment> segments;
     double lastProgress = -1.0;
     bool monotonic = true;
-    recognizer.transcribe(pcm.data(), pcm.size(), 16000, SpeechLanguage::Chinese, segments,
-                          [&](double p) {
-                              if (p < lastProgress) monotonic = false;
-                              lastProgress = p;
-                              return true;  // 不取消
-                          },
-                          &failure);
-    NC_CHECK(monotonic);  // 进度单调不减（若回调被调用）
+    const bool ok = recognizer.transcribe(
+        pcm.data(), pcm.size(), 16000, SpeechLanguage::Chinese, segments,
+        [&](double progress) {
+            if (!std::isfinite(progress) || progress < lastProgress ||
+                progress < 0.0 || progress > 1.0) {
+                monotonic = false;
+            }
+            lastProgress = progress;
+            return true;  // do not cancel
+        },
+        &failure
+    );
+    NC_CHECK(ok);
+    NC_CHECK(monotonic);
+    NC_CHECK(lastProgress >= 0.0);  // callback must actually be exercised
 }
 
 NC_TEST(SpeechAI, IndependentSessionLifecycleAndArgumentGuards) {
