@@ -545,6 +545,11 @@ fun NativeEditorScreen(
                     }
                 },
                 onSubToolSelected = { tool, subTool ->
+                    // Every second-level selection replaces the prior panel context.
+                    // Immediate commands and legacy-routed tools must not leave an
+                    // unrelated parameter panel visible underneath the toolbar.
+                    activeTool = tool
+                    activeSubTool = null
                     when {
                         tool == "文本" && subTool == "自动字幕" -> {
                             activeTool = tool
