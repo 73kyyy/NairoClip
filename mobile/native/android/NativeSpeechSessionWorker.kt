@@ -215,7 +215,10 @@ class NativeSpeechSessionWorker(
         require(decoded.samples.isDirect && decoded.sampleRate == 16000 && decoded.frameCount > 0L)
         require(decoded.frameCount <= Int.MAX_VALUE.toLong())
         val oneFrameUs = 1_000_000.0 / decoded.sampleRate.toDouble()
-        require(decoded.startTimeUs <= sourceRange.sourceInUs + oneFrameUs.toLong()) {
+        require(
+            decoded.startTimeUs <= sourceRange.sourceInUs ||
+                decoded.startTimeUs - sourceRange.sourceInUs <= oneFrameUs.toLong()
+        ) {
             "系统解码器跳过了所选片段源入点，不能安全生成字幕"
         }
         val startDeltaUs = (sourceRange.sourceInUs - decoded.startTimeUs).coerceAtLeast(0L)
