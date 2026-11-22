@@ -962,3 +962,12 @@
 - 已修复：模型缓冲区要求 direct 且 remaining 非空，传 JNI 前分别创建 \`slice()\`；PCM 传 JNI 前创建从当前 position 开始的 zero-based slice，并设置 native byte order。原始缓冲区仍由 worker 在 finally 中做 best-effort 清理。
 - 自动字幕解码器输出 position 为 0 的 direct PCM，行为不变；修复同时让通用 worker API 对 position 非零的调用方缓冲区符合 Java ByteBuffer 语义。
 - 已核对 JNI 实现确实使用 \`GetDirectBufferAddress\` 与 \`GetDirectBufferCapacity\`。本轮未运行 Kotlin/JNI 编译或设备测试；建议增加 position 非零的 direct-buffer 集成测试，验证模型加载与 PCM 推理只读取 remaining 区间。
+
+
+## 81. 自动字幕协调器状态回调竞态（2026-11-22）
+
+- 发现协调器从后台线程投递状态快照时，若主线程随后已发布更新状态，旧快照仍可能晚到并覆盖新状态；此外，缺少素材时 \`start()\` 曾在持有协调器锁期间直接触发 UI 回调。
+- 已增加单调递增的状态版本号：每次发布生成版本，真正交付前再次核对版本，只交付最新快照；后台回调不会再回滚较新的界面状态。
+- \`start()\` 的无素材分支改为先释放锁再发布状态，避免在协调器锁内执行外部 UI 回调。
+- 取消请求返回期间若任务已结束或协调器已关闭，不再覆盖完成回调写入的终态提示。
+- 本轮源码静态回读；尚未运行 Android/Kotlin 编译或并发单元测试。
