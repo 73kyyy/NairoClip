@@ -11,7 +11,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
 
 /** Decoded mono 16 kHz float32 PCM. The direct buffer is owned by the caller. */
 data class AndroidSpeechPcm(
@@ -149,7 +148,12 @@ object AndroidAudioPcmDecoder {
                             } else {
                                 val expectedPts = expectedNextOutputPresentationTimeUs
                                     ?: throw IllegalStateException("音频时间戳状态丢失")
-                                require(abs(info.presentationTimeUs - expectedPts) <= 50_000L) {
+                                val ptsDeltaUs = try {
+                                    Math.subtractExact(info.presentationTimeUs, expectedPts)
+                                } catch (_: ArithmeticException) {
+                                    Long.MAX_VALUE
+                                }
+                                require(ptsDeltaUs in -50_000L..50_000L) {
                                     "解码音频时间戳不连续，不能安全映射字幕时间"
                                 }
                             }
@@ -184,9 +188,13 @@ object AndroidAudioPcmDecoder {
                             if (resampler == null) resampler = NativeSpeechResampler(outputRate, TARGET_RATE)
                             try {
                                 resampler!!.push(mono)
-                                expectedNextOutputPresentationTimeUs =
-                                    info.presentationTimeUs +
-                                        (mono.size.toLong() * 1_000_000L / outputRate.toLong())
+                                val chunkDurationUs =
+                                    mono.size.toLong() * 1_000_000L / outputRate.toLong()
+                                expectedNextOutputPresentationTimeUs = try {
+                                    Math.addExact(info.presentationTimeUs, chunkDurationUs)
+                                } catch (_: ArithmeticException) {
+                                    throw IllegalStateException("解码音频时间戳溢出")
+                                }
                             } finally {
                                 mono.fill(0.0f)
                             }
