@@ -88,7 +88,7 @@ object NativeEditorHostReducer {
         }
 
         NativeEditorHostEvent.ClearSelection ->
-            current.copy(selectedClip = null)
+            current.copy(selectedClip = null, errorMessage = null)
 
         is NativeEditorHostEvent.SetPlayhead ->
             current.copy(
