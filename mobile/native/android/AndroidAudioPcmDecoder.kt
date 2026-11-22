@@ -86,7 +86,7 @@ object AndroidAudioPcmDecoder {
             var outputRate = declaredRate
             var outputChannels = declaredChannels
             var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
-            val ptsTracker = NativeSpeechPtsTracker(outputRate)
+            var ptsTracker: NativeSpeechPtsTracker? = null
             val maxOutputFrames = (TARGET_RATE.toLong() * (maxDurationMs + 5000L) / 1000L)
                 .coerceAtLeast(1L)
             val info = MediaCodec.BufferInfo()
@@ -169,7 +169,8 @@ object AndroidAudioPcmDecoder {
                                 }
                                 mono[frame] = (sum / outputChannels).toFloat().coerceIn(-1.0f, 1.0f)
                             }
-                            ptsTracker.accept(info.presentationTimeUs, mono.size.toLong())
+                            val tracker = ptsTracker ?: NativeSpeechPtsTracker(outputRate).also { ptsTracker = it }
+                            tracker.accept(info.presentationTimeUs, mono.size.toLong())
                             if (resampler == null) resampler = NativeSpeechResampler(outputRate, TARGET_RATE)
                             try {
                                 resampler!!.push(mono)
@@ -197,7 +198,7 @@ object AndroidAudioPcmDecoder {
             val samples = completedResampler.toDirectBuffer()
             val frames = samples.remaining() / Float.SIZE_BYTES
             require(frames > 0) { "解码后的音频为空" }
-            val firstPts = ptsTracker.firstPresentationTimeUs()
+            val firstPts = (ptsTracker ?: throw IllegalStateException("解码器没有输出音频时间戳")).firstPresentationTimeUs()
             require(firstPts >= 0L) { "解码器返回了负数音频起始时间戳" }
             handedOff = true
             return AndroidSpeechPcm(samples, frames.toLong(), startTimeUs = firstPts)
