@@ -39,7 +39,13 @@ data class NativeTimelineClip(
     val enabled: Boolean = true,
     val speedNumerator: Long = 1L,
     val speedDenominator: Long = 1L,
-    val effects: List<NativeClipEffect> = emptyList()
+    val effects: List<NativeClipEffect> = emptyList(),
+    val sourceInUs: Long = 0L,
+    val sourceOutUs: Long = 0L,
+    val sourceRangeKnown: Boolean = false,
+    val reversed: Boolean = false,
+    val frozen: Boolean = false,
+    val hasSpeedCurve: Boolean = false
 )
 
 data class NativeTimelineTrack(
