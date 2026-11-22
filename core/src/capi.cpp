@@ -1709,11 +1709,17 @@ int32_t nc_clip_source_info(const NcEditor* editor, int32_t track_index, uint64_
     }
     const Clip* clip = findClipById(editor, track_index, clip_id);
     if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    const bool hasSpeedCurve = !clip->speedCurve.empty();
+    const bool sourceRangeIsLinear = !clip->freeze && !hasSpeedCurve;
     if (out_source_in_us != nullptr) *out_source_in_us = toMicroseconds(clip->sourceIn);
-    if (out_source_out_us != nullptr) *out_source_out_us = toMicroseconds(clip->sourceOut());
+    if (out_source_out_us != nullptr) {
+        *out_source_out_us = sourceRangeIsLinear
+            ? toMicroseconds(clip->sourceOut())
+            : toMicroseconds(clip->sourceIn);
+    }
     if (out_reversed != nullptr) *out_reversed = clip->reversed ? 1 : 0;
     if (out_frozen != nullptr) *out_frozen = clip->freeze ? 1 : 0;
-    if (out_has_speed_curve != nullptr) *out_has_speed_curve = clip->speedCurve.empty() ? 0 : 1;
+    if (out_has_speed_curve != nullptr) *out_has_speed_curve = hasSpeedCurve ? 1 : 0;
     return NC_OK;
 }
 
