@@ -10,6 +10,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.ceil
 
 /**
  * Owns one independent Whisper session and serializes every operation against its lifetime.
@@ -128,36 +129,50 @@ class NativeSpeechSessionWorker(
     fun decodeTranscribeAndInsert(
         context: Context,
         uri: Uri,
-        timelineStartUs: Long,
+        sourceRange: NativeSpeechSourceRange,
         adapter: NativeEditorCommandAdapter,
         language: Int = 0
     ): CompletableFuture<NativeEditorCommandAdapter.EditorStateSnapshot> {
-        require(timelineStartUs >= 0L) { "字幕起始时间不能为负数" }
+        require(sourceRange.validationError() == null) {
+            sourceRange.validationError() ?: "自动字幕源区间无效"
+        }
         require(language in 0..4) { "语音识别语言代码无效" }
         return submit {
-            val decoded = AndroidAudioPcmDecoder.decodeToMono16k(context.applicationContext, uri, cancellationRequested)
+            val decoded = AndroidAudioPcmDecoder.decodeToMono16k(
+                context.applicationContext,
+                uri,
+                cancellationRequested,
+                sourceInUs = sourceRange.sourceInUs,
+                sourceOutUs = sourceRange.sourceOutUs
+            )
+            val pcm = try {
+                trimPcmToSourceRange(decoded, sourceRange)
+            } finally {
+                zeroRemaining(decoded.samples)
+            }
             try {
                 check(!cancellationRequested.get()) { "语音识别已取消" }
-                require(decoded.samples.isDirect && !decoded.samples.isReadOnly) {
-                    "解码 PCM 必须是可写 direct ByteBuffer"
+                require(pcm.samples.isDirect && !pcm.samples.isReadOnly) {
+                    "所选源区间 PCM 必须是可写 direct ByteBuffer"
                 }
-                require(decoded.sampleRate == 16000 && decoded.frameCount > 0L) {
-                    "解码 PCM 必须为非空 16 kHz 单声道音频"
+                require(pcm.sampleRate == 16000 && pcm.frameCount > 0L) {
+                    "所选源区间 PCM 必须为非空 16 kHz 单声道音频"
                 }
-                require(decoded.frameCount <= decoded.samples.remaining().toLong() / Float.SIZE_BYTES) {
-                    "解码 PCM 帧数与缓冲区容量不一致"
+                require(pcm.frameCount <= pcm.samples.remaining().toLong() / Float.SIZE_BYTES) {
+                    "所选源区间 PCM 帧数与缓冲区容量不一致"
                 }
                 // JNI GetDirectBufferAddress uses the view base, not the current
                 // position. Keep the same remaining-range contract as transcribe().
-                val pcmView = decoded.samples.slice().order(java.nio.ByteOrder.nativeOrder())
+                val pcmView = pcm.samples.slice().order(java.nio.ByteOrder.nativeOrder())
                 val response = JSONObject(bridge.transcribeSpeechSession(
-                    session, pcmView, decoded.frameCount, decoded.sampleRate, language
+                    session, pcmView, pcm.frameCount, pcm.sampleRate, language
                 ))
                 check(response.optBoolean("ok", false)) {
                     response.optString("message").ifBlank { "语音识别失败" }
                 }
                 val segments = response.optJSONArray("segments") ?: throw IllegalStateException("识别结果缺少 segments")
-                val audioDurationSeconds = decoded.frameCount.toDouble() / decoded.sampleRate.toDouble()
+                val audioDurationSeconds = pcm.frameCount.toDouble() / pcm.sampleRate.toDouble()
+                val audioDurationUs = pcm.frameCount * 1_000_000L / pcm.sampleRate.toLong()
                 require(audioDurationSeconds.isFinite() && audioDurationSeconds > 0.0)
                 require(segments.length() in 1..10000) { "识别结果没有有效字幕或数量超限" }
                 val cues = ArrayList<NativeEditorCommandAdapter.SubtitleCueInput>(segments.length())
@@ -168,17 +183,11 @@ class NativeSpeechSessionWorker(
                     val text = segment.optString("text").trim()
                     require(start.isFinite() && end.isFinite() && start >= 0.0 && end > start &&
                         start < audioDurationSeconds && end <= audioDurationSeconds + 0.05 && text.isNotEmpty()) {
-                        "识别片段时间超出音频长度或文本无效"
+                        "识别片段时间超出所选音频区间或文本无效"
                     }
-                    val boundedEnd = minOf(end, audioDurationSeconds)
-                    val startDelta = (start * 1_000_000.0).toLong()
-                    val endDelta = (boundedEnd * 1_000_000.0).toLong()
-                    require(startDelta >= 0L && endDelta > startDelta && timelineStartUs <= Long.MAX_VALUE - endDelta) {
-                        "识别片段时间溢出"
-                    }
-                    cues.add(NativeEditorCommandAdapter.SubtitleCueInput(
-                        timelineStartUs + startDelta, endDelta - startDelta, text
-                    ))
+                    val mapped = sourceRange.mapSegment(start, minOf(end, audioDurationSeconds), audioDurationUs)
+                        ?: throw IllegalArgumentException("识别片段无法映射到所选时间轴区间")
+                    cues.add(NativeEditorCommandAdapter.SubtitleCueInput(mapped.first, mapped.second, text))
                 }
                 val inserted = synchronized(lifecycleLock) {
                     check(!closing.get() && !cancellationRequested.get()) { "字幕写入前任务已取消或会话正在关闭" }
@@ -189,9 +198,52 @@ class NativeSpeechSessionWorker(
                 check(inserted.ok) { inserted.error ?: "自动字幕写入失败" }
                 inserted.value ?: throw IllegalStateException("自动字幕写入后未返回工程快照")
             } finally {
-                zeroRemaining(decoded.samples)
+                zeroRemaining(pcm.samples)
             }
         }
+    }
+
+    /**
+     * Trims seek preroll and the tail after the selected source interval. The decoder
+     * reports the first output PTS; if it skipped the requested in-point or failed to
+     * decode through the out-point, reject rather than silently shifting captions.
+     */
+    private fun trimPcmToSourceRange(
+        decoded: AndroidSpeechPcm,
+        sourceRange: NativeSpeechSourceRange
+    ): AndroidSpeechPcm {
+        require(decoded.samples.isDirect && decoded.sampleRate == 16000 && decoded.frameCount > 0L)
+        require(decoded.frameCount <= Int.MAX_VALUE.toLong())
+        val oneFrameUs = 1_000_000.0 / decoded.sampleRate.toDouble()
+        require(decoded.startTimeUs <= sourceRange.sourceInUs + oneFrameUs.toLong()) {
+            "系统解码器跳过了所选片段源入点，不能安全生成字幕"
+        }
+        val startDeltaUs = (sourceRange.sourceInUs - decoded.startTimeUs).coerceAtLeast(0L)
+        val endDeltaUs = sourceRange.sourceOutUs - decoded.startTimeUs
+        require(endDeltaUs > startDeltaUs) { "解码音频未覆盖所选源区间" }
+        val startFrame = ceil(startDeltaUs.toDouble() * decoded.sampleRate / 1_000_000.0).toLong()
+        val endFrame = ceil(endDeltaUs.toDouble() * decoded.sampleRate / 1_000_000.0).toLong()
+        val totalFrames = decoded.frameCount
+        require(startFrame in 0 until totalFrames) { "所选源入点超出解码音频范围" }
+        require(endFrame <= totalFrames + 1L) { "系统解码器未覆盖所选片段源出点" }
+        val boundedEndFrame = minOf(endFrame, totalFrames)
+        val frameCount = boundedEndFrame - startFrame
+        require(frameCount > 0L && frameCount <= Int.MAX_VALUE.toLong()) { "所选源区间没有有效音频帧" }
+
+        val sourceFloats = decoded.samples.duplicate()
+            .order(java.nio.ByteOrder.nativeOrder())
+            .asFloatBuffer()
+        sourceFloats.position(startFrame.toInt())
+        sourceFloats.limit(boundedEndFrame.toInt())
+        val output = ByteBuffer.allocateDirect(frameCount.toInt() * Float.SIZE_BYTES)
+            .order(java.nio.ByteOrder.nativeOrder())
+        output.asFloatBuffer().put(sourceFloats)
+        return AndroidSpeechPcm(
+            samples = output,
+            frameCount = frameCount,
+            sampleRate = decoded.sampleRate,
+            startTimeUs = sourceRange.sourceInUs
+        )
     }
 
     /** Cooperative cancellation; returns false when native inference is not cancellable. */
