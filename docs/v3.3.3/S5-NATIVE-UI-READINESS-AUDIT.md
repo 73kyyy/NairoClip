@@ -1148,3 +1148,10 @@
 - 扩展 `S1_2.BuildStateClipJsonIsWellFormed`：除原先空 effects/xforms 数组外，现在先通过真实 C ABI 为测试片段添加一条 effect 和一个启用的 xform，再解析 JNI `BuildState()` 返回值。
 - 断言两组数组各有一个元素，且元素均为 JSON 对象，覆盖嵌套对象、逗号和数组/对象闭合的非空分支。
 - 该用例将随新的主机 CTest 工作流执行；当前尚未收到新提交的测试结果。
+
+## 96. Medium 降噪档真实媒体语音保留率回归
+
+- 最新主 CI 全量用例中，唯一失败为 `AudioDenoise.MixerAppliesDenoiseToRealMedia`：真实确定性 Gaussian-noise 素材的语音突发保留率为 -9.906 dB，低于 -8 dB 验收线；同次噪声段抑制为 -17.495 dB，明显超过至少 -10 dB 的要求。
+- 根因表现为 Medium 档过减系数偏激进，而 Strong 档本来就承担更激进降噪职责。已将 Medium 的 over-subtraction 从 1.8 调整为 1.5，保留谱底 0.06 和 Weak/Strong 两档阶梯关系。
+- S5 定向 CTest 已扩展纳入 `AudioDenoise.` 全部测试，除 JNI/C ABI 测试外同时验证真实媒体语音保留、纯噪声抑制、强度单调性、流式样本守恒与多声道隔离。
+- 此修改是待验证的参数修正；必须以新一轮 CTest 与主 CI 实测为准，不能预先宣称通过。
