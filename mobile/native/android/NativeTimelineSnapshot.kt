@@ -82,6 +82,17 @@ data class NativeTimelineSnapshot(
                         val startUs = sourceClip.longField("start_us")?.takeIf { it >= 0L } ?: return null
                         val clipDurationUs = sourceClip.longField("duration_us")?.takeIf { it > 0L } ?: return null
                         val enabledValue = sourceClip.longField("enabled")?.takeIf { it in 0L..1L } ?: return null
+                        val sourceInRaw = sourceClip.longField("source_in_us")
+                        val sourceOutRaw = sourceClip.longField("source_out_us")
+                        if ((sourceInRaw == null) != (sourceOutRaw == null)) return null
+                        val sourceRangeKnown = sourceInRaw != null && sourceOutRaw != null
+                        val sourceInUs = sourceInRaw ?: 0L
+                        val sourceOutUs = sourceOutRaw ?: 0L
+                        if (sourceRangeKnown && (sourceInUs < 0L || sourceOutUs < sourceInUs)) return null
+                        val reversedValue = sourceClip.longField("reversed")?.takeIf { it in 0L..1L }
+                        val frozenValue = sourceClip.longField("frozen")?.takeIf { it in 0L..1L }
+                        val speedCurveValue = sourceClip.longField("has_speed_curve")?.takeIf { it in 0L..1L }
+                        if (sourceRangeKnown && (reversedValue == null || frozenValue == null || speedCurveValue == null)) return null
                         val speedNumerator = sourceClip.longField("speed_num")?.takeIf { it > 0L } ?: return null
                         val speedDenominator = sourceClip.longField("speed_den")?.takeIf { it > 0L } ?: return null
                         val speed = speedNumerator.toDouble() / speedDenominator.toDouble()
@@ -114,7 +125,13 @@ data class NativeTimelineSnapshot(
                             enabled = enabledValue == 1L,
                             effects = effects,
                             speedNumerator = speedNumerator,
-                            speedDenominator = speedDenominator
+                            speedDenominator = speedDenominator,
+                            sourceInUs = sourceInUs,
+                            sourceOutUs = sourceOutUs,
+                            sourceRangeKnown = sourceRangeKnown,
+                            reversed = reversedValue == 1L,
+                            frozen = frozenValue == 1L,
+                            hasSpeedCurve = speedCurveValue == 1L
                         )
                     }
 
