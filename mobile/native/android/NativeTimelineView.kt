@@ -261,12 +261,7 @@ class NativeTimelineView(context: Context) : View(context) {
             durationSeconds.coerceAtLeast(0.001f),
             playheadSeconds.coerceIn(0f, durationSeconds.coerceAtLeast(0.001f))
         )
-        info.addAction(
-            AccessibilityNodeInfo.AccessibilityAction(
-                AccessibilityNodeInfo.ACTION_SET_PROGRESS,
-                "调整播放位置"
-            )
-        )
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)
         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
     }
@@ -274,7 +269,7 @@ class NativeTimelineView(context: Context) : View(context) {
     override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
         val stepUs = 1_000_000L
         val targetUs = when (action) {
-            AccessibilityNodeInfo.ACTION_SET_PROGRESS -> {
+            AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id -> {
                 val seconds = arguments?.getFloat(
                     AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE,
                     Float.NaN
