@@ -190,18 +190,20 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         readTimelineSnapshotLocked()
     }
 
-    private fun readTimelineSnapshotLocked(): Result<NativeTimelineSnapshot> = try {
-        val stateJson = bridge.state()
-        val envelope = JSONObject(stateJson)
-        if (!envelope.optBoolean("ok", false)) {
-            Result(false, error = envelope.optString("message", "读取工程快照失败"))
-        } else {
-            val snapshot = NativeTimelineSnapshot.tryFromEngineState(stateJson)
-                ?: return Result(false, error = "工程快照结构无效，保留当前时间轴状态")
-            Result(true, snapshot)
+    private fun readTimelineSnapshotLocked(): Result<NativeTimelineSnapshot> {
+        return try {
+            val stateJson = bridge.state()
+            val envelope = JSONObject(stateJson)
+            if (!envelope.optBoolean("ok", false)) {
+                Result(false, error = envelope.optString("message", "读取工程快照失败"))
+            } else {
+                val snapshot = NativeTimelineSnapshot.tryFromEngineState(stateJson)
+                    ?: return Result(false, error = "工程快照结构无效，保留当前时间轴状态")
+                Result(true, snapshot)
+            }
+        } catch (error: Exception) {
+            Result(false, error = error.message ?: "工程快照解析失败")
         }
-    } catch (error: Exception) {
-        Result(false, error = error.message ?: "工程快照解析失败")
     }
 
     data class HistoryState(val canUndo: Boolean, val canRedo: Boolean)
@@ -1075,6 +1077,10 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             points.first() == (0.0 to 0.0) && points.last() == (1.0 to 1.0) &&
             points.all { (x, y) -> x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 } &&
             points.zipWithNext().all { (a, b) -> b.first > a.first }
+
+        companion object {
+            fun identity() = ColorCurveState(listOf(0.0 to 0.0, 1.0 to 1.0))
+        }
     }
 
     data class ClipColorGradeState(
@@ -1239,7 +1245,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         return bridge.withEditorStateLock {
             val snapshot = readEditorStateSnapshotLocked()
             if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error)
-            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
+            val track = snapshot.value?.timeline?.tracks?.firstOrNull { it.engineIndex == trackIndex }
                 ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
             invoke("transition_get", JSONObject().put("track_index", trackIndex)) { payload ->
                 val items = payload.optJSONArray("items")
@@ -1303,7 +1309,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         return bridge.withEditorStateLock {
             val snapshot = readEditorStateSnapshotLocked()
             if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error)
-            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
+            val track = snapshot.value?.timeline?.tracks?.firstOrNull { it.engineIndex == trackIndex }
                 ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
             if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
             val fromClip = track.clips.firstOrNull { it.id == fromClipId }
@@ -1335,7 +1341,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         return bridge.withEditorStateLock {
             val snapshot = readEditorStateSnapshotLocked()
             if (!snapshot.ok) return@withEditorStateLock Result(false, error = snapshot.error)
-            val track = snapshot.value?.tracks?.firstOrNull { it.engineIndex == trackIndex }
+            val track = snapshot.value?.timeline?.tracks?.firstOrNull { it.engineIndex == trackIndex }
                 ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
             if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改")
             invoke("remove_transition", JSONObject()
