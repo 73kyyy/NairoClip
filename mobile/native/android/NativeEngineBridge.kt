@@ -506,18 +506,11 @@ class NativeEngineBridge(
         // engine monitor so preview rendering, state reads and task heartbeats
         // are not blocked while a model file is loaded.
         val root = modelRoot() ?: return err("应用私有模型目录不可用")
-        val canonicalRoot: java.io.File
-        val canonicalFile: java.io.File
-        try {
-            canonicalRoot = root.canonicalFile
-            canonicalFile = java.io.File(filePath).canonicalFile
+        val canonicalFile = try {
+            NativeModelPathPolicy.resolveWithinRoot(root, java.io.File(filePath))
         } catch (error: Throwable) {
             return err("模型路径无效：${error.message}")
-        }
-        val rootPrefix = canonicalRoot.path.trimEnd(java.io.File.separatorChar) + java.io.File.separator
-        if (canonicalFile.path == canonicalRoot.path || !canonicalFile.path.startsWith(rootPrefix)) {
-            return err("模型文件必须位于应用私有模型目录内")
-        }
+        } ?: return err("模型文件必须位于应用私有模型目录内")
         if (!canonicalFile.isFile) return err("模型文件不存在或不是普通文件")
         val expectedLength = canonicalFile.length()
         if (expectedLength <= 0L) return err("模型文件为空")
