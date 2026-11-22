@@ -151,7 +151,6 @@ std::vector<float> resampleTo16k(const float* samples, std::size_t frameCount,
 ///   中文 = 50260 / 英语 = 50259 / 日语 = 50266 / 韩语 = 50264
 ///   <|transcribe|> = 50359 / <|notimestamps|> = 50363
 constexpr int kStartOfTranscript = 50258;
-constexpr int kEndOfText = 50257;
 
 }  // namespace
 
