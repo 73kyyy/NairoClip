@@ -14,7 +14,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
 /** Decoded mono 16 kHz float32 PCM. The direct buffer is owned by the caller. */
-data class AndroidSpeechPcm(val samples: ByteBuffer, val frameCount: Long, val sampleRate: Int = 16000)
+data class AndroidSpeechPcm(
+    val samples: ByteBuffer,
+    val frameCount: Long,
+    val sampleRate: Int = 16000,
+    /** Presentation timestamp of the first decoded PCM frame in source-media time. */
+    val startTimeUs: Long = 0L
+)
 
 /**
  * Uses Android's installed audio decoder only (MediaExtractor + MediaCodec).
@@ -31,9 +37,18 @@ object AndroidAudioPcmDecoder {
         context: Context,
         uri: Uri,
         cancelled: AtomicBoolean = AtomicBoolean(false),
-        maxDurationMs: Long = MAX_DURATION_MS
+        maxDurationMs: Long = MAX_DURATION_MS,
+        sourceInUs: Long = 0L,
+        sourceOutUs: Long? = null
     ): AndroidSpeechPcm {
         require(maxDurationMs in 1L..MAX_DURATION_MS) { "音频时长上限必须在 1ms–10min" }
+        require(sourceInUs >= 0L) { "音频源入点不能为负数" }
+        if (sourceOutUs != null) {
+            require(sourceOutUs > sourceInUs) { "音频源出点必须晚于源入点" }
+            require(sourceOutUs - sourceInUs <= maxDurationMs * 1000L) {
+                "所选片段音频超过${maxDurationMs / 1000}秒时长上限"
+            }
+        }
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         var resampler: StreamingMonoResampler? = null
@@ -54,6 +69,9 @@ object AndroidAudioPcmDecoder {
             }
             require(audioTrack >= 0 && mime != null) { "所选媒体没有可解码的音轨" }
             extractor.selectTrack(audioTrack)
+            if (sourceInUs > 0L) {
+                extractor.seekTo(sourceInUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            }
             val inputFormat = extractor.getTrackFormat(audioTrack)
             val declaredRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val declaredChannels = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
@@ -69,6 +87,7 @@ object AndroidAudioPcmDecoder {
             var outputRate = declaredRate
             var outputChannels = declaredChannels
             var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
+            var firstOutputPresentationTimeUs: Long? = null
             val info = MediaCodec.BufferInfo()
 
             while (!outputEos) {
@@ -84,12 +103,12 @@ object AndroidAudioPcmDecoder {
                         input.clear()
                         val size = extractor.readSampleData(input, 0)
                         val timeUs = extractor.sampleTime
-                        if (size < 0 || timeUs < 0L) {
-                            codec.queueInputBuffer(inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        if (size < 0 || timeUs < 0L || (sourceOutUs != null && timeUs >= sourceOutUs)) {
+                            codec.queueInputBuffer(inputIndex, 0, 0, maxOf(0L, timeUs), MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputEos = true
                         } else {
-                            if (timeUs > maxDurationMs * 1000L) {
-                                throw IllegalArgumentException("音频超过${maxDurationMs / 1000}秒时长上限")
+                            if (timeUs >= sourceInUs && timeUs - sourceInUs > maxDurationMs * 1000L) {
+                                throw IllegalArgumentException("所选音频超过${maxDurationMs / 1000}秒时长上限")
                             }
                             codec.queueInputBuffer(inputIndex, 0, size, timeUs, 0)
                             extractor.advance()
@@ -121,6 +140,9 @@ object AndroidAudioPcmDecoder {
                     outputIndex >= 0 -> {
                         val output = codec.getOutputBuffer(outputIndex)
                         if (output != null && info.size > 0) {
+                            if (firstOutputPresentationTimeUs == null) {
+                                firstOutputPresentationTimeUs = info.presentationTimeUs
+                            }
                             val bytesPerSample = when (pcmEncoding) {
                                 AudioFormat.ENCODING_PCM_FLOAT -> 4
                                 AudioFormat.ENCODING_PCM_16BIT -> 2
@@ -151,9 +173,13 @@ object AndroidAudioPcmDecoder {
                             }
                             if (resampler == null) resampler = StreamingMonoResampler(outputRate, TARGET_RATE)
                             try { resampler!!.push(mono) } finally { mono.fill(0.0f) }
-                            val maxOutputFrames = (TARGET_RATE.toLong() * maxDurationMs / 1000L).coerceAtLeast(1L)
+                            // Seeking to the previous sync sample may decode a short preroll
+                            // before sourceInUs; allow up to 5 seconds for that data, then the
+                            // worker trims by the first output PTS before inference.
+                            val maxOutputFrames = (TARGET_RATE.toLong() * (maxDurationMs + 5000L) / 1000L)
+                                .coerceAtLeast(1L)
                             require(resampler!!.outputSize.toLong() <= maxOutputFrames) {
-                                "重采样结果超过音频时长上限"
+                                "重采样结果超过音频时长上限（含 seek preroll）"
                             }
                         }
                         if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outputEos = true
@@ -165,8 +191,11 @@ object AndroidAudioPcmDecoder {
             val samples = resampler?.toDirectBuffer() ?: throw IllegalStateException("解码器没有输出音频样本")
             val frames = samples.remaining() / Float.SIZE_BYTES
             require(frames > 0) { "解码后的音频为空" }
+            val firstPts = firstOutputPresentationTimeUs
+                ?: throw IllegalStateException("解码器没有提供音频时间戳")
+            require(firstPts >= 0L) { "解码器返回了负数音频起始时间戳" }
             handedOff = true
-            return AndroidSpeechPcm(samples, frames.toLong())
+            return AndroidSpeechPcm(samples, frames.toLong(), startTimeUs = firstPts)
         } finally {
             if (!handedOff) resampler?.clear()
             try { codec?.stop() } catch (_: Throwable) {}
