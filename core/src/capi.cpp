@@ -2499,6 +2499,9 @@ int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cu
         count <= 0 || count > 10000) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕参数无效");
     }
+    // Failure is atomic for both project state and output IDs: never expose a
+    // partially populated ID array when a later cue rejects the batch.
+    for (int32_t i = 0; i < count; ++i) out_subtitle_ids[i] = 0;
     const Sequence* main = editor->project.mainSequence();
     if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "主序列不存在");
     if (editor->editor->inTransaction()) {
@@ -2527,6 +2530,8 @@ int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cu
         prepared.push_back(std::move(cue));
     }
 
+    std::vector<uint64_t> insertedIds;
+    insertedIds.reserve(prepared.size());
     editor->editor->beginTransaction("自动字幕");
     for (std::size_t i = 0; i < prepared.size(); ++i) {
         const uint64_t id = prepared[i].id.value;
@@ -2536,10 +2541,14 @@ int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cu
             if (grouped) (void)editor->editor->undo();
             return failResult(result);
         }
-        out_subtitle_ids[i] = id;
+        insertedIds.push_back(id);
     }
     if (!editor->editor->endTransaction()) {
         return failNc(NC_ERROR_INTERNAL, "自动字幕事务未形成历史记录");
+    }
+    // Publish identifiers only after the entire transaction is committed.
+    for (std::size_t i = 0; i < insertedIds.size(); ++i) {
+        out_subtitle_ids[i] = insertedIds[i];
     }
     return NC_OK;
 }
