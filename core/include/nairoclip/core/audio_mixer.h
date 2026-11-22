@@ -104,6 +104,9 @@ private:
         long long fedCount = 0;        ///< 累计喂入帧数（输入前沿 = baseToken + fedCount）
         long long bufFirst = 0;        ///< buf[0] 的源帧号
         std::vector<float> buf;        ///< 已产出输出（交错，srcChannels）
+        AudioBlock pendingSourceBlock; ///< 未消费完的解码块，避免跨 feed 边界丢弃尾部样本
+        long long pendingSourceOffsetFrames = 0; ///< pendingSourceBlock 中已消费帧数
+        bool hasPendingSourceBlock = false; ///< 是否持有待消费解码块
         bool sourceExhausted = false;  ///< 源已耗尽（此后以零填充喂入）
         bool flushed = false;          ///< 已发送终块（此后仅消费 buf）
     };
