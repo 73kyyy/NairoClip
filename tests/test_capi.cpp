@@ -287,6 +287,15 @@ NC_TEST(Capi, ClipSourceInfo) {
     NC_CHECK_EQ(sourceIn, sourceOut);  // Frozen frames expose an unknown-range sentinel.
     NC_CHECK_EQ(frozen, 1);
     NC_CHECK_EQ(hasSpeedCurve, 0);
+
+    const std::uint64_t curveClipId = nc_insert_clip(editor, 0, assetId, 5000000, 2500000);
+    NC_CHECK(curveClipId != 0);
+    NC_CHECK_EQ(nc_apply_speed_curve_preset(editor, 0, curveClipId, 1, 2500000), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, curveClipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, sourceOut);  // Speed curves also expose an unknown linear range.
+    NC_CHECK_EQ(frozen, 0);
+    NC_CHECK_EQ(hasSpeedCurve, 1);
     nc_editor_destroy(editor);
 }
 
