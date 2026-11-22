@@ -73,7 +73,7 @@ NC_TEST(S1_2, D1KeyframeTimeUsP1) {
     NC_CHECK(f.ed != nullptr);
     // P1：前端发 time_us（旧实现只读 at_us/t → 恒落片头）
     NC_CHECK(f.isOk("keyframe", j("{\"track\":0,\"clip\":%llu,\"property\":0,"
-                                  "\"time_us\":2000000,\"value\":5}",
+                                  "\"time_us\":2000000,\"value\":0.5}",
                                   (unsigned long long)f.clipId)));
     int64_t t = -1;
     NC_CHECK_EQ(nc_keyframe_get(f.ed, 0, f.clipId, 0, 0, &t, nullptr, nullptr), 0);
@@ -85,7 +85,7 @@ NC_TEST(S1_2, D1KeyframeTimeUsP2) {
     NC_CHECK(f.ed != nullptr);
     // P2：OP_TO_ABI 发 track_index/clip_id/time_us
     NC_CHECK(f.isOk("keyframe", j("{\"track_index\":0,\"clip_id\":%llu,\"property\":0,"
-                                  "\"time_us\":3000000,\"value\":7}",
+                                  "\"time_us\":3000000,\"value\":0.7}",
                                   (unsigned long long)f.clipId)));
     int64_t t = -1;
     NC_CHECK_EQ(nc_keyframe_get(f.ed, 0, f.clipId, 0, 0, &t, nullptr, nullptr), 0);
@@ -127,7 +127,7 @@ NC_TEST(S1_2, D1RemoveKeyframeTimeUs) {
     Fixture f;
     NC_CHECK(f.ed != nullptr);
     NC_CHECK(f.isOk("keyframe", j("{\"track\":0,\"clip\":%llu,\"property\":0,"
-                                  "\"time_us\":4000000,\"value\":2}",
+                                  "\"time_us\":4000000,\"value\":0.2}",
                                   (unsigned long long)f.clipId)));
     // 删除必须按同一时间点命中（旧实现读 at_us → 删不到）
     NC_CHECK(f.isOk("remove_keyframe", j("{\"track\":0,\"clip\":%llu,"
