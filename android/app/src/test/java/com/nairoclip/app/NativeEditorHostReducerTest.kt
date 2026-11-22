@@ -116,6 +116,27 @@ class NativeEditorHostReducerTest {
     }
 
     @Test
+    fun validSelectionClearsPreviousSelectionError() {
+        val loaded = NativeEditorHostReducer.reduce(
+            NativeEditorHostState(),
+            NativeEditorHostEvent.SnapshotLoaded(editorSnapshot())
+        )
+        val invalid = NativeEditorHostReducer.reduce(
+            loaded,
+            NativeEditorHostEvent.SelectClip(NativeEditorCommandAdapter.ClipTarget(0, 999L))
+        )
+        assertTrue(invalid.errorMessage?.isNotBlank() == true)
+
+        val recovered = NativeEditorHostReducer.reduce(
+            invalid,
+            NativeEditorHostEvent.SelectClip(target)
+        )
+
+        assertEquals(target, recovered.selectedClip)
+        assertNull(recovered.errorMessage)
+    }
+
+    @Test
     fun invalidSelectionIsRejectedAndPlayheadIsBounded() {
         val loaded = NativeEditorHostReducer.reduce(
             NativeEditorHostState(),
