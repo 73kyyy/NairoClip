@@ -251,9 +251,48 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                 return@withEditorStateLock Result(false, error = error.message ?: "批量写入字幕失败")
             } ?: return@withEditorStateLock Result(false, error = "批量写入字幕失败，工程未保留部分结果")
             if (ids.size != bounded.size || ids.any { it <= 0L } || ids.toSet().size != ids.size) {
-                return@withEditorStateLock Result(false, error = "引擎返回的字幕 ID 数量或唯一性校验失败")
+                // The native batch may already have committed. Do not report a plain
+                // pre-commit failure: that would invite a retry and duplicate subtitles.
+                val rollback = try {
+                    JSONObject(bridge.editorUndo()).optBoolean("ok", false)
+                } catch (_: Exception) {
+                    false
+                }
+                return@withEditorStateLock Result(
+                    false,
+                    error = if (rollback) {
+                        "引擎返回的字幕 ID 校验失败；已尝试撤销本次批量写入"
+                    } else {
+                        "引擎返回的字幕 ID 校验失败；写入状态不确定，请勿直接重试"
+                    }
+                )
             }
-            readEditorStateSnapshotLocked()
+            val refreshed = readEditorStateSnapshotLocked()
+            if (refreshed.ok) return@withEditorStateLock refreshed
+
+            // The native batch has committed as one undo record, but the readback
+            // failed. Roll back while still holding the engine state lock so a
+            // concurrent user edit cannot be accidentally undone.
+            val rollback = try {
+                JSONObject(bridge.editorUndo()).optBoolean("ok", false)
+            } catch (_: Exception) {
+                false
+            }
+            if (rollback) {
+                val restored = readEditorStateSnapshotLocked()
+                return@withEditorStateLock Result(
+                    false,
+                    error = if (restored.ok) {
+                        "字幕写入后的工程快照刷新失败；本次批量写入已自动撤销，请重新检查后再试"
+                    } else {
+                        "字幕写入后的快照刷新失败；已请求撤销，但工程状态仍无法确认，请勿重试"
+                    }
+                )
+            }
+            Result(
+                false,
+                error = "字幕可能已写入，但工程快照刷新失败且自动撤销未成功；请勿重复执行，先刷新工程状态"
+            )
         }
     }
 
