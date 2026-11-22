@@ -10,7 +10,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.ceil
 
 /**
  * Owns one independent Whisper session and serializes every operation against its lifetime.
@@ -146,7 +145,7 @@ class NativeSpeechSessionWorker(
                 sourceOutUs = sourceRange.sourceOutUs
             )
             val pcm = try {
-                trimPcmToSourceRange(decoded, sourceRange)
+                NativeSpeechPcmCropper.trim(decoded, sourceRange)
             } finally {
                 zeroRemaining(decoded.samples)
             }
@@ -201,52 +200,6 @@ class NativeSpeechSessionWorker(
                 zeroRemaining(pcm.samples)
             }
         }
-    }
-
-    /**
-     * Trims seek preroll and the tail after the selected source interval. The decoder
-     * reports the first output PTS; if it skipped the requested in-point or failed to
-     * decode through the out-point, reject rather than silently shifting captions.
-     */
-    private fun trimPcmToSourceRange(
-        decoded: AndroidSpeechPcm,
-        sourceRange: NativeSpeechSourceRange
-    ): AndroidSpeechPcm {
-        require(decoded.samples.isDirect && decoded.sampleRate == 16000 && decoded.frameCount > 0L)
-        require(decoded.frameCount <= Int.MAX_VALUE.toLong())
-        val oneFrameUs = 1_000_000.0 / decoded.sampleRate.toDouble()
-        require(
-            decoded.startTimeUs <= sourceRange.sourceInUs ||
-                decoded.startTimeUs - sourceRange.sourceInUs <= oneFrameUs.toLong()
-        ) {
-            "系统解码器跳过了所选片段源入点，不能安全生成字幕"
-        }
-        val startDeltaUs = (sourceRange.sourceInUs - decoded.startTimeUs).coerceAtLeast(0L)
-        val endDeltaUs = sourceRange.sourceOutUs - decoded.startTimeUs
-        require(endDeltaUs > startDeltaUs) { "解码音频未覆盖所选源区间" }
-        val startFrame = ceil(startDeltaUs.toDouble() * decoded.sampleRate / 1_000_000.0).toLong()
-        val endFrame = ceil(endDeltaUs.toDouble() * decoded.sampleRate / 1_000_000.0).toLong()
-        val totalFrames = decoded.frameCount
-        require(startFrame in 0 until totalFrames) { "所选源入点超出解码音频范围" }
-        require(endFrame <= totalFrames + 1L) { "系统解码器未覆盖所选片段源出点" }
-        val boundedEndFrame = minOf(endFrame, totalFrames)
-        val frameCount = boundedEndFrame - startFrame
-        require(frameCount > 0L && frameCount <= Int.MAX_VALUE.toLong()) { "所选源区间没有有效音频帧" }
-
-        val sourceFloats = decoded.samples.duplicate()
-            .order(java.nio.ByteOrder.nativeOrder())
-            .asFloatBuffer()
-        sourceFloats.position(startFrame.toInt())
-        sourceFloats.limit(boundedEndFrame.toInt())
-        val output = ByteBuffer.allocateDirect(frameCount.toInt() * Float.SIZE_BYTES)
-            .order(java.nio.ByteOrder.nativeOrder())
-        output.asFloatBuffer().put(sourceFloats)
-        return AndroidSpeechPcm(
-            samples = output,
-            frameCount = frameCount,
-            sampleRate = decoded.sampleRate,
-            startTimeUs = sourceRange.sourceInUs
-        )
     }
 
     /** Cooperative cancellation; returns false when native inference is not cancellable. */
