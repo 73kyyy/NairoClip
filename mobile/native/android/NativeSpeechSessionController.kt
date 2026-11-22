@@ -15,10 +15,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * the UI thread or under the editor state lock. The caller must keep direct
  * model/PCM buffers valid until the corresponding completion callback.
  *
- * close() requests cooperative cancellation and joins the worker before
- * destroying the native handle. If inference does not stop within the bounded
- * wait, the handle is deliberately retained rather than risking native
- * use-after-free; the worker is daemonized so it cannot keep the process alive.
+ * close() queues native destruction after all accepted worker operations, then waits for a
+ * bounded interval. If inference ignores cancellation, destruction remains queued and runs
+ * only after JNI returns, avoiding both use-after-free and a permanent timeout-only leak.
  */
 class NativeSpeechSessionController(
     private val bridge: NativeEngineBridge,
@@ -101,6 +100,11 @@ class NativeSpeechSessionController(
             }
             true
         } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // The task never took ownership of these plaintext buffers.
+            // Still clear them because the controller has rejected this load request.
+            zeroBuffer(encoder)
+            zeroBuffer(decoder)
+            zeroBuffer(tokenizerJson)
             inferenceActive = false
             false
         }
@@ -145,6 +149,8 @@ class NativeSpeechSessionController(
             }
             true
         } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // A rejected request will never reach JNI; do not leave caller PCM plaintext.
+            zeroBuffer(pcm)
             inferenceActive = false
             false
         }
@@ -205,23 +211,34 @@ class NativeSpeechSessionController(
         if (inferenceActive) {
             try { bridge.cancelSpeechSession(handle) } catch (_: Throwable) {}
         }
-        worker.shutdown()
-        var terminated = false
+        // Queue destruction behind every accepted load/inference operation. If native
+        // inference ignores cancellation beyond the bounded wait, this finalizer remains
+        // queued and destroys the handle only after JNI has actually returned.
         try {
-            terminated = worker.awaitTermination(CLOSE_WAIT_SECONDS, TimeUnit.SECONDS)
+            worker.execute {
+                try {
+                    bridge.destroySpeechSession(handle)
+                } catch (error: Throwable) {
+                    Log.e(TAG, "销毁语音会话失败", error)
+                } finally {
+                    session = 0L
+                    loaded = false
+                }
+            }
+            worker.shutdown()
+        } catch (error: Throwable) {
+            // A rejected finalizer means we cannot prove the handle is no longer in use.
+            Log.e(TAG, "无法排队销毁 Whisper 会话；保留 native handle 以避免 use-after-free", error)
+            worker.shutdown()
+            return
+        }
+        try {
+            if (!worker.awaitTermination(CLOSE_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                // The queued finalizer will still run after an in-flight JNI call returns.
+                Log.w(TAG, "ASR 关闭等待超时；销毁操作仍排队等待 JNI 安全退出")
+            }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-        }
-        if (terminated) {
-            session = 0L
-            try {
-                bridge.destroySpeechSession(handle)
-            } catch (error: Throwable) {
-                Log.e(TAG, "销毁语音会话失败", error)
-            }
-        } else {
-            // Intentional bounded leak: destroying a handle still used by JNI is unsafe.
-            Log.e(TAG, "ASR 未在关闭期限内退出；保留 native session 以避免 use-after-free")
         }
     }
 
