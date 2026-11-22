@@ -53,17 +53,25 @@ data class NativeSpeechSourceRange(
     fun mapSegment(
         startSeconds: Double,
         endSeconds: Double,
-        audioDurationUs: Long
+        audioDurationUs: Long,
+        audioStartOffsetUs: Long = 0L
     ): Pair<Long, Long>? {
         if (validationError() != null || !startSeconds.isFinite() || !endSeconds.isFinite() ||
-            audioDurationUs <= 0L || startSeconds < 0.0 || endSeconds <= startSeconds
+            audioDurationUs <= 0L || audioStartOffsetUs < 0L ||
+            startSeconds < 0.0 || endSeconds <= startSeconds
         ) return null
-        val startSourceDelta = (startSeconds * 1_000_000.0).takeIf { it.isFinite() }?.roundToLong()
+        val startAudioDelta = (startSeconds * 1_000_000.0).takeIf { it.isFinite() }?.roundToLong()
             ?: return null
-        val endSourceDelta = (endSeconds * 1_000_000.0).takeIf { it.isFinite() }?.roundToLong()
+        val endAudioDelta = (endSeconds * 1_000_000.0).takeIf { it.isFinite() }?.roundToLong()
             ?: return null
+        val startSourceDelta = try { Math.addExact(audioStartOffsetUs, startAudioDelta) }
+            catch (_: ArithmeticException) { return null }
+        val endSourceDelta = try { Math.addExact(audioStartOffsetUs, endAudioDelta) }
+            catch (_: ArithmeticException) { return null }
         val sourceSpan = sourceOutUs - sourceInUs
-        val availableSourceUs = minOf(audioDurationUs, sourceSpan)
+        val audioEndDelta = try { Math.addExact(audioStartOffsetUs, audioDurationUs) }
+            catch (_: ArithmeticException) { return null }
+        val availableSourceUs = minOf(audioEndDelta, sourceSpan)
         if (startSourceDelta < 0L || endSourceDelta <= startSourceDelta ||
             startSourceDelta >= sourceSpan ||
             (endSourceDelta > availableSourceUs && endSourceDelta - availableSourceUs > 1L)
