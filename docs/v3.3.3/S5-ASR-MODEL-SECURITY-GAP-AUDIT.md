@@ -11,7 +11,7 @@
 ## 已核实的代码事实
 
 1. `mobile/native/android/NativeEngineBridge.kt::installModel(modelId, filePath)`
-   - 直接接受调用方提供的任意 `filePath`。
+   - 原始实现直接接受调用方提供的任意 `filePath`；后续安全修正已将规范化路径限制在应用私有模型目录内。
    - 通过 `File.readBytes()` 一次性把整个模型读入 JVM 内存。
    - 在本地计算 SHA-256，并把同一个本地计算值作为 `expected_sha256_hex` 传入 JNI。
    - 当前签名没有来自可信服务器清单的期望摘要，也没有签名清单验证。\n   - 后续安全修正已把路径规范化并限制在应用私有模型目录内，拒绝目录外路径/符号链接逃逸；同时限制超过 JNI byte-array 上限的文件，并在 JNI 返回后清零临时 Java byte array。
