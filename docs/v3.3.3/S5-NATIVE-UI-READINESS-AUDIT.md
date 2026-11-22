@@ -1166,3 +1166,5 @@
 - 后续边界回归补充：新增 JVM 用例覆盖完整片段首尾映射、片段末尾之后的字幕拒绝、源时间越界超过 1µs 的拒绝、时间轴终点整数溢出拒绝，以及接近 `Long.MAX_VALUE` 的合法大时间戳映射。该组测试已写入，等待本次最新 Actions 结果。
 
 - C ABI 源映射测试继续扩展：真实调用 `nc_trim_clip_start` 验证裁剪后 sourceIn 前移且 sourceOut 保持；再调用 `nc_set_clip_speed(2/1)` 验证恒速变速只改变时间轴时长、不改变源区间，并断言线性映射标志仍有效。该测试等待当前 CTest 运行验证。
+
+- 继续追查 JNI 桥接层发现：`NativeEngineBridge.transcribeSpeechSession()` 原先按原始 `capacity()` 校验帧数，却把 `slice()`（只暴露 remaining 区间）交给 JNI；当调用方 position 非零时，校验与 native 实际可见长度不一致。现改为按 `remaining()` 校验，并在桥接边界统一强制 16 kHz、语言代码 0..4、可写 direct PCM；模型缓冲区也在桥接边界强制非空、可写 direct buffer。这样 Worker、旧 Controller 与 JNI 桥接层使用同一输入契约。
