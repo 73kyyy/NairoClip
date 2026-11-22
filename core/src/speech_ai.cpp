@@ -153,17 +153,6 @@ std::vector<float> resampleTo16k(const float* samples, std::size_t frameCount,
 constexpr int kStartOfTranscript = 50258;
 constexpr int kEndOfText = 50257;
 
-/// 少量多语言 token → 文本（tiny 多语言模型的词表极大，无法内嵌全表；
-/// 本实现把 token id 转为「占位标记 + id」，由平台层可选的 BPE 词表
-/// 做最终解码。这样不伪造识别结果：无词表时输出明确标注）。
-std::string tokenToTextPlaceholder(int tokenId) {
-    if (tokenId == kEndOfText) {
-        return std::string();
-    }
-    // 明确标注：真实部署时应由平台层提供 tokenizer.json 做 BPE 解码。
-    return "[" + std::to_string(tokenId) + "]";
-}
-
 }  // namespace
 
 const char* speechLanguageName(SpeechLanguage language) {
