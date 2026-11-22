@@ -1128,3 +1128,10 @@
 - 已在 xforms 数组结束处追加 clip 对象闭合；随后原有外层代码继续关闭 clips 数组与 track 对象，形成正确嵌套：effects 数组 → xforms 数组 → clip 对象 → clips 数组 → track 对象。
 - 保留 `effects` 结束处只关闭数组的修复。
 - 需要新一轮 C++ 全量测试验证 `S1_2.BuildStateClipJsonIsWellFormed`；当前尚未运行修复后的测试。
+
+## 93. 增加主机 CMake + CTest 定向验证门
+
+- 现有主 CI 虽然构建 `nairoclip_tests` 并直接运行自研测试程序，但没有通过 CTest 注册入口执行；为满足 JNI/C ABI 变更的独立验证要求，在 S5 验证工作流新增 `core-ctest` 作业。
+- 新作业在 Ubuntu 主机安装 FFmpeg 开发依赖，配置 CMake 测试构建，编译 `nairoclip_tests`，再通过 `ctest --test-dir build-ctest` 运行 `S1_2.` 与 `Capi.` 前缀测试。
+- 该定向 CTest 覆盖 JNI BuildState JSON 契约、DispatchEdit 契约和 C ABI 字幕批量事务等相关测试；它与 Android NDK arm64 交叉编译、Kotlin/JVM 测试互补，不替代主 CI 全量回归。
+- 新作业已提交，等待 GitHub Actions 实际执行；尚不能标记为通过。
