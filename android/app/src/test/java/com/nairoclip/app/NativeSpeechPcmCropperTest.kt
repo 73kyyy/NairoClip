@@ -36,6 +36,28 @@ class NativeSpeechPcmCropperTest {
     }
 
     @Test
+    fun preservesActualFirstSampleTimestampForNonFrameAlignedInPoint() {
+        val range = NativeSpeechSourceRange(
+            timelineStartUs = 2_000_000L,
+            timelineDurationUs = 500_000L,
+            sourceInUs = 250_030L,
+            sourceOutUs = 750_030L,
+            speedNumerator = 1L,
+            speedDenominator = 1L
+        )
+        val cropped = NativeSpeechPcmCropper.trim(pcm(16_000, 0L), range)
+        assertEquals(250_063L, cropped.startTimeUs)
+        val mapped = range.mapSegment(
+            startSeconds = 0.0,
+            endSeconds = 0.1,
+            audioDurationUs = 500_000L,
+            audioStartOffsetUs = cropped.startTimeUs - range.sourceInUs
+        )
+        assertEquals(2_000_033L, mapped?.first)
+        assertEquals(100_000L, mapped?.second)
+    }
+
+    @Test
     fun trimsSeekPrerollUsingFirstOutputPresentationTimestamp() {
         val cropped = NativeSpeechPcmCropper.trim(pcm(16_000, 100_000L), range())
         assertEquals(8_000L, cropped.frameCount)
