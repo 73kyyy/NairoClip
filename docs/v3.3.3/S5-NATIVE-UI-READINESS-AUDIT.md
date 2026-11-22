@@ -1168,3 +1168,10 @@
 - C ABI 源映射测试继续扩展：真实调用 `nc_trim_clip_start` 验证裁剪后 sourceIn 前移且 sourceOut 保持；再调用 `nc_set_clip_speed(2/1)` 验证恒速变速只改变时间轴时长、不改变源区间，并断言线性映射标志仍有效。该测试等待当前 CTest 运行验证。
 
 - 继续追查 JNI 桥接层发现：`NativeEngineBridge.transcribeSpeechSession()` 原先按原始 `capacity()` 校验帧数，却把 `slice()`（只暴露 remaining 区间）交给 JNI；当调用方 position 非零时，校验与 native 实际可见长度不一致。现改为按 `remaining()` 校验，并在桥接边界统一强制 16 kHz、语言代码 0..4、可写 direct PCM；模型缓冲区也在桥接边界强制非空、可写 direct buffer。这样 Worker、旧 Controller 与 JNI 桥接层使用同一输入契约。
+
+## 98. AudioMixer 降噪流跨 feed 边界丢帧修复
+
+- 对真实媒体降噪集成测试的逐音节指标继续向下追查，定位到 `AudioMixer::serveDenoisedBlock()`：当一次 feed 的剩余需求小于 `MediaReader::readAudioBlock()` 返回块的帧数时，旧代码复制前半段后直接 break，丢弃当前解码块未消费的尾部样本；下一轮从读取器后续块继续，导致降噪器输入流发生时间跳跃。
+- 该实现错误地假设 MediaReader 当前永远返回恰好可整除 feed 的块大小，接口本身并无此保证。丢帧会使 300Hz 音节突发与 50ms 间隙的时序被破坏，进而把后续语音误判为噪声。
+- 已在每片段 `DenoiseState` 增加待消费 `AudioBlock` 与帧偏移，feed 需求不足时保留剩余样本，下次从原块偏移继续复制；仅在整块消费完成后才读取下一块。对声道数/交错样本尺寸异常的解码块 fail closed。
+- 该修复不调整降噪 DSP 参数、不降低验收阈值，也不改变正常输出样本数契约；真实媒体语音保留与噪声抑制必须由新一轮 CTest/全量 CI 同时验证。
