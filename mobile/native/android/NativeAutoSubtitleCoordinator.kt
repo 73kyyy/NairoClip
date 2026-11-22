@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Lifecycle-neutral host adapter for the native automatic-subtitle panel.
@@ -25,6 +26,7 @@ class NativeAutoSubtitleCoordinator(
 
     private val appContext = context.applicationContext
     private val closed = AtomicBoolean(false)
+    private val stateVersion = AtomicLong(0L)
     private val lock = Any()
     private var sourceUri: Uri? = null
     private var timelineStartUs: Long = 0L
@@ -84,21 +86,23 @@ class NativeAutoSubtitleCoordinator(
     fun start(): Boolean {
         val request = synchronized(lock) {
             if (closed.get() || running || !sessionReady) return false
-            val uri = sourceUri ?: run {
+            val uri = sourceUri
+            if (uri == null) {
                 statusMessage = "请先选择时间轴中的视频或音频素材"
                 null
+            } else {
+                running = true
+                // No progress callback is currently exposed by the JNI worker.
+                // Use an indeterminate indicator rather than presenting a fake 0%.
+                progress = null
+                errorMessage = null
+                statusMessage = "正在解码音频并准备识别…"
+                uri to timelineStartUs
             }
-            if (uri == null) {
-                publish()
-                return false
-            }
-            running = true
-            // No progress callback is currently exposed by the JNI worker.
-            // Use an indeterminate indicator rather than presenting a fake 0%.
-            progress = null
-            errorMessage = null
-            statusMessage = "正在解码音频并准备识别…"
-            uri to timelineStartUs
+        }
+        if (request == null) {
+            publish()
+            return false
         }
         publish()
         return try {
@@ -140,23 +144,29 @@ class NativeAutoSubtitleCoordinator(
         val canCancel = synchronized(lock) { !closed.get() && running }
         if (!canCancel) return false
         val accepted = worker.cancel()
-        synchronized(lock) {
-            if (accepted) statusMessage = "已请求取消，正在等待安全结束…"
-            else statusMessage = "当前阶段无法接受取消请求，正在等待任务结束"
+        val shouldPublish = synchronized(lock) {
+            if (!running || closed.get()) {
+                false
+            } else {
+                statusMessage = if (accepted) "已请求取消，正在等待安全结束…"
+                    else "当前阶段无法接受取消请求，正在等待任务结束"
+                true
+            }
         }
-        publish()
+        if (shouldPublish) publish()
         return accepted
     }
 
     private fun publish() {
+        val version = stateVersion.incrementAndGet()
         val snapshot = state()
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            if (!closed.get()) onStateChanged(snapshot)
-        } else {
-            mainHandler.post {
-                if (!closed.get()) onStateChanged(snapshot)
-            }
+        val deliver = {
+            // Background completions may be queued while a newer main-thread
+            // state is already visible. Drop stale snapshots instead of reverting UI.
+            if (!closed.get() && stateVersion.get() == version) onStateChanged(snapshot)
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) deliver()
+        else mainHandler.post { deliver() }
     }
 
     override fun close() {
