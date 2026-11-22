@@ -1094,3 +1094,9 @@
 - 新增测试覆盖：从完整文件 PCM 裁出指定源区间、按非零首个 PTS 正确裁掉 seek preroll、解码器跳过源入点时拒绝、解码器未覆盖源出点时拒绝。
 - Worker 现在只调用该裁剪器，解码原始缓冲区在裁剪成功或失败后均 best-effort 清零；识别用裁剪后的 direct buffer 在推理/写回结束后清零。
 - 本节测试尚待最新 GitHub Actions 运行验证；Android MediaCodec 实际 seek/PTS 连续性仍需真机验证。
+
+## 97. 自动字幕源映射从权威时间轴快照构建
+
+- 新增 `NativeSpeechSourceRange.fromTimelineClip()`，直接从 `NativeTimelineClip` 生成 ASR 所需映射，统一传递片段时间轴起点/时长、源入点/出点、速度比和倒放/定格/曲线标志。
+- 对旧快照或缺少 sourceIn/sourceOut 的片段返回 null，不允许宿主自行猜测 0 点或按 1x 处理。
+- 新增工厂测试验证完整元数据可构建、源区间校验通过，未知源区间不会生成映射对象。
