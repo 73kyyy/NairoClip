@@ -11,7 +11,7 @@ class NativeSpeechPcmCropperTest {
         val buffer = ByteBuffer.allocateDirect(frameCount * Float.SIZE_BYTES)
             .order(ByteOrder.nativeOrder())
         val floats = buffer.asFloatBuffer()
-        repeat(frameCount) { floats.put(it.toFloat()) }
+        repeat(frameCount) { floats.put(it.toFloat() / frameCount.toFloat()) }
         return AndroidSpeechPcm(buffer, frameCount.toLong(), 16000, startTimeUs)
     }
 
@@ -30,8 +30,8 @@ class NativeSpeechPcmCropperTest {
         assertEquals(8_000L, cropped.frameCount)
         assertEquals(250_000L, cropped.startTimeUs)
         val samples = cropped.samples.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
-        assertEquals(4_000.0f, samples.get(0))
-        assertEquals(11_999.0f, samples.get(7_999))
+        assertEquals(0.25f, samples.get(0), 0.000001f)
+        assertEquals(11_999.0f / 16_000.0f, samples.get(7_999), 0.000001f)
         assertTrue(cropped.samples.isDirect)
     }
 
@@ -40,8 +40,8 @@ class NativeSpeechPcmCropperTest {
         val cropped = NativeSpeechPcmCropper.trim(pcm(16_000, 100_000L), range())
         assertEquals(8_000L, cropped.frameCount)
         val samples = cropped.samples.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
-        assertEquals(2_400.0f, samples.get(0))
-        assertEquals(10_399.0f, samples.get(7_999))
+        assertEquals(2_400.0f / 16_000.0f, samples.get(0), 0.000001f)
+        assertEquals(10_399.0f / 16_000.0f, samples.get(7_999), 0.000001f)
     }
 
     @Test(expected = IllegalArgumentException::class)
