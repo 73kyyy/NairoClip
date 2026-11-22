@@ -186,8 +186,8 @@ std::string JEsc(const std::string& in) {
     o.reserve(in.size() + 8);
     for (char c : in) {
         switch (c) {
-            case '"':  o += "\\""; break;
-            case '\\': o += "\\\"; break;
+            case '"':  o += "\\\""; break;
+            case '\\': o += "\\\\"; break;
             case '\n': o += "\\n";  break;
             case '\r': o += "\\r";  break;
             case '\t': o += "\\t";  break;
