@@ -79,10 +79,16 @@ class NativeAutoSubtitleCoordinator(
             if (closed.get()) return
             sessionReady = ready
             if (!running) {
-                statusMessage = message?.takeIf { it.isNotBlank() }
+                val mappingError = if (sourceUri != null && sourceRange == null) {
+                    "缺少片段源区间，暂不能安全生成字幕"
+                } else {
+                    sourceRange?.validationError()
+                }
+                errorMessage = mappingError
+                statusMessage = mappingError
+                    ?: message?.takeIf { it.isNotBlank() }
                     ?: if (ready) "语音模型已就绪，可以开始识别"
                     else "语音模型尚未就绪"
-                if (!ready) errorMessage = null
             }
         }
         publish()
