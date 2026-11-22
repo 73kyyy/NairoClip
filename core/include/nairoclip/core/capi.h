@@ -1116,7 +1116,7 @@ int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* d
                        const char* tokenizer_path, char** out_error);
 /// 卸载语音识别模型。
 int32_t nc_speech_unload(NcEditor* editor);
-/// 语音识别模型是否已加载（1/0）。
+/// Whisper encoder、decoder 与必需 BPE tokenizer 均成功加载时返回 1，否则返回 0。
 int32_t nc_speech_loaded(const NcEditor* editor);
 
 /// 识别单声道 PCM（真实推理；文档 3.2）。
