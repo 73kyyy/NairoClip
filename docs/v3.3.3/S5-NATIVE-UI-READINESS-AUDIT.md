@@ -1121,3 +1121,10 @@
 - 新增主机侧 S1-2 契约测试：直接调用生产 `BuildState()`，用核心 JSON 解析器解析完整返回信封，并断言首个轨道/片段包含数组类型的 `effects` 与 `xforms` 字段。
 - 该测试直接覆盖 JNI 手工 JSON 拼接，不再只依赖 Kotlin 对人工构造 JSON 的解析测试；避免未来再次出现“源码拼接顺序错误但 Kotlin parser 单测仍通过”的盲区。
 - 最新提交的桌面 C++ Release/ASAN/UBSan 与 Android NDK/Kotlin 结果待 Actions 完成后记录；主机测试桩不执行 JNI 方法，只调用纯 C++ C API。
+
+## 92. BuildState 片段 JSON 闭合修复补全
+
+- 最新 CI 的 `S1_2.BuildStateClipJsonIsWellFormed` 在 `parseJson(BuildState(...))` 失败，证明第 91 节修复只移除了 effects 处过早关闭 clip 的问题，却遗漏了 xforms 数组结束后必须关闭 clip 对象。
+- 已在 xforms 数组结束处追加 clip 对象闭合；随后原有外层代码继续关闭 clips 数组与 track 对象，形成正确嵌套：effects 数组 → xforms 数组 → clip 对象 → clips 数组 → track 对象。
+- 保留 `effects` 结束处只关闭数组的修复。
+- 需要新一轮 C++ 全量测试验证 `S1_2.BuildStateClipJsonIsWellFormed`；当前尚未运行修复后的测试。
