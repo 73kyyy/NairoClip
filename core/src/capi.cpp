@@ -7586,6 +7586,10 @@ int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* d
     if (decoder_path == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "decoder_path 为空");
     }
+    if (tokenizer_path == nullptr || tokenizer_path[0] == '\0') {
+        setDetail(out_error, "Whisper tokenizer_path 必须提供，不能在缺少 BPE 词表时标记模型已加载");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "tokenizer_path 为空");
+    }
     std::string failure;
     if (editor->speechRecognizer == nullptr) {
         editor->speechRecognizer.reset(new (std::nothrow) SpeechRecognizer());
@@ -7599,14 +7603,13 @@ int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* d
         editor->speechRecognizer.reset();
         return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
-    // 词表（可选；失败不影响模型加载，但解码输出为空——明确告知）
-    if (tokenizer_path != nullptr && tokenizer_path[0] != '\0') {
-        std::string tokenizerFailure;
-        if (!editor->speechRecognizer->loadTokenizer(tokenizer_path, &tokenizerFailure)) {
-            setDetail(out_error, "词表加载失败（解码将返回空文本）：" + tokenizerFailure);
-            // 模型仍可用（部分功能）；返回 OK 但给出提示
-        }
+    std::string tokenizerFailure;
+    if (!editor->speechRecognizer->loadTokenizer(tokenizer_path, &tokenizerFailure)) {
+        setDetail(out_error, "Whisper tokenizer 加载失败：" + tokenizerFailure);
+        editor->speechRecognizer.reset();
+        return failNc(NC_ERROR_UNSUPPORTED, "Whisper tokenizer 加载失败");
     }
+    if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
 }
 
