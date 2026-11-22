@@ -133,7 +133,7 @@ object AndroidAudioPcmDecoder {
                                 pcmEncoding == AudioFormat.ENCODING_PCM_FLOAT ||
                                 pcmEncoding == AudioFormat.ENCODING_PCM_8BIT
                         ) { "当前系统解码器输出了不支持的 PCM 位宽" }
-                        if (resampler == null) resampler = StreamingMonoResampler(outputRate, TARGET_RATE)
+                        if (resampler == null) resampler = NativeSpeechResampler(outputRate, TARGET_RATE)
                         else require(resampler!!.inputRate == outputRate) {
                             "解码期间音频采样率发生变化，无法安全重采样"
                         }
@@ -179,7 +179,7 @@ object AndroidAudioPcmDecoder {
                                 }
                                 mono[frame] = (sum / outputChannels).toFloat().coerceIn(-1.0f, 1.0f)
                             }
-                            if (resampler == null) resampler = StreamingMonoResampler(outputRate, TARGET_RATE)
+                            if (resampler == null) resampler = NativeSpeechResampler(outputRate, TARGET_RATE)
                             try {
                                 resampler!!.push(mono)
                                 expectedNextOutputPresentationTimeUs =
