@@ -61,8 +61,11 @@ fun NativeAutoSubtitlePanel(
             color = Color(0xFFB8BDC2),
             fontSize = 10.sp
         )
+        val visibleMessage = state.errorMessage?.takeIf { it.isNotBlank() }
+            ?: state.statusMessage.takeIf { it.isNotBlank() }
+            ?: "等待自动字幕服务"
         Text(
-            state.errorMessage?.takeIf { it.isNotBlank() } ?: state.statusMessage,
+            visibleMessage,
             color = if (state.errorMessage.isNullOrBlank()) Color(0xFFB8BDC2) else Color(0xFFFF8A80),
             fontSize = 10.sp
         )
@@ -100,7 +103,7 @@ fun NativeAutoSubtitlePanel(
                 }
             }
         }
-        if (!state.available && !state.running) {
+        if ((!state.available || onStart == null) && !state.running) {
             Text(
                 "需要宿主提供已选素材、模型会话和字幕写回服务；当前不会伪造识别结果。",
                 color = Color(0xFF8D949B),
