@@ -90,8 +90,8 @@ class NativeAutoSubtitleCoordinator(
 
     fun state(): NativeAutoSubtitleUiState = synchronized(lock) {
         NativeAutoSubtitleUiState(
-            available = !closed.get() && sourceUri != null &&
-                sourceRange?.validationError() == null && sessionReady && !running,
+            available = !closed.get() && sourceUri != null && sourceRange != null &&
+                sourceRange.validationError() == null && sessionReady && !running,
             running = running,
             progress = progress,
             statusMessage = statusMessage,
