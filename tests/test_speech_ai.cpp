@@ -198,6 +198,15 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     NC_CHECK(!failure.empty());
     NC_CHECK(!recognizer.tokenizerLoaded());
 
+    // Special-token IDs must not collide with ordinary BPE entries: decodeTokens
+    // skips added-token IDs, so accepting a collision would silently drop text.
+    failure.clear();
+    NC_CHECK(!recognizer.loadTokenizerJson(
+        R"({"model":{"vocab":{"ordinary":42}},"added_tokens":[{"id":42,"content":"<|special|>"}]})",
+        &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
+
     // Duplicate IDs make reverse lookup ambiguous and must be rejected.
     failure.clear();
     NC_CHECK(!recognizer.loadTokenizerJson(
