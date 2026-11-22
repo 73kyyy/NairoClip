@@ -139,8 +139,11 @@ class NativeSpeechSessionWorker(
                 require(decoded.frameCount <= decoded.samples.remaining().toLong() / Float.SIZE_BYTES) {
                     "解码 PCM 帧数与缓冲区容量不一致"
                 }
+                // JNI GetDirectBufferAddress uses the view base, not the current
+                // position. Keep the same remaining-range contract as transcribe().
+                val pcmView = decoded.samples.slice().order(java.nio.ByteOrder.nativeOrder())
                 val response = JSONObject(bridge.transcribeSpeechSession(
-                    session, decoded.samples, decoded.frameCount, decoded.sampleRate, language
+                    session, pcmView, decoded.frameCount, decoded.sampleRate, language
                 ))
                 check(response.optBoolean("ok", false)) {
                     response.optString("message").ifBlank { "语音识别失败" }
