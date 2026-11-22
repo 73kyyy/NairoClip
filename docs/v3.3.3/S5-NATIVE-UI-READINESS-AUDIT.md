@@ -1062,3 +1062,10 @@
   - Android SDK setup 误安装已移除的 legacy `tools` 包；工作流已限定安装 platform-tools。
 - 验证状态：在提交 `20e89a6e14f17936cae3ebca4549e7cebec674af` 上，Android NDK arm64-v8a 核心库构建与 JNI 桥接 `-fsyntax-only` 检查已通过。该提交的 Kotlin 编译/JVM 测试与桌面 C++ Release/ASAN/UBSan/CTest 仍在运行，尚不能记为通过。
 - 以上均以实际 Actions 日志为准；失败的旧提交运行保留为历史证据，不用新提交结果覆盖或伪装。
+
+## 93. Kotlin 快照单测失败根因：本地 JVM 缺少真实 org.json 实现
+
+- Android `compileDebugKotlin` 已通过，但首次 `testDebugUnitTest` 中新增的两项快照解析测试失败，失败点是解析结果为 null。
+- 复核发现测试运行在本地 JVM，原先只依赖 Android mockable android.jar 提供的 `org.json` API；该环境不保证提供真实可用的 JSON 实现，而生产解析器会捕获 JSON 初始化异常并按契约返回 null。
+- 已在 `testImplementation` 增加独立的 `org.json:json:20240303`，仅供 JVM 单测使用，不进入 APK 的生产运行时依赖。
+- 必须重新运行 `testDebugUnitTest` 验证两项快照解析测试；本修复尚未取得新运行结果。
