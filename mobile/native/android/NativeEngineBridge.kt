@@ -505,15 +505,35 @@ class NativeEngineBridge(
         // File I/O and hashing can take a long time. Keep them outside the
         // engine monitor so preview rendering, state reads and task heartbeats
         // are not blocked while a model file is loaded.
-        val file = java.io.File(filePath)
-        if (!file.isFile) return err("文件不存在：$filePath")
+        val root = modelRoot() ?: return err("应用私有模型目录不可用")
+        val canonicalRoot: java.io.File
+        val canonicalFile: java.io.File
+        try {
+            canonicalRoot = root.canonicalFile
+            canonicalFile = java.io.File(filePath).canonicalFile
+        } catch (error: Throwable) {
+            return err("模型路径无效：${error.message}")
+        }
+        val rootPrefix = canonicalRoot.path.trimEnd(java.io.File.separatorChar) + java.io.File.separator
+        if (canonicalFile.path == canonicalRoot.path || !canonicalFile.path.startsWith(rootPrefix)) {
+            return err("模型文件必须位于应用私有模型目录内")
+        }
+        if (!canonicalFile.isFile) return err("模型文件不存在或不是普通文件")
+        val expectedLength = canonicalFile.length()
+        if (expectedLength <= 0L) return err("模型文件为空")
+        if (expectedLength > Int.MAX_VALUE.toLong()) {
+            return err("模型文件超过当前 JNI byte-array 接口上限，拒绝整文件载入内存")
+        }
 
         val bytes: ByteArray = try {
-            file.readBytes()
+            canonicalFile.readBytes()
         } catch (error: Throwable) {
             return err("读取失败：${error.message}")
         }
-        if (bytes.isEmpty()) return err("文件为空")
+        if (bytes.isEmpty() || bytes.size.toLong() != expectedLength) {
+            bytes.fill(0)
+            return err("模型文件读取长度不一致")
+        }
 
         val sha = try {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -529,7 +549,7 @@ class NativeEngineBridge(
                     ensure(),
                     modelId,
                     bytes,
-                    file.absolutePath,
+                    canonicalFile.absolutePath,
                     sha,
                     System.currentTimeMillis() / 1000
                 )
