@@ -543,19 +543,24 @@ class NativeEngineBridge(
         }
 
         // Only the native mutation is serialized with the engine lifecycle.
-        return synchronized(stateLock) {
-            try {
-                nativeInstallModel(
-                    ensure(),
-                    modelId,
-                    bytes,
-                    canonicalFile.absolutePath,
-                    sha,
-                    System.currentTimeMillis() / 1000
-                )
-            } catch (error: Throwable) {
-                err("安装调用失败：${error.message}")
+        // The temporary copy is wiped regardless of JNI success or failure.
+        return try {
+            synchronized(stateLock) {
+                try {
+                    nativeInstallModel(
+                        ensure(),
+                        modelId,
+                        bytes,
+                        canonicalFile.absolutePath,
+                        sha,
+                        System.currentTimeMillis() / 1000
+                    )
+                } catch (error: Throwable) {
+                    err("安装调用失败：${error.message}")
+                }
             }
+        } finally {
+            bytes.fill(0)
         }
     }
 
