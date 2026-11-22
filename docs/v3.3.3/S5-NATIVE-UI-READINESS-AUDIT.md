@@ -1175,3 +1175,5 @@
 - 该实现错误地假设 MediaReader 当前永远返回恰好可整除 feed 的块大小，接口本身并无此保证。丢帧会使 300Hz 音节突发与 50ms 间隙的时序被破坏，进而把后续语音误判为噪声。
 - 已在每片段 `DenoiseState` 增加待消费 `AudioBlock` 与帧偏移，feed 需求不足时保留剩余样本，下次从原块偏移继续复制；仅在整块消费完成后才读取下一块。对声道数/交错样本尺寸异常的解码块 fail closed。
 - 该修复不调整降噪 DSP 参数、不降低验收阈值，也不改变正常输出样本数契约；真实媒体语音保留与噪声抑制必须由新一轮 CTest/全量 CI 同时验证。
+
+- 新增确定性回归测试 `AudioMixer.DenoisePreservesSamplesAcrossVariableReaderBlockSizes`：使用现有 `MockMediaReader` 分别以 1024 帧和不对齐的 3000 帧返回解码块，对同一 1 秒降噪片段完整混音，断言输出长度一致且逐样本最大差小于 (10^{-6})。该测试直接锁定“feed 需求与解码块大小不一致时不得丢帧”的接口契约；等待最新 Actions CTest 运行。
