@@ -35,7 +35,6 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          # The legacy "tools" package no longer exists in current SDK repositories.
           packages: platform-tools
 
       - name: Install Android compile components
@@ -89,44 +88,7 @@ jobs:
       - name: Run targeted JNI and C ABI CTest coverage
         env:
           NC_TEST_INCLUDE: S1_2.,Capi.
-        run: ctest --test-dir build-ctest --output-on-failure -R '^nairoclip_tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Android NDK r27d
-        uses: nttld/setup-ndk@v1
-        id: ndk
-        with:
-          ndk-version: r27d
-          add-to-path: false
-
-      - name: Configure Android CMake
-        run: |
-          cmake -S . -B build-android-arm64 \
-            -DCMAKE_TOOLCHAIN_FILE="${{ steps.ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-24 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DNAIROCLIP_ORT_ROOT=OFF \
-            -DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF \
-            -DNAIROCLIP_BUILD_TESTS=OFF \
-            -DNAIROCLIP_BUILD_DESIGN_HARNESS=OFF \
-            -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON
-
-      - name: Build Android core
-        run: cmake --build build-android-arm64 --parallel 4 --target nairoclip_core
-
-      - name: Compile JNI bridge translation unit
-        run: |
-          NDK="${{ steps.ndk.outputs.ndk-path }}"
-          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
-          "$CLANG" --target=aarch64-linux-android24 -std=c++17 -fsyntax-only \
-            -Icore/include \
-            -I"$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include" \
-            mobile/native/android/nc_jni.cpp
-
+        run: ctest --test-dir build-ctest --output-on-failure -R '^nairoclip_tests$'
 
   android-native-core:
     name: Android NDK core cross-compile (arm64-v8a)
