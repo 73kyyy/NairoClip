@@ -33,13 +33,14 @@ object NativeSpeechPcmCropper {
         val startDeltaUs = (sourceRange.sourceInUs - decoded.startTimeUs).coerceAtLeast(0L)
         val endDeltaUs = sourceRange.sourceOutUs - decoded.startTimeUs
         require(endDeltaUs > startDeltaUs) { "解码音频未覆盖所选源区间" }
-        val startFrame = ceil(startDeltaUs.toDouble() * decoded.sampleRate / 1_000_000.0).toLong()
-        val endFrame = ceil(endDeltaUs.toDouble() * decoded.sampleRate / 1_000_000.0).toLong()
+        // Use integer ceil arithmetic: floating-point rounding near a frame boundary
+        // must not allow an out-point that extends beyond the decoded PCM.
+        val startFrame = ceilFrameIndex(startDeltaUs, decoded.sampleRate)
+        val endFrame = ceilFrameIndex(endDeltaUs, decoded.sampleRate)
         val totalFrames = decoded.frameCount
         require(startFrame in 0 until totalFrames) { "所选源入点超出解码音频范围" }
-        require(endFrame <= totalFrames + 1L) { "系统解码器未覆盖所选片段源出点" }
-        val boundedEndFrame = minOf(endFrame, totalFrames)
-        val frameCount = boundedEndFrame - startFrame
+        require(endFrame <= totalFrames) { "系统解码器未完整覆盖所选片段源出点" }
+        val frameCount = endFrame - startFrame
         require(frameCount > 0L) { "所选源区间没有有效音频帧" }
 
         val sourceFloats = decoded.samples.duplicate()
@@ -50,6 +51,7 @@ object NativeSpeechPcmCropper {
         val output = ByteBuffer.allocateDirect(frameCount.toInt() * Float.SIZE_BYTES)
             .order(ByteOrder.nativeOrder())
         output.asFloatBuffer().put(sourceFloats)
+        output.position(0)
         return AndroidSpeechPcm(
             samples = output,
             frameCount = frameCount,
@@ -57,4 +59,10 @@ object NativeSpeechPcmCropper {
             startTimeUs = sourceRange.sourceInUs
         )
     }
+    private fun ceilFrameIndex(deltaUs: Long, sampleRate: Int): Long {
+        require(deltaUs >= 0L && sampleRate > 0)
+        val numerator = Math.multiplyExact(deltaUs, sampleRate.toLong())
+        return Math.addExact(numerator, 999_999L) / 1_000_000L
+    }
+
 }
