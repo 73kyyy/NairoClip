@@ -86,3 +86,12 @@ jobs:
 
       - name: Build Android core
         run: cmake --build build-android-arm64 --parallel 4 --target nairoclip_core
+
+      - name: Compile JNI bridge translation unit
+        run: |
+          NDK="${{ steps.ndk.outputs.ndk-path }}"
+          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+          "$CLANG" --target=aarch64-linux-android24 -std=c++17 -fsyntax-only \
+            -Icore/include \
+            -I"$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include" \
+            mobile/native/android/nc_jni.cpp
