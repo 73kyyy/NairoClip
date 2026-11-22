@@ -1069,3 +1069,14 @@
 - 复核发现测试运行在本地 JVM，原先只依赖 Android mockable android.jar 提供的 `org.json` API；该环境不保证提供真实可用的 JSON 实现，而生产解析器会捕获 JSON 初始化异常并按契约返回 null。
 - 已在 `testImplementation` 增加独立的 `org.json:json:20240303`，仅供 JVM 单测使用，不进入 APK 的生产运行时依赖。
 - 必须重新运行 `testDebugUnitTest` 验证两项快照解析测试；本修复尚未取得新运行结果。
+
+## 94. 自动字幕按片段源区间解码与恒速时间轴映射
+
+- 第82/84/85节记录的“只拿 URI + 时间轴起点、从素材头部识别整段音频”缺陷已进入实现修复，不再只保留为后续说明。
+- 新增 `NativeSpeechSourceRange`，携带时间轴起点/时长、素材源入点/出点、速度分子/分母和倒放/定格/速度曲线标志；验证源区间跨度必须与时间轴时长×恒速比一致（允许 2µs 的整数微秒舍入误差），并用 BigInteger 防止映射乘法溢出。
+- 自动字幕目前只允许正向恒速片段。倒放、定格、变速曲线、缺失源区间或不一致的源/时间轴跨度会明确拒绝；旧的“仅时间轴起点”协调器重载保留为 deprecated 兼容入口，但不再允许启动识别，防止对裁剪素材错误生成字幕。
+- `AndroidAudioPcmDecoder` 支持按 sourceIn seek 到前一同步点，并在 sourceOut 处结束输入；记录解码首个 PCM PTS，检查后续输出 PTS 连续性，拒绝无法可靠映射的音频时间戳。
+- Worker 按首个 PTS 裁掉 seek preroll，并裁掉 sourceOut 之后的 PCM；若解码器跳过源入点或未覆盖源出点，则失败，不会用整段原素材假装片段内容。
+- Whisper 输出段落再按 speedDenominator/speedNumerator 映射回项目时间轴，并限制在所选片段时长内；字幕仍通过既有原子批量事务写回。
+- 新增纯 Kotlin 映射测试覆盖 2x、0.5x、倒放/定格/速度曲线拒绝和源跨度不一致。
+- 验证边界：这些新增 Worker/Coordinator/MediaCodec 代码已提交，但最新提交上的 Gradle/JVM、NDK/JNI 和 C++ CI 仍需重新完成；不能把之前仅验证到 source-range helper 的成功运行视为本节端到端验证通过。真机 MediaExtractor/MediaCodec 轨道时间戳行为仍需后续设备验证。
