@@ -169,9 +169,9 @@ class NativeSpeechSessionController(
     }
 
     /** Cooperative cancellation; completion is reported separately. */
-    fun cancel(): Boolean {
-        if (closed.get() || !inferenceActive || session == 0L) return false
-        return try {
+    fun cancel(): Boolean = synchronized(lock) {
+        if (closed.get() || !inferenceActive || session == 0L) return@synchronized false
+        try {
             bridge.cancelSpeechSession(session)
         } catch (_: Throwable) {
             false
@@ -185,10 +185,12 @@ class NativeSpeechSessionController(
         if (!closed.get()) listener.onStatus(readStatus())
     }
 
-    private fun readStatus(): Status {
+    private fun readStatus(): Status = synchronized(lock) {
         val handle = session
-        if (handle == 0L) return Status(STATE_UNLOADED, 0.0, "会话已关闭")
-        return try {
+        if (closed.get() || handle == 0L) {
+            return@synchronized Status(STATE_UNLOADED, 0.0, "会话已关闭")
+        }
+        try {
             val json = JSONObject(bridge.speechSessionStatus(handle))
             Status(
                 state = json.optInt("state", STATE_UNLOADED),
