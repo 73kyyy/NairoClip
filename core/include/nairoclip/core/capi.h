@@ -370,7 +370,8 @@ int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_
                      uint64_t* out_asset_id, int64_t* out_speed_num, int64_t* out_speed_den,
                      int32_t* out_enabled);
 /// 读取片段源素材映射元数据。所有输出参数均可为 NULL。
-/// source_out_us 是源区间终点（sourceIn + duration * base speed）；
+/// source_out_us：无定格/速度曲线时为 sourceIn + duration * base speed；
+/// 定格或速度曲线片段返回 source_in_us 作为“区间未知”哨兵，须检查对应标志位。
 /// reversed/frozen/has_speed_curve 用于宿主判断是否支持直接线性时间映射。
 int32_t nc_clip_source_info(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             int64_t* out_source_in_us, int64_t* out_source_out_us,
