@@ -50,4 +50,34 @@ class NativeModelPathPolicyTest {
         }
         assertNull(NativeModelPathPolicy.resolveWithinRoot(root.toFile(), link.toFile()))
     }
+
+    @Test
+    fun rejectsModelRootSymlinkThatEscapesFilesDir() {
+        val parent = Files.createTempDirectory("nairoclip-model-root-link")
+        val base = Files.createDirectory(parent.resolve("private"))
+        val outside = Files.createDirectory(parent.resolve("external"))
+        val link = base.resolve("models")
+        try {
+            Files.createSymbolicLink(link, outside)
+        } catch (_: UnsupportedOperationException) {
+            return
+        } catch (_: java.io.IOException) {
+            return
+        } catch (_: SecurityException) {
+            return
+        }
+        assertNull(
+            NativeModelPathPolicy.resolveRootWithinBase(base.toFile(), link.toFile())
+        )
+    }
+
+    @Test
+    fun acceptsRealModelRootInsideFilesDir() {
+        val base = Files.createTempDirectory("nairoclip-model-base")
+        val root = Files.createDirectory(base.resolve("models"))
+        assertEquals(
+            root.toFile().canonicalFile,
+            NativeModelPathPolicy.resolveRootWithinBase(base.toFile(), root.toFile())
+        )
+    }
 }
