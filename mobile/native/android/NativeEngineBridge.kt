@@ -173,7 +173,7 @@ class NativeEngineBridge(
         require(sampleRate == 16000 && language in 0..4)
         // slice() below exposes only the caller's remaining range. Validate
         // against that same range, never against the original buffer capacity.
-        require(frameCount <= pcm.remaining().toLong() / java.nio.Float.BYTES)
+        require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES)
         return nativeSpeechSessionTranscribe(
             session,
             pcm.slice().order(java.nio.ByteOrder.nativeOrder()),
