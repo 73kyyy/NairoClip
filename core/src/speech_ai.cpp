@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <vector>
 
