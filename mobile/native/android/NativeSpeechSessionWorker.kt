@@ -161,13 +161,14 @@ class NativeSpeechSessionWorker(
 
     /** Cooperative cancellation; returns false when native inference is not cancellable. */
     fun cancel(): Boolean = synchronized(lifecycleLock) {
-        if (closing.get()) return@synchronized false
+        if (closing.get() || !busy.get()) return@synchronized false
+        // The cooperative token also cancels MediaCodec decoding and prevents
+        // subtitle insertion, even when native inference has not started yet.
         cancellationRequested.set(true)
-        try {
-            bridge.cancelSpeechSession(session)
-        } catch (_: Throwable) {
-            false
-        }
+        try { bridge.cancelSpeechSession(session) } catch (_: Throwable) {}
+        // A request is accepted once the worker has recorded the token. Native
+        // cancellation may return false during decode; the worker still observes it.
+        true
     }
 
     private fun <T> submit(operation: () -> T): CompletableFuture<T> {
