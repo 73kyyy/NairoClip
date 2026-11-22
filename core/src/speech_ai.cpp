@@ -568,8 +568,9 @@ bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
                 return false;
             }
             const int id = static_cast<int>(rawId);
-            if (impl_->idToToken.find(id) != impl_->idToToken.end()) {
-                if (outputFailure != nullptr) *outputFailure = "added_tokens ID 与 BPE vocab 冲突";
+            const auto existingToken = impl_->idToToken.find(id);
+            if (existingToken != impl_->idToToken.end() && existingToken->second != content) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens ID 与 BPE vocab 的 token 内容冲突";
                 impl_->vocab.clear();
                 impl_->idToToken.clear();
                 impl_->addedTokens.clear();
@@ -582,7 +583,9 @@ bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
                 impl_->addedTokens.clear();
                 return false;
             }
-            impl_->idToToken.emplace(id, content);
+            if (existingToken == impl_->idToToken.end()) {
+                impl_->idToToken.emplace(id, content);
+            }
         }
     }
     impl_->tokenizerReady = true;
