@@ -93,7 +93,9 @@ class NativeAutoSubtitleCoordinator(
                 return false
             }
             running = true
-            progress = 0.0
+            // No progress callback is currently exposed by the JNI worker.
+            // Use an indeterminate indicator rather than presenting a fake 0%.
+            progress = null
             errorMessage = null
             statusMessage = "正在解码音频并准备识别…"
             uri to timelineStartUs
