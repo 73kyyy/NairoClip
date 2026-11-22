@@ -302,9 +302,12 @@ std::string BuildState(NcEditor* ed) {
         for (int32_t ci = 0; ci < cn; ++ci) {
             uint64_t cid = 0, aid = 0;
             int64_t start = 0, dur = 0, sn = 1, sd = 1;
-            int32_t enabled = 1;
+            int64_t sourceIn = 0, sourceOut = 0;
+            int32_t enabled = 1, reversed = 0, frozen = 0, hasSpeedCurve = 0;
             if (nc_clip_info(ed, ti, static_cast<uint32_t>(ci), &cid, &start, &dur,
-                             &aid, &sn, &sd, &enabled) != NC_OK) {
+                             &aid, &sn, &sd, &enabled) != NC_OK ||
+                nc_clip_source_info(ed, ti, cid, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve) != NC_OK) {
                 // 读失败仍然占一个槽位（{}），保持 index 与引擎一致；
                 // 逗号在写入前统一补，避免失败分支留下 ",," 这种非法 JSON。
                 if (ci) j += ",";
@@ -319,6 +322,11 @@ std::string BuildState(NcEditor* ed) {
             j += ",\"speed_num\":" + std::to_string(sn);
             j += ",\"speed_den\":" + std::to_string(sd);
             j += ",\"enabled\":" + std::to_string(enabled);
+            j += ",\"source_in_us\":" + std::to_string(sourceIn);
+            j += ",\"source_out_us\":" + std::to_string(sourceOut);
+            j += ",\"reversed\":" + std::to_string(reversed);
+            j += ",\"frozen\":" + std::to_string(frozen);
+            j += ",\"has_speed_curve\":" + std::to_string(hasSpeedCurve);
             // 特效栈：前端要靠这份数据渲染「已添加效果列表」。
             // 只给 id/type/value/enabled —— 名称由前端按 type 映射，
             // 协议里不传中文字符串（省字节，改名也不必动后端）。
