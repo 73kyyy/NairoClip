@@ -141,7 +141,7 @@ class NativeAutoSubtitleCoordinator(
         if (!canCancel) return false
         val accepted = worker.cancel()
         synchronized(lock) {
-            if (accepted) statusMessage = "正在取消识别…"
+            if (accepted) statusMessage = "已请求取消，正在等待安全结束…"
             else statusMessage = "当前阶段暂不支持立即取消，正在等待安全结束"
         }
         publish()
