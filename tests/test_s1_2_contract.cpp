@@ -18,6 +18,7 @@
 #include <string>
 
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/json.h"
 
 #include "../mobile/native/android/nc_jni.cpp"
 
@@ -65,6 +66,35 @@ std::string j(const char* fmt, ...) {
 }
 
 }  // namespace
+
+// JNI 手工拼接的工程快照必须保持完整 JSON 对象结构。
+NC_TEST(S1_2, BuildStateClipJsonIsWellFormed) {
+    Fixture f;
+    NC_CHECK(f.ed != nullptr);
+    if (f.ed == nullptr) return;
+
+    nairoclip::core::JsonValue root;
+    nairoclip::core::JsonParseError error;
+    const bool parsed = nairoclip::core::parseJson(BuildState(f.ed), root, error);
+    NC_CHECK(parsed);
+    if (!parsed) return;
+    NC_CHECK(root.isObject());
+    NC_CHECK(root.get("ok").asBool(false));
+
+    const auto& result = root.get("result");
+    const auto& tracks = result.get("tracks");
+    NC_CHECK(tracks.isArray() && tracks.size() > 0);
+    if (!tracks.isArray() || tracks.size() == 0) return;
+    const auto& clips = tracks.at(0).get("clips");
+    NC_CHECK(clips.isArray() && clips.size() > 0);
+    if (!clips.isArray() || clips.size() == 0) return;
+    const auto& clip = clips.at(0);
+    NC_CHECK(clip.isObject());
+    NC_CHECK(clip.has("effects"));
+    NC_CHECK(clip.has("xforms"));
+    NC_CHECK(clip.get("effects").isArray());
+    NC_CHECK(clip.get("xforms").isArray());
+}
 
 // ===================== D-1 关键帧参数映射兼容 =====================
 
