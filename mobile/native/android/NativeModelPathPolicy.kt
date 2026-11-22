@@ -11,6 +11,20 @@ import java.io.File
  * while java.nio.file was only added to Android platform APIs in API 26.
  */
 internal object NativeModelPathPolicy {
+    /** The model root itself must remain inside app-private filesDir after symlink resolution. */
+    fun resolveRootWithinBase(base: File, candidateRoot: File): File? {
+        val canonicalBase = base.canonicalFile
+        val canonicalRoot = candidateRoot.canonicalFile
+        val basePath = canonicalBase.path.trimEnd(File.separatorChar) + File.separator
+        if (canonicalRoot.path == canonicalBase.path ||
+            !canonicalRoot.path.startsWith(basePath) ||
+            !canonicalRoot.isDirectory
+        ) {
+            return null
+        }
+        return canonicalRoot
+    }
+
     fun resolveWithinRoot(root: File, candidate: File): File? {
         val canonicalRoot = root.canonicalFile
         val canonicalCandidate = candidate.canonicalFile
