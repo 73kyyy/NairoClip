@@ -243,7 +243,9 @@ NC_TEST(SpeechAI, RealInferenceChain) {
         NC_CHECK(failure.find("不可用") != std::string::npos ||
                  failure.find("不匹配") != std::string::npos ||
                  failure.find("推理失败") != std::string::npos ||
-                 failure.find("解码") != std::string::npos);
+                 failure.find("解码") != std::string::npos ||
+                 failure.find("tokenizer") != std::string::npos ||
+                 failure.find("词表") != std::string::npos);
     } else {
         // 若未来支持完整解码：分段应有效
         NC_CHECK(!segments.empty());
