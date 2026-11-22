@@ -274,6 +274,12 @@ NC_TEST(Capi, ClipSourceInfo) {
     NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId + 999, &sourceIn, nullptr,
                                     nullptr, nullptr, nullptr), NC_ERROR_NOT_FOUND);
 
+    NC_CHECK_EQ(nc_reverse_clip(editor, 0, clipId), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(reversed, 1);
+    NC_CHECK(sourceOut > sourceIn);  // Reverse changes direction, not the source interval.
+
     const std::uint64_t frozenId = nc_freeze_frame(editor, 0, clipId, 1500000, 1000000);
     NC_CHECK(frozenId != 0);
     NC_CHECK_EQ(nc_clip_source_info(editor, 0, frozenId, &sourceIn, &sourceOut,
