@@ -48,7 +48,7 @@ object NativeSpeechPcmCropper {
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
         sourceFloats.position(startFrame.toInt())
-        sourceFloats.limit(boundedEndFrame.toInt())
+        sourceFloats.limit(endFrame.toInt())
         val output = ByteBuffer.allocateDirect(frameCount.toInt() * Float.SIZE_BYTES)
             .order(ByteOrder.nativeOrder())
         output.asFloatBuffer().put(sourceFloats)
