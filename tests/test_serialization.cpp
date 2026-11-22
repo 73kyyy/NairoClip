@@ -661,16 +661,18 @@ NC_TEST(Serialization, ColorGradeRoundtrip) {
 NC_TEST(Serialization, RejectsInvalidColorGradeCurve) {
     Project original = makeSampleProject();
     std::string text = saveProjectToNclip(original);
-    const std::size_t clipEnabled = text.find("\"enabled\":true");
-    NC_CHECK(clipEnabled != std::string::npos);
-    if (clipEnabled == std::string::npos) return;
+    const std::size_t clipsKey = text.find("\"clips\"");
+    const std::size_t clipObject = clipsKey == std::string::npos
+        ? std::string::npos : text.find('{', clipsKey);
+    NC_CHECK(clipObject != std::string::npos);
+    if (clipObject == std::string::npos) return;
     const std::string invalidGrade =
         "\"colorGrade\":{\"version\":1,"
         "\"master\":[[0,0],[0.8,0.7],[0.6,0.9],[1,1]],"
         "\"red\":[[0,0],[1,1]],"
         "\"green\":[[0,0],[1,1]],"
         "\"blue\":[[0,0],[1,1]]},";
-    text.insert(clipEnabled, invalidGrade);
+    text.insert(clipObject + 1, invalidGrade);
 
     Project out;
     const NclipLoadResult result = loadProjectFromNclip(text, out);
