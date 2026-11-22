@@ -10,7 +10,7 @@ import kotlin.math.roundToLong
  * and speed-curve clips must be rejected until their audio transformation is
  * implemented; silently treating them as 1x would place captions incorrectly.
  */
-data class NativeSpeechSourceRange(
+private const val MAX_PCM_FRAME_ROUNDING_US = 63L\n\ndata class NativeSpeechSourceRange(
     val timelineStartUs: Long,
     val timelineDurationUs: Long,
     val sourceInUs: Long,
@@ -73,16 +73,26 @@ data class NativeSpeechSourceRange(
             catch (_: ArithmeticException) { return null }
         val availableSourceUs = minOf(audioEndDelta, sourceSpan)
         if (startSourceDelta < 0L || endSourceDelta <= startSourceDelta ||
-            startSourceDelta >= sourceSpan ||
-            (endSourceDelta > availableSourceUs && endSourceDelta - availableSourceUs > 1L)
+            startSourceDelta >= sourceSpan
         ) return null
+
+        // PCM frame counts describe a half-open sample interval. The final
+        // sample's support can extend by less than one 16 kHz frame past the
+        // clip out-point; clamp that quantization tail, but reject larger gaps.
+        val boundedEndSourceDelta = if (endSourceDelta > availableSourceUs) {
+            if (endSourceDelta - availableSourceUs > MAX_PCM_FRAME_ROUNDING_US) return null
+            availableSourceUs
+        } else {
+            endSourceDelta
+        }
+        if (boundedEndSourceDelta <= startSourceDelta) return null
 
         val timelineStartDelta = roundedRatio(
             BigInteger.valueOf(startSourceDelta).multiply(BigInteger.valueOf(speedDenominator)),
             BigInteger.valueOf(speedNumerator)
         ) ?: return null
         val timelineDuration = roundedRatio(
-            BigInteger.valueOf(endSourceDelta - startSourceDelta)
+            BigInteger.valueOf(boundedEndSourceDelta - startSourceDelta)
                 .multiply(BigInteger.valueOf(speedDenominator)),
             BigInteger.valueOf(speedNumerator)
         ) ?: return null
