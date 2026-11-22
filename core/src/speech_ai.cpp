@@ -691,6 +691,10 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
         if (outputFailure != nullptr) *outputFailure = "音频数据为空或参数非法";
         return false;
     }
+    if (!impl_->tokenizerReady) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper tokenizer 尚未加载，拒绝生成 token 占位字幕";
+        return false;
+    }
     // ① Mel 频谱（30 秒窗口；长音频分段处理）
     const double secondsTotal = static_cast<double>(frameCount) / sampleRate;
     const double windowSeconds = 30.0;
@@ -836,16 +840,8 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
                 }
             }
         }
-        // 文本解码：优先用 BPE 词表；未加载则明确标注（不伪造文本）
-        std::string text;
-        if (impl_->tokenizerReady) {
-            text = decodeTokens(std::vector<int>(generated.begin(), generated.end()));
-        } else {
-            // 无词表：输出 token 标记（明确告知调用方需提供 tokenizer.json）
-            for (std::int64_t token : generated) {
-                text += tokenToTextPlaceholder(static_cast<int>(token));
-            }
-        }
+        // tokenizer 在进入推理前已强制加载；这里只返回真实 BPE 解码文本。
+        const std::string text = decodeTokens(std::vector<int>(generated.begin(), generated.end()));
         SpeechSegment segment;
         segment.startSeconds = static_cast<double>(startFrame) / sampleRate;
         segment.endSeconds = segment.startSeconds + static_cast<double>(count) / sampleRate;
