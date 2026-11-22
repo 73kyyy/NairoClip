@@ -217,6 +217,26 @@ NC_TEST(SpeechAI, UnloadClearsTokenizerState) {
     NC_CHECK(recognizer.decodeTokens({15496}).empty());
 }
 
+NC_TEST(SpeechAI, CApiSpeechLoadRequiresTokenizerPath) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    if (editor == nullptr) return;
+
+    char* error = nullptr;
+    const int32_t missing = nc_speech_load(editor, "encoder.onnx", "decoder.onnx", nullptr, &error);
+    NC_CHECK_EQ(missing, NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(nc_speech_loaded(editor) == 0);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    const int32_t empty = nc_speech_load(editor, "encoder.onnx", "decoder.onnx", "", &error);
+    NC_CHECK_EQ(empty, NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(nc_speech_loaded(editor) == 0);
+    if (error != nullptr) nc_free_string(error);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(SpeechAI, MemoryModelLoadRejectsEmptyBuffers) {
     SpeechRecognizer recognizer;
     std::string failure;
