@@ -251,20 +251,12 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                 return@withEditorStateLock Result(false, error = error.message ?: "批量写入字幕失败")
             } ?: return@withEditorStateLock Result(false, error = "批量写入字幕失败，工程未保留部分结果")
             if (ids.size != bounded.size || ids.any { it <= 0L } || ids.toSet().size != ids.size) {
-                // The native batch may already have committed. Do not report a plain
-                // pre-commit failure: that would invite a retry and duplicate subtitles.
-                val rollback = try {
-                    JSONObject(bridge.editorUndo()).optBoolean("ok", false)
-                } catch (_: Exception) {
-                    false
-                }
+                // The native return payload is inconsistent, so we cannot prove
+                // whether an undo record was created. Never issue a blind undo here:
+                // it could otherwise undo the user's previous edit.
                 return@withEditorStateLock Result(
                     false,
-                    error = if (rollback) {
-                        "引擎返回的字幕 ID 校验失败；已尝试撤销本次批量写入"
-                    } else {
-                        "引擎返回的字幕 ID 校验失败；写入状态不确定，请勿直接重试"
-                    }
+                    error = "引擎返回的字幕 ID 校验失败；写入状态不确定，请先刷新工程状态，不要直接重试"
                 )
             }
             val refreshed = readEditorStateSnapshotLocked()
