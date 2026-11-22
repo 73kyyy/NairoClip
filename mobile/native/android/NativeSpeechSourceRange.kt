@@ -1,7 +1,6 @@
 package com.nairoclip.app
 
 import java.math.BigInteger
-import kotlin.math.abs
 import kotlin.math.roundToLong
 
 /**
@@ -63,8 +62,10 @@ data class NativeSpeechSourceRange(
         val endSourceDelta = (endSeconds * 1_000_000.0).takeIf { it.isFinite() }?.roundToLong()
             ?: return null
         val sourceSpan = sourceOutUs - sourceInUs
+        val availableSourceUs = minOf(audioDurationUs, sourceSpan)
         if (startSourceDelta < 0L || endSourceDelta <= startSourceDelta ||
-            startSourceDelta >= sourceSpan || endSourceDelta > minOf(audioDurationUs, sourceSpan) + 1L
+            startSourceDelta >= sourceSpan ||
+            (endSourceDelta > availableSourceUs && endSourceDelta - availableSourceUs > 1L)
         ) return null
 
         val timelineStartDelta = roundedRatio(
