@@ -59,8 +59,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardActions
-import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -221,6 +221,11 @@ fun NativeEditorScreen(
                         track.visible &&
                         track.clips.any { it.id == selection.second && it.enabled }
                 }
+            }
+            val selectedItem = selectedTarget?.let { selection ->
+                timelineTracks.firstOrNull { track ->
+                    (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
+                }?.clips?.firstOrNull { it.id == selection.second }
             }
             if (((activeTool == "画面" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点")) || (activeTool == "剪辑" && activeSubTool == "动画")) && selectedTarget != null) {
                 NativeParameterPanel(
@@ -1295,6 +1300,7 @@ private fun NativeClipLutPanel(
     }
 }
 
+@Composable
 private fun NativeClipColorCurvePanel(
     state: NativeEditorCommandAdapter.ClipColorGradeState,
     onChange: (NativeEditorCommandAdapter.ClipColorGradeState) -> Unit,
