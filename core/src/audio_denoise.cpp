@@ -20,11 +20,11 @@ constexpr int kH = 512;
 ///   · 谱幅度高于估计（mag > noise）→ 缓慢上浮（避免把语音当作噪声吞掉）。
 /// 两者都按「每 hop」的固定比率（与采样率无关：hop 固定 512 样本）。
 /// 校准结论（实测语音保留率与噪声抑制量）：
-///   · 快速跟随 0.30：噪声变安静时 ~5 个 hop（≈50ms）内收敛，实测良好；
-///   · 慢速上升 0.002：语音突发（~200ms = 19 hop）内估计仅上浮约 4%，
-///     语音频点不被误减；更快的上升率（0.02）会把突发语音减掉 10dB 以上。
+///   · 快速跟随 0.50：音节间隙约 5 个 hop（≈53ms）内将上一音节的高能量估计衰减至约 3.1%，
+///     避免首帧/上一音节把后续突发语音长期误判为噪声；
+///   · 慢速上升 0.002：持续高能量频点仍缓慢进入噪声底，避免把语音主体迅速吞入估计。
 #ifndef NAIROCLIP_DENOISE_FAST_FOLLOW
-#define NAIROCLIP_DENOISE_FAST_FOLLOW 0.30
+#define NAIROCLIP_DENOISE_FAST_FOLLOW 0.50
 #endif
 #ifndef NAIROCLIP_DENOISE_SLOW_RISE
 #define NAIROCLIP_DENOISE_SLOW_RISE 0.002
@@ -33,12 +33,12 @@ constexpr double kNoiseFastFollow = NAIROCLIP_DENOISE_FAST_FOLLOW;
 constexpr double kNoiseSlowRise = NAIROCLIP_DENOISE_SLOW_RISE;
 
 /// 噪声估计偏差补偿：
-/// 「快速跟随 + 慢速上升」的单边平滑会使稳态噪声估计系统性低于真实均值
-/// （Rayleigh 幅度谱；对 fast=0.30 / slow=0.002 实测收敛到均值 ×0.262），
-/// 导致谱减过量不足。该系数把估计恢复到无偏（1/0.262 ≈ 3.81），由纯噪声
-/// 仿真校准并写入单元测试（Denoise.BiasCompensation）防止回归。
+/// 「快速跟随 + 慢速上升」的单边平滑会使稳态噪声估计系统性低于真实均值。
+/// 对 Rayleigh 幅度谱（独立高斯实/虚部）进行长序列数值仿真，fast=0.50 /
+/// slow=0.002 的稳态估计约为均值 ×0.220；该系数按倒数 4.54 补偿，
+/// 避免加快音节间隙释放后降低纯噪声抑制量。
 #ifndef NAIROCLIP_DENOISE_BIAS_COMP
-#define NAIROCLIP_DENOISE_BIAS_COMP 3.81
+#define NAIROCLIP_DENOISE_BIAS_COMP 4.54
 #endif
 constexpr double kNoiseBiasCompensation = NAIROCLIP_DENOISE_BIAS_COMP;
 
