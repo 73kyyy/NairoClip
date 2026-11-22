@@ -97,7 +97,7 @@ data class NativeTimelineSnapshot(
                             sourceClip.has("frozen") || sourceClip.has("has_speed_curve")
                         if (sourceMetadataPresent &&
                             (!sourceRangeKnown || reversedValue == null || frozenValue == null || speedCurveValue == null)) return null
-                        if (sourceRangeKnown && reversedValue == 0L && frozenValue == 0L &&
+                        if (sourceRangeKnown && frozenValue == 0L &&
                             speedCurveValue == 0L && sourceOutUs <= sourceInUs) return null
                         if (sourceRangeKnown && (frozenValue == 1L || speedCurveValue == 1L) &&
                             sourceOutUs != sourceInUs) return null
