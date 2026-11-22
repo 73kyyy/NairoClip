@@ -1080,3 +1080,10 @@
 - Whisper 输出段落再按 speedDenominator/speedNumerator 映射回项目时间轴，并限制在所选片段时长内；字幕仍通过既有原子批量事务写回。
 - 新增纯 Kotlin 映射测试覆盖 2x、0.5x、倒放/定格/速度曲线拒绝和源跨度不一致。
 - 验证边界：这些新增 Worker/Coordinator/MediaCodec 代码已提交，但最新提交上的 Gradle/JVM、NDK/JNI 和 C++ CI 仍需重新完成；不能把之前仅验证到 source-range helper 的成功运行视为本节端到端验证通过。真机 MediaExtractor/MediaCodec 轨道时间戳行为仍需后续设备验证。
+
+## 95. 主机侧 JNI 契约测试桩与生产 include 缺失修复
+
+- 桌面 C++ CI 的 S1-2 契约测试直接包含生产 `nc_jni.cpp`，但主机桩 `tests/jni_stub/jni.h` 仍停留在旧 JNI API，未声明字幕批量接口新增的 `jlongArray/jobjectArray`、LongArray 区域访问和 direct-buffer 查询成员，导致主机测试编译失败。
+- 同一编译还发现 `nc_jni.cpp` 使用 `std::isfinite/std::floor` 却未显式包含 `<cmath>`；已补齐生产 include。
+- 已扩展仅供主机测试使用的 JNI 桩头，增加缺失类型别名和方法占位实现；这些 stub 不进入 Android 产品构建，S1-2 测试仍只调用纯 C++ `DispatchEdit`，不会执行桩 JNI 方法。
+- 需要等待新的 Release/ASAN/UBSan 构建和 CTest 结果验证。
