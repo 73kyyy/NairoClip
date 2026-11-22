@@ -253,6 +253,29 @@ NC_TEST(Capi, ClipGet) {
     NC_CHECK_EQ(nc_clip_get(editor, 0, 9, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
     nc_editor_destroy(editor);
 }
+
+NC_TEST(Capi, ClipSourceInfo) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "source.mp4", "/videos/source.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clipId = nc_insert_clip(editor, 0, assetId, 1000000, 2500000);
+    NC_CHECK(clipId != 0);
+    std::int64_t sourceIn = -1, sourceOut = -1;
+    std::int32_t reversed = -1, frozen = -1, hasSpeedCurve = -1;
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, std::int64_t(0));
+    NC_CHECK_EQ(sourceOut, std::int64_t(2500000));
+    NC_CHECK_EQ(reversed, 0);
+    NC_CHECK_EQ(frozen, 0);
+    NC_CHECK_EQ(hasSpeedCurve, 0);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, nullptr, nullptr,
+                                    nullptr, nullptr, nullptr), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId + 999, &sourceIn, nullptr,
+                                    nullptr, nullptr, nullptr), NC_ERROR_NOT_FOUND);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(Capi, EffectCrud) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
