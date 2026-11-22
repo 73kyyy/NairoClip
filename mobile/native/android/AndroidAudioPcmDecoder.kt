@@ -51,7 +51,7 @@ object AndroidAudioPcmDecoder {
         }
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
-        var resampler: StreamingMonoResampler? = null
+        var resampler: NativeSpeechResampler? = null
         var handedOff = false
         val startedAt = SystemClock.elapsedRealtime()
         try {
