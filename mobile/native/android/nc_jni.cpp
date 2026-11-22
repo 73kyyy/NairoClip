@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <atomic>
+#include <cmath>
 #include <limits>
 #include <mutex>
 #include <string>
