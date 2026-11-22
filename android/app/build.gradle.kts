@@ -207,6 +207,9 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     testImplementation("junit:junit:4.13.2")
+    // Local JVM tests exercise the real strict engine-state JSON parser; Android's
+    // mockable android.jar does not provide a functional org.json implementation.
+    testImplementation("org.json:json:20240303")
     implementation("androidx.webkit:webkit:1.11.0")
     implementation(files("libs/wechat-sdk-6.8.40.aar"))
     implementation(files("libs/open_sdk_3.5.19_r9483ffc7_lite.jar"))
