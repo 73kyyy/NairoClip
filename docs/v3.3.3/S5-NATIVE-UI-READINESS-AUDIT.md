@@ -1017,3 +1017,10 @@
 - 已在每次二级工具选择入口统一设置当前一级工具并清空旧二级面板上下文；需要原生面板的分支随后再显式设置新的 `activeSubTool`。立即执行型命令不再继承上一个工具的面板状态。
 - 保留二级工具横向展开行为、既有命令回调和旧编辑器回退路径；未改 MainActivity 或运行时入口。
 - 仅源码静态回读；未运行 Compose 编译、UI 测试或真机交互验证。
+
+## 88. ASR 明文缓冲区可清理性约束
+
+- 进一步复核发现：direct read-only ByteBuffer 可以被 JNI 读取，但 `zeroRemaining()` 会跳过只读视图；若调用方启用自动清理，原契约会出现“推理成功但缓冲区实际无法覆写”的情况。
+- 模型 encoder/decoder/tokenizer 缓冲区现在必须是可写 direct buffer；通用 PCM 推理在 `clearPcmAfterUse=true` 时也要求可写。调用方显式选择 `clearPcmAfterUse=false` 时仍允许只读 PCM。
+- 这让清理承诺与输入约束一致；仍只属于 JVM 可见 direct buffer 的 best-effort 清理，不覆盖共享副本、JNI/ORT 张量或系统分配器残留。
+- 仅静态源码回读；未运行 Kotlin 编译或设备验证。
