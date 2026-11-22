@@ -213,6 +213,13 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
         R"({"model":{"vocab":{"alpha":10,"beta":10}}})", &failure));
     NC_CHECK(!failure.empty());
     NC_CHECK(!recognizer.tokenizerLoaded());
+
+    // GPT-2 byte-level BPE encodes spaces as Ġ (U+0120); decoding must restore
+    // the original byte stream rather than expose tokenizer-internal glyphs.
+    failure.clear();
+    NC_CHECK(recognizer.loadTokenizerJson(
+        R"({"model":{"vocab":{"helloĠworld":1}}})", &failure));
+    NC_CHECK(recognizer.decodeTokens({1}) == "hello world");
 }
 
 NC_TEST(SpeechAI, UnloadClearsTokenizerState) {
