@@ -261,7 +261,12 @@ class NativeTimelineView(context: Context) : View(context) {
             durationSeconds.coerceAtLeast(0.001f),
             playheadSeconds.coerceIn(0f, durationSeconds.coerceAtLeast(0.001f))
         )
-        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)
+        info.addAction(
+            AccessibilityNodeInfo.AccessibilityAction(
+                AccessibilityNodeInfo.ACTION_SET_PROGRESS,
+                "调整播放位置"
+            )
+        )
         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
     }
@@ -575,7 +580,7 @@ class NativeTimelineView(context: Context) : View(context) {
                     scrollOffset.toDouble()
                 val widthPx = visibleDurationUs.toDouble() / 1_000_000.0 *
                     pixelsPerSecond.toDouble()
-                val right = left + max(widthPx, 5f * density).toDouble()
+                val right = left + max(widthPx, 5.0 * density.toDouble())
                 x.toDouble() >= max(left, labelWidth.toDouble()) &&
                     x.toDouble() < min(right, width.toDouble())
             }
