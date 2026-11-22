@@ -11,7 +11,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.max
 import kotlin.math.abs
 
 /** Decoded mono 16 kHz float32 PCM. The direct buffer is owned by the caller. */
@@ -204,7 +203,9 @@ object AndroidAudioPcmDecoder {
                 }
             }
 
-            val samples = resampler?.toDirectBuffer() ?: throw IllegalStateException("解码器没有输出音频样本")
+            val completedResampler = resampler ?: throw IllegalStateException("解码器没有输出音频样本")
+            completedResampler.finish()
+            val samples = completedResampler.toDirectBuffer()
             val frames = samples.remaining() / Float.SIZE_BYTES
             require(frames > 0) { "解码后的音频为空" }
             val firstPts = firstOutputPresentationTimeUs
@@ -220,61 +221,4 @@ object AndroidAudioPcmDecoder {
         }
     }
 
-    private class StreamingMonoResampler(val inputRate: Int, private val outputRate: Int) {
-        private val step = inputRate.toDouble() / outputRate.toDouble()
-        private var sourceIndex = 0L
-        private var nextOutputPosition = 0.0
-        private var previous: Float? = null
-        private var values = ByteBuffer.allocateDirect(4096 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
-        var outputSize: Int = 0
-            private set
-
-        fun push(input: FloatArray) {
-            for (sample in input) {
-                val prev = previous
-                if (prev == null) {
-                    previous = sample
-                    append(sample)
-                    nextOutputPosition += step
-                    continue
-                }
-                val currentIndex = sourceIndex + 1L
-                while (nextOutputPosition <= currentIndex.toDouble() + 1e-9) {
-                    val fraction = (nextOutputPosition - sourceIndex.toDouble()).coerceIn(0.0, 1.0)
-                    append((prev + (sample - prev) * fraction.toFloat()).coerceIn(-1.0f, 1.0f))
-                    nextOutputPosition += step
-                }
-                previous = sample
-                sourceIndex = currentIndex
-            }
-        }
-
-        private fun append(value: Float) {
-            check(outputSize < outputRate * 600) { "重采样输出超过 10 分钟安全上限" }
-            if (values.remaining() < Float.SIZE_BYTES) {
-                val expanded = ByteBuffer.allocateDirect(max(values.capacity() * 2, (outputSize + 1) * Float.SIZE_BYTES))
-                    .order(ByteOrder.nativeOrder())
-                values.flip()
-                expanded.put(values)
-                values = expanded
-            }
-            values.putFloat(value)
-            outputSize++
-        }
-
-        fun toDirectBuffer(): ByteBuffer {
-            values.flip()
-            return values
-        }
-
-        fun clear() {
-            try {
-                val view = values.duplicate()
-                view.clear()
-                while (view.hasRemaining()) view.put(0)
-            } catch (_: Throwable) {}
-            outputSize = 0
-            previous = null
-        }
-    }
-}
+}\n
