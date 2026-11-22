@@ -178,7 +178,7 @@ NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
     SpeechRecognizer recognizer;
     std::string failure;
     const std::string tokenizer =
-        R"({"model":{"vocab":{"Hello":15496}},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
+        R"({"model":{"vocab":{"Hello":15496,"<|endoftext|>":50257}},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
     NC_CHECK(recognizer.loadTokenizerJson(tokenizer, &failure));
     NC_CHECK(recognizer.tokenizerLoaded());
     NC_CHECK(!recognizer.decodeTokens({15496}).empty());
