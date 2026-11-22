@@ -53,6 +53,41 @@ class NativeSpeechResamplerTest {
     }
 
     @Test
+    fun finishIsIdempotentAndRejectsFurtherInput() {
+        val resampler = NativeSpeechResampler(8000)
+        resampler.push(FloatArray(8000) { 0.25f })
+        resampler.finish()
+        val count = resampler.outputSize
+        resampler.finish()
+        assertEquals(count, resampler.outputSize)
+        assertEquals(16000, count)
+        try {
+            resampler.push(floatArrayOf(0.0f))
+            throw AssertionError("push after finish must fail")
+        } catch (_: IllegalStateException) {
+            // Expected.
+        }
+    }
+
+    @Test
+    fun clearOverwritesPreviouslyReturnedDirectBufferStorage() {
+        val resampler = NativeSpeechResampler(16000)
+        resampler.push(FloatArray(128) { 0.75f })
+        resampler.finish()
+        val output = resampler.toDirectBuffer()
+        resampler.clear()
+        val values = output.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
+        while (values.hasRemaining()) assertEquals(0.0f, values.get(), 0.0f)
+        assertEquals(0, resampler.outputSize)
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun enforcesConfiguredOutputDurationLimit() {
+        val resampler = NativeSpeechResampler(8000, 16000, maxOutputDurationMs = 1L)
+        resampler.push(FloatArray(9) { 0.5f })
+    }
+
+    @Test
     fun downsamplingFortyEightKhzPreservesExactOneSecondFrameCount() {
         val resampler = NativeSpeechResampler(48000)
         resampler.push(FloatArray(48000) { 0.1f })
