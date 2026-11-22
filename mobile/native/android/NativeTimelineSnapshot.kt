@@ -92,7 +92,15 @@ data class NativeTimelineSnapshot(
                         val reversedValue = sourceClip.longField("reversed")?.takeIf { it in 0L..1L }
                         val frozenValue = sourceClip.longField("frozen")?.takeIf { it in 0L..1L }
                         val speedCurveValue = sourceClip.longField("has_speed_curve")?.takeIf { it in 0L..1L }
-                        if (sourceRangeKnown && (reversedValue == null || frozenValue == null || speedCurveValue == null)) return null
+                        val sourceMetadataPresent = sourceClip.has("source_in_us") ||
+                            sourceClip.has("source_out_us") || sourceClip.has("reversed") ||
+                            sourceClip.has("frozen") || sourceClip.has("has_speed_curve")
+                        if (sourceMetadataPresent &&
+                            (!sourceRangeKnown || reversedValue == null || frozenValue == null || speedCurveValue == null)) return null
+                        if (sourceRangeKnown && reversedValue == 0L && frozenValue == 0L &&
+                            speedCurveValue == 0L && sourceOutUs <= sourceInUs) return null
+                        if (sourceRangeKnown && (frozenValue == 1L || speedCurveValue == 1L) &&
+                            sourceOutUs != sourceInUs) return null
                         val speedNumerator = sourceClip.longField("speed_num")?.takeIf { it > 0L } ?: return null
                         val speedDenominator = sourceClip.longField("speed_den")?.takeIf { it > 0L } ?: return null
                         val speed = speedNumerator.toDouble() / speedDenominator.toDouble()
