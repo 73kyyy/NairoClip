@@ -23,10 +23,10 @@ object NativeSpeechPcmCropper {
         require(decoded.frameCount <= decoded.samples.remaining().toLong() / Float.SIZE_BYTES)
         require(decoded.startTimeUs >= 0L)
 
-        val oneFrameUs = 1_000_000.0 / decoded.sampleRate.toDouble()
+        val oneFrameUs = ceil(1_000_000.0 / decoded.sampleRate.toDouble()).toLong()
         require(
             decoded.startTimeUs <= sourceRange.sourceInUs ||
-                decoded.startTimeUs - sourceRange.sourceInUs <= oneFrameUs.toLong()
+                decoded.startTimeUs - sourceRange.sourceInUs <= oneFrameUs
         ) {
             "系统解码器跳过了所选片段源入点，不能安全生成字幕"
         }
