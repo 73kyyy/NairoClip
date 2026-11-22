@@ -205,32 +205,35 @@ class NativeSpeechSessionController(
      * Native destruction is only legal after the worker has fully terminated.
      */
     override fun close() {
-        if (!closed.compareAndSet(false, true)) return
-        val handle = session
-        if (handle == 0L) return
-        if (inferenceActive) {
-            try { bridge.cancelSpeechSession(handle) } catch (_: Throwable) {}
-        }
-        // Queue destruction behind every accepted load/inference operation. If native
-        // inference ignores cancellation beyond the bounded wait, this finalizer remains
-        // queued and destroys the handle only after JNI has actually returned.
-        try {
-            worker.execute {
-                try {
-                    bridge.destroySpeechSession(handle)
-                } catch (error: Throwable) {
-                    Log.e(TAG, "销毁语音会话失败", error)
-                } finally {
-                    session = 0L
-                    loaded = false
-                }
+        // Serialize close against load()/transcribe() submission. Without this lock,
+        // close could enqueue destruction between a caller's state check and execute(),
+        // allowing that accepted JNI task to run after the native handle was destroyed.
+        val handle = synchronized(lock) {
+            if (!closed.compareAndSet(false, true)) return
+            val current = session
+            if (current == 0L) return
+            if (inferenceActive) {
+                try { bridge.cancelSpeechSession(current) } catch (_: Throwable) {}
             }
-            worker.shutdown()
-        } catch (error: Throwable) {
-            // A rejected finalizer means we cannot prove the handle is no longer in use.
-            Log.e(TAG, "无法排队销毁 Whisper 会话；保留 native handle 以避免 use-after-free", error)
-            worker.shutdown()
-            return
+            try {
+                worker.execute {
+                    try {
+                        bridge.destroySpeechSession(current)
+                    } catch (error: Throwable) {
+                        Log.e(TAG, "销毁语音会话失败", error)
+                    } finally {
+                        session = 0L
+                        loaded = false
+                    }
+                }
+                worker.shutdown()
+            } catch (error: Throwable) {
+                // A rejected finalizer means we cannot prove the handle is no longer in use.
+                Log.e(TAG, "无法排队销毁 Whisper 会话；保留 native handle 以避免 use-after-free", error)
+                worker.shutdown()
+                return
+            }
+            current
         }
         try {
             if (!worker.awaitTermination(CLOSE_WAIT_SECONDS, TimeUnit.SECONDS)) {
