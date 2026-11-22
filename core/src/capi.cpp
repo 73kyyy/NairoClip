@@ -1700,6 +1700,23 @@ int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_
     return NC_OK;
 }
 
+int32_t nc_clip_source_info(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int64_t* out_source_in_us, int64_t* out_source_out_us,
+                            int32_t* out_reversed, int32_t* out_frozen,
+                            int32_t* out_has_speed_curve) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "片段源区间参数无效");
+    }
+    const Clip* clip = findClipById(editor, track_index, clip_id);
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    if (out_source_in_us != nullptr) *out_source_in_us = toMicroseconds(clip->sourceIn);
+    if (out_source_out_us != nullptr) *out_source_out_us = toMicroseconds(clip->sourceOut());
+    if (out_reversed != nullptr) *out_reversed = clip->reversed ? 1 : 0;
+    if (out_frozen != nullptr) *out_frozen = clip->freeze ? 1 : 0;
+    if (out_has_speed_curve != nullptr) *out_has_speed_curve = clip->speedCurve.empty() ? 0 : 1;
+    return NC_OK;
+}
+
 int32_t nc_set_clip_enabled(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             int32_t enabled) {
     SequenceId seqId;
