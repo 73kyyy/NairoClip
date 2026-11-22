@@ -210,7 +210,7 @@ class NativeSpeechSessionController(
         // Serialize close against load()/transcribe() submission. Without this lock,
         // close could enqueue destruction between a caller's state check and execute(),
         // allowing that accepted JNI task to run after the native handle was destroyed.
-        val handle = synchronized(lock) {
+        synchronized(lock) {
             if (!closed.compareAndSet(false, true)) return
             val current = session
             if (current == 0L) return
