@@ -564,7 +564,13 @@ class NativeEngineBridge(
 
     private fun modelRoot(): java.io.File? {
         val base = appContext?.filesDir ?: return null
-        return java.io.File(base, "models").also { it.mkdirs() }
+        val candidate = java.io.File(base, "models")
+        return try {
+            if (!candidate.exists() && !candidate.mkdirs()) return null
+            NativeModelPathPolicy.resolveRootWithinBase(base, candidate)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /** AI 模型目录与状态（nc_model_catalog / nc_model_info / nc_model_status）。 */
