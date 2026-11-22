@@ -65,9 +65,10 @@ class NativeSpeechSessionWorker(
         val future = submit {
             require(
                 encoder.isDirect && decoder.isDirect && tokenizer.isDirect &&
+                    !encoder.isReadOnly && !decoder.isReadOnly && !tokenizer.isReadOnly &&
                     encoder.hasRemaining() && decoder.hasRemaining() && tokenizer.hasRemaining()
             ) {
-                "模型缓冲区必须是非空 direct ByteBuffer"
+                "模型缓冲区必须是可写、非空 direct ByteBuffer"
             }
             // JNI GetDirectBufferAddress points at the buffer view's base address,
             // not its current position. Slice so native sees exactly the remaining bytes.
@@ -96,7 +97,9 @@ class NativeSpeechSessionWorker(
         clearPcmAfterUse: Boolean = true
     ): CompletableFuture<JSONObject> {
         val future = submit {
-            require(pcm.isDirect) { "PCM 必须是 direct ByteBuffer" }
+            require(pcm.isDirect && (!clearPcmAfterUse || !pcm.isReadOnly)) {
+                "PCM 必须是 direct ByteBuffer；启用清理时还必须可写"
+            }
             require(frameCount > 0L) { "PCM 帧数必须大于 0" }
             require(sampleRate == 16000) { "Whisper 输入必须为 16 kHz 单声道 PCM" }
             require(language in 0..4) { "语音识别语言代码无效" }
