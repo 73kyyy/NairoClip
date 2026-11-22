@@ -12,6 +12,7 @@ import java.nio.ByteOrder
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
+import kotlin.math.abs
 
 /** Decoded mono 16 kHz float32 PCM. The direct buffer is owned by the caller. */
 data class AndroidSpeechPcm(
@@ -88,6 +89,7 @@ object AndroidAudioPcmDecoder {
             var outputChannels = declaredChannels
             var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
             var firstOutputPresentationTimeUs: Long? = null
+            var expectedNextOutputPresentationTimeUs: Long? = null
             val info = MediaCodec.BufferInfo()
 
             while (!outputEos) {
@@ -142,6 +144,13 @@ object AndroidAudioPcmDecoder {
                         if (output != null && info.size > 0) {
                             if (firstOutputPresentationTimeUs == null) {
                                 firstOutputPresentationTimeUs = info.presentationTimeUs
+                                expectedNextOutputPresentationTimeUs = info.presentationTimeUs
+                            } else {
+                                val expectedPts = expectedNextOutputPresentationTimeUs
+                                    ?: throw IllegalStateException("音频时间戳状态丢失")
+                                require(abs(info.presentationTimeUs - expectedPts) <= 50_000L) {
+                                    "解码音频时间戳不连续，不能安全映射字幕时间"
+                                }
                             }
                             val bytesPerSample = when (pcmEncoding) {
                                 AudioFormat.ENCODING_PCM_FLOAT -> 4
@@ -172,7 +181,14 @@ object AndroidAudioPcmDecoder {
                                 mono[frame] = (sum / outputChannels).toFloat().coerceIn(-1.0f, 1.0f)
                             }
                             if (resampler == null) resampler = StreamingMonoResampler(outputRate, TARGET_RATE)
-                            try { resampler!!.push(mono) } finally { mono.fill(0.0f) }
+                            try {
+                                resampler!!.push(mono)
+                                expectedNextOutputPresentationTimeUs =
+                                    info.presentationTimeUs +
+                                        (mono.size.toLong() * 1_000_000L / outputRate.toLong())
+                            } finally {
+                                mono.fill(0.0f)
+                            }
                             // Seeking to the previous sync sample may decode a short preroll
                             // before sourceInUs; allow up to 5 seconds for that data, then the
                             // worker trims by the first output PTS before inference.
