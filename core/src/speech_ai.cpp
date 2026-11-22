@@ -515,6 +515,16 @@ bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
         if (outputFailure != nullptr) *outputFailure = "词表缺少 model.vocab BPE 词典";
         return false;
     }
+    if (!root.get("model").has("type") ||
+        root.get("model").get("type").asString() != "BPE") {
+        if (outputFailure != nullptr) *outputFailure = "Whisper tokenizer 必须使用 BPE 模型";
+        return false;
+    }
+    if (!root.has("decoder") || !root.get("decoder").isObject() ||
+        root.get("decoder").get("type").asString() != "ByteLevel") {
+        if (outputFailure != nullptr) *outputFailure = "Whisper tokenizer 必须使用 ByteLevel 解码器";
+        return false;
+    }
     const JsonValue& vocab = root.get("model").get("vocab");
     for (const auto& member : vocab.members()) {
         const std::int64_t rawId = member.second.asInteger(-1);
