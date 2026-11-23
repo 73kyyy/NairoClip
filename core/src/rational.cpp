@@ -207,6 +207,10 @@ Rational Rational::make(std::int64_t numerator, std::int64_t denominator) {
         denominator = wideToInt64(negDen, ofDen);
         if (ofNum || ofDen) {
             g_lastOverflow = true;
+            // The denominator's sign has been normalized mathematically; if
+            // either negation exceeded int64, preserve the ratio sign rather
+            // than returning a clipped, numerically unrelated fraction.
+            return saturatedRational(numerator > 0);
         }
         if (denominator <= 0) {  // 取反后仍不合法（极端溢出）→ 退化为 0
             return r;

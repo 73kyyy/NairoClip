@@ -89,12 +89,20 @@ NC_TEST(Rational, ComparisonHandlesLargeValues) {
 }
 
 NC_TEST(Rational, NegativeDenominatorNormalizationHandlesMin) {
-    // INT64_MIN 取反是 UB；旧实现直接 `denominator = -denominator` 会触发。
-    // 新实现走 128 位，结果必须确定（此极端值饱和为 INT64_MAX 后归正）。
+    // INT64_MIN 取反后分母需要 2^63，无法放入 int64；按数学符号饱和。
     rationalResetOverflowFlag();
     const Rational r = Rational::make(1, INT64_MIN);
-    // 不崩溃、分母为正即满足基本安全要求
-    NC_CHECK(r.den > 0);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, NegativeDenominatorNormalizationPreservesPositiveOverflowSign) {
+    rationalResetOverflowFlag();
+    const Rational r = Rational::make(INT64_MIN, -1);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MAX);
+    NC_CHECK_EQ(r.den, 1);
 }
 
 NC_TEST(Rational, RoundToIntDoesNotOverflow) {
