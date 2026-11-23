@@ -12,6 +12,26 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
+ * Closes the cancellation race around synchronous JNI inference dispatch.
+ *
+ * A cancellation can arrive after a task is accepted but before native code
+ * changes its state to RUNNING. The native cancel API may then report NOT_FOUND,
+ * and native startup may reset its internal flag. The worker token is therefore
+ * checked both immediately before dispatch and after JNI returns. If cancellation
+ * wins that race, the result is discarded and cannot reach subtitle insertion.
+ * This does not promise immediate interruption once native inference is running.
+ */
+internal fun <T> runSpeechInferenceWithCancellation(
+    isCancelled: () -> Boolean,
+    inference: () -> T
+): T {
+    check(!isCancelled()) { "语音识别已取消" }
+    val result = inference()
+    check(!isCancelled()) { "语音识别已取消" }
+    return result
+}
+
+/**
  * Owns one independent Whisper session and serializes every operation against its lifetime.
  *
  * The native recognizer is synchronous, so inference always runs on [worker], never the UI
@@ -113,7 +133,11 @@ class NativeSpeechSessionWorker(
             // JNI GetDirectBufferAddress ignores ByteBuffer.position(); pass a
             // zero-based view whose capacity equals the caller's remaining PCM bytes.
             val pcmView = pcm.slice().order(java.nio.ByteOrder.nativeOrder())
-            JSONObject(bridge.transcribeSpeechSession(session, pcmView, frameCount, sampleRate, language)).also {
+            JSONObject(runSpeechInferenceWithCancellation(
+                isCancelled = { cancellationRequested.get() }
+            ) {
+                bridge.transcribeSpeechSession(session, pcmView, frameCount, sampleRate, language)
+            }).also {
                 check(it.optBoolean("ok", false)) {
                     it.optString("message").ifBlank { "语音识别失败" }
                 }
@@ -168,9 +192,13 @@ class NativeSpeechSessionWorker(
                 // JNI GetDirectBufferAddress uses the view base, not the current
                 // position. Keep the same remaining-range contract as transcribe().
                 val pcmView = pcm.samples.slice().order(java.nio.ByteOrder.nativeOrder())
-                val response = JSONObject(bridge.transcribeSpeechSession(
-                    session, pcmView, pcm.frameCount, pcm.sampleRate, language
-                ))
+                val response = JSONObject(runSpeechInferenceWithCancellation(
+                    isCancelled = { cancellationRequested.get() }
+                ) {
+                    bridge.transcribeSpeechSession(
+                        session, pcmView, pcm.frameCount, pcm.sampleRate, language
+                    )
+                })
                 check(response.optBoolean("ok", false)) {
                     response.optString("message").ifBlank { "语音识别失败" }
                 }

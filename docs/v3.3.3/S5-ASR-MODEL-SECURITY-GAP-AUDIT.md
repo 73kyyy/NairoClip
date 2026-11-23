@@ -88,3 +88,10 @@
 3. Android Keystore 仅保存不可导出的设备包装密钥；模型内容密钥须经已认证协议封装，且不能写入日志、普通配置或明文文件。
 4. AEAD 必须在认证标签验证成功后才向推理加载器暴露明文；如果采用分块 AEAD，每块必须有独立 nonce/唯一派生子 nonce、序号和认证关联数据，并验证整文件 manifest，防止块重排、截断和拼接攻击。
 5. 模型安全接口变更需保留 API 24 最低版本兼容性，并新增 Android 单元/仪器测试；没有真机证据时不得标记 MediaCodec、Keystore 或大模型内存峰值验收通过。
+
+
+### 2026-11-23 — ASR cancellation dispatch race
+- Static review found a race between the worker accepting a task and the native speech-session transcribe call entering its RUNNING state. A cancel request in that window can set the Kotlin cancellation token while the native cancel API still reports NOT_FOUND; native inference startup also resets its internal cancellation flag.
+- Added a worker-side guard around both direct transcribe and decode/transcribe/insert inference calls. It checks the cancellation token immediately before dispatch and again after synchronous JNI return. A cancellation that wins the dispatch window therefore prevents inference from starting or discards returned segments before subtitle mapping/commit.
+- Added JVM regression tests for cancellation before dispatch, cancellation during the synchronous native call, and the successful non-cancelled path.
+- Limitation: this closes the lost-result/incorrect-commit race; it does not guarantee immediate interruption if native inference has already started. Prompt interruption remains dependent on the native recognizer's cooperative progress callback. Android CI must validate the new Kotlin code; device-level cancellation latency remains unverified.
