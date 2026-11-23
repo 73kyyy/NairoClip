@@ -265,3 +265,23 @@ Input validation is incomplete before calculations:
 7. Add a discontinuous OutputAudioBlock.start test independently of resampling; either reject the discontinuity under a contiguous-stream contract or preserve it under an explicit timestamp-aware writer contract.
 
 This is a source-level finding and test-design update only. No production source, test, Activity, Manifest, or runtime UI file was changed. It does not alter the registered S1-3/S3-1/A-12/S5 approval gates.
+
+
+## 12. FFmpeg writer partial-open cleanup and abort contract
+
+A final lifecycle pass over FFmpegMediaWriter identifies a resource-cleanup contract defect:
+
+- FFmpegMediaWriter::open() allocates the format context and codec contexts, creates streams, opens the output IO and writes the container header before setting impl.open = true. The open flag is set only at the very end after video frame, frame buffer and packet allocation succeed.
+- Several failure branches return after partial allocation (including output IO open, header write, and later frame/packet allocation). Some branches call abort(), but abort() immediately returns when impl.open is false. Therefore those calls do not release the partially initialized Impl resources.
+- The destructor calls abort() only when impl.open is true. A failed open can consequently leave format/codec/IO resources allocated until Impl destruction, and the current reset() cleanup is not guaranteed to run. A subsequent open() also begins with abort(), which is a no-op for this partially-open state.
+- MediaWriter's interface comment says abort() deletes the half-finished output, while FFmpegMediaWriter::abort() explicitly retains the partial file and its comment says deletion is left to the caller. The contract and implementation disagree.
+
+Required correction:
+1. Track initialization/ownership independently from the externally visible fully-open state, or use unconditional reset() on every open failure.
+2. Make open() transactional: on any failure, release every acquired codec, stream, format, frame, packet, resampler, scaler and IO resource before returning; do not rely on abort()'s public open-state guard for partial construction.
+3. Ensure repeated open() after a failed open does not leak or overwrite live pointers.
+4. Decide whether abort() deletes the partial output. Align the MediaWriter interface documentation, FFmpeg implementation and platform implementations. If deletion is platform/caller-owned, change the interface contract explicitly rather than promising deletion.
+5. Add fault-injection tests at each allocation/open/header stage; assert no live resource/file descriptor remains and that a second open succeeds after the injected failure.
+6. Add abort tests that assert the documented file-retention/deletion behavior, not merely that isOpen() becomes false.
+
+This is a source-level lifecycle finding. No writer implementation, tests, or other runtime files were modified. The existing approval and integration gates remain unchanged.
