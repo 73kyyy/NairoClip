@@ -234,3 +234,34 @@ The current `FFmpegEncodeWithAudio` test feeds 43 blocks × 1024 = 44,032 sample
 The upsampling regression writes 40 × 1024 input frames at 44.1 kHz and validates successful writes, but the shown test does not assert the decoded sample count, per-channel signal identity, stream duration, or exact output tail. The comments describe distinct channel frequencies as useful for detecting channel swaps, but the test needs actual decoded-channel assertions to prove that property.
 
 The test suite therefore catches important memory-safety regressions, but does not currently establish the exact PTS/tail guarantees required for production export.
+
+
+## 11. Resampler drain and input-block contract (latest HEAD 708b8377)
+
+A further pass over the concrete FFmpegMediaWriter confirms that finish() drains the codec FIFO and encoder, but does not visibly drain the SwrContext itself:
+
+- writeAudioBlock() creates one SwrContext lazily from the first block's input channel layout and sample rate.
+- Each call uses swr_get_delay() to size that call's output buffer and calls swr_convert() with the current block as input.
+- finish() begins by processing the already-populated audioFifo; there is no swr_convert(..., nullptr, 0) loop to retrieve samples still buffered inside the resampler.
+- Therefore, samples delayed by the resampling filter at end-of-input are not explicitly transferred into audioFifo before encoder flushing. The exact lost-tail amount depends on the resampler configuration and must be measured, but the absence of an explicit drain is a source-level defect in the end-of-stream contract.
+
+The writer also creates the resampler only once, using the first block's sample rate and channel layout. Later calls pass each block's sampleRate to swr_get_delay() and swr_convert() but do not reconfigure the already-initialized resampler. A stream that changes input sample rate or channel count mid-export is therefore not safely supported and may be interpreted with inconsistent parameters.
+
+Input validation is incomplete before calculations:
+- block.channels is used as a divisor when computing inSamples, without first rejecting zero or negative channel counts.
+- block.sampleRate is not validated as positive before it is passed into resampler setup and delay calculations.
+- block.samples.size() is divided by the channel count without verifying exact divisibility; malformed interleaved data can silently discard a partial trailing frame.
+- The conversion to int inSamples is not guarded against values above INT_MAX.
+- The writer does not verify that channel count/layout remains consistent with the initialized resampler and encoder.
+
+### Required correction and tests
+
+1. Validate sampleRate > 0, channels within the supported channel range, non-empty sample vector frame alignment, and safe size_t-to-int conversion before touching the resampler.
+2. Freeze the input sample-rate/channel-layout contract for the lifetime of a writer, or explicitly flush/recreate/reconfigure the resampler at a well-defined discontinuity boundary. Never pass a new rate as a per-call argument to a context initialized for a different rate.
+3. At end-of-input, repeatedly call swr_convert() with null input and a correctly sized output buffer until the resampler has no delayed output; append all drained samples to the FIFO before padding/encoding the final codec frame.
+4. Check every resampler return value and preserve the first failure. A failed resampler drain must make finish() fail and trigger deterministic abort/cleanup rather than reporting a complete export.
+5. Add tests for 44.1-to-48 kHz and 48-to-44.1 kHz with non-frame-aligned tails, including short input smaller than the resampler delay; compare decoded sample count and duration against the declared rational input duration.
+6. Add malformed-block tests for zero/negative sample rate, zero/negative channels, non-divisible interleaved sample counts, oversized block counts, and mid-stream sample-rate/channel changes.
+7. Add a discontinuous OutputAudioBlock.start test independently of resampling; either reject the discontinuity under a contiguous-stream contract or preserve it under an explicit timestamp-aware writer contract.
+
+This is a source-level finding and test-design update only. No production source, test, Activity, Manifest, or runtime UI file was changed. It does not alter the registered S1-3/S3-1/A-12/S5 approval gates.
