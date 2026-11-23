@@ -194,8 +194,8 @@ bool rationalSumIsNegative(const Rational& a, const Rational& b, bool subtractB)
 
 Rational Rational::make(std::int64_t numerator, std::int64_t denominator) {
     Rational r;
-    if (denominator == 0) {
-        return r;  // 0/1
+    if (denominator == 0 || numerator == 0) {
+        return r;  // 0/1；零分子无需归一化分母符号
     }
     if (denominator < 0) {
         // 注意：INT64_MIN 取反是 UB，先转 Wide 再取反。
@@ -350,25 +350,33 @@ std::int64_t floorToInt(const Rational& r) {
 }
 
 std::int64_t roundToInt(const Rational& r) {
-    // 四舍五入（0.5 向上）：floor(x + 1/2) = floor((2·num + den) / (2·den))
-    // 原实现直接写 `2 * r.num + r.den`，num 接近 INT64_MAX/2 时溢出（UB）。
-    // 改用 Wide 计算。
-    const Wide num2 = wideMul(r.num, 2);
-    bool ofSum = false;
-    const Wide numPlus = wideAdd(num2, wideFrom(r.den), ofSum);
-    const Wide den2 = wideMul(r.den, 2);
-    if (ofSum) {
-        g_lastOverflow = true;
-        return r.isNegative() ? INT64_MIN : INT64_MAX;
+    // 与 floor(x + 1/2) 等价：正数半值向上，负数半值向正无穷。
+    // 使用商/余数避免构造 2*num+den 或 2*den，后者可能超出 int64。
+    if (r.den <= 0) {
+        return 0;
     }
-    bool ofN = false, ofD = false;
-    const std::int64_t n = wideToInt64(numPlus, ofN);
-    const std::int64_t d = wideToInt64(den2, ofD);
-    if (ofN || ofD) {
-        g_lastOverflow = true;
-        return r.isNegative() ? INT64_MIN : INT64_MAX;
+    std::int64_t quotient = r.num / r.den;  // C++ 向零截断
+    const std::int64_t remainder = r.num % r.den;
+    if (remainder == 0) {
+        return quotient;
     }
-    return floorDiv(n, d);
+    const std::uint64_t remainderMagnitude =
+        remainder < 0 ? (0u - static_cast<std::uint64_t>(remainder))
+                      : static_cast<std::uint64_t>(remainder);
+    const std::uint64_t denominator = static_cast<std::uint64_t>(r.den);
+    if (r.num >= 0) {
+        // 2*remainder >= denominator，改写为 remainder >= ceil(denominator/2)
+        const std::uint64_t threshold = denominator / 2u + denominator % 2u;
+        if (remainderMagnitude >= threshold) {
+            ++quotient;
+        }
+    } else {
+        // 负数的精确半值向正无穷，因此只有严格大于半数才向下取整。
+        if (remainderMagnitude > denominator / 2u) {
+            --quotient;
+        }
+    }
+    return quotient;
 }
 
 bool rationalLastOpOverflowed() {
