@@ -151,7 +151,10 @@ thread_local bool g_lastOverflow = false;
 
 /// 由 Wide 分子/分母构造（约分 + 分母归正 + 溢出饱和）。
 Rational saturatedRational(bool negative) {
-    return Rational{negative ? INT64_MIN : INT64_MAX, 1};
+    Rational result;
+    result.num = negative ? INT64_MIN : INT64_MAX;
+    result.den = 1;
+    return result;
 }
 
 /// Convert an exact wide fraction. If either normalized component cannot fit,
