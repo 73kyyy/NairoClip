@@ -150,17 +150,37 @@ std::int64_t wideToInt64(const Wide& v, bool& overflow) {
 thread_local bool g_lastOverflow = false;
 
 /// 由 Wide 分子/分母构造（约分 + 分母归正 + 溢出饱和）。
+Rational saturatedRational(bool negative) {
+    return Rational{negative ? INT64_MIN : INT64_MAX, 1};
+}
+
+/// Convert an exact wide fraction. If either normalized component cannot fit,
+/// saturate by the mathematical sign instead of clipping numerator/denominator
+/// independently (which would silently produce a different, non-saturated value).
 Rational rationalFromWide(const Wide& numW, const Wide& denW) {
-    // 注意：wideToInt64 会**写** overflow 标志，两次调用必须用独立变量，
-    // 否则后一次会把前一次的溢出覆盖掉（此前实现即此缺陷）。
     bool ofNum = false;
     bool ofDen = false;
     const std::int64_t num = wideToInt64(numW, ofNum);
     const std::int64_t den = wideToInt64(denW, ofDen);
     if (ofNum || ofDen) {
         g_lastOverflow = true;
+        return saturatedRational(numW.isNegative() != denW.isNegative());
     }
     return Rational::make(num, den);
+}
+
+/// Sign of a+b, computed from exact cross-products. Opposite-sign terms cannot
+/// overflow the signed 128-bit addition; same-sign terms already determine it.
+bool rationalSumIsNegative(const Rational& a, const Rational& b, bool subtractB) {
+    const Wide left = wideMul(a.num, b.den);
+    const Wide right = wideMul(b.num, a.den);
+    bool overflow = false;
+    const Wide combined = subtractB ? wideSub(left, right, overflow)
+                                    : wideAdd(left, right, overflow);
+    if (overflow) {
+        return left.isNegative();
+    }
+    return combined.isNegative();
 }
 
 }  // namespace
@@ -217,7 +237,7 @@ Rational operator+(const Rational& a, const Rational& b) {
     const std::int64_t lcm = wideToInt64(lcmW, of);
     if (of || lcm <= 0) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);  // 饱和
+        return saturatedRational(rationalSumIsNegative(a, b, false)); // 饱和
     }
     const Wide an = wideMul(a.num, lcm / a.den);
     const Wide bn = wideMul(b.num, lcm / b.den);
@@ -225,7 +245,7 @@ Rational operator+(const Rational& a, const Rational& b) {
     const Wide sum = wideAdd(an, bn, ofSum);
     if (ofSum) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);
+        return saturatedRational(an.isNegative());
     }
     return rationalFromWide(sum, wideFrom(lcm));
 }
@@ -237,7 +257,7 @@ Rational operator-(const Rational& a, const Rational& b) {
     const std::int64_t lcm = wideToInt64(lcmW, of);
     if (of || lcm <= 0) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);
+        return saturatedRational(rationalSumIsNegative(a, b, true));
     }
     const Wide an = wideMul(a.num, lcm / a.den);
     const Wide bn = wideMul(b.num, lcm / b.den);
@@ -245,7 +265,7 @@ Rational operator-(const Rational& a, const Rational& b) {
     const Wide diff = wideSub(an, bn, ofDiff);
     if (ofDiff) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);
+        return saturatedRational(an.isNegative());
     }
     return rationalFromWide(diff, wideFrom(lcm));
 }

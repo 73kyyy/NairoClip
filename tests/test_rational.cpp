@@ -148,3 +148,44 @@ NC_TEST(Rational, FramerateArithmeticStaysExact) {
     // 7200 * 30000 / 1001 = 216000000/1001
     NC_CHECK(frames == Rational::make(216000000, 1001));
 }
+
+NC_TEST(Rational, NegativeAdditionSaturatesTowardMin) {
+    const Rational a = Rational::make(INT64_MIN, 1);
+    const Rational b = Rational::make(INT64_MIN, 1);
+    rationalResetOverflowFlag();
+    const Rational r = a + b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, PositiveSubtractionOverflowSaturatesTowardMax) {
+    const Rational a = Rational::make(INT64_MAX, 1);
+    const Rational b = Rational::make(INT64_MIN, 1);
+    rationalResetOverflowFlag();
+    const Rational r = a - b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MAX);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, NegativeSubtractionOverflowSaturatesTowardMin) {
+    const Rational a = Rational::make(INT64_MIN, 1);
+    const Rational b = Rational::make(INT64_MAX, 1);
+    rationalResetOverflowFlag();
+    const Rational r = a - b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, NegativeMultiplicationDenominatorOverflowSaturatesBySign) {
+    const Rational a = Rational::make(-1, INT64_MAX);
+    const Rational b = Rational::make(1, INT64_MAX - 1);
+    rationalResetOverflowFlag();
+    const Rational r = a * b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
