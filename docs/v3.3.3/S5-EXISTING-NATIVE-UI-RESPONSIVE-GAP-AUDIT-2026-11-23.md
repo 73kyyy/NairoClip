@@ -164,3 +164,41 @@ Required follow-up:
 5. Add Compose UI assertions for item bounds, circular icon width/height equality, touch target size, label visibility and scroll visibility at font scales 1.0/1.3/1.5/2.0.
 
 This is an additional source-level gap; no toolbar implementation was changed in this audit.
+
+
+## Follow-up audit: account, creation, home/settings and subtitle panels (2026-11-23)
+
+Reviewed source at the current S5 work branch for NativeAccountSupportScreens.kt, NativeCreationFlowScreens.kt, NativeHomeSettingsScreens.kt and NativeAutoSubtitlePanel.kt. This is source inspection only; no runtime UI files were modified.
+
+### Account and support
+- NativeFeedbackScreen places its description field in a fillMaxSize Column with a weighted editor, contact field and action row. The reviewed screen body has no local verticalScroll/LazyColumn, imePadding/imeNestedScroll, or BringIntoView handling. When the IME consumes a substantial portion of a short viewport, the contact/status/action controls can be compressed or obscured unless an eventual host supplies correct insets and scroll behavior.
+- NativeAuthScreen uses fixed vertical spacers (48dp and 30dp) and a non-scrollable Column. A small-height landscape window, split-screen window, or large font scale can push provider actions/status below the visible area. It also has no local IME-aware scroll behavior.
+- Account/profile and FAQ/log screens use LazyColumn, which is a good basis for vertical overflow, but their header/content insets and minimum touch targets still need measured UI tests.
+
+### Creation flows
+- Template selection and the four-step reference-creation flow use LazyColumn for long content, but the fixed header and bottom action button sit outside the list. The screen needs window-height tests to prove the list retains a usable viewport and the bottom action does not overlap the IME or gesture navigation area.
+- Template search uses an OutlinedTextField outside the list. The source does not show IME padding or bring-into-view handling at this screen boundary.
+- Reference creation contains horizontally scrolling category/order/overlay rows. Horizontal scrolling avoids forced wrapping, but the selected item and final options must be automatically brought into view and tested at narrow widths; the current source does not establish that behavior.
+- Dropdown menus are used for per-slot media, overlay asset and blend mode. Their anchor positioning, clipping and dismissal behavior need compact-window and edge-of-screen UI tests.
+
+### Home and settings
+- Home quick actions are hard-coded as two rows of two equal-weight cards. On narrow widths or large font scale, labels/details can wrap or be clipped because titles/details are constrained to one/two lines. A responsive policy should switch to a single column or otherwise reflow when the measured minimum card width cannot be maintained.
+- The top navigation keeps Search, Me and Settings as adjacent text buttons in one row. There is no responsive overflow strategy in this screen source for very narrow widths or large font scale.
+- Settings uses LazyColumn and expandable groups, which supports vertical content growth, but row title/summary/value combinations can compete for width. Choice controls and switches need explicit narrow-width behavior and touch-target assertions.
+
+### Automatic subtitle panel
+- NativeAutoSubtitlePanel uses fixed 12dp padding, 9dp vertical spacing, 12dp corners and 9–12sp text. The Start/Cancel actions share one non-wrapping Row with an 8dp gap. Under narrow panel width or large font scale, the row can exceed available width; it needs a measured wrap/stack strategy and minimum button target checks.
+- Status/error text is rendered in the same fixed panel without a local max-height/scroll policy. Long service errors or accessibility-scaled text need an overflow test.
+
+### Cross-cutting finding
+The reviewed screen composables contain no local IME-aware insets/bring-into-view strategy in the inspected layout paths. Because NativeAppShell.kt is still only a package/comment stub and MainActivity remains on WebView, there is not yet an active Compose root host whose insets policy can be verified end-to-end. The eventual host must establish one consistent safe-drawing/system-bar/IME policy, while individual form screens must provide scroll and bring-into-view behavior for focused fields.
+
+### Required responsive test coverage
+- Account feedback: IME open/closed, description/contact focus, long status/error text, 360dp width and short landscape height.
+- Auth: portrait/landscape, 320–360dp width, short-height split screen, provider list overflow and large font scale.
+- Template/reference creation: list viewport with bottom action, search focus/IME, long template names, long localized labels, dropdown anchoring at screen edges.
+- Home: quick-action reflow threshold, 320/360/393/430dp widths, font scales 1.0/1.3/1.5/2.0.
+- Settings: long title/summary/value combinations, switch/choice alignment, expanded group overflow.
+- Subtitle panel: compact width, large font scale, long status/error, Start/Cancel wrap and 48dp target bounds.
+
+All items above remain source-level gaps, not claims of observed device failures. The global responsive specification and all S1-3/S3-1/A-12/A-5/A-6/S1-8D sequencing gates remain unchanged.
