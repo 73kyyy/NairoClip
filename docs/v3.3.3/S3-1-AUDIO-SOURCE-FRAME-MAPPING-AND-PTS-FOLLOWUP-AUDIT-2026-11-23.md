@@ -171,3 +171,26 @@ Still required: Compose UI tests proving the expansion order, second-tap collaps
 - A-12 and the registered S5 sequencing gates remain unchanged.
 - PR #32 remains Draft/open/unmerged. CI success does not authorize runtime integration or entrypoint changes.
 - CI and Android validation workflow results are reported separately from physical-device validation; no real-device validation is claimed here.
+
+
+## 4.1 Concrete FFmpeg writer finding: block.start is ignored
+
+The concrete core writer is `core/src/media_ffmpeg_writer.cpp`. Its `writeAudioBlock()` implementation resamples each incoming block, appends converted samples to an internal FIFO, and assigns encoded frame PTS from a monotonically increasing `audioPts` sample counter. It does not read `block.start` when assigning PTS.
+
+Consequences:
+
+- A block whose declared start is later than the preceding block is still appended immediately after the previous block. Timeline gaps are compressed unless the caller supplies explicit silence samples.
+- A block with a discontinuous or overlapping start is also appended contiguously; the writer cannot preserve or detect the declared timeline discontinuity.
+- Correctness currently depends on the upstream producer supplying a perfectly contiguous stream starting at zero. The writer interface does not state or validate this precondition.
+- The existing `MockMediaWriter` cannot catch this because it checks only that a block is non-empty.
+
+The writer's `finish()` path also pads any remaining FIFO samples with zeros to a full encoder frame and advances `audioPts` by the full frame size. The reviewed code does not explicitly attach a packet skip-samples/discard-padding instruction for the padded tail. The actual muxed duration and decoder-visible tail therefore require an encoded-file regression probe; do not assume the logical sample duration is preserved merely because the input block count is correct.
+
+Required writer decision:
+
+1. Either make `OutputAudioBlock.start` authoritative and explicitly handle gaps/overlaps/discontinuities in the encoder timebase, including FIFO flush/restart rules; or formally require a contiguous stream and validate every block start against the expected next sample timestamp.
+2. If using a contiguous stream contract, the producer must synthesize exact silence for every gap and must never overrun sequence duration.
+3. Preserve the logical valid sample count through encoder flush. Where the codec requires a padded final frame, write correct skip/discard padding metadata or use a muxing strategy that preserves the intended presentation duration.
+4. Add tests with a block starting at 500 ms after an initial 100 ms block, a deliberate overlap, a one-sample gap, and a non-frame-aligned tail. Inspect both encoded packet PTS and decoded output duration/sample count.
+
+This concrete writer finding strengthens the earlier interface-contract concern: the current FFmpeg implementation is sample-counter-driven, not timestamp-driven.
