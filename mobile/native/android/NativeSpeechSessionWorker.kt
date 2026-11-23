@@ -38,6 +38,8 @@ internal fun <T> runSpeechInferenceWithCancellation(
  * thread. Status polling uses a separate executor because the inference call occupies worker.
  * close() queues native destruction behind any active operation; it never destroys a handle
  * while native code may still be using it.
+ * Inference dispatch also checks the worker cancellation token before and after JNI so a
+ * request racing native RUNNING-state publication cannot leak a cancelled result downstream.
  *
  * Model buffers passed to load() are treated as sensitive plaintext and zeroed (best effort)
  * after the native call returns. The caller remains responsible for its original buffers if
