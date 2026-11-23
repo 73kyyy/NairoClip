@@ -136,3 +136,31 @@
 ## 7. 审批边界
 
 本盘点不授权切换 Manifest/Launcher Activity，不授权删除 WebView，不改变 A-5/A-6/A-12、S1-3、S3-1、S1-8D 等既有审批和依赖。当前 NativeAppShell 尚未实现且 S5-0B 仍受前置门阻塞；本轮仅形成源码证据和整改清单，没有声称页面已完成响应式适配。
+
+
+## 8. Level-1 / level-2 toolbar parity and visibility follow-up
+
+Reviewed at `mobile/native/android/NativeEditorScreen.kt` in commit `820972bee04c3fdf25515b48bbdda8dfc016d620`.
+
+The current implementation does satisfy the structural direction that level-2 items expand inline after their level-1 item in the same horizontal scrolling row. The parent selection callback also toggles the same level-1 item closed and replaces the expanded item group when another level-1 item is selected.
+
+However, it does not yet fully satisfy the user's "same horizontal row and same visual style" requirement:
+
+- Level-1 item width is 54dp; level-2 item width is 58dp.
+- Level-1 circular icon is 25dp; level-2 circular icon is 22dp.
+- Level-1 label uses 9sp; level-2 label uses 8sp and `maxLines = 1`.
+- Level-1 and level-2 items use different vertical padding and different background treatment.
+- The row uses `horizontalScroll(rememberScrollState())`, but the inspected implementation does not request an automatic scroll to reveal the newly expanded level-2 group. If the selected level-1 item is near the right edge, its newly inserted subtools may remain off-screen until the user manually scrolls.
+- The toolbar height is fixed at 82dp. Font scale and compact-height behavior are not handled by a shared responsive metrics policy.
+
+Therefore the correct conclusion is: **inline expansion and toggle/switch state behavior are present; visual parity, auto-reveal, and narrow-window usability are not yet proven and currently have measurable differences.**
+
+Required follow-up:
+
+1. Define one shared toolbar item metrics/style token for level-1 and level-2 items (same icon geometry, text style, touch target, spacing and corner treatment); use label wrapping or a deliberate accessible compact label policy rather than silent single-line clipping.
+2. Preserve the user's inline horizontal expansion; do not convert it to a drawer or vertical sheet.
+3. After expanding a group, bring the entire visible subtool range into view without changing the selected tool state. Handle groups wider than the viewport with predictable horizontal scrolling.
+4. Test first, middle and last level-1 tools, longest subtool group, repeated tap collapse, switching groups, and compact widths.
+5. Add Compose UI assertions for item bounds, circular icon width/height equality, touch target size, label visibility and scroll visibility at font scales 1.0/1.3/1.5/2.0.
+
+This is an additional source-level gap; no toolbar implementation was changed in this audit.
