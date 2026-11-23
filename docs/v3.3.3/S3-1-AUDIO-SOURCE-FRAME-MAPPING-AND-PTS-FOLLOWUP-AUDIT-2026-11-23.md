@@ -194,3 +194,43 @@ Required writer decision:
 4. Add tests with a block starting at 500 ms after an initial 100 ms block, a deliberate overlap, a one-sample gap, and a non-frame-aligned tail. Inspect both encoded packet PTS and decoded output duration/sample count.
 
 This concrete writer finding strengthens the earlier interface-contract concern: the current FFmpeg implementation is sample-counter-driven, not timestamp-driven.
+
+
+
+## 9. FFmpeg finish/flush error propagation and AAC tail validity
+
+A further review of `FFmpegMediaWriter::finish()` identifies a separate reliability issue beyond the logical tail-padding concern:
+
+- The video encoder flush call `avcodec_send_frame(videoCodec, nullptr)` is not checked.
+- Video packet receive errors other than EAGAIN/EOF simply break the loop; packet rescale/write return values are not checked in this flush path.
+- The audio tail frame send result `avcodec_send_frame(audioCodec, audioFrame)` is ignored.
+- The audio encoder flush send result `avcodec_send_frame(audioCodec, nullptr)` is ignored.
+- Audio packet receive errors other than EAGAIN/EOF simply break; `av_interleaved_write_frame` results are ignored in this flush path.
+- The final trailer write is checked, but successful trailer writing cannot prove that all encoder packets were drained and written successfully.
+
+This can make `finish()` report success after an encoder-send, packet-receive, or mux-write failure during flush. The caller then has no reliable distinction between a complete export and a truncated/corrupt tail.
+
+### AAC tail sample accounting
+
+The FIFO tail contains `remaining` logical samples per channel, but the code copies `tailSamples` and sets `audioFrame->nb_samples = frameSize`, zero-padding the rest. It then advances `audioPts` by the full encoder frame size. The code shown here does not explicitly set packet skip-samples/discard-padding metadata or otherwise carry the logical tail sample count into the muxer.
+
+This does not prove that every output container will expose the padded samples as audible duration: codec/container behavior and FFmpeg's encoder side data may affect the final presentation. It does prove that the writer itself does not visibly preserve the logical tail count as an explicit contract. The actual result must be established by decoding the output and measuring decoded sample count and stream/container duration for non-frame-aligned tails.
+
+### Required correction design
+
+- Treat every send, receive, rescale/mux write, and trailer operation as a checked operation. Preserve the first failure and return a failed `Result`; do not silently break and return success.
+- Drain encoders until the documented EOF condition. Distinguish EAGAIN from EOF and unexpected errors.
+- Preserve the logical number of valid tail samples separately from the padded encoder frame size.
+- Use codec-supported trailing-padding/skip-samples metadata or a container-supported duration mechanism where appropriate; verify behavior per supported output container and codec.
+- Do not advance logical audio duration by padded samples. Encoder PTS progression and presentation duration must be separate concepts.
+- Ensure cleanup/abort behavior is deterministic after a flush failure, and do not leave a writer appearing successfully finished.
+- Add fault-injection tests for failed send, receive, packet mux write, and trailer write.
+- Add encoded-file tests for AAC tails with 1, 2, 1023, 1024, 1025 and frameSize-1 remaining samples, at 44.1 kHz and 48 kHz; decode the output and assert decoded presentation sample count, packet PTS/duration, stream duration and A/V end alignment within a declared codec-delay tolerance.
+
+## 10. Existing FFmpeg writer test coverage is insufficient for exact duration
+
+The current `FFmpegEncodeWithAudio` test feeds 43 blocks × 1024 = 44,032 samples at 44.1 kHz (approximately 0.99846 s), then only checks that the reopened media duration exceeds 0.5 s. It does not assert exact audio sample count, decoded duration, packet PTS continuity, or A/V end alignment.
+
+The upsampling regression writes 40 × 1024 input frames at 44.1 kHz and validates successful writes, but the shown test does not assert the decoded sample count, per-channel signal identity, stream duration, or exact output tail. The comments describe distinct channel frequencies as useful for detecting channel swaps, but the test needs actual decoded-channel assertions to prove that property.
+
+The test suite therefore catches important memory-safety regressions, but does not currently establish the exact PTS/tail guarantees required for production export.
