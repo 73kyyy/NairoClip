@@ -173,7 +173,7 @@ Still required: Compose UI tests proving the expansion order, second-tap collaps
 - CI and Android validation workflow results are reported separately from physical-device validation; no real-device validation is claimed here.
 
 
-## 4.1 Concrete FFmpeg writer finding: block.start is ignored
+## 8. Concrete FFmpeg writer finding: block.start is ignored
 
 The concrete core writer is `core/src/media_ffmpeg_writer.cpp`. Its `writeAudioBlock()` implementation resamples each incoming block, appends converted samples to an internal FIFO, and assigns encoded frame PTS from a monotonically increasing `audioPts` sample counter. It does not read `block.start` when assigning PTS.
 
