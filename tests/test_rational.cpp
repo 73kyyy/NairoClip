@@ -189,3 +189,12 @@ NC_TEST(Rational, NegativeMultiplicationDenominatorOverflowSaturatesBySign) {
     NC_CHECK_EQ(r.den, 1);
 }
 
+
+NC_TEST(Rational, MakeTracksNumeratorOverflowWhenNormalizingNegativeDenominator) {
+    rationalResetOverflowFlag();
+    const Rational r = Rational::make(INT64_MIN, -1);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MAX);
+    NC_CHECK_EQ(r.den, 1);
+}
+

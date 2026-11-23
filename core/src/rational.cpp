@@ -196,12 +196,13 @@ Rational Rational::make(std::int64_t numerator, std::int64_t denominator) {
     }
     if (denominator < 0) {
         // 注意：INT64_MIN 取反是 UB，先转 Wide 再取反。
-        bool of = false;
+        bool ofNum = false;
+        bool ofDen = false;
         const Wide negNum = wideNegate(wideFrom(numerator));
         const Wide negDen = wideNegate(wideFrom(denominator));
-        numerator = wideToInt64(negNum, of);
-        denominator = wideToInt64(negDen, of);
-        if (of) {
+        numerator = wideToInt64(negNum, ofNum);
+        denominator = wideToInt64(negDen, ofDen);
+        if (ofNum || ofDen) {
             g_lastOverflow = true;
         }
         if (denominator <= 0) {  // 取反后仍不合法（极端溢出）→ 退化为 0
@@ -345,7 +346,6 @@ std::int64_t roundToInt(const Rational& r) {
     // 四舍五入（0.5 向上）：floor(x + 1/2) = floor((2·num + den) / (2·den))
     // 原实现直接写 `2 * r.num + r.den`，num 接近 INT64_MAX/2 时溢出（UB）。
     // 改用 Wide 计算。
-    bool of = false;
     const Wide num2 = wideMul(r.num, 2);
     bool ofSum = false;
     const Wide numPlus = wideAdd(num2, wideFrom(r.den), ofSum);
