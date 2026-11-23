@@ -350,7 +350,7 @@ std::int64_t roundToInt(const Rational& r) {
     bool ofSum = false;
     const Wide numPlus = wideAdd(num2, wideFrom(r.den), ofSum);
     const Wide den2 = wideMul(r.den, 2);
-    if (of || ofSum) {
+    if (ofSum) {
         g_lastOverflow = true;
         return r.isNegative() ? INT64_MIN : INT64_MAX;
     }
