@@ -206,3 +206,28 @@ NC_TEST(Rational, MakeTracksNumeratorOverflowWhenNormalizingNegativeDenominator)
     NC_CHECK_EQ(r.den, 1);
 }
 
+
+NC_TEST(Rational, ZeroNumeratorWithMinimumNegativeDenominatorNormalizesToZero) {
+    rationalResetOverflowFlag();
+    const Rational r = Rational::make(0, INT64_MIN);
+    NC_CHECK(!rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, 0);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, RoundToIntHandlesDenominatorBeyondHalfInt64) {
+    const Rational belowHalf = Rational::make(INT64_C(4611686018427387903),
+                                               INT64_MAX);
+    const Rational aboveHalf = Rational::make(INT64_C(4611686018427387904),
+                                               INT64_MAX);
+    rationalResetOverflowFlag();
+    NC_CHECK_EQ(roundToInt(belowHalf), 0);
+    NC_CHECK_EQ(roundToInt(aboveHalf), 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+}
+
+NC_TEST(Rational, RoundToIntNegativeHalfRoundsTowardPositiveInfinity) {
+    NC_CHECK_EQ(roundToInt(Rational::make(-1, 2)), 0);
+    NC_CHECK_EQ(roundToInt(Rational::make(-3, 2)), -1);
+    NC_CHECK_EQ(roundToInt(Rational::make(-2, 3)), -1);
+}
