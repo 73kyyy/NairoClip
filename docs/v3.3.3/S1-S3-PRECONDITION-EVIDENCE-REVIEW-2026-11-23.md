@@ -54,10 +54,11 @@
 - core/src/rational.cpp：统一自实现二补码 128 位中间量，避免 MSVC 缺少 __int128 时退化为 int64 运算。
 - core/include/nairoclip/core/rational.h：定义 den > 0、最简分数、0/1 的类型不变量及饱和溢出查询接口。
 - tests/test_rational.cpp：包含规范化、基本运算、比较、取整、乘法中间精度、负分母极值、加减乘溢出饱和、29.97fps 精确运算、超大分母取整及负半值取整测试。
-- 最新 HEAD 19864594ea5f1981cf0c953dc018ddac11381f65 的 S5 Validation 中 Host CMake/CTest 已通过、NDK arm64 已通过；Kotlin job 尚在执行。
-- 最新 HEAD 的 CI 中 ASan、UBSan、build-and-test 在本次复核时仍在执行，尚无最终结论。
+- S5 Validation run 45099622968（盘点文档提交 19864594）已全部通过：Kotlin 编译/JVM 单元测试、Host CMake/CTest、Android NDK arm64 与 JNI 编译。
+- 最近一次完整 CI run 45097377387（源码提交 d72666d4）已全部通过：build-and-test、ASan（含 S1 生命周期定向回归与全量 ASan 测试）、UBSan。其后 f7be63cf、19864594 与本报告提交均为文档变更，没有修改源码。
+- 文档提交 19864594 触发的 CI run 45099622884 在本次复核时仍处于构建阶段；由于它不包含源码变化，当前可用的最近完整源码 CI 证据仍为 45097377387。不得把此证据扩大解释为设备或完整 S1-3 验收。
 
-本轮因此只确认 Rational 代码与专项测试存在，不将 S3-1 标记为验收通过。仍需取得最新 HEAD 的 Host/CI 最终结果，并核对完整时间模型调用方边界、溢出标志消费策略及跨平台一致性证据。
+本轮确认 Rational 代码与专项测试存在，且对应源码提交 d72666d4 的 Host/CI/ASan/UBSan 自动化工作流通过；最新文档 HEAD 的 Android Kotlin/Host/NDK 验证也通过。但这仍不等于 S3-1 全部验收通过：还需核对完整时间模型调用方边界、溢出标志消费策略、跨平台一致性及导出/时间轴集成证据。
 
 ## 3. 门禁处理
 
