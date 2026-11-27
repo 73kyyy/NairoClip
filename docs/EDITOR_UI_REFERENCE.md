@@ -110,3 +110,7 @@ Repository call-site inspection confirms:
 - `NativeEditorHostState` is a pure state/reducer contract and does not own Activity, ViewModel, JNI, or lifecycle resources.
 
 Therefore, the Compose editor and its typed `NativeQuickAction` callback are not yet runtime-integrated into the app. The current quick-action callback is an extension point; without a host implementation it deliberately falls back to the complete WebView editor. Do not report the native editor migration as complete until a separately gated host/controller consumes the state contract, supplies engine-backed callbacks, and passes lifecycle, persistence, and device validation. The formal Activity entry and WebView fallback remain unchanged.
+
+## Touch-target geometry follow-up (2026-11-27)
+
+The shortcut visual circle remains **30dp × 30dp** for all eleven actions, including AI. Each visual circle is centered inside an independent **48dp × 48dp** clickable target. The larger hit target must not change the visible circle diameter; horizontal scrolling handles the resulting strip width. This separates visual parity from Android touch accessibility.
