@@ -808,6 +808,18 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         }
     }
 
+    /**
+     * Warms one timeline timestamp through the same nc_preview_render path used by
+     * normal preview frames. A false result means the frame could not be rendered;
+     * no synthetic progress or cache-hit claim is produced.
+     */
+    fun prewarmPreviewFrame(timeUs: Long, width: Int = 320): Result<Unit> {
+        if (timeUs < 0L) return Result(false, error = "预热时间不能为负数")
+        if (width !in 16..2048) return Result(false, error = "预热画面宽度必须在 16–2048 像素范围内")
+        return if (bridge.prewarmPreviewFrame(timeUs, width)) Result(true, Unit)
+        else Result(false, error = "时间点 $timeUs 的预览帧渲染失败")
+    }
+
     /** Reads timeline and history capability flags from one engine revision. */
     fun editorStateSnapshot(): Result<EditorStateSnapshot> =
         bridge.withEditorStateLock { readEditorStateSnapshotLocked() }
