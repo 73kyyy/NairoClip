@@ -77,6 +77,18 @@ import kotlinx.coroutines.launch
  * S5 interface contract are accepted. Every not-yet-migrated tool can hand the
  * user back to the complete legacy editor through [onOpenLegacy].
  */
+enum class NativeQuickAction {
+    IMPORT_MEDIA,
+    RETURN_HOME,
+    STEP_PREVIOUS,
+    ADD_MARKER,
+    PREVIEW_RENDER,
+    KEYFRAMES,
+    TOGGLE_GUIDES,
+    IMAGES,
+    AI_EDIT
+}
+
 @Composable
 fun NativeEditorScreen(
     previewView: View? = null,
@@ -102,6 +114,7 @@ fun NativeEditorScreen(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onOpenLegacy: () -> Unit,
+    onQuickAction: ((NativeQuickAction) -> Unit)? = null,
     onSplitClip: ((Int, Long, Long) -> Unit)? = null,
     onDeleteClip: ((Int, Long) -> Unit)? = null,
     onDuplicateClip: ((Int, Long) -> Unit)? = null,
@@ -180,7 +193,8 @@ fun NativeEditorScreen(
                 canRedo = canRedo,
                 onUndo = onUndo,
                 onRedo = onRedo,
-                onOpenLegacy = onOpenLegacy
+                onOpenLegacy = onOpenLegacy,
+                onQuickAction = { action -> onQuickAction?.invoke(action) ?: onOpenLegacy() }
             )
 
             NativeTimelinePanel(
@@ -1756,22 +1770,23 @@ private fun QuickActionStrip(
     canRedo: Boolean,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
-    onOpenLegacy: () -> Unit
+    onOpenLegacy: () -> Unit,
+    onQuickAction: (NativeQuickAction) -> Unit
 ) {
     // Match the reference screenshot: eleven quick actions in their original order.
     // 30dp is the visual diameter calibrated to the screenshot's AI circle.
     // Actions not yet exposed through the native host callbacks deliberately route
     // to the retained WebView editor; they are not presented as native engine commands.
     val actions = listOf(
-        "+" to "添加素材",
-        "⌂" to "返回首页",
-        "◀|" to "向左逐段跳",
-        "⚑" to "标记点",
-        "渲染" to "渲染预览缓存",
-        "◆" to "关键帧",
-        "#" to "构图参考线",
-        "▧" to "图片与背景",
-        "AI" to "AI 仿剪"
+        Triple("+", "添加素材", NativeQuickAction.IMPORT_MEDIA),
+        Triple("⌂", "返回首页", NativeQuickAction.RETURN_HOME),
+        Triple("◀|", "向左逐段跳", NativeQuickAction.STEP_PREVIOUS),
+        Triple("⚑", "标记点", NativeQuickAction.ADD_MARKER),
+        Triple("渲染", "渲染预览缓存", NativeQuickAction.PREVIEW_RENDER),
+        Triple("◆", "关键帧", NativeQuickAction.KEYFRAMES),
+        Triple("#", "构图参考线", NativeQuickAction.TOGGLE_GUIDES),
+        Triple("▧", "图片与背景", NativeQuickAction.IMAGES),
+        Triple("AI", "AI 仿剪", NativeQuickAction.AI_EDIT)
     )
     Row(
         modifier = Modifier
@@ -1788,7 +1803,7 @@ private fun QuickActionStrip(
                 symbol = action.first,
                 label = action.second,
                 emphasized = index == 8,
-                onClick = onOpenLegacy
+                onClick = { onQuickAction(action.third) }
             )
         }
         QuickActionButton(
