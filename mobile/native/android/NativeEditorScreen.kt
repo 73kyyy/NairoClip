@@ -1820,31 +1820,38 @@ private fun QuickActionButton(
     emphasized: Boolean = false,
     onClick: () -> Unit
 ) {
-    val fill = when {
-        emphasized -> Color(0xFF3976D8)
-        else -> NcColors.lane
-    }
+    val fill = if (emphasized) Color(0xFF3976D8) else NcColors.lane
     val foreground = if (enabled) NcColors.text else NcColors.muted
+
+    // Keep the screenshot-sized visual circle, but give every action a
+    // consistent 48dp touch target so adjacent controls remain independently
+    // accessible and usable on dense phone layouts.
     Box(
         modifier = Modifier
-            .size(30.dp)
-            .clip(CircleShape)
-            .background(if (enabled) fill else NcColors.lane.copy(alpha = 0.45f))
-            .border(
-                1.dp,
-                if (emphasized) Color(0xFF6595E8) else NcColors.line,
-                CircleShape
-            )
+            .size(48.dp)
             .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = symbol,
-            color = foreground,
-            fontSize = if (symbol == "渲染") 8.sp else if (symbol == "AI") 10.sp else 15.sp,
-            fontWeight = if (emphasized || symbol == "AI") FontWeight.SemiBold else FontWeight.Normal,
-            maxLines = 1
-        )
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(if (enabled) fill else NcColors.lane.copy(alpha = 0.45f))
+                .border(
+                    1.dp,
+                    if (emphasized) Color(0xFF6595E8) else NcColors.line,
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = symbol,
+                color = foreground,
+                fontSize = if (symbol == "渲染") 8.sp else if (symbol == "AI") 10.sp else 15.sp,
+                fontWeight = if (emphasized || symbol == "AI") FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1
+            )
+        }
     }
 }
 
