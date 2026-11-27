@@ -593,7 +593,7 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = "视频特效"
                         }
-                        tool == "特效" && subTool == "转场" &&
+                        tool == "转场" && subTool == "预设转场" &&
                             selectedTarget != null && onAddTransition != null &&
                             onRemoveTransition != null -> {
                             activeTool = tool
@@ -2931,16 +2931,18 @@ private fun NativeToolBar(
 ) {
     // Mirror the complete first-level inventory from mobile/assets/editor.js (L1).
     // Unsupported native commands remain reachable through the retained WebView fallback.
+    // Exact L1/L2 labels and ordering from mobile/assets/editor.js (L1/L2).
+    // Keep native-only panels behind these source-defined entries; do not invent legacy actions.
     val tools = listOf(
-        "剪辑" to listOf("分割", "变速", "补帧", "音量", "删除", "复制", "倒放", "定格", "降噪", "不透明度", "波纹删除", "启用/停用", "场景检测", "变速曲线", "动画"),
+        "剪辑" to listOf("分割", "变速", "补帧", "音量", "删除", "复制", "倒放", "定格", "降噪", "不透明度", "波纹删除", "启用/停用", "场景检测"),
         "模板" to listOf("模板库", "一键套用", "AI 剪辑"),
-        "音频" to listOf("音乐", "音效", "提取音乐", "录音", "淡化", "人声分离", "音量", "淡入淡出", "降噪"),
-        "文字" to listOf("新建文本", "识别字幕", "识别歌词", "镜头追踪", "字幕翻译", "文本转语音", "自动字幕", "字幕", "添加文本", "样式"),
-        "画中画" to listOf("新增画中画", "画面", "混合模式", "蒙版", "位置", "缩放", "旋转", "锚点"),
-        "特效" to listOf("画面特效", "人物特效", "氛围特效", "动感特效", "转换", "超燃预设", "视频特效", "滤镜", "蒙版", "转场"),
+        "音频" to listOf("音乐", "音效", "提取音乐", "录音", "淡化", "人声分离"),
+        "文字" to listOf("新建文本", "识别字幕", "识别歌词", "镜头追踪", "字幕翻译", "文本转语音"),
+        "画中画" to listOf("新增画中画", "画面", "混合模式", "蒙版"),
+        "特效" to listOf("画面特效", "人物特效", "氛围特效", "动感特效", "转换", "超燃预设"),
         "转场" to listOf("预设转场", "自定义关键帧"),
         "滤镜" to listOf("滤镜库", "LUT", "应用到全部"),
-        "调节" to listOf("参数调节", "重置全部", "基础", "曲线", "色轮", "LUT"),
+        "调节" to listOf("参数调节", "重置全部"),
         "比例" to listOf("9:16", "16:9", "1:1", "3:4", "4:3", "2.35:1", "自定义"),
         "背景" to listOf("颜色", "模糊", "画布样式", "填充"),
         "蒙版" to listOf("形状", "羽化", "色度键"),
