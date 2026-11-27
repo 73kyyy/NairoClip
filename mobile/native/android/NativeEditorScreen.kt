@@ -168,11 +168,14 @@ fun NativeEditorScreen(
     var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
     var showMarkerList by remember(projectName) { mutableStateOf(false) }
     var showGuides by remember(projectName) { mutableStateOf(false) }
+    // Keyframe editing is a dedicated quick-action panel, not a fabricated L2 toolbar item.
+    var showKeyframePanel by remember(projectName) { mutableStateOf(false) }
     LaunchedEffect(projectName) {
         // Do not carry an expanded tool or parameter context into a different project.
         activeTool = "剪辑"
         expandedTool = null
         activeSubTool = null
+        showKeyframePanel = false
     }
     LaunchedEffect(timelineTracks, selectedClip) {
         val selection = selectedClip ?: return@LaunchedEffect
@@ -224,9 +227,7 @@ fun NativeEditorScreen(
                         NativeQuickAction.SHOW_MARKER_LIST -> showMarkerList = true
                         NativeQuickAction.TOGGLE_GUIDES -> showGuides = !showGuides
                         NativeQuickAction.KEYFRAMES -> {
-                            activeTool = "剪辑"
-                            expandedTool = "剪辑"
-                            activeSubTool = "动画"
+                            showKeyframePanel = true
                         }
                         else -> onQuickAction?.invoke(action) ?: onOpenLegacy()
                     }
@@ -290,7 +291,7 @@ fun NativeEditorScreen(
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
                 }?.clips?.firstOrNull { it.id == selection.second }
             }
-            if (activeTool == "剪辑" && activeSubTool == "动画" && selectedTarget == null) {
+            if (showKeyframePanel && selectedTarget == null) {
                 Text(
                     "先选择一个时间轴片段，再编辑关键帧",
                     color = NcColors.secondary,
@@ -298,11 +299,11 @@ fun NativeEditorScreen(
                     modifier = Modifier.fillMaxWidth().background(NcColors.stage).padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
-            if (((activeTool == "画中画" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点")) || (activeTool == "剪辑" && activeSubTool == "动画")) && selectedTarget != null) {
+            if ((((activeTool == "画中画" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点")) || showKeyframePanel) && selectedTarget != null)) {
                 NativeParameterPanel(
                     targetTrackIndex = selectedTarget.first,
                     targetClipId = selectedTarget.second,
-                    activeSubTool = activeSubTool ?: "位置",
+                    activeSubTool = if (showKeyframePanel) "动画" else (activeSubTool ?: "位置"),
                     transform = transform,
                     anchor = anchor,
                     keyedParameters = keyedParameters,
@@ -614,10 +615,12 @@ fun NativeEditorScreen(
                         // parameter context; do not leave a hidden tool's
                         // controls occupying the native editor layout.
                         activeSubTool = null
+                        showKeyframePanel = false
                     } else {
                         expandedTool = tool
                         activeTool = tool
                         activeSubTool = null
+                        showKeyframePanel = false
                     }
                 },
                 onSubToolSelected = { tool, subTool ->
@@ -626,6 +629,7 @@ fun NativeEditorScreen(
                     // unrelated parameter panel visible underneath the toolbar.
                     activeTool = tool
                     activeSubTool = null
+                    showKeyframePanel = false
                     when {
                         tool == "文字" && subTool == "识别字幕" -> {
                             activeTool = tool
