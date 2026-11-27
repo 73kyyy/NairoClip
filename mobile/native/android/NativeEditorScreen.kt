@@ -1708,36 +1708,86 @@ private fun QuickActionStrip(
     onRedo: () -> Unit,
     onOpenLegacy: () -> Unit
 ) {
+    // Match the reference screenshot: eleven quick actions in their original order.
+    // 30dp is the visual diameter calibrated to the screenshot's AI circle.
+    // Actions not yet exposed through the native host callbacks deliberately route
+    // to the retained WebView editor; they are not presented as native engine commands.
+    val actions = listOf(
+        Triple("+", "添加素材", false),
+        Triple("⌂", "返回首页", false),
+        Triple("◀|", "向左逐段跳", false),
+        Triple("⚑", "标记点", false),
+        Triple("渲染", "渲染预览缓存", false),
+        Triple("◆", "关键帧", false),
+        Triple("#", "构图参考线", false),
+        Triple("▧", "图片与背景", false),
+        Triple("AI", "AI 仿剪", false)
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(50.dp)
             .background(NcColors.stage)
-            .padding(horizontal = 10.dp),
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        HistoryAction(
-            label = "撤销",
+        actions.forEachIndexed { index, action ->
+            QuickActionButton(
+                symbol = action.first,
+                label = action.second,
+                emphasized = index == 8,
+                onClick = onOpenLegacy
+            )
+        }
+        QuickActionButton(
             symbol = "↶",
+            label = "撤销",
             enabled = canUndo,
             onClick = onUndo
         )
-        HistoryAction(
-            label = "重做",
+        QuickActionButton(
             symbol = "↷",
+            label = "重做",
             enabled = canRedo,
             onClick = onRedo
         )
-        Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun QuickActionButton(
+    symbol: String,
+    label: String,
+    enabled: Boolean = true,
+    emphasized: Boolean = false,
+    onClick: () -> Unit
+) {
+    val fill = when {
+        emphasized -> Color(0xFF3976D8)
+        else -> NcColors.lane
+    }
+    val foreground = if (enabled) NcColors.text else NcColors.muted
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(if (enabled) fill else NcColors.lane.copy(alpha = 0.45f))
+            .border(
+                1.dp,
+                if (emphasized) Color(0xFF6595E8) else NcColors.line,
+                CircleShape
+            )
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
-            text = "更多功能在完整编辑器中",
-            color = NcColors.secondary,
-            fontSize = 10.sp,
-            modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
-                .clickable(onClick = onOpenLegacy)
-                .padding(horizontal = 10.dp, vertical = 8.dp)
+            text = symbol,
+            color = foreground,
+            fontSize = if (symbol == "渲染") 8.sp else if (symbol == "AI") 10.sp else 15.sp,
+            fontWeight = if (emphasized || symbol == "AI") FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
         )
     }
 }
