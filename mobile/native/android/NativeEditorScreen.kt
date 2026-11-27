@@ -227,7 +227,7 @@ fun NativeEditorScreen(
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
                 }?.clips?.firstOrNull { it.id == selection.second }
             }
-            if (((activeTool == "画面" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点")) || (activeTool == "剪辑" && activeSubTool == "动画")) && selectedTarget != null) {
+            if (((activeTool == "画中画" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点")) || (activeTool == "剪辑" && activeSubTool == "动画")) && selectedTarget != null) {
                 NativeParameterPanel(
                     targetTrackIndex = selectedTarget.first,
                     targetClipId = selectedTarget.second,
@@ -488,7 +488,7 @@ fun NativeEditorScreen(
                 }
             }
 
-            if (activeTool == "文本" && activeSubTool == "自动字幕") {
+            if (activeTool == "文字" && activeSubTool == "自动字幕") {
                 NativeAutoSubtitlePanel(
                     state = autoSubtitleState,
                     onStart = onStartAutoSubtitle,
@@ -496,7 +496,7 @@ fun NativeEditorScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            if (activeTool == "文本" && activeSubTool == "字幕") {
+            if (activeTool == "文字" && activeSubTool == "字幕") {
                 if (onCreateSubtitle != null) {
                     NativeSubtitleCreationPanel(
                         playheadUs = playheadUs,
@@ -509,7 +509,7 @@ fun NativeEditorScreen(
                     Text("字幕编辑等待宿主接入原生字幕命令", color = NcColors.secondary, fontSize = 10.sp)
                 }
             }
-            if (activeTool == "文本" && activeSubTool == "样式" && selectedTarget != null) {
+            if (activeTool == "文字" && activeSubTool == "样式" && selectedTarget != null) {
                 if (onTextStyleChanged != null) {
                     NativeTextStylePanel(
                         onChange = { update -> onTextStyleChanged.invoke(selectedTarget.first, selectedTarget.second, update) },
@@ -519,7 +519,7 @@ fun NativeEditorScreen(
                     Text("文字样式等待宿主接入原生引擎命令", color = NcColors.secondary, fontSize = 10.sp)
                 }
             }
-            if (activeTool == "文本" && activeSubTool == "添加文本") {
+            if (activeTool == "文字" && activeSubTool == "添加文本") {
                 if (onCreateTextClip != null) {
                     NativeTextCreationPanel(
                         playheadUs = playheadUs,
@@ -556,19 +556,19 @@ fun NativeEditorScreen(
                     activeTool = tool
                     activeSubTool = null
                     when {
-                        tool == "文本" && subTool == "自动字幕" -> {
+                        tool == "文字" && subTool == "自动字幕" -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
-                        tool == "文本" && subTool == "字幕" && onCreateSubtitle != null -> {
+                        tool == "文字" && subTool == "字幕" && onCreateSubtitle != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
-                        tool == "文本" && subTool == "样式" && selectedTarget != null && onTextStyleChanged != null -> {
+                        tool == "文字" && subTool == "样式" && selectedTarget != null && onTextStyleChanged != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
-                        tool == "文本" && subTool == "添加文本" && onCreateTextClip != null -> {
+                        tool == "文字" && subTool == "添加文本" && onCreateTextClip != null -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
@@ -608,7 +608,7 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = subTool
                         }
-                        tool == "画面" && subTool in setOf("位置", "缩放", "旋转", "锚点") -> {
+                        tool == "画中画" && subTool in setOf("位置", "缩放", "旋转", "锚点") -> {
                             activeTool = tool
                             activeSubTool = subTool
                         }
@@ -2864,15 +2864,22 @@ private fun NativeToolBar(
     onToolSelected: (String) -> Unit,
     onSubToolSelected: (String, String) -> Unit
 ) {
+    // Mirror the complete first-level inventory from mobile/assets/editor.js (L1).
+    // Unsupported native commands remain reachable through the retained WebView fallback.
     val tools = listOf(
-        "剪辑" to listOf("分割", "删除", "波纹删除", "复制", "变速", "变速曲线", "动画"),
-        "音频" to listOf("音量", "淡入淡出", "降噪", "人声分离"),
-        "文本" to listOf("添加文本", "字幕", "自动字幕", "样式", "朗读"),
-        "贴纸" to listOf("贴纸库", "表情", "自定义"),
-        "特效" to listOf("视频特效", "转场", "滤镜", "蒙版"),
-        "画面" to listOf("位置", "缩放", "旋转", "锚点"),
-        "调节" to listOf("基础", "曲线", "色轮", "LUT"),
-        "更多" to listOf("画中画", "关键帧", "跟踪", "AI工具")
+        "剪辑" to listOf("分割", "变速", "补帧", "音量", "删除", "复制", "倒放", "定格", "降噪", "不透明度", "波纹删除", "启用/停用", "场景检测"),
+        "模板" to listOf("模板库", "一键套用", "AI 剪辑"),
+        "音频" to listOf("音乐", "音效", "提取音乐", "录音", "淡化", "人声分离"),
+        "文字" to listOf("新建文本", "识别字幕", "识别歌词", "镜头追踪", "字幕翻译", "文本转语音"),
+        "画中画" to listOf("新增画中画", "画面", "混合模式", "蒙版"),
+        "特效" to listOf("画面特效", "人物特效", "氛围特效", "动感特效", "转换", "超燃预设"),
+        "转场" to listOf("预设转场", "自定义关键帧"),
+        "滤镜" to listOf("滤镜库", "LUT", "应用到全部"),
+        "调节" to listOf("参数调节", "重置全部"),
+        "比例" to listOf("9:16", "16:9", "1:1", "3:4", "4:3", "2.35:1", "自定义"),
+        "背景" to listOf("颜色", "模糊", "画布样式", "填充"),
+        "蒙版" to listOf("形状", "羽化", "色度键"),
+        "更多" to listOf("参考仿剪", "深度图")
     )
     Row(
         modifier = Modifier
