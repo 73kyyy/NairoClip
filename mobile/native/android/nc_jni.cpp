@@ -974,6 +974,19 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                    : Err("添加标记失败");
         return true;
     }
+    if (op == "marker_remove" || op == "nc_remove_marker") {
+        int64_t markerId = 0;
+        const JParamStatus markerStatus = JIntParam(a, "marker_id", &markerId);
+        if (markerStatus != JParamStatus::Ok || markerId <= 0) {
+            *out = Err(markerStatus == JParamStatus::Invalid
+                           ? "标记 ID 类型非法"
+                           : "缺少有效的标记 ID");
+            return true;
+        }
+        const int32_t rc = nc_remove_marker(ed, static_cast<uint64_t>(markerId));
+        *out = rc == NC_OK ? Ok("") : Err("删除标记失败，错误码 " + std::to_string(rc));
+        return true;
+    }
     if (op == "undo") {
         const int32_t rc = nc_undo(ed);
         *out = rc == NC_OK ? Ok("") : Err("无可撤销操作，错误码 " + std::to_string(rc));
