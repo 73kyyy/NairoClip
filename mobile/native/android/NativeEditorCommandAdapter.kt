@@ -713,6 +713,47 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         }
     }
 
+    /** Removes one marker by its stable engine ID and reads back the committed state. */
+    fun removeMarkerAndReadEditorState(markerId: Long): Result<EditorStateSnapshot> {
+        if (markerId <= 0L) return Result(false, error = "标记 ID 无效")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) {
+                return@withEditorStateLock Result(false, error = before.error ?: "删除标记前无法读取工程状态")
+            }
+            if (before.value?.markers?.none { it.id == markerId } != false) {
+                return@withEditorStateLock Result(false, error = "标记已不存在")
+            }
+            val response = try {
+                JSONObject(
+                    bridge.call(
+                        "nc_remove_marker",
+                        JSONObject().put("marker_id", markerId).toString()
+                    )
+                )
+            } catch (error: Exception) {
+                return@withEditorStateLock Result(false, error = error.message ?: "删除标记失败")
+            }
+            if (!response.optBoolean("ok", false)) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = response.optString("message", "删除标记失败")
+                )
+            }
+            val refreshed = readEditorStateSnapshotLocked()
+            if (!refreshed.ok) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = refreshed.error ?: "标记已删除，但刷新工程状态失败"
+                )
+            }
+            if (refreshed.value?.timeline?.markers?.any { it.id == markerId } != false) {
+                return@withEditorStateLock Result(false, error = "删除后快照仍包含该标记，请刷新工程状态")
+            }
+            refreshed
+        }
+    }
+
     /** Reads timeline and history capability flags from one engine revision. */
     fun editorStateSnapshot(): Result<EditorStateSnapshot> =
         bridge.withEditorStateLock { readEditorStateSnapshotLocked() }
