@@ -121,4 +121,44 @@ class NativeTimelineSnapshotValidationTest {
         assertFalse(hasUniqueNativeTimelineIdentities(listOf(track(trackId = 0L, clipId = 10L))))
         assertFalse(hasUniqueNativeTimelineIdentities(listOf(track(trackId = 1L, clipId = 0L))))
     }
+
+    private fun stateWithMarkers(markersJson: String): String =
+        stateWithClipMetadata("").replace(
+            "\"assets\"",
+            "\"markers\":$markersJson,\"assets\""
+        )
+
+    @Test
+    fun parsesNativeTimelineMarkers() {
+        val snapshot = NativeTimelineSnapshot.tryFromEngineState(
+            stateWithMarkers(
+                """[{"id":9,"time_us":1250000,"name":"接缝","color":"#AABBCC"}]"""
+            )
+        )
+        assertNotNull(snapshot)
+        assertEquals(
+            listOf(NativeTimelineMarker(9L, 1_250_000L, "接缝", "#AABBCC")),
+            snapshot!!.markers
+        )
+    }
+
+    @Test
+    fun rejectsMalformedOrOutOfRangeMarkers() {
+        assertNull(NativeTimelineSnapshot.tryFromEngineState(stateWithMarkers("""[{}]""")))
+        assertNull(
+            NativeTimelineSnapshot.tryFromEngineState(
+                stateWithMarkers(
+                    """[{"id":9,"time_us":6000000,"name":"越界","color":"#FFFFFF"}]"""
+                )
+            )
+        )
+        assertNull(
+            NativeTimelineSnapshot.tryFromEngineState(
+                stateWithMarkers(
+                    """[{"id":9,"time_us":10,"name":"A","color":"#FFFFFF"},{"id":9,"time_us":20,"name":"B","color":"#000000"}]"""
+                )
+            )
+        )
+    }
+
 }
