@@ -18,4 +18,28 @@ object NativeQuickActionGestureContract {
             NativeQuickAction.ADD_MARKER -> NativeQuickAction.SHOW_MARKER_LIST
             else -> null
         }
+
+    /**
+     * Matches the legacy editor's anchor semantics: move to the nearest
+     * strictly earlier clip start/end boundary, with a 1ms repeat guard.
+     */
+    fun previousTimelineAnchor(
+        tracks: List<NativeTimelineTrack>,
+        playheadUs: Long
+    ): Long? {
+        if (playheadUs <= 1_000L) return null
+        val anchors = HashSet<Long>()
+        anchors.add(0L)
+        tracks.forEach { track ->
+            track.clips.forEach { clip ->
+                if (clip.startUs >= 0L) anchors.add(clip.startUs)
+                if (clip.startUs >= 0L && clip.startUs <= Long.MAX_VALUE - clip.durationUs) {
+                    anchors.add(clip.startUs + clip.durationUs)
+                }
+            }
+        }
+        return anchors.asSequence()
+            .filter { it < playheadUs - 1_000L }
+            .maxOrNull()
+    }
 }
