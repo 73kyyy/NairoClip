@@ -113,10 +113,12 @@ class NativeTimelineView(context: Context) : View(context) {
     }
     private val readoutPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.BLACK
-        textSize = 8f * density
+        // Match ruler labels: the playhead readout is distinguished by its
+        // background chip, not by a heavier font weight or larger glyphs.
+        textSize = 9f * density
         typeface = android.graphics.Typeface.create(
             android.graphics.Typeface.DEFAULT,
-            android.graphics.Typeface.BOLD
+            android.graphics.Typeface.NORMAL
         )
     }
     private val emptyStatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -328,7 +330,8 @@ class NativeTimelineView(context: Context) : View(context) {
                     scrollOffset.toDouble()
                 ).toFloat()
             if (x < labelWidth || x > width) continue
-            canvas.drawLine(x, rulerHeight - 7f * density, x, rulerHeight, tickPaint)
+            // Keep ruler marks compact so the time labels remain visually clear.
+            canvas.drawLine(x, rulerHeight - 4f * density, x, rulerHeight, tickPaint)
             canvas.drawText(formatTime(seconds.toLong()), x + 3f * density, 11f * density, rulerTextPaint)
         }
         canvas.drawLine(labelWidth, rulerHeight, width.toFloat(), rulerHeight, tickPaint)
