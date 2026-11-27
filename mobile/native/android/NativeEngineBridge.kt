@@ -441,6 +441,26 @@ class NativeEngineBridge(
         fun frameDataUrl(timeUs: Long, width: Int): String =
         renderDataUrl(timeUs, width, isThumb = false, thumbIndex = 0)
 
+    /**
+     * Render and discard one preview frame solely to populate the engine LRU cache.
+     * This avoids PNG/Base64 allocation used by the WebView-facing frameDataUrl path.
+     * The JNI call and handle lookup share stateLock with release().
+     */
+    fun prewarmPreviewFrame(timeUs: Long, width: Int): Boolean = synchronized(stateLock) {
+        if (timeUs < 0L || width !in 16..2048) return@synchronized false
+        try {
+            val handle = ensure()
+            if (handle == 0L) return@synchronized false
+            val raw = nativeFrame(handle, timeUs, width)
+            if (raw.size < 12) return@synchronized false
+            val w = readIntLE(raw, 0)
+            val h = readIntLE(raw, 4)
+            w > 0 && h > 0 && raw.size.toLong() - 8L == w.toLong() * h.toLong() * 4L
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /** 素材缩略图。 */
     @JavascriptInterface
         fun thumbDataUrl(assetId: Long, index: Int, width: Int): String =
