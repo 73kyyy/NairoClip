@@ -189,10 +189,16 @@ fun NativeEditorScreen(
     var prewarmRunning by remember(projectName) { mutableStateOf(false) }
     var prewarmStatus by remember(projectName) { mutableStateOf<String?>(null) }
     var prewarmStats by remember(projectName) { mutableStateOf<NativePreviewCacheUiStats?>(null) }
-    var prewarmJob by remember(projectName) { mutableStateOf<Job?>(null) }
+    var prewarmJob by remember { mutableStateOf<Job?>(null) }
     val prewarmScope = rememberCoroutineScope()
     LaunchedEffect(projectName) {
         // Do not carry an expanded tool or parameter context into a different project.
+        prewarmJob?.cancel()
+        prewarmJob = null
+        prewarmRunning = false
+        prewarmProgress = 0f
+        prewarmStatus = null
+        prewarmStats = null
         activeTool = "剪辑"
         expandedTool = null
         activeSubTool = null
