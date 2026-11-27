@@ -666,6 +666,53 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         Result(true, ClipMutationResult(state.value!!, changed.value))
     }
 
+    /**
+     * Adds a timeline marker through the same nc_add_marker C ABI operation
+     * used by the legacy editor, then returns the authoritative post-edit
+     * timeline/history snapshot.
+     */
+    fun addMarkerAndReadEditorState(
+        timeUs: Long,
+        name: String,
+        color: String = "#FFFFFF"
+    ): Result<EditorStateSnapshot> {
+        if (timeUs < 0L) return Result(false, error = "标记时间不能为负数")
+        val cleanName = name.trim()
+        if (cleanName.isEmpty() || cleanName.toByteArray(Charsets.UTF_8).size > 128) {
+            return Result(false, error = "标记名称不能为空或超过 128 字节")
+        }
+        if (!color.matches(Regex("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))) {
+            return Result(false, error = "标记颜色格式无效")
+        }
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) {
+                return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            }
+            val durationUs = before.value?.durationUs
+                ?: return@withEditorStateLock Result(false, error = "工程时长缺失")
+            if (timeUs > durationUs) {
+                return@withEditorStateLock Result(false, error = "标记时间超出工程时长")
+            }
+            val args = JSONObject()
+                .put("time_us", timeUs)
+                .put("name", cleanName)
+                .put("color", color)
+            val response = try {
+                JSONObject(bridge.call("nc_add_marker", args.toString()))
+            } catch (error: Exception) {
+                return@withEditorStateLock Result(false, error = error.message ?: "添加标记失败")
+            }
+            if (!response.optBoolean("ok", false)) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = response.optString("message", "添加标记失败")
+                )
+            }
+            readEditorStateSnapshotLocked()
+        }
+    }
+
     /** Reads timeline and history capability flags from one engine revision. */
     fun editorStateSnapshot(): Result<EditorStateSnapshot> =
         bridge.withEditorStateLock { readEditorStateSnapshotLocked() }
