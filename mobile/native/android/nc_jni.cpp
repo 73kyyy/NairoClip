@@ -975,15 +975,18 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     if (op == "marker_remove" || op == "nc_remove_marker") {
-        int64_t markerId = 0;
-        const JParamStatus markerStatus = JIntParam(a, "marker_id", &markerId);
-        if (markerStatus != JParamStatus::Ok || markerId <= 0) {
-            *out = Err(markerStatus == JParamStatus::Invalid
-                           ? "标记 ID 类型非法"
-                           : "缺少有效的标记 ID");
+        double markerIdValue = 0.0;
+        const JParamStatus markerStatus = JNumParam(a, "marker_id", &markerIdValue);
+        if (markerStatus != JParamStatus::Ok || !std::isfinite(markerIdValue) ||
+            std::floor(markerIdValue) != markerIdValue || markerIdValue <= 0.0 ||
+            markerIdValue >= 9.223372036854776E18) {
+            *out = Err(markerStatus == JParamStatus::Missing
+                           ? "缺少有效的标记 ID"
+                           : "标记 ID 必须是正整数且处于可表示范围内");
             return true;
         }
-        const int32_t rc = nc_remove_marker(ed, static_cast<uint64_t>(markerId));
+        const uint64_t markerId = static_cast<uint64_t>(markerIdValue);
+        const int32_t rc = nc_remove_marker(ed, markerId);
         *out = rc == NC_OK ? Ok("") : Err("删除标记失败，错误码 " + std::to_string(rc));
         return true;
     }
