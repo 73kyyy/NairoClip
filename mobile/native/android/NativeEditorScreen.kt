@@ -2854,7 +2854,7 @@ private fun NativeToolBar(
                     modifier = Modifier
                         .size(25.dp)
                         .clip(CircleShape)
-                        .border(1.dp, if (selected) Color.White else NcColors.line, CircleShape),
+                        .border(1.dp, NcColors.line, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(tool.take(1), color = NcColors.text, fontSize = 11.sp)
@@ -2871,31 +2871,32 @@ private fun NativeToolBar(
                     val subSelected = activeTool == tool && activeSubTool == subTool
                     Column(
                         modifier = Modifier
-                            .width(58.dp)
+                            .width(54.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (subSelected) Color(0xFF3A3D40) else NcColors.panel)
+                            .background(if (subSelected) Color(0xFF303235) else Color.Transparent)
                             .selectable(
                                 selected = subSelected,
                                 role = Role.Tab,
                                 onClick = { onSubToolSelected(tool, subTool) }
                             )
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 7.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
+                                .size(25.dp)
                                 .clip(CircleShape)
-                                .border(1.dp, if (subSelected) Color.White else NcColors.line, CircleShape),
+                                // Selection is indicated by a restrained fill, not a bright white ring.
+                                .border(1.dp, NcColors.line, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(subTool.take(1), color = NcColors.text, fontSize = 10.sp)
+                            Text(subTool.take(1), color = NcColors.text, fontSize = 11.sp)
                         }
                         Text(
                             subTool,
                             color = if (subSelected) NcColors.text else NcColors.secondary,
-                            fontSize = 8.sp,
+                            fontSize = 9.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 1
                         )
