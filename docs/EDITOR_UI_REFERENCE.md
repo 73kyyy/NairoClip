@@ -99,3 +99,14 @@ This is an interface boundary only: it does not claim that the nine actions alre
 The native toolbar's second-level labels and order have been reconciled against the exact `L2` object in `mobile/assets/editor.js`, not a manually expanded list. The native toolbar now uses the repository-defined source labels for all 13 categories. Native-only panel identifiers are internal routing targets only and are not injected as extra legacy-visible actions.
 
 A shadowed transition-routing branch was also removed so the source-defined `转场 → 预设转场` item can reach the native transition panel when its required callbacks are present. Other unavailable callbacks continue to route to the retained legacy editor.
+
+
+## Runtime integration gate (not yet passed)
+
+Repository call-site inspection confirms:
+- `NativeEditorScreen` currently has no runtime caller outside its own declaration.
+- `NativeAppShell.kt` remains a placeholder.
+- `MainActivity.kt` still creates and loads the WebView editor.
+- `NativeEditorHostState` is a pure state/reducer contract and does not own Activity, ViewModel, JNI, or lifecycle resources.
+
+Therefore, the Compose editor and its typed `NativeQuickAction` callback are not yet runtime-integrated into the app. The current quick-action callback is an extension point; without a host implementation it deliberately falls back to the complete WebView editor. Do not report the native editor migration as complete until a separately gated host/controller consumes the state contract, supplies engine-backed callbacks, and passes lifecycle, persistence, and device validation. The formal Activity entry and WebView fallback remain unchanged.
