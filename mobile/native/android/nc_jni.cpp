@@ -437,6 +437,29 @@ std::string BuildState(NcEditor* ed) {
     }
     j += "],";
 
+    // Timeline markers are part of the editor snapshot so native UI can
+    // render the marker list without reaching back into the WebView.
+    j += "\"markers\":[";
+    const int32_t markerCount = nc_marker_count(ed);
+    for (int32_t mi = 0; mi < markerCount; ++mi) {
+        if (mi) j += ",";
+        uint64_t markerId = 0;
+        int64_t markerTimeUs = 0;
+        char* markerName = nullptr;
+        char* markerColor = nullptr;
+        if (nc_marker_get(ed, mi, &markerId, &markerTimeUs,
+                          &markerName, &markerColor) != NC_OK) {
+            j += "{}";
+            continue;
+        }
+        j += "{\"id\":" + std::to_string(markerId);
+        j += ",\"time_us\":" + std::to_string(markerTimeUs);
+        j += ",\"name\":\"" + JEsc(markerName ? markerName : "") + "\"";
+        j += ",\"color\":\"" + JEsc(markerColor ? markerColor : "") + "\"}";
+        if (markerName) nc_free_string(markerName);
+        if (markerColor) nc_free_string(markerColor);
+    }
+    j += "],";
     j += "\"can_undo\":" + std::to_string(nc_can_undo(ed));
     j += ",\"can_redo\":" + std::to_string(nc_can_redo(ed));
     j += "}";
