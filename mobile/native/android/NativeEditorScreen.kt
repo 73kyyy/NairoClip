@@ -1798,12 +1798,10 @@ private fun QuickActionStrip(
                 label = action.second,
                 emphasized = index == 8,
                 onClick = { onQuickAction(action.third) },
-                onDoubleClick = if (action.third == NativeQuickAction.STEP_PREVIOUS) {
-                    { onQuickAction(NativeQuickAction.STEP_PREVIOUS_TO_START) }
-                } else null,
-                onLongClick = if (action.third == NativeQuickAction.ADD_MARKER) {
-                    { onQuickAction(NativeQuickAction.SHOW_MARKER_LIST) }
-                } else null
+                onDoubleClick = NativeQuickActionGestureContract.doubleTap(action.third)
+                    ?.let { command -> { onQuickAction(command) } },
+                onLongClick = NativeQuickActionGestureContract.longPress(action.third)
+                    ?.let { command -> { onQuickAction(command) } }
             )
         }
         QuickActionButton(
