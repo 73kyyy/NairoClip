@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.util.Locale
+import kotlin.math.roundToLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -262,7 +263,7 @@ fun NativeEditorScreen(
                                     prewarmStatus = "时间轴为空，没有可预热的帧"
                                 } else {
                                     val total = ((spanUs.toDouble() / 1_000_000.0) * 10.0)
-                                        .toLong().coerceIn(1L, 240L).toInt()
+                                        .roundToLong().coerceIn(1L, 240L).toInt()
                                     val startUs = playheadUs.coerceAtLeast(0L) % spanUs
                                     prewarmProgress = 0f
                                     prewarmStats = null
