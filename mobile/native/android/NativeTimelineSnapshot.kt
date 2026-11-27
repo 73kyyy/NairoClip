@@ -9,10 +9,18 @@ import org.json.JSONObject
  * The engine remains the source of truth. An incomplete track/clip record
  * rejects the whole snapshot rather than silently hiding timeline content.
  */
+data class NativeTimelineMarker(
+    val id: Long,
+    val timeUs: Long,
+    val name: String,
+    val color: String
+)
+
 data class NativeTimelineSnapshot(
     val projectName: String,
     val durationUs: Long,
-    val tracks: List<NativeTimelineTrack>
+    val tracks: List<NativeTimelineTrack>,
+    val markers: List<NativeTimelineMarker> = emptyList()
 ) {
     companion object {
         /**
@@ -58,6 +66,23 @@ data class NativeTimelineSnapshot(
                         val id = asset.longField("id")?.takeIf { it > 0L } ?: return null
                         if (!assetIds.add(id)) return null
                         assetNames[id] = asset.optString("name", "").ifBlank { "素材 $id" }
+                    }
+                }
+
+                val markers = ArrayList<NativeTimelineMarker>()
+                val markerIds = HashSet<Long>()
+                val sourceMarkers = state.optJSONArray("markers")
+                if (sourceMarkers != null) {
+                    for (markerIndex in 0 until sourceMarkers.length()) {
+                        val sourceMarker = sourceMarkers.optJSONObject(markerIndex) ?: return null
+                        val markerId = sourceMarker.longField("id")?.takeIf { it > 0L } ?: return null
+                        val markerTimeUs = sourceMarker.longField("time_us")
+                            ?.takeIf { it in 0L..duration } ?: return null
+                        val markerName = sourceMarker.optString("name", "").ifBlank { "标记" }
+                        val markerColor = sourceMarker.optString("color", "#FFFFFF")
+                        if (!markerColor.matches(Regex("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))) return null
+                        if (!markerIds.add(markerId)) return null
+                        markers += NativeTimelineMarker(markerId, markerTimeUs, markerName, markerColor)
                     }
                 }
 
@@ -155,7 +180,7 @@ data class NativeTimelineSnapshot(
                     )
                 }
                 if (!hasUniqueNativeTimelineIdentities(tracks)) return null
-                NativeTimelineSnapshot(projectName, duration, tracks)
+                NativeTimelineSnapshot(projectName, duration, tracks, markers)
             } catch (_: Exception) {
                 null
             }
