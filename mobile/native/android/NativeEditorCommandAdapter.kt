@@ -754,6 +754,60 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         }
     }
 
+
+    data class PreviewCacheStats(
+        val frameHits: Long,
+        val frameMisses: Long,
+        val readerOpens: Long,
+        val cachedFrames: Int,
+        val capacity: Int
+    )
+
+    /**
+     * Reads the engine's real preview-cache counters. The response is parsed
+     * strictly: malformed or negative counters must not be presented as
+     * plausible cache telemetry in the native editor.
+     */
+    fun previewCacheStats(): Result<PreviewCacheStats> = bridge.withEditorStateLock {
+        try {
+            val response = JSONObject(bridge.call("nc_preview_cache_stats", "{}"))
+            if (!response.optBoolean("ok", false)) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = response.optString("message", "读取预览缓存统计失败")
+                )
+            }
+            val payload = response.optJSONObject("result")
+                ?: throw IllegalArgumentException("预览缓存统计响应缺少 result 对象")
+            fun requiredLong(name: String): Long {
+                val raw = payload.opt(name) as? Number
+                    ?: throw IllegalArgumentException("预览缓存字段 $name 缺失或类型错误")
+                return raw.toLong().also {
+                    require(it >= 0L && raw.toDouble() == it.toDouble()) {
+                        "预览缓存字段 $name 必须是非负整数"
+                    }
+                }
+            }
+            val hits = requiredLong("frame_hits")
+            val misses = requiredLong("frame_misses")
+            val opens = requiredLong("reader_opens")
+            val cached = requiredLong("cached_frames")
+            val capacity = requiredLong("capacity")
+            require(cached <= Int.MAX_VALUE && capacity <= Int.MAX_VALUE) {
+                "预览缓存帧数超出支持范围"
+            }
+            require(cached <= capacity || capacity == 0L) {
+                "预览缓存已缓存帧数超过容量"
+            }
+            Result(
+                true,
+                PreviewCacheStats(hits, misses, opens, cached.toInt(), capacity.toInt())
+            )
+        } catch (error: Exception) {
+            Result(false, error = error.message ?: "预览缓存统计响应解析失败")
+        }
+    }
+
     /** Reads timeline and history capability flags from one engine revision. */
     fun editorStateSnapshot(): Result<EditorStateSnapshot> =
         bridge.withEditorStateLock { readEditorStateSnapshotLocked() }
