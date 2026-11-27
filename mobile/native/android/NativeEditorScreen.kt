@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.horizontalScroll
@@ -81,7 +82,9 @@ enum class NativeQuickAction {
     IMPORT_MEDIA,
     RETURN_HOME,
     STEP_PREVIOUS,
+    STEP_PREVIOUS_TO_START,
     ADD_MARKER,
+    SHOW_MARKER_LIST,
     PREVIEW_RENDER,
     KEYFRAMES,
     TOGGLE_GUIDES,
@@ -1794,7 +1797,13 @@ private fun QuickActionStrip(
                 symbol = action.first,
                 label = action.second,
                 emphasized = index == 8,
-                onClick = { onQuickAction(action.third) }
+                onClick = { onQuickAction(action.third) },
+                onDoubleClick = if (action.third == NativeQuickAction.STEP_PREVIOUS) {
+                    { onQuickAction(NativeQuickAction.STEP_PREVIOUS_TO_START) }
+                } else null,
+                onLongClick = if (action.third == NativeQuickAction.ADD_MARKER) {
+                    { onQuickAction(NativeQuickAction.SHOW_MARKER_LIST) }
+                } else null
             )
         }
         QuickActionButton(
@@ -1818,6 +1827,8 @@ private fun QuickActionButton(
     label: String,
     enabled: Boolean = true,
     emphasized: Boolean = false,
+    onDoubleClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val fill = if (emphasized) Color(0xFF3976D8) else NcColors.lane
@@ -1829,7 +1840,15 @@ private fun QuickActionButton(
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
+            .combinedClickable(
+                enabled = enabled,
+                onClickLabel = label,
+                onLongClickLabel = if (onLongClick != null) "$label：长按" else null,
+                onDoubleClickLabel = if (onDoubleClick != null) "$label：双击" else null,
+                onLongClick = onLongClick,
+                onDoubleClick = onDoubleClick,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(
