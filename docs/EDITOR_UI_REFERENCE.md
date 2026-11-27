@@ -83,3 +83,12 @@ The first-level category list in `mobile/assets/editor.js` is the authoritative 
 The native toolbar now exposes these same 13 first-level categories in that order. Existing native-only controls (such as animation/keyframe, transform parameters, and native effect panels) remain reachable as additional second-level entries rather than being removed when the legacy feature taxonomy is restored.
 
 Second-level commands that already have native callbacks are routed to their native panels/actions. Commands without native host callbacks continue to open the retained WebView editor. This prevents visually available but nonfunctional dead ends while the remaining native adapters are implemented.
+
+
+## Typed native quick-action callback contract
+
+The native editor now exposes `NativeQuickAction` values for the nine non-history shortcut controls: `IMPORT_MEDIA`, `RETURN_HOME`, `STEP_PREVIOUS`, `ADD_MARKER`, `PREVIEW_RENDER`, `KEYFRAMES`, `TOGGLE_GUIDES`, `IMAGES`, and `AI_EDIT`.
+
+`NativeEditorScreen` accepts an optional `onQuickAction` callback. When a host supplies it, each button emits its own semantic action rather than collapsing all buttons into one generic callback. Until a host supplies that callback, the screen retains the complete WebView fallback via `onOpenLegacy`. Undo and redo continue to use their dedicated native callbacks.
+
+This is an interface boundary only: it does not claim that the nine actions already have native engine implementations or that the native screen is runtime-integrated into MainActivity.
