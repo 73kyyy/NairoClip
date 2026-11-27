@@ -68,7 +68,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * First native editor surface for the S5 migration.
@@ -78,6 +81,14 @@ import kotlinx.coroutines.launch
  * S5 interface contract are accepted. Every not-yet-migrated tool can hand the
  * user back to the complete legacy editor through [onOpenLegacy].
  */
+data class NativePreviewCacheUiStats(
+    val frameHits: Long,
+    val frameMisses: Long,
+    val readerOpens: Long,
+    val cachedFrames: Int,
+    val capacity: Int
+)
+
 enum class NativeQuickAction {
     IMPORT_MEDIA,
     RETURN_HOME,
@@ -160,7 +171,10 @@ fun NativeEditorScreen(
     onRemoveSubtitle: ((Long) -> Unit)? = null,
     autoSubtitleState: NativeAutoSubtitleUiState = NativeAutoSubtitleUiState(),
     onStartAutoSubtitle: (() -> Unit)? = null,
-    onCancelAutoSubtitle: (() -> Unit)? = null
+    onCancelAutoSubtitle: (() -> Unit)? = null,
+    onPrewarmPreviewFrame: ((Long, Int) -> Boolean)? = null,
+    onReadPreviewCacheStats: (() -> NativePreviewCacheUiStats?)? = null,
+    previewFrameWidth: Int = 320
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -170,6 +184,12 @@ fun NativeEditorScreen(
     var showGuides by remember(projectName) { mutableStateOf(false) }
     // Keyframe editing is a dedicated quick-action panel, not a fabricated L2 toolbar item.
     var showKeyframePanel by remember(projectName) { mutableStateOf(false) }
+    var prewarmProgress by remember(projectName) { mutableStateOf(0f) }
+    var prewarmRunning by remember(projectName) { mutableStateOf(false) }
+    var prewarmStatus by remember(projectName) { mutableStateOf<String?>(null) }
+    var prewarmStats by remember(projectName) { mutableStateOf<NativePreviewCacheUiStats?>(null) }
+    var prewarmJob by remember(projectName) { mutableStateOf<Job?>(null) }
+    val prewarmScope = rememberCoroutineScope()
     LaunchedEffect(projectName) {
         // Do not carry an expanded tool or parameter context into a different project.
         activeTool = "剪辑"
@@ -226,6 +246,59 @@ fun NativeEditorScreen(
                         }
                         NativeQuickAction.SHOW_MARKER_LIST -> showMarkerList = true
                         NativeQuickAction.TOGGLE_GUIDES -> showGuides = !showGuides
+                        NativeQuickAction.PREVIEW_RENDER -> {
+                            val prewarm = onPrewarmPreviewFrame
+                            if (prewarm == null) {
+                                onQuickAction?.invoke(action) ?: onOpenLegacy()
+                            } else if (prewarmRunning) {
+                                prewarmJob?.cancel()
+                                prewarmJob = null
+                                prewarmRunning = false
+                                prewarmProgress = 0f
+                                prewarmStatus = "已取消预热"
+                            } else {
+                                val spanUs = timelineDurationUs.coerceAtLeast(0L)
+                                if (spanUs <= 0L) {
+                                    prewarmStatus = "时间轴为空，没有可预热的帧"
+                                } else {
+                                    val total = ((spanUs.toDouble() / 1_000_000.0) * 10.0)
+                                        .toLong().coerceIn(1L, 240L).toInt()
+                                    val startUs = playheadUs.coerceAtLeast(0L) % spanUs
+                                    prewarmProgress = 0f
+                                    prewarmStats = null
+                                    prewarmStatus = "正在预热 0/$total 帧"
+                                    prewarmRunning = true
+                                    prewarmJob = prewarmScope.launch {
+                                        var done = 0
+                                        var failed = 0
+                                        try {
+                                            for (index in 0 until total) {
+                                                val offsetUs = (spanUs.toDouble() * index / total).toLong()
+                                                val timeUs = (startUs + offsetUs) % spanUs
+                                                val ok = withContext(Dispatchers.IO) {
+                                                    prewarm(timeUs, previewFrameWidth.coerceIn(16, 2048))
+                                                }
+                                                if (!ok) failed++
+                                                done++
+                                                prewarmProgress = done.toFloat() / total
+                                                prewarmStatus = "正在预热 $done/$total 帧 · 失败 $failed"
+                                            }
+                                            prewarmStats = withContext(Dispatchers.IO) {
+                                                onReadPreviewCacheStats?.invoke()
+                                            }
+                                            prewarmStatus = "预热完成：$done/$total 帧 · 失败 $failed"
+                                        } catch (_: kotlinx.coroutines.CancellationException) {
+                                            prewarmStatus = "已取消预热"
+                                        } catch (error: Throwable) {
+                                            prewarmStatus = "预热失败：${error.message ?: "未知错误"}"
+                                        } finally {
+                                            prewarmRunning = false
+                                            prewarmJob = null
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         NativeQuickAction.KEYFRAMES -> {
                             showKeyframePanel = true
                         }
@@ -233,6 +306,26 @@ fun NativeEditorScreen(
                     }
                 }
             )
+
+            if (prewarmRunning || prewarmStatus != null || prewarmStats != null) {
+                NativePreviewPrewarmPanel(
+                    running = prewarmRunning,
+                    progress = prewarmProgress,
+                    status = prewarmStatus,
+                    stats = prewarmStats,
+                    onCancel = {
+                        prewarmJob?.cancel()
+                        prewarmJob = null
+                        prewarmRunning = false
+                        prewarmProgress = 0f
+                        prewarmStatus = "已取消预热"
+                    },
+                    onDismiss = {
+                        prewarmStatus = null
+                        prewarmStats = null
+                    }
+                )
+            }
 
             if (showMarkerList) {
                 NativeMarkerListPanel(
@@ -1921,6 +2014,34 @@ private fun NativeMarkerListPanel(
         }
     }
 }
+ @Composable
+private fun NativePreviewPrewarmPanel(
+    running: Boolean,
+    progress: Float,
+    status: String?,
+    stats: NativePreviewCacheUiStats?,
+    onCancel: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().background(NcColors.stage).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(status ?: "预览缓存", color = NcColors.text, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            Text(if (running) "取消" else "关闭", color = NcColors.secondary, fontSize = 10.sp,
+                modifier = Modifier.clickable { if (running) onCancel() else onDismiss() }.padding(4.dp))
+        }
+        Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(NcColors.line)) {
+            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp).background(NcColors.secondary))
+        }
+        stats?.let {
+            Text("缓存 ${it.cachedFrames}/${it.capacity} · 命中 ${it.frameHits} · 未命中 ${it.frameMisses} · 解码器打开 ${it.readerOpens}",
+                color = NcColors.muted, fontSize = 9.sp)
+        }
+    }
+}
+
 @Composable
 private fun QuickActionStrip(
     canUndo: Boolean,
