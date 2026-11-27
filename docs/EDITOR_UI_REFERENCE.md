@@ -92,3 +92,10 @@ The native editor now exposes `NativeQuickAction` values for the nine non-histor
 `NativeEditorScreen` accepts an optional `onQuickAction` callback. When a host supplies it, each button emits its own semantic action rather than collapsing all buttons into one generic callback. Until a host supplies that callback, the screen retains the complete WebView fallback via `onOpenLegacy`. Undo and redo continue to use their dedicated native callbacks.
 
 This is an interface boundary only: it does not claim that the nine actions already have native engine implementations or that the native screen is runtime-integrated into MainActivity.
+
+
+## Native toolbar parity correction
+
+The native toolbar's second-level labels and order have been reconciled against the exact `L2` object in `mobile/assets/editor.js`, not a manually expanded list. The native toolbar now uses the repository-defined source labels for all 13 categories. Native-only panel identifiers are internal routing targets only and are not injected as extra legacy-visible actions.
+
+A shadowed transition-routing branch was also removed so the source-defined `转场 → 预设转场` item can reach the native transition panel when its required callbacks are present. Other unavailable callbacks continue to route to the retained legacy editor.
