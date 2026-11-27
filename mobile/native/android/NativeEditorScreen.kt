@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -2108,6 +2109,7 @@ private fun QuickActionStrip(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QuickActionButton(
     symbol: String,
@@ -2131,7 +2133,6 @@ private fun QuickActionButton(
                 enabled = enabled,
                 onClickLabel = label,
                 onLongClickLabel = if (onLongClick != null) "$label：长按" else null,
-                onDoubleClickLabel = if (onDoubleClick != null) "$label：双击" else null,
                 onLongClick = onLongClick,
                 onDoubleClick = onDoubleClick,
                 onClick = onClick
