@@ -103,6 +103,7 @@ fun NativeEditorScreen(
     onPlayheadChanged: (Long) -> Unit,
     onPausePlayback: (() -> Unit)? = null,
     onAddMarker: ((Long) -> Unit)? = null,
+    onRemoveMarker: ((Long) -> Unit)? = null,
     onClipSelected: (Int, Long) -> Unit,
     onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null,
     onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null,
@@ -232,6 +233,7 @@ fun NativeEditorScreen(
                         onPlayheadChanged(marker.timeUs)
                         showMarkerList = false
                     },
+                    onRemove = onRemoveMarker,
                     onDismiss = { showMarkerList = false }
                 )
             }
@@ -1801,6 +1803,7 @@ private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
 private fun NativeMarkerListPanel(
     markers: List<NativeTimelineMarker>,
     onSelect: (NativeTimelineMarker) -> Unit,
+    onRemove: ((Long) -> Unit)?,
     onDismiss: () -> Unit
 ) {
     Column(
@@ -1815,7 +1818,7 @@ private fun NativeMarkerListPanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "标记（\${markers.size}）",
+                text = "标记（${markers.size}）",
                 color = NcColors.text,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
@@ -1862,6 +1865,16 @@ private fun NativeMarkerListPanel(
                             color = NcColors.muted,
                             fontSize = 11.sp
                         )
+                        if (onRemove != null) {
+                            Text(
+                                text = "删除",
+                                color = NcColors.muted,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .clickable { onRemove(marker.id) }
+                                    .padding(start = 10.dp, top = 6.dp, bottom = 6.dp)
+                            )
+                        }
                     }
                 }
             }
