@@ -963,7 +963,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     // 加时间标记 / 改标记颜色（两者都走 nc_add_marker，颜色是参数）
-    if (op == "marker" || op == "marker_color") {
+    if (op == "marker" || op == "marker_color" || op == "nc_add_marker") {
         const char* defColor = (op == "marker_color") ? "#F0A03C" : "#C6F24E";
         const uint64_t mid = nc_add_marker(ed, JInt(a, "time_us", 0),
                                            JStrField(a, "name").empty()
