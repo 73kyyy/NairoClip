@@ -592,12 +592,6 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = "视频特效"
                         }
-                        tool == "转场" && subTool == "预设转场" &&
-                            selectedTarget != null && onAddTransition != null &&
-                            onRemoveTransition != null -> {
-                            activeTool = tool
-                            activeSubTool = "转场"
-                        }
                         tool == "滤镜" && subTool == "滤镜库" &&
                             selectedTarget != null && onClipFilterChanged != null -> {
                             activeTool = "特效"
