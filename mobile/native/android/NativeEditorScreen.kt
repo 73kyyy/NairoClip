@@ -585,6 +585,27 @@ fun NativeEditorScreen(
                             activeTool = tool
                             activeSubTool = "转场"
                         }
+                        tool == "滤镜" && subTool == "滤镜库" &&
+                            selectedTarget != null && onClipFilterChanged != null -> {
+                            activeTool = "特效"
+                            activeSubTool = "滤镜"
+                        }
+                        tool == "滤镜" && subTool == "LUT" &&
+                            selectedTarget != null && onClipLutChanged != null -> {
+                            activeTool = "调节"
+                            activeSubTool = "LUT"
+                        }
+                        tool == "转场" && subTool == "预设转场" &&
+                            selectedTarget != null && onAddTransition != null &&
+                            onRemoveTransition != null -> {
+                            activeTool = "特效"
+                            activeSubTool = "转场"
+                        }
+                        tool == "蒙版" && subTool == "形状" &&
+                            selectedTarget != null && onClipMaskChanged != null -> {
+                            activeTool = "特效"
+                            activeSubTool = "蒙版"
+                        }
                         tool == "文字" && subTool == "自动字幕" -> {
                             activeTool = tool
                             activeSubTool = subTool
