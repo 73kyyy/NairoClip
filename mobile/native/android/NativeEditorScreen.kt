@@ -167,6 +167,7 @@ fun NativeEditorScreen(
     var activeSubTool by remember { mutableStateOf<String?>(null) }
     var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
     var showMarkerList by remember(projectName) { mutableStateOf(false) }
+    var showGuides by remember(projectName) { mutableStateOf(false) }
     LaunchedEffect(projectName) {
         // Do not carry an expanded tool or parameter context into a different project.
         activeTool = "剪辑"
@@ -193,6 +194,7 @@ fun NativeEditorScreen(
 
             PreviewStage(
                 previewView = previewView,
+                showGuides = showGuides,
                 modifier = Modifier.weight(1f).fillMaxWidth()
             )
 
@@ -220,6 +222,12 @@ fun NativeEditorScreen(
                             else onQuickAction?.invoke(action) ?: onOpenLegacy()
                         }
                         NativeQuickAction.SHOW_MARKER_LIST -> showMarkerList = true
+                        NativeQuickAction.TOGGLE_GUIDES -> showGuides = !showGuides
+                        NativeQuickAction.KEYFRAMES -> {
+                            activeTool = "剪辑"
+                            expandedTool = "剪辑"
+                            activeSubTool = "动画"
+                        }
                         else -> onQuickAction?.invoke(action) ?: onOpenLegacy()
                     }
                 }
@@ -281,6 +289,14 @@ fun NativeEditorScreen(
                 timelineTracks.firstOrNull { track ->
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
                 }?.clips?.firstOrNull { it.id == selection.second }
+            }
+            if (activeTool == "剪辑" && activeSubTool == "动画" && selectedTarget == null) {
+                Text(
+                    "先选择一个时间轴片段，再编辑关键帧",
+                    color = NcColors.secondary,
+                    fontSize = 10.sp,
+                    modifier = Modifier.fillMaxWidth().background(NcColors.stage).padding(horizontal = 12.dp, vertical = 8.dp)
+                )
             }
             if (((activeTool == "画中画" && activeSubTool in setOf("位置", "缩放", "旋转", "锚点")) || (activeTool == "剪辑" && activeSubTool == "动画")) && selectedTarget != null) {
                 NativeParameterPanel(
@@ -1758,7 +1774,11 @@ private fun EditorTopBar(projectName: String, onOpenLegacy: () -> Unit) {
 }
 
 @Composable
-private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
+private fun PreviewStage(
+    previewView: View?,
+    showGuides: Boolean,
+    modifier: Modifier = Modifier
+) {
     Box(
         modifier = modifier
             .background(NcColors.stage)
@@ -1792,6 +1812,22 @@ private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("N", color = Color(0xFF777777), fontSize = 34.sp, fontWeight = FontWeight.Light)
                         Text("视频预览", color = NcColors.muted, fontSize = 11.sp)
+                    }
+                }
+                if (showGuides) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val stroke = 1.dp.toPx()
+                        val guide = Color.White.copy(alpha = 0.48f)
+                        val thirdX1 = size.width / 3f
+                        val thirdX2 = size.width * 2f / 3f
+                        val thirdY1 = size.height / 3f
+                        val thirdY2 = size.height * 2f / 3f
+                        drawLine(guide, Offset(thirdX1, 0f), Offset(thirdX1, size.height), stroke)
+                        drawLine(guide, Offset(thirdX2, 0f), Offset(thirdX2, size.height), stroke)
+                        drawLine(guide, Offset(0f, thirdY1), Offset(size.width, thirdY1), stroke)
+                        drawLine(guide, Offset(0f, thirdY2), Offset(size.width, thirdY2), stroke)
+                        drawLine(guide.copy(alpha = 0.28f), Offset(size.width / 2f, 0f), Offset(size.width / 2f, size.height), stroke)
+                        drawLine(guide.copy(alpha = 0.28f), Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), stroke)
                     }
                 }
             }
