@@ -97,9 +97,12 @@ fun NativeEditorScreen(
     previewView: View? = null,
     projectName: String = "未命名工程",
     timelineTracks: List<NativeTimelineTrack> = emptyList(),
+    timelineMarkers: List<NativeTimelineMarker> = emptyList(),
     timelineDurationUs: Long = 30_000_000L,
     playheadUs: Long = 0L,
     onPlayheadChanged: (Long) -> Unit,
+    onPausePlayback: (() -> Unit)? = null,
+    onAddMarker: ((Long) -> Unit)? = null,
     onClipSelected: (Int, Long) -> Unit,
     onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null,
     onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null,
@@ -162,6 +165,7 @@ fun NativeEditorScreen(
     var expandedTool by remember { mutableStateOf<String?>(null) }
     var activeSubTool by remember { mutableStateOf<String?>(null) }
     var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
+    var showMarkerList by remember(projectName) { mutableStateOf(false) }
     LaunchedEffect(projectName) {
         // Do not carry an expanded tool or parameter context into a different project.
         activeTool = "剪辑"
@@ -196,8 +200,41 @@ fun NativeEditorScreen(
                 canRedo = canRedo,
                 onUndo = onUndo,
                 onRedo = onRedo,
-                onQuickAction = { action -> onQuickAction?.invoke(action) ?: onOpenLegacy() }
+                onQuickAction = { action ->
+                    when (action) {
+                        NativeQuickAction.STEP_PREVIOUS -> {
+                            NativeQuickActionGestureContract.previousTimelineAnchor(
+                                timelineTracks, playheadUs
+                            )?.let { targetUs ->
+                                onPausePlayback?.invoke()
+                                onPlayheadChanged(targetUs)
+                            }
+                        }
+                        NativeQuickAction.STEP_PREVIOUS_TO_START -> {
+                            onPausePlayback?.invoke()
+                            onPlayheadChanged(0L)
+                        }
+                        NativeQuickAction.ADD_MARKER -> {
+                            if (onAddMarker != null) onAddMarker(playheadUs)
+                            else onQuickAction?.invoke(action) ?: onOpenLegacy()
+                        }
+                        NativeQuickAction.SHOW_MARKER_LIST -> showMarkerList = true
+                        else -> onQuickAction?.invoke(action) ?: onOpenLegacy()
+                    }
+                }
             )
+
+            if (showMarkerList) {
+                NativeMarkerListPanel(
+                    markers = timelineMarkers,
+                    onSelect = { marker ->
+                        onPausePlayback?.invoke()
+                        onPlayheadChanged(marker.timeUs)
+                        showMarkerList = false
+                    },
+                    onDismiss = { showMarkerList = false }
+                )
+            }
 
             NativeTimelinePanel(
                 tracks = timelineTracks,
@@ -1760,6 +1797,77 @@ private fun PreviewStage(previewView: View?, modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+private fun NativeMarkerListPanel(
+    markers: List<NativeTimelineMarker>,
+    onSelect: (NativeTimelineMarker) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 168.dp)
+            .background(NcColors.stage)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "标记（\${markers.size}）",
+                color = NcColors.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = "关闭",
+                color = NcColors.muted,
+                fontSize = 11.sp,
+                modifier = Modifier.clickable(onClick = onDismiss).padding(6.dp)
+            )
+        }
+        if (markers.isEmpty()) {
+            Text(
+                text = "暂无标记",
+                color = NcColors.muted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                markers.sortedBy { it.timeUs }.forEach { marker ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(marker) }
+                            .padding(vertical = 7.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = marker.name,
+                            color = NcColors.text,
+                            fontSize = 12.sp,
+                            maxLines = 1
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = String.format(Locale.ROOT, "%.2fs", marker.timeUs / 1_000_000.0),
+                            color = NcColors.muted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 @Composable
 private fun QuickActionStrip(
     canUndo: Boolean,
