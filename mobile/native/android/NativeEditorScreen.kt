@@ -193,7 +193,6 @@ fun NativeEditorScreen(
                 canRedo = canRedo,
                 onUndo = onUndo,
                 onRedo = onRedo,
-                onOpenLegacy = onOpenLegacy,
                 onQuickAction = { action -> onQuickAction?.invoke(action) ?: onOpenLegacy() }
             )
 
@@ -1770,13 +1769,11 @@ private fun QuickActionStrip(
     canRedo: Boolean,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
-    onOpenLegacy: () -> Unit,
     onQuickAction: (NativeQuickAction) -> Unit
 ) {
     // Match the reference screenshot: eleven quick actions in their original order.
-    // 30dp is the visual diameter calibrated to the screenshot's AI circle.
-    // Actions not yet exposed through the native host callbacks deliberately route
-    // to the retained WebView editor; they are not presented as native engine commands.
+    // All eleven controls share the same 30dp circular visual component.
+    // The typed callback lets a host implement each action without conflating semantics.
     val actions = listOf(
         Triple("+", "添加素材", NativeQuickAction.IMPORT_MEDIA),
         Triple("⌂", "返回首页", NativeQuickAction.RETURN_HOME),
