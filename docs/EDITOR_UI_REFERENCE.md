@@ -47,3 +47,28 @@ Implementation requirements:
 - [ ] Confirm circles remain circular across supported screen sizes and densities.
 - [ ] Confirm all quick-action controls are wired to the actual repository feature/command, or explicitly marked as not yet implemented.
 - [ ] Confirm no unrelated editor region changed.
+
+
+## Source-verified quick-action semantics
+
+Verified against `mobile/pages/10-editor.html` and the `E.circles` click handler in `mobile/assets/editor.js`:
+
+| Order | Source action | Actual behavior |
+|---:|---|---|
+| 1 | `import` | Open the add-media sheet (video / audio / image) |
+| 2 | `home` | Leave the current project and return to the project list |
+| 3 | `step-prev` | Single tap steps backward by segment; double tap jumps to project start |
+| 4 | `marker` | Add a time marker at the current playhead; long press opens the marker list |
+| 5 | `render` | Toggle preview-cache rendering and show render progress |
+| 6 | `keyframes` | Open the current clip's keyframe sheet |
+| 7 | `guides` | Toggle the preview composition guide lines (thirds grid) |
+| 8 | `images` | Open image/background management |
+| 9 | `ai` | Open the AI editing sheet (AI-assisted editing / “仿剪”) |
+| 10 | `undo` | Invoke engine undo |
+| 11 | `redo` | Invoke engine redo |
+
+The shortcut immediately before the marker is **segment-back navigation**, not a generic jump button. The marker icon is a timeline marker; long-press opens its list. The keyframe icon is distinct from the curve tool in the lower editing toolbar.
+
+## Current native implementation boundary
+
+The native quick-action strip now renders all eleven controls in the verified source order, with a fixed **30dp × 30dp circular visual diameter** for every control (including AI). Undo/redo are wired to native callbacks. The other nine controls currently delegate to the retained WebView editor because the current native screen host does not yet expose their dedicated callbacks/engine adapters. This is an intentional fallback, not a claim that those nine actions are already native.
