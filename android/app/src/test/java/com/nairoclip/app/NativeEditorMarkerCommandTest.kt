@@ -28,4 +28,14 @@ class NativeEditorMarkerCommandTest {
         assertFalse(result.ok)
         assertTrue(result.error?.contains("颜色格式") == true)
     }
+
+    @Test
+    fun rejectsNonPositiveMarkerIdsBeforeBridgeDispatch() {
+        val zero = adapter.removeMarkerAndReadEditorState(0L)
+        val negative = adapter.removeMarkerAndReadEditorState(-1L)
+        assertFalse(zero.ok)
+        assertFalse(negative.ok)
+        assertTrue(zero.error?.contains("ID") == true)
+        assertTrue(negative.error?.contains("ID") == true)
+    }
 }
