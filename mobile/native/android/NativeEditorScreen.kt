@@ -1713,15 +1713,15 @@ private fun QuickActionStrip(
     // Actions not yet exposed through the native host callbacks deliberately route
     // to the retained WebView editor; they are not presented as native engine commands.
     val actions = listOf(
-        Triple("+", "添加素材", false),
-        Triple("⌂", "返回首页", false),
-        Triple("◀|", "向左逐段跳", false),
-        Triple("⚑", "标记点", false),
-        Triple("渲染", "渲染预览缓存", false),
-        Triple("◆", "关键帧", false),
-        Triple("#", "构图参考线", false),
-        Triple("▧", "图片与背景", false),
-        Triple("AI", "AI 仿剪", false)
+        "+" to "添加素材",
+        "⌂" to "返回首页",
+        "◀|" to "向左逐段跳",
+        "⚑" to "标记点",
+        "渲染" to "渲染预览缓存",
+        "◆" to "关键帧",
+        "#" to "构图参考线",
+        "▧" to "图片与背景",
+        "AI" to "AI 仿剪"
     )
     Row(
         modifier = Modifier
@@ -1779,7 +1779,7 @@ private fun QuickActionButton(
                 if (emphasized) Color(0xFF6595E8) else NcColors.line,
                 CircleShape
             )
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
