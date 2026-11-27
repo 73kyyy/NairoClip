@@ -72,3 +72,14 @@ The shortcut immediately before the marker is **segment-back navigation**, not a
 ## Current native implementation boundary
 
 The native quick-action strip now renders all eleven controls in the verified source order, with a fixed **30dp × 30dp circular visual diameter** for every control (including AI). Undo/redo are wired to native callbacks. The other nine controls currently delegate to the retained WebView editor because the current native screen host does not yet expose their dedicated callbacks/engine adapters. This is an intentional fallback, not a claim that those nine actions are already native.
+
+
+## Bottom toolbar source inventory
+
+The first-level category list in `mobile/assets/editor.js` is the authoritative 13-category inventory:
+
+`剪辑、模板、音频、文字、画中画、特效、转场、滤镜、调节、比例、背景、蒙版、更多`.
+
+The native toolbar now exposes these same 13 first-level categories in that order. Existing native-only controls (such as animation/keyframe, transform parameters, and native effect panels) remain reachable as additional second-level entries rather than being removed when the legacy feature taxonomy is restored.
+
+Second-level commands that already have native callbacks are routed to their native panels/actions. Commands without native host callbacks continue to open the retained WebView editor. This prevents visually available but nonfunctional dead ends while the remaining native adapters are implemented.
