@@ -377,7 +377,10 @@ fun NativeEditorScreen(
                 onTrackVisibilityChanged = onTrackVisibilityChanged,
                 onTrackMuteChanged = onTrackMuteChanged,
                 onTrackLockChanged = onTrackLockChanged,
-                onPlayFromStart = onPlayFromStart,
+                onPlayFromStart = onPlayFromStart ?: {
+                    onPlayheadChanged(0L)
+                    onTogglePlayback?.invoke()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP.dp)
