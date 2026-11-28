@@ -326,9 +326,9 @@ class MainActivity : AppCompatActivity() {
         val activeEngine = engine ?: return
         val project = runCatching {
             val envelope = org.json.JSONObject(activeEngine.state())
-            // nativeState() returns the raw BuildState object
-            // { project:{...}, tracks:[...], ... }. Only Kotlin-side bridge
-            // exceptions are wrapped by err() as { ok:false, message:"..." }.
+            // The C ABI returns {ok:true,result:{project,tracks,...}}.
+            // Keep the raw-state fallback for older bridge builds, but reject
+            // an explicit error envelope instead of mounting an empty editor.
             if (!envelope.optBoolean("ok", true)) {
                 throw IllegalStateException(
                     envelope.optString("message").ifBlank { "引擎状态读取失败" }
