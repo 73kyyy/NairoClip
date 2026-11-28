@@ -237,7 +237,12 @@ fun NativeEditorScreen(
                 !track.locked &&
                 track.clips.any { it.id == selection.second && it.enabled }
         }
-        if (!stillExists) selectedClip = null
+        if (!stillExists) {
+            selectedClip = null
+            // Keep the host/controller selection in sync when a track becomes
+            // hidden, locked, or the selected clip is removed/disabled.
+            onClipSelectionCleared?.invoke()
+        }
     }
 
     MaterialTheme {
