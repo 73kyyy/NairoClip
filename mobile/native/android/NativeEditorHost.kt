@@ -56,7 +56,11 @@ fun NativeEditorHost(
             }
         }
     }
-    val resolvedAutoSubtitleState = autoSubtitleState ?: localAutoSubtitleState
+    val resolvedAutoSubtitleState = if (autoSubtitleCoordinator != null) {
+        localAutoSubtitleState
+    } else {
+        autoSubtitleState ?: localAutoSubtitleState
+    }
     val previewView = remember(context) { PreviewSurfaceView(context) }
     val previewController = remember(previewView) {
         NativePreviewSurfaceController(previewView)
