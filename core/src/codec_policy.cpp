@@ -294,8 +294,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
         Scored scored{selection, preferenceRank(nameLower, isHw)};
         if (cls == EncoderLicenseClass::Hardware) {
             hardware.push_back(std::move(scored));
-        } else if (cls == EncoderLicenseClass::Permissive) {
-            permissive.push_back(std::move(scored));
         }
     }
     const auto byRank = [](const Scored& a, const Scored& b) {
@@ -311,9 +309,6 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
             result.push_back(std::move(s.selection));
         }
     }
-    for (auto& s : permissive) {
-        result.push_back(std::move(s.selection));
-    }
     return result;
 }
 
@@ -322,8 +317,9 @@ bool encoderAllowed(const std::string& encoderName, const EncoderPolicy& policy)
     const EncoderLicenseClass cls = classifyEncoderLicense(encoderName);
     switch (cls) {
         case EncoderLicenseClass::Hardware:
-        case EncoderLicenseClass::Permissive:
             return true;
+        case EncoderLicenseClass::Permissive:
+            return false;  // 应用自带的软件编码器全平台禁用；只能走平台系统媒体 API。
         case EncoderLicenseClass::GplInfectious:
             return false;  // GPL 编码器在开发与发布构建中均禁止。
         case EncoderLicenseClass::SoftwareH264:
@@ -343,8 +339,8 @@ const char* codecComplianceStatement() {
            "软件 H.264 实现（libx264 / OpenH264 / FFmpeg 内置）一律禁用 —— "
            "AVC 专利费由芯片厂商在 SoC 授权中支付，本应用只调用系统 API；"
            "H.265/HEVC 全线禁用（专利池复杂）；"
-           "AV1/VP9/Opus/AAC 采用 BSD / royalty-free 实现；"
-           "FFmpeg 核心库动态链接（LGPL 2.1+），许可清单见「关于-开源软件许可」";
+           "AV1/VP9/Opus/AAC 不允许应用自带软件编码实现，必须走平台系统媒体 API；"
+           "系统无兼容实现时 fail-closed；容器读写与必要格式转换可保留独立实现。";
 }
 
 }  // namespace core
