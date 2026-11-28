@@ -53,7 +53,8 @@ std::vector<EncoderCandidate> availableEncodersFor(AVCodecID codecId,
 AVCodecID ffmpegCodecIdFor(const std::string& codec) {
     if (codec == "av1") return AV_CODEC_ID_AV1;
     if (codec == "vp9") return AV_CODEC_ID_VP9;
-    return AV_CODEC_ID_H264;
+    if (codec == "h264") return AV_CODEC_ID_H264;
+    return AV_CODEC_ID_NONE;
 }
 
 /// 按合规策略打开视频编码器：
