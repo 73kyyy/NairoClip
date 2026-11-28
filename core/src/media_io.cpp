@@ -1,5 +1,6 @@
 #include "nairoclip/core/media_io.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
