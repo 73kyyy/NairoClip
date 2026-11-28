@@ -72,7 +72,7 @@ inline bool kBuildAllowsGplForDevelopmentFn() { return false; }
 /// 代价：设备无硬件编码器时 **fail-closed 拒绝导出**（而不是偷偷用软件实现）。
 /// 现实中 Android 5.0+ / iOS 全版本都有 H.264 硬件编码，影响面极小。
 enum class EncoderLicenseClass {
-    Hardware = 0,      ///< 系统硬件编码器（唯一允许的 H.264 路径）
+    Hardware = 0,      ///< 系统媒体后端（运行时另行确认硬件加速能力）
     Permissive = 1,    ///< 已识别的软件实现（仅用于诊断；系统-only 策略下拒绝）
     GplInfectious = 2, ///< GPL 传染（libx264/libx265 等）——禁止商用发布
     SoftwareH264 = 3,  ///< **软件 H.264 编码器**：需自付专利费，一律禁用
