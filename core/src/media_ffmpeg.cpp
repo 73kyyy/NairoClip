@@ -308,7 +308,23 @@ Result FFmpegMediaReader::open(const std::string& path) {
            （不跟渲染线程抢核）。 */
         const AVCodec* codec = nullptr;
         const bool isH264 = (stream->codecpar->codec_id == AV_CODEC_ID_H264);
-        if (isH264) {
+        bool useHardwareDecoder = isH264;
+        std::vector<const char*> decoderCandidates;
+#if defined(__ANDROID__)
+        // Android 不允许进入 FFmpeg 原生软件解码器：只枚举系统 MediaCodec wrapper。
+        switch (stream->codecpar->codec_id) {
+            case AV_CODEC_ID_H264: decoderCandidates.push_back("h264_mediacodec"); break;
+            case AV_CODEC_ID_HEVC: decoderCandidates.push_back("hevc_mediacodec"); break;
+            case AV_CODEC_ID_MPEG2VIDEO: decoderCandidates.push_back("mpeg2_mediacodec"); break;
+            case AV_CODEC_ID_MPEG4: decoderCandidates.push_back("mpeg4_mediacodec"); break;
+            case AV_CODEC_ID_VP8: decoderCandidates.push_back("vp8_mediacodec"); break;
+            case AV_CODEC_ID_VP9: decoderCandidates.push_back("vp9_mediacodec"); break;
+            case AV_CODEC_ID_AV1: decoderCandidates.push_back("av1_mediacodec"); break;
+            default: break;
+        }
+        useHardwareDecoder = !decoderCandidates.empty();
+#endif
+        if (useHardwareDecoder) {
             /* 先构造候选名序列，**逐个真正尝试 open**。
                ------------------------------------------------------------------
                **为什么要真试**：`avcodec_find_decoder_by_name("h264_cuvid")`
@@ -319,9 +335,8 @@ Result FFmpegMediaReader::open(const std::string& path) {
                看起来像「设备没有解码器」，实际是**选错了候选**。
                实测踩过：本机选了 h264_cuvid，报
                "视频解码器打开失败: Operation not permitted"。 */
-            std::vector<const char*> decoderCandidates;
 #if defined(__ANDROID__)
-            decoderCandidates.push_back("h264_mediacodec");
+            // Android candidates were selected by codec ID above; never use software fallback.
 #elif defined(__APPLE__)
             decoderCandidates.push_back("h264_videotoolbox");
 #else
@@ -409,7 +424,7 @@ Result FFmpegMediaReader::open(const std::string& path) {
         /* H.264 分支在上面已经 open 成功（context 也已就绪），
            不能再走一遍下面的 alloc/open —— 会泄漏 context 并重复打开。
            所以下面这一段只在「非 H.264」时执行。 */
-        if (!isH264) {
+        if (!useHardwareDecoder) {
         if (impl.videoCodec == nullptr) {
             close();
             return Result::fail(ErrorCode::Internal, "视频解码器上下文分配失败");
@@ -441,7 +456,7 @@ Result FFmpegMediaReader::open(const std::string& path) {
             return Result::fail(ErrorCode::Unsupported,
                                 "视频解码器打开失败: " + avErrorString(err));
         }
-        }  // if (!isH264) —— H.264 已在候选循环里 open 完毕
+        }  // if (!useHardwareDecoder) —— 系统硬件解码分支已在候选循环里 open 完毕
         impl.probe.type = impl.audioStream >= 0 ? MediaType::Video : MediaType::Video;
         /* 读容器旋转角。手机竖拍的 MP4 编码尺寸是 1920x1080（横向），
            真正的朝向写在 display matrix 侧数据里。解码器不会自动应用 ——
@@ -464,7 +479,25 @@ Result FFmpegMediaReader::open(const std::string& path) {
     // 打开音频解码器（可选路径：任何一步失败都只是「没有音频」，不致命）
     if (impl.audioStream >= 0) {
         AVStream* stream = impl.format->streams[impl.audioStream];
-        const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
+        const AVCodec* codec = nullptr;
+#if defined(__ANDROID__)
+        // Android 音频压缩流只允许系统 MediaCodec 解码器。
+        switch (stream->codecpar->codec_id) {
+            case AV_CODEC_ID_AAC: codec = avcodec_find_decoder_by_name("aac_mediacodec"); break;
+            case AV_CODEC_ID_MP3: codec = avcodec_find_decoder_by_name("mp3_mediacodec"); break;
+            case AV_CODEC_ID_AMR_NB: codec = avcodec_find_decoder_by_name("amrnb_mediacodec"); break;
+            case AV_CODEC_ID_AMR_WB: codec = avcodec_find_decoder_by_name("amrwb_mediacodec"); break;
+            default: break;
+        }
+        if (codec == nullptr) {
+            close();
+            return Result::fail(
+                ErrorCode::Unsupported,
+                "Android 系统 MediaCodec 不支持该音频格式；本应用不包含软件音频解码器。");
+        }
+#else
+        codec = avcodec_find_decoder(stream->codecpar->codec_id);
+#endif
         if (codec != nullptr) {
             impl.audioCodec = avcodec_alloc_context3(codec);
             // 返回值必须逐个检查：失败后继续用 nullptr context 是
