@@ -36,4 +36,15 @@ class NativeEditorToolbarSpecTest {
         assertEquals(expected, actual)
         assertTrue(NativeEditorToolbarSpec.categories.all { it.subTools.isNotEmpty() })
     }
+
+    @Test
+    fun firstLevelIconsMatchTheRepositoryIconSprite() {
+        assertEquals(
+            listOf(
+                "i-clip", "i-auto", "i-audio", "i-text", "i-pip", "i-fx", "i-trans",
+                "i-filter", "i-adjust", "i-ratio", "i-bg", "i-mask", "i-ai"
+            ),
+            NativeEditorToolbarSpec.categories.map { it.iconId }
+        )
+    }
 }
