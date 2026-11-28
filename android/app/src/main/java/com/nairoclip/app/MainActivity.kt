@@ -1,6 +1,7 @@
 package com.nairoclip.app
 
 import android.os.Bundle
+import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
@@ -306,6 +307,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Re-check read access at the point a native feature consumes a saved asset.
+     * A syntactically valid content:// string is not proof that Android still
+     * holds its URI grant after process recreation or draft restoration.
+     */
+    private fun resolveNativeEditorAssetUri(
+        assetUris: Map<Long, String>,
+        assetId: Long
+    ): Uri? {
+        val raw = assetUris[assetId] ?: return null
+        val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        return when {
+            uri.scheme.equals("content", ignoreCase = true) -> runCatching {
+                val descriptor = contentResolver.openFileDescriptor(uri, "r") ?: return null
+                descriptor.use { }
+                uri
+            }.getOrNull()
+            uri.scheme.equals("file", ignoreCase = true) -> runCatching {
+                val path = uri.path ?: return null
+                java.io.File(path).takeIf { it.isFile && it.canRead() }?.let { uri }
+            }.getOrNull()
+            else -> null
+        }
+    }
+
+    /**
      * Internal S5 pilot only. The WebView remains attached and alive underneath
      * the Compose overlay, so returning to legacy editing restores the exact
      * current page and engine instance instead of rebuilding project state.
@@ -352,7 +378,7 @@ class MainActivity : AppCompatActivity() {
                         onOpenLegacy = { closeNativeEditor() },
                         suppliedPreviewView = previewSurface,
                         resolveAssetUri = { assetId ->
-                            assetUris[assetId]?.let(android.net.Uri::parse)
+                            resolveNativeEditorAssetUri(assetUris, assetId)
                         }
                     )
                 }
