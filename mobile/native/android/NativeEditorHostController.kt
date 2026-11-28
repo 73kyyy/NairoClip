@@ -486,16 +486,6 @@ class NativeEditorHostController(
         }
     }
 
- catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (failure: Exception) {
-        NativeEditorCommandAdapter.Result(
-            ok = false,
-            error = failure.message?.takeIf { it.isNotBlank() }
-                ?: "原生编辑操作异常：" + failure.javaClass.simpleName
-        )
-    }
-
     private fun dispatch(event: NativeEditorHostEvent) {
         mutableState.value = NativeEditorHostReducer.reduce(mutableState.value, event)
     }
