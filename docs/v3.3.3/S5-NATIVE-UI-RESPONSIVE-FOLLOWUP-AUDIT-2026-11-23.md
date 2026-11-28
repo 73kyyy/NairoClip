@@ -127,3 +127,14 @@ Evidence: `NativePreviewSurfaceController.kt` and editor preview host usage.
 ## Gate status
 
 This audit does not change S1-3, S3-1, A-5, A-6, A-12, S1-8D, or any other registered approval/dependency gate. It does not authorize MainActivity/Manifest entrypoint changes or WebView removal. S5 runtime integration remains subject to its existing prerequisites and approvals.
+
+## 2026-11-28 implementation follow-up — compact-height editor policy
+
+The P0 vertical-space finding now has an initial source implementation:
+
+- Added `NativeEditorResponsiveSpec` with compact/medium/regular height classes. The reference-height class retains the established 282dp timeline; shorter windows progressively reduce timeline height and reserve a bounded viewport for parameter content.
+- `NativeEditorScreen` now reads the available `BoxWithConstraints.maxHeight`, applies a minimum preview height, and sizes the timeline from the responsive metrics.
+- Selected-clip controls, keyframe/transform panels, marker list and preview-prewarm status now share a bounded vertically scrollable region. The transport row and bottom tool strip remain outside that scroll region so they remain reachable.
+- Added JVM tests for compact/medium/regular breakpoints and non-finite height fallback.
+
+**Remaining gaps:** this is a first height-class policy, not full responsive acceptance. Timeline Canvas typography is still density-scaled rather than font-scale-aware; home quick-action reflow, IME/bring-into-view, insets, subtitle-panel compact behavior, split-screen/foldable and landscape screenshot tests, and physical-device validation remain open. The new source/tests have no associated GitHub Actions run yet, so no build/test pass is claimed.
