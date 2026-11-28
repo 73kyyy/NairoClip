@@ -1,5 +1,6 @@
 package com.nairoclip.app
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +32,7 @@ class NativeEditorHostController(
     fun refresh(): Job = scope.launch {
         operationMutex.withLock {
             dispatch(NativeEditorHostEvent.RefreshStarted)
-            val result = withContext(ioDispatcher) { adapter.editorStateSnapshot() }
+            val result = withContext(ioDispatcher) { executeSafely { adapter.editorStateSnapshot() } }
             val snapshot = result.value
             if (result.ok && snapshot != null) {
                 dispatch(NativeEditorHostEvent.SnapshotLoaded(snapshot))
@@ -330,7 +331,7 @@ class NativeEditorHostController(
     ): Job = scope.launch {
         operationMutex.withLock {
             dispatch(NativeEditorHostEvent.RefreshStarted)
-            val result = withContext(ioDispatcher) { operation() }
+            val result = withContext(ioDispatcher) { executeSafely(operation) }
             val snapshot = result.value
             if (result.ok && snapshot != null) {
                 mutableState.value = mutableState.value.copy(
@@ -422,6 +423,26 @@ class NativeEditorHostController(
                 )
             }
         }
+    }
+
+    /**
+     * JNI/bridge adapters normally return a typed failure, but platform and
+     * native-boundary exceptions can still escape. Convert ordinary failures
+     * into the same state error path so the host never remains stuck in
+     * isRefreshing=true. Coroutine cancellation must remain cooperative.
+     */
+    private fun <T> executeSafely(
+        operation: () -> NativeEditorCommandAdapter.Result<T>
+    ): NativeEditorCommandAdapter.Result<T> = try {
+        operation()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        NativeEditorCommandAdapter.Result(
+            ok = false,
+            error = failure.message?.takeIf { it.isNotBlank() }
+                ?: "原生编辑操作异常：" + failure.javaClass.simpleName
+        )
     }
 
     private fun dispatch(event: NativeEditorHostEvent) {
