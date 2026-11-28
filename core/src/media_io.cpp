@@ -68,12 +68,19 @@ Result WavPcmReader::open(const std::string& path) {
     fileEnd = static_cast<std::uint64_t>(endPos);
     st.file.seekg(12, std::ios::beg);
 
-    while (st.file && static_cast<std::uint64_t>(st.file.tellg()) + 8U <= fileEnd) {
+    while (st.file) {
+        const auto chunkPos = st.file.tellg();
+        if (chunkPos < 0 || static_cast<std::uint64_t>(chunkPos) + 8U > fileEnd) break;
         std::uint8_t chunk[8]{};
         st.file.read(reinterpret_cast<char*>(chunk), sizeof(chunk));
         if (st.file.gcount() != static_cast<std::streamsize>(sizeof(chunk))) break;
         const std::uint32_t chunkSize = readLe32(chunk + 4);
-        const std::uint64_t chunkStart = static_cast<std::uint64_t>(st.file.tellg());
+        const auto payloadPos = st.file.tellg();
+        if (payloadPos < 0) {
+            close();
+            return Result::fail(ErrorCode::Unsupported, "WAV chunk 位置无效");
+        }
+        const std::uint64_t chunkStart = static_cast<std::uint64_t>(payloadPos);
         if (chunkStart > fileEnd || chunkSize > fileEnd - chunkStart) {
             close();
             return Result::fail(ErrorCode::Unsupported, "WAV chunk 超出文件边界");
