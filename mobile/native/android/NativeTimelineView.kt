@@ -105,22 +105,11 @@ class NativeTimelineView(context: Context) : View(context) {
     // API 31+ applies a real Gaussian blur to a clipped copy of the track
     // content. The alpha mask below fades that blurred copy from left to right,
     // leaving the fixed eye/speaker/lock glyphs sharp when they are redrawn.
-    // RenderEffect is attached to RenderNode, not Paint. Reuse one display-list
-    // node per View and re-record only the narrow control-edge region per row.
-    private val trackControlBlurNode: RenderNode? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            RenderNode("nairoclip-track-control-feather").apply {
-                setRenderEffect(
-                    RenderEffect.createBlurEffect(
-                        NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
-                        NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
-                        Shader.TileMode.CLAMP
-                    )
-                )
-            }
-        } else {
-            null
-        }
+    // RenderEffect is attached to RenderNode, not Paint. Keep one display-list
+    // node per track: a parent hardware display list can retain child-node
+    // references until playback, so re-recording one shared node for each row
+    // would make earlier rows observe the final row's contents and position.
+    private val trackControlBlurNodes = mutableMapOf<Long, RenderNode>()
     private val trackControlFeatherMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
         // Horizontal shader is invariant across rows; cache it instead of
@@ -275,6 +264,9 @@ class NativeTimelineView(context: Context) : View(context) {
             val detachedTracks = newTracks.map { it.copy(clips = it.clips.toList()) }
             sourceTracksSnapshot = detachedTracks
             tracks = detachedTracks
+            // Drop display lists for removed tracks so project switches and
+            // track deletion do not retain stale RenderNodes indefinitely.
+            trackControlBlurNodes.keys.retainAll(detachedTracks.map { it.id }.toSet())
             tracksChanged = true
             if (selectedClip != null && tracks.none { track ->
                     track.id == selectedClip!!.first &&
@@ -527,7 +519,7 @@ class NativeTimelineView(context: Context) : View(context) {
             if (featherRight > 0f) {
                 val featherBounds = RectF(0f, top, featherRight, bottom)
                 canvas.saveLayer(featherBounds, null)
-                val blurNode = trackControlBlurNode
+                val blurNode = trackControlBlurNode(track.id)
                 if (blurNode != null) {
                     val nodeLeft = 0
                     val nodeTop = kotlin.math.floor(top.toDouble()).toInt()
@@ -613,6 +605,21 @@ class NativeTimelineView(context: Context) : View(context) {
                     clipTextPaint
                 )
                 canvas.restore()
+            }
+        }
+    }
+
+    private fun trackControlBlurNode(trackId: Long): RenderNode? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        return trackControlBlurNodes.getOrPut(trackId) {
+            RenderNode("nairoclip-track-control-feather-$trackId").apply {
+                setRenderEffect(
+                    RenderEffect.createBlurEffect(
+                        NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
+                        NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
+                        Shader.TileMode.CLAMP
+                    )
+                )
             }
         }
     }
