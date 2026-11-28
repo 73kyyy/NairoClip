@@ -379,7 +379,7 @@ fun NativeEditorScreen(
                 onTrackLockChanged = onTrackLockChanged,
                 onPlayFromStart = onPlayFromStart ?: {
                     onPlayheadChanged(0L)
-                    onTogglePlayback?.invoke()
+                    if (!isPlaying) onTogglePlayback?.invoke()
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1902,7 +1902,7 @@ private fun EditorTopBar(
             Image(
                 painter = painterResource(R.drawable.ic_editor_share),
                 contentDescription = "分享",
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(18.dp),
                 colorFilter = ColorFilter.tint(NcColors.text)
             )
         }
@@ -1916,7 +1916,7 @@ private fun EditorTopBar(
                 .clip(RoundedCornerShape(20.dp))
                 .border(1.dp, NcColors.text, RoundedCornerShape(20.dp))
                 .clickable(onClick = onExport)
-                .padding(horizontal = 20.dp, vertical = 7.dp)
+                .padding(horizontal = 24.dp, vertical = 8.dp)
         )
     }
 }
