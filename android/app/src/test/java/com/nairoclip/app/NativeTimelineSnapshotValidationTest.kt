@@ -162,4 +162,52 @@ class NativeTimelineSnapshotValidationTest {
         )
     }
 
+
+    @Test
+    fun activityEntryRequiresSuccessfulEnvelopeAndProjectObject() {
+        assertNull(NativeEditorProjectSnapshot.resolveProjectName("{}", "页面工程"))
+        assertNull(
+            NativeEditorProjectSnapshot.resolveProjectName(
+                """{"ok":false,"message":"engine not ready","result":{}}""",
+                "页面工程"
+            )
+        )
+        assertNull(
+            NativeEditorProjectSnapshot.resolveProjectName(
+                """{"ok":true,"result":{"tracks":[]}}""",
+                "页面工程"
+            )
+        )
+    }
+
+    @Test
+    fun activityEntryUsesEngineProjectNameBeforeJavascriptFallback() {
+        assertEquals(
+            "引擎工程",
+            NativeEditorProjectSnapshot.resolveProjectName(
+                """{"ok":true,"result":{"project":{"name":"引擎工程"}}}""",
+                "错误的页面工程名"
+            )
+        )
+    }
+
+    @Test
+    fun activityEntryUsesFallbackOnlyWhenSnapshotHasNoProjectName() {
+        assertEquals(
+            "页面工程",
+            NativeEditorProjectSnapshot.resolveProjectName(
+                """{"ok":true,"result":{"project":{"name":""}}}""",
+                " 页面工程 "
+            )
+        )
+        assertEquals(
+            "未命名工程",
+            NativeEditorProjectSnapshot.resolveProjectName(
+                """{"ok":true,"result":{"project":{}}}""",
+                null
+            )
+        )
+    }
+
+
 }
