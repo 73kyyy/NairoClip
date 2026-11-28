@@ -161,6 +161,13 @@ fun NativeEditorHost(
             }
             transitionTypes = types
         }
+        val baseSpecs = linkedMapOf<Int, NativeEditorCommandAdapter.EffectSpec>()
+        for (effectType in 0..13) {
+            val result = withContext(Dispatchers.IO) { adapter.readEffectSpec(effectType) }
+            val spec = result.value
+            if (result.ok && spec != null) baseSpecs[effectType] = spec
+        }
+        clipEffectSpecs = baseSpecs
     }
 
     LaunchedEffect(state.timeline, state.history, keyframeRevision) {
@@ -168,7 +175,7 @@ fun NativeEditorHost(
         subtitleCues = if (result.ok) result.value.orEmpty() else emptyList()
     }
 
-    LaunchedEffect(state.selectedClip, state.timeline, state.history, keyframeRevision) {
+    LaunchedEffect(state.selectedClip, state.timeline, state.history, keyframeRevision, clipEffectSpecs) {
         val target = state.selectedClip
         if (target == null) {
             transform = NativeTransform()
@@ -181,7 +188,6 @@ fun NativeEditorHost(
             clipLut = null
             clipColorGrade = null
             clipMask = null
-            clipEffectSpecs = emptyMap()
             clipTransitions = emptyList()
         } else {
             transform = NativeTransform()
@@ -194,18 +200,23 @@ fun NativeEditorHost(
             clipLut = null
             clipColorGrade = null
             clipMask = null
-            clipEffectSpecs = emptyMap()
             val selectedClipForEffects = state.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
                 (item.engineIndex.takeIf { it >= 0 } ?: index) == target.trackIndex
             }?.value?.clips?.firstOrNull { it.id == target.clipId }
-            val effectTypes = (0..13).toSet() + selectedClipForEffects?.effects?.map { it.type }?.toSet().orEmpty()
-            val loadedEffectSpecs = linkedMapOf<Int, NativeEditorCommandAdapter.EffectSpec>()
-            effectTypes.sorted().forEach { effectType ->
-                val specResult = withContext(Dispatchers.IO) { adapter.readEffectSpec(effectType) }
-                val spec = specResult.value
-                if (specResult.ok && spec != null) loadedEffectSpecs[effectType] = spec
+            val missingEffectTypes = selectedClipForEffects?.effects
+                ?.map { it.type }
+                ?.distinct()
+                ?.filterNot { it in clipEffectSpecs }
+                .orEmpty()
+            if (missingEffectTypes.isNotEmpty()) {
+                val loadedEffectSpecs = clipEffectSpecs.toMutableMap()
+                missingEffectTypes.forEach { effectType ->
+                    val specResult = withContext(Dispatchers.IO) { adapter.readEffectSpec(effectType) }
+                    val spec = specResult.value
+                    if (specResult.ok && spec != null) loadedEffectSpecs[effectType] = spec
+                }
+                clipEffectSpecs = loadedEffectSpecs
             }
-            clipEffectSpecs = loadedEffectSpecs
             val transitionsResult = withContext(Dispatchers.IO) {
                 adapter.readTransitions(target.trackIndex)
             }
