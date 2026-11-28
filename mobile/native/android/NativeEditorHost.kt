@@ -8,13 +8,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -24,8 +22,9 @@ import kotlinx.coroutines.withContext
  * the separate runtime-entry acceptance gate is approved.
  *
  * The host connects the Compose editor to engine-backed timeline/history
- * commands and the existing Surface preview controller. Unsupported actions
- * continue through the explicit legacy callback rather than becoming no-ops.
+ * commands and the existing Surface preview controller. It renders native
+ * scrub frames; full A/V playback, export and unsupported actions continue
+ * through the explicit legacy callback until their system pipelines are wired.
  */
 @Composable
 fun NativeEditorHost(
@@ -46,8 +45,7 @@ fun NativeEditorHost(
         NativePreviewSurfaceController(previewView)
     }
 
-    var isPlaying by remember { mutableStateOf(false) }
-    var playbackJob by remember { mutableStateOf<Job?>(null) }
+    val latestPlayheadUs by rememberUpdatedState(state.playheadUs)
     var transform by remember { mutableStateOf(NativeTransform()) }
     var anchor by remember { mutableStateOf(NativeTransformRange.ANCHOR_CENTER) }
     var keyframes by remember {
@@ -55,43 +53,7 @@ fun NativeEditorHost(
     }
     var keyframeRevision by remember { mutableStateOf(0) }
 
-    fun stopPlayback() {
-        playbackJob?.cancel()
-        playbackJob = null
-        isPlaying = false
-    }
-
-    fun startPlayback(fromTimeUs: Long) {
-        playbackJob?.cancel()
-        val durationUs = state.timeline?.durationUs ?: 30_000_000L
-        if (durationUs <= 0L) {
-            isPlaying = false
-            playbackJob = null
-            return
-        }
-        val startUs = fromTimeUs.coerceIn(0L, durationUs)
-        controller.setPlayhead(startUs)
-        previewController.requestRenderFrame(startUs)
-        isPlaying = true
-        playbackJob = scope.launch {
-            val startedAtNanos = System.nanoTime()
-            while (isActive) {
-                val elapsedUs = (System.nanoTime() - startedAtNanos) / 1_000L
-                val frameTimeUs = (startUs + elapsedUs).coerceAtMost(durationUs)
-                controller.setPlayhead(frameTimeUs)
-                previewController.requestRenderFrame(frameTimeUs)
-                if (frameTimeUs >= durationUs) {
-                    isPlaying = false
-                    playbackJob = null
-                    break
-                }
-                delay(33L)
-            }
-        }
-    }
-
     fun seekTo(timeUs: Long) {
-        stopPlayback()
         controller.setPlayhead(timeUs)
         previewController.requestRenderFrame(timeUs.coerceAtLeast(0L))
     }
@@ -132,8 +94,11 @@ fun NativeEditorHost(
     }
 
     DisposableEffect(previewController) {
+        previewController.onSurfaceAttached = {
+            previewController.requestRenderFrame(latestPlayheadUs)
+        }
         onDispose {
-            playbackJob?.cancel()
+            previewController.onSurfaceAttached = null
             previewController.dispose()
         }
     }
@@ -147,7 +112,6 @@ fun NativeEditorHost(
         timelineDurationUs = state.timeline?.durationUs ?: 30_000_000L,
         playheadUs = state.playheadUs,
         onPlayheadChanged = ::seekTo,
-        onPausePlayback = ::stopPlayback,
         onAddMarker = { timeUs -> controller.addMarker(timeUs) },
         onRemoveMarker = { markerId -> controller.removeMarker(markerId) },
         onClipSelected = controller::selectClip,
@@ -257,16 +221,6 @@ fun NativeEditorHost(
         },
         onShareProject = onOpenLegacy,
         onExportProject = onOpenLegacy,
-        onExpandPreview = onOpenLegacy,
-        isPlaying = isPlaying,
-        onTogglePlayback = {
-            if (isPlaying) stopPlayback()
-            else {
-                val durationUs = state.timeline?.durationUs ?: 30_000_000L
-                val startUs = if (state.playheadUs >= durationUs) 0L else state.playheadUs
-                startPlayback(startUs)
-            }
-        },
-        onPlayFromStart = { startPlayback(0L) }
+        onExpandPreview = onOpenLegacy
     )
 }
