@@ -20,10 +20,9 @@ import kotlin.math.min
  * Dedicated Android View for the editor timeline.
  *
  * The timeline is intentionally not composed from hundreds of small Compose
- * nodes. It draws the ruler, track lanes, clips and playhead in one Canvas pass,
- * and owns horizontal pan / pinch zoom at the View level. The first shell uses
- * empty tracks; real project snapshots and edit commands are connected in the
- * following S5 slices after the shared timeline contract is frozen.
+ * nodes. It draws the adaptive ruler, centered time origin, track lanes, clips,
+ * floating track controls and playhead in one Canvas pass. Engine snapshots
+ * remain authoritative; gestures emit commands through the callbacks below.
  */
 data class NativeClipEffect(
     val id: Long,
