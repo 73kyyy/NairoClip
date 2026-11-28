@@ -175,6 +175,8 @@ struct FFmpegMediaReader::Impl {
     SwrContext* swr = nullptr;
     AVFrame* frame = nullptr;
     AVPacket* packet = nullptr;
+    WavPcmReader pcmWav;
+    bool usePcmWav = false;
     int videoStream = -1;
     int audioStream = -1;
     MediaProbeResult probe;
@@ -216,6 +218,8 @@ struct FFmpegMediaReader::Impl {
     bool audioEof = false;
 
     void reset() {
+        pcmWav.close();
+        usePcmWav = false;
         if (format != nullptr) {
             avformat_close_input(&format);
         }
@@ -241,6 +245,7 @@ struct FFmpegMediaReader::Impl {
         videoStream = -1;
         audioStream = -1;
         open = false;
+        probe = {};
         frameReady = false;
         // 状态标志复位（close 后重新 open 时不得残留）
         seekTarget = Time{};
@@ -265,6 +270,16 @@ FFmpegMediaReader::~FFmpegMediaReader() { close(); }
 Result FFmpegMediaReader::open(const std::string& path) {
     close();
     Impl& impl = *impl_;
+
+    // WAV PCM 是未压缩采样数据：直接解析容器并做样本格式转换，不调用软件 codec。
+    // 这条路径同时供预览、波形、降噪、VAD 与导出混音读取使用。
+    const Result pcmWavResult = impl.pcmWav.open(path);
+    if (pcmWavResult.isOk()) {
+        impl.usePcmWav = true;
+        impl.probe = impl.pcmWav.probe();
+        impl.open = true;
+        return Result::ok();
+    }
 
     int err = avformat_open_input(&impl.format, path.c_str(), nullptr, nullptr);
     if (err < 0) {
@@ -531,19 +546,23 @@ const MediaProbeResult& FFmpegMediaReader::probe() const { return impl_->probe; 
 
 void FFmpegMediaReader::suggestSequential(const SequentialHint& hint) {
     Impl& impl = *impl_;
+    if (impl.usePcmWav) return;
     impl.seqHint = hint;
     /* 关闭提示时顺手清 EOF 标志？不能清 —— EOF 是解码器真实状态，
        清了会让 readVideoFrame 继续在已耗尽的解码器上取帧（永远 EAGAIN）。
        交给下一次真 seek 去复位。 */
 }
 
-long FFmpegMediaReader::seekCount() const { return impl_->seekCount; }
+long FFmpegMediaReader::seekCount() const {
+    return impl_->usePcmWav ? 0L : impl_->seekCount;
+}
 
 Result FFmpegMediaReader::seek(const Time& sourceTime) {
     Impl& impl = *impl_;
     if (!impl.open) {
         return Result::fail(ErrorCode::InvalidArgument, "未打开");
     }
+    if (impl.usePcmWav) return impl.pcmWav.seek(sourceTime);
     if (sourceTime.isNegative()) {
         return Result::fail(ErrorCode::OutOfRange, "seek 目标为负");
     }
@@ -613,6 +632,7 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
 
 bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
     Impl& impl = *impl_;
+    if (impl.usePcmWav) return false;
     if (!impl.open || impl.videoStream < 0) {
         return false;
     }
@@ -781,6 +801,7 @@ bool FFmpegMediaReader::readVideoFrame(VideoFrame& out) {
 
 bool FFmpegMediaReader::readAudioBlock(AudioBlock& out) {
     Impl& impl = *impl_;
+    if (impl.usePcmWav) return impl.pcmWav.readAudioBlock(out);
     if (!impl.open || impl.audioStream < 0 || impl.audioCodec == nullptr) {
         return false;
     }
