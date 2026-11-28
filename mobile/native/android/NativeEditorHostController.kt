@@ -102,13 +102,13 @@ class NativeEditorHostController(
     }
 
     fun setTrackVisibility(trackIndex: Int, visible: Boolean): Job =
-        runTimelineMutation { adapter.setTrackVisibilityAndReadSnapshot(trackIndex, visible) }
+        runTimelineMutation(operation = { adapter.setTrackVisibilityAndReadSnapshot(trackIndex, visible) })
 
     fun setTrackMuted(trackIndex: Int, muted: Boolean): Job =
-        runTimelineMutation { adapter.setTrackMutedAndReadSnapshot(trackIndex, muted) }
+        runTimelineMutation(operation = { adapter.setTrackMutedAndReadSnapshot(trackIndex, muted) })
 
     fun setTrackLocked(trackIndex: Int, locked: Boolean): Job =
-        runTimelineMutation { adapter.setTrackLockedAndReadSnapshot(trackIndex, locked) }
+        runTimelineMutation(operation = { adapter.setTrackLockedAndReadSnapshot(trackIndex, locked) })
 
     /**
      * Reserve the next toggle synchronously before launching its coroutine.
