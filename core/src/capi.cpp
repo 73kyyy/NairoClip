@@ -171,6 +171,99 @@ struct NcEditor {
 
 namespace {
 
+class SpeechSourceReader final : public MediaReader {
+public:
+    Result open(const std::string& path) override {
+        close();
+        const Result pcm = wav_.open(path);
+        if (pcm.isOk()) {
+            useWav_ = true;
+            return pcm;
+        }
+#ifdef NAIROCLIP_HAS_FFMPEG
+        const Result systemMedia = ffmpeg_.open(path);
+        if (systemMedia.isOk()) {
+            useWav_ = false;
+            return systemMedia;
+        }
+        return systemMedia;
+#else
+        return pcm;
+#endif
+    }
+    void close() override {
+        wav_.close();
+#ifdef NAIROCLIP_HAS_FFMPEG
+        ffmpeg_.close();
+#endif
+        useWav_ = false;
+    }
+    bool isOpen() const override {
+        if (useWav_) return wav_.isOpen();
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.isOpen();
+#else
+        return false;
+#endif
+    }
+    const MediaProbeResult& probe() const override {
+        if (useWav_) return wav_.probe();
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.probe();
+#else
+        return wav_.probe();
+#endif
+    }
+    Result seek(const Time& time) override {
+        if (useWav_) return wav_.seek(time);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.seek(time);
+#else
+        return Result::fail(ErrorCode::Unsupported, "当前构建没有系统压缩媒体 reader");
+#endif
+    }
+    bool readVideoFrame(VideoFrame& out) override {
+        if (useWav_) return wav_.readVideoFrame(out);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.readVideoFrame(out);
+#else
+        (void)out;
+        return false;
+#endif
+    }
+    bool readAudioBlock(AudioBlock& out) override {
+        if (useWav_) return wav_.readAudioBlock(out);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.readAudioBlock(out);
+#else
+        (void)out;
+        return false;
+#endif
+    }
+    void suggestSequential(const SequentialHint& hint) override {
+        if (useWav_) wav_.suggestSequential(hint);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        else ffmpeg_.suggestSequential(hint);
+#else
+        (void)hint;
+#endif
+    }
+
+private:
+    WavPcmReader wav_;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    FFmpegMediaReader ffmpeg_;
+#endif
+    bool useWav_ = false;
+};
+
+class SpeechSourceReaderFactory final : public MediaReaderFactory {
+public:
+    std::unique_ptr<MediaReader> create() override {
+        return std::make_unique<SpeechSourceReader>();
+    }
+};
+
 char* dupString(const std::string& text) {
     char* out = new (std::nothrow) char[text.size() + 1];
     if (out == nullptr) {
@@ -4112,12 +4205,8 @@ int32_t nc_speech_analyze(NcEditor* editor, uint64_t asset_id, int64_t* out_spee
         return -1;
     }
     SpeechActivityResult result;
-#ifdef NAIROCLIP_HAS_FFMPEG
-    FFmpegReaderFactory readerFactory;
+SpeechSourceReaderFactory readerFactory;
     result = analyzeAssetSpeech(*asset, &readerFactory);
-#else
-    result = analyzeAssetSpeech(*asset, nullptr);
-#endif
     if (out_speech_us != nullptr) *out_speech_us = toMicroseconds(result.speechDuration);
     if (out_silence_us != nullptr) *out_silence_us = toMicroseconds(result.silenceDuration);
     if (out_keep_ratio != nullptr) *out_keep_ratio = result.keepRatio;
@@ -4177,12 +4266,8 @@ int32_t nc_speech_cut_apply(NcEditor* editor, int32_t track_index, char** out_er
         return -1;
     }
     SpeechActivityResult activity;
-#ifdef NAIROCLIP_HAS_FFMPEG
-    FFmpegReaderFactory readerFactory;
+SpeechSourceReaderFactory readerFactory;
     activity = analyzeAssetSpeech(*asset, &readerFactory);
-#else
-    activity = analyzeAssetSpeech(*asset, nullptr);
-#endif
     if (!activity.valid()) {
         if (out_error != nullptr) {
             *out_error = dupString(activity.note.empty() ? "语音分析无效" : activity.note);
