@@ -14,6 +14,12 @@ class NativeEditorLayoutSpecTest {
         assertEquals(40, NativeEditorLayoutSpec.TOP_BAR_HEIGHT_DP)
         assertEquals(46, NativeEditorLayoutSpec.QUICK_ACTION_ROW_HEIGHT_DP)
         assertEquals(282, NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP)
+        assertEquals(40, NativeEditorLayoutSpec.TRACK_CONTROL_BUTTON_WIDTH_DP)
+        assertEquals(120, NativeEditorLayoutSpec.TRACK_CONTROL_WIDTH_DP)
+        assertEquals(
+            3 * NativeEditorLayoutSpec.TRACK_CONTROL_BUTTON_WIDTH_DP,
+            NativeEditorLayoutSpec.TRACK_CONTROL_WIDTH_DP
+        )
         assertEquals(56, NativeEditorLayoutSpec.TRANSPORT_ROW_HEIGHT_DP)
         assertEquals(104, NativeEditorLayoutSpec.BOTTOM_TOOLBAR_HEIGHT_DP)
     }
