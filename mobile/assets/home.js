@@ -19,9 +19,22 @@ const H = {
 const $ = (id) => document.getElementById(id);
 
 const qs = () => new URLSearchParams(location.search).get('api');
+const nativeEditorPilotEnabled = () => {
+  try {
+    return !!(window.NCNativeEditor &&
+      typeof window.NCNativeEditor.isEnabled === 'function' &&
+      window.NCNativeEditor.isEnabled());
+  } catch (err) {
+    return false;
+  }
+};
 const editorUrl = () => {
-  const q = qs();
-  return `10-editor.html${q ? `?api=${encodeURIComponent(q)}` : ''}`;
+  const params = new URLSearchParams();
+  const api = qs();
+  if (api) params.set('api', api);
+  if (nativeEditorPilotEnabled()) params.set('nativeEditor', '1');
+  const query = params.toString();
+  return `10-editor.html${query ? `?${query}` : ''}`;
 };
 const pageUrl = (name) => {
   const q = qs();
@@ -217,9 +230,12 @@ function openProject(p) {
     location.href = editorUrl();
     return;
   }
-  const q = qs();
-  const join = q ? '&' : '?';
-  location.href = `${editorUrl()}${join}project=${encodeURIComponent(p.file)}`;
+  const params = new URLSearchParams();
+  const api = qs();
+  if (api) params.set('api', api);
+  if (nativeEditorPilotEnabled()) params.set('nativeEditor', '1');
+  params.set('project', p.file);
+  location.href = `10-editor.html?${params.toString()}`;
 }
 
 /* ---------- 搜索 ---------- */
