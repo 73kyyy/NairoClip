@@ -621,6 +621,7 @@ bool systemVp9RoundTripAvailable(const char* inputPath, std::string& reason) {
     config.width = 320;
     config.height = 240;
     config.frameRate = fps30();
+    config.includeAudio = false;
     const char* probePath = "/tmp/media_gen/system_vp9_probe.mp4";
     const Result encoder = writer.open(probePath, config);
     if (!encoder.isOk()) {
