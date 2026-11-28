@@ -1,10 +1,11 @@
 package com.nairoclip.app
 
 /**
- * Alpha ramp used to feather clip content beneath the fixed track controls.
- * This is a visibility fade, not a Gaussian blur; control glyphs are drawn above it.
+ * Shared blur and alpha-mask parameters for clip content passing beneath the
+ * fixed track controls. The Canvas draws sharp control glyphs after compositing.
  */
 internal object NativeTrackControlFeatherSpec {
+    const val BLUR_RADIUS_DP = 3f
     const val START_ALPHA = 0.88f
     const val END_ALPHA = 0f
 
