@@ -223,6 +223,7 @@ fun NativeEditorScreen(
         val stillExists = timelineTracks.any { track ->
             (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
                 track.visible &&
+                !track.locked &&
                 track.clips.any { it.id == selection.second && it.enabled }
         }
         if (!stillExists) selectedClip = null
@@ -422,6 +423,7 @@ fun NativeEditorScreen(
                 timelineTracks.any { track ->
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
                         track.visible &&
+                        !track.locked &&
                         track.clips.any { it.id == selection.second && it.enabled }
                 }
             }
