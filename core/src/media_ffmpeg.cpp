@@ -287,25 +287,12 @@ Result FFmpegMediaReader::open(const std::string& path) {
     // 打开视频解码器
     if (impl.videoStream >= 0) {
         AVStream* stream = impl.format->streams[impl.videoStream];
-        /* 解码器选择：**硬件优先**，软件只对非 H.264 兜底。
-           ==================================================================
-           **2026-11-05 变更背景**：FFmpeg 构建里已移除 h264/hevc 解码器
-           （`--enable-decoder` 不再含它们），原因是软件 H.264 解码需要
-           自行承担 AVC 专利许可。所以：
-
-             · H.264 → 必须走 `h264_mediacodec`（Android）/
-                       `h264_videotoolbox`（Apple）—— 系统硬件解码，
-                       专利费已由芯片厂商支付；
-             · H.265 → 同上下架（本就全线禁用）；
-             · AV1/VP9/MPEG4 等 → FFmpeg 内置软件解码器（royalty-free，无顾虑）。
-
-           **重要**：如果硬件解码器不可用（老设备 / 特殊容器），
-           H.264 素材会**无法导入**并给出明确错误，而不是悄悄用软件解码。
-           这是有意的 fail-closed：宁可告诉用户「此设备不支持」，
-           也不在发布构建里使用需要自付专利费的实现。
-
-           硬件解码优先还有额外收益：耗电低、4K 流畅、不占 CPU 线程
-           （不跟渲染线程抢核）。 */
+        /* Android 媒体解码策略：系统 MediaCodec only。
+           FFmpeg 在 Android 构建中只编入 *_mediacodec 解码 wrapper；
+           不编入 H.264/H.265/AV1/VP9 等任何软件视频解码器。
+           下方 Android 分支按容器 codec ID 映射系统 wrapper，并逐个尝试
+           avcodec_open2；设备没有可用系统解码器时 fail-closed。
+           桌面平台继续使用各自平台的硬件解码候选，不在此处改变其策略。 */
         const AVCodec* codec = nullptr;
         const bool isH264 = (stream->codecpar->codec_id == AV_CODEC_ID_H264);
         bool useHardwareDecoder = isH264;
@@ -325,16 +312,9 @@ Result FFmpegMediaReader::open(const std::string& path) {
         useHardwareDecoder = !decoderCandidates.empty();
 #endif
         if (useHardwareDecoder) {
-            /* 先构造候选名序列，**逐个真正尝试 open**。
-               ------------------------------------------------------------------
-               **为什么要真试**：`avcodec_find_decoder_by_name("h264_cuvid")`
-               在没装 NVIDIA 驱动的机器上**也返回非 null**（解码器在 FFmpeg
-               注册表里，只是运行时缺 libnvcuvid.so）。如果只看指针非空就
-               选定它，会在 avcodec_open2 阶段才失败 ——
-               而那时我们已经跳出选择逻辑，只能报「打开失败」，
-               看起来像「设备没有解码器」，实际是**选错了候选**。
-               实测踩过：本机选了 h264_cuvid，报
-               "视频解码器打开失败: Operation not permitted"。 */
+            /* 必须逐个真正尝试 open，而不能只检查 decoder 注册表中是否存在。
+               MediaCodec wrapper 可能已编入 FFmpeg，但当前设备没有对应 MIME、
+               profile、尺寸或硬件实例；只有 avcodec_open2 成功才算可用。 */
 #if defined(__ANDROID__)
             // Android candidates were selected by codec ID above; never use software fallback.
 #elif defined(__APPLE__)
@@ -354,18 +334,8 @@ Result FFmpegMediaReader::open(const std::string& path) {
             decoderCandidates.push_back("h264_v4l2m2m");   // Linux V4L2
             decoderCandidates.push_back("h264_videotoolbox");  // macOS 兜底
 #endif
-            /* **不加入软件 h264 候选**，任何构建都不加。
-               ----------------------------------------------------------------
-               曾经在这里留了一个 `#if defined(NAIROCLIP_DEVELOPMENT_GPL_OK)`
-               的软件解码兜底，理由是「本地没 GPU，测试素材全是 H.264，
-               不兜底就一条都导不进来」。那是**用测试便利性绑架产品形态**：
-               产品里到底有没有软件 H.264，不该由「本机能不能跑测试」决定。
-
-               正确做法是反过来：测试素材改成 royalty-free 格式（VP9/AV1），
-               这样测试不需要 H.264 软解也能跑；H.264 的硬解路径靠真机验证。
-               （见 tests/fixtures/generate_media.sh）
-
-               所以现在 H.264 只有硬件解码一条路，无硬件则拒绝导入。 */
+            // Android 该分支中的所有候选均为系统 MediaCodec wrapper；
+            // 不存在任何软件解码器候选，也不允许运行时降级。
 
             /* 逐个尝试 open2：成功即采用，失败换下一个。
                注意 videoCodec 的分配/参数复制/线程设置都在循环内完成，
@@ -401,10 +371,16 @@ Result FFmpegMediaReader::open(const std::string& path) {
 
             if (codec == nullptr) {
                 close();
+#if defined(__ANDROID__)
                 std::string msg =
-                    "本设备没有可用的 H.264 硬件解码器。"
-                    "出于编解码授权考虑，本应用不使用软件 H.264 解码。"
-                    "请升级系统，或先将素材转码为 AV1/VP9 后导入。";
+                    "本设备没有可用的系统 MediaCodec 视频解码器（格式：" +
+                    std::string(avcodec_get_name(stream->codecpar->codec_id)) +
+                    "）。NairoClip 不包含软件视频解码器。";
+#else
+                std::string msg =
+                    "本设备没有可用的 H.264 平台硬件解码器。"
+                    "NairoClip 不会静默降级到软件 H.264 解码。";
+#endif
                 if (!lastOpenError.empty()) {
                     msg += "（尝试详情：" + lastOpenError + "）";
                 }
@@ -418,12 +394,10 @@ Result FFmpegMediaReader::open(const std::string& path) {
                 return Result::fail(ErrorCode::Unsupported,
                                     "不支持的视频编解码器：" + codecName);
             }
-            /* 非 H.264 走通用路径：这里还没 open，由下方统一处理。 */
+            /* 非系统硬件路径（仅非 Android 平台）走通用平台解码器路径。 */
             impl.videoCodec = avcodec_alloc_context3(codec);
         }
-        /* H.264 分支在上面已经 open 成功（context 也已就绪），
-           不能再走一遍下面的 alloc/open —— 会泄漏 context 并重复打开。
-           所以下面这一段只在「非 H.264」时执行。 */
+        /* 硬件候选在上面已经 open 成功；只有通用平台路径才执行下面的 alloc/open。 */
         if (!useHardwareDecoder) {
         if (impl.videoCodec == nullptr) {
             close();
@@ -476,7 +450,7 @@ Result FFmpegMediaReader::open(const std::string& path) {
         impl.probe.codec = avcodec_get_name(codec->id);
     }
 
-    // 打开音频解码器（可选路径：任何一步失败都只是「没有音频」，不致命）
+    // 打开音频解码器；Android 只允许系统 MediaCodec wrapper。
     if (impl.audioStream >= 0) {
         AVStream* stream = impl.format->streams[impl.audioStream];
         const AVCodec* codec = nullptr;
