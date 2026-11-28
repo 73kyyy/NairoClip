@@ -620,8 +620,9 @@ class NativeTimelineView(context: Context) : View(context) {
                     if (draggingPlayhead) {
                         updatePlayheadFromTouch(event.x)
                     } else {
-                        val clipHandled = handleClipTap(event.x, event.y)
-                        if (!clipHandled && !handleTrackControlTap(event.x, event.y)) {
+                        val startHandled = handleStartBadgeTap(event.x, event.y)
+                        val clipHandled = if (startHandled) true else handleClipTap(event.x, event.y)
+                        if (!startHandled && !clipHandled && !handleTrackControlTap(event.x, event.y)) {
                             if (isTimelineLaneTap(event.x, event.y)) {
                                 selectedClip = null
                                 onClipSelectionCleared?.invoke()
@@ -630,7 +631,7 @@ class NativeTimelineView(context: Context) : View(context) {
                             // Track labels and the fixed left gutter are not
                             // part of the time ruler; tapping them must not seek
                             // to time zero through the x-to-time clamp.
-                            if (event.x >= labelWidth) {
+                            if (event.x >= trackControlsWidth) {
                                 updatePlayheadFromTouch(event.x)
                             }
                         }
@@ -663,7 +664,7 @@ class NativeTimelineView(context: Context) : View(context) {
     }
 
     private fun handleClipTap(x: Float, y: Float): Boolean {
-        if (x < labelWidth || y < rulerHeight) return false
+        if (x < trackControlsWidth || y < rulerHeight) return false
         val contentY = y + verticalScrollOffset
         val rowOffset = contentY - rulerHeight
         val row = (rowOffset / (rowHeight + rowGap)).toInt()
@@ -685,13 +686,14 @@ class NativeTimelineView(context: Context) : View(context) {
                 false
             } else {
                 val visibleDurationUs = min(candidate.durationUs, durationUs - candidate.startUs)
-                val left = labelWidth.toDouble() +
-                    candidate.startUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble() -
-                    scrollOffset.toDouble()
+                val left = NativeTimelineViewportSpec.xForTime(
+                    width.toFloat(), candidate.startUs.toDouble() / 1_000_000.0,
+                    pixelsPerSecond.toDouble(), scrollOffset.toDouble()
+                )
                 val widthPx = visibleDurationUs.toDouble() / 1_000_000.0 *
                     pixelsPerSecond.toDouble()
                 val right = left + max(widthPx, 5.0 * density.toDouble())
-                x.toDouble() >= max(left, labelWidth.toDouble()) &&
+                x.toDouble() >= max(left, trackControlsWidth.toDouble()) &&
                     x.toDouble() < min(right, width.toDouble())
             }
         } ?: return false
@@ -702,7 +704,7 @@ class NativeTimelineView(context: Context) : View(context) {
     }
 
     private fun isTimelineLaneTap(x: Float, y: Float): Boolean {
-        if (x < labelWidth || y < rulerHeight) return false
+        if (x < trackControlsWidth || y < rulerHeight) return false
         val contentY = y + verticalScrollOffset
         val rowOffset = contentY - rulerHeight
         val row = (rowOffset / (rowHeight + rowGap)).toInt()
@@ -710,48 +712,61 @@ class NativeTimelineView(context: Context) : View(context) {
         return row in tracks.indices && withinRow >= 0f && withinRow < rowHeight
     }
 
+    private fun handleStartBadgeTap(x: Float, y: Float): Boolean {
+        val badgeRight = (6f + NativeEditorLayoutSpec.START_BADGE_WIDTH_DP) * density
+        if (y > rulerHeight || x < 0f || x > badgeRight) return false
+        val callback = onPlayFromStart
+        if (callback != null) {
+            callback()
+        } else {
+            playheadUs = 0L
+            onPlayheadChanged?.invoke(0L)
+            invalidate()
+        }
+        return true
+    }
+
     private fun handleTrackControlTap(x: Float, y: Float): Boolean {
-        if (x >= labelWidth || y < rulerHeight) return false
+        if (x >= trackControlsWidth || y < rulerHeight) return false
         val contentY = y + verticalScrollOffset
         val rowOffset = contentY - rulerHeight
         val row = (rowOffset / (rowHeight + rowGap)).toInt()
         val withinRow = rowOffset - row * (rowHeight + rowGap)
         if (row !in tracks.indices || withinRow < 0f || withinRow >= rowHeight) return false
         val track = tracks[row]
+        val engineIndex = track.engineIndex.takeIf { it >= 0 } ?: row
         when {
-            x in (34f * density)..(74f * density) -> {
-                // Missing host wiring is an unavailable control, not a successful no-op.
+            x < trackControlsWidth / 3f -> {
                 val callback = onTrackVisibilityChanged ?: return false
-                // The engine snapshot is authoritative; only a refreshed snapshot changes the icon.
-                callback(track.engineIndex.takeIf { it >= 0 } ?: row, !track.visible)
+                callback(engineIndex, !track.visible)
             }
-            x in (78f * density)..(118f * density) -> {
+            x < trackControlsWidth * 2f / 3f -> {
                 val callback = onTrackMuteChanged ?: return false
-                callback(track.engineIndex.takeIf { it >= 0 } ?: row, !track.muted)
+                callback(engineIndex, !track.muted)
             }
-            else -> return false
+            else -> {
+                val callback = onTrackLockChanged ?: return false
+                callback(engineIndex, !track.locked)
+            }
         }
         invalidate()
         return true
     }
 
     private fun playheadXPosition(): Float {
-        val requestedX = (
-            labelWidth.toDouble() +
-                (playheadUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
-                scrollOffset.toDouble()
-            ).toFloat()
-        // A View can be drawn before its first non-zero layout pass. Keep the
-        // clamp range valid even when width is temporarily below the label gutter.
-        val maximumX = width.toFloat().coerceAtLeast(labelWidth)
-        return requestedX.coerceIn(labelWidth, maximumX)
+        val requestedX = NativeTimelineViewportSpec.xForTime(
+            width.toFloat(),
+            playheadUs.toDouble() / 1_000_000.0,
+            pixelsPerSecond.toDouble(),
+            scrollOffset.toDouble()
+        ).toFloat()
+        val maximumX = width.toFloat().coerceAtLeast(0f)
+        return requestedX.coerceIn(0f, maximumX)
     }
 
-    private fun maxScrollOffset(): Float {
-        val contentWidth = durationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
-        val viewport = (width - labelWidth).coerceAtLeast(1f).toDouble()
-        return (contentWidth - viewport).coerceIn(0.0, Float.MAX_VALUE.toDouble()).toFloat()
-    }
+    private fun maxScrollOffset(): Float =
+        NativeTimelineViewportSpec.maxScrollOffset(durationUs, pixelsPerSecond.toDouble())
+            .coerceAtMost(Float.MAX_VALUE.toDouble()).toFloat()
 
     private fun maxVerticalScrollOffset(): Float {
         if (tracks.isEmpty()) return 0f
@@ -766,9 +781,12 @@ class NativeTimelineView(context: Context) : View(context) {
     }
 
     private fun updatePlayheadFromTouch(x: Float) {
-        val seconds = (
-            scrollOffset.toDouble() + x.toDouble() - labelWidth.toDouble()
-            ).coerceAtLeast(0.0) / pixelsPerSecond.toDouble()
+        val seconds = NativeTimelineViewportSpec.timeAtX(
+            x,
+            width.toFloat(),
+            pixelsPerSecond.toDouble(),
+            scrollOffset.toDouble()
+        ).coerceIn(0.0, durationUs.toDouble() / 1_000_000.0)
         val requestedUs = (seconds * 1_000_000.0).coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
         playheadUs = requestedUs.coerceIn(0L, durationUs)
         onPlayheadChanged?.invoke(playheadUs)
