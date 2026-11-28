@@ -43,8 +43,12 @@ class NativeAutoSubtitleCoordinator(
     /** Set from the host's authoritative selected clip and its native source mapping. */
     fun setSource(uri: Uri?, range: NativeSpeechSourceRange?) {
         synchronized(lock) {
-            check(!closed.get()) { "自动字幕协调器已关闭" }
-            check(!running) { "识别过程中不能切换素材" }
+            if (closed.get()) return
+            if (running) {
+                errorMessage = "识别过程中不能切换素材"
+                statusMessage = errorMessage ?: "识别正在进行"
+                return@synchronized
+            }
             sourceUri = uri
             sourceRange = range
             progress = null
