@@ -483,6 +483,7 @@ Result FFmpegMediaReader::open(const std::string& path) {
             case AV_CODEC_ID_AMR_WB: codec = avcodec_find_decoder_by_name("amrwb_mediacodec"); break;
             default: break;
         }
+#else
         // 非 Android 平台的系统 reader 尚在迁移；禁止回退到 FFmpeg 内置软件解码器。
         codec = nullptr;
 #endif
