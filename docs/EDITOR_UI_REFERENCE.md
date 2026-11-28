@@ -158,6 +158,24 @@ Toggle-state colors (callback availability must not be confused with the actual 
 
 The glyph also changes with state (eye/eye-off, speaker/speaker-off, unlock/lock). Keep the amber restrained; do not add glow or animated flashing. A state change should update only the affected track row and must not shift timeline geometry.
 
+## Activity runtime pilot boundary
+
+The native editor is mounted by the existing `MainActivity` only when both conditions are true:
+1. The app is a debug build (`BuildConfig.DEBUG`).
+2. The Activity is explicitly launched with `com.nairoclip.app.extra.ENABLE_NATIVE_EDITOR=true`.
+
+With that opt-in enabled, the home page adds `nativeEditor=1` to the editor route. After the legacy editor has booted and loaded its current engine snapshot, it calls the `NCNativeEditor` bridge. The Activity validates that the current engine has a project, then mounts `NativeEditorHost` in a full-screen `ComposeView`.
+
+The pilot reuses the Activity's existing `NativeEngineBridge` and moves the same `PreviewSurfaceView` into the Compose host. It does not create a second engine or renderer Surface. The WebView remains attached and alive underneath the overlay. The native host's legacy-return action and Android Back remove the overlay, restore the same preview Surface to the original root, and reveal the existing WebView editor. A resize event asks the WebView to recalculate the legacy preview rectangle.
+
+This is an internal validation route, not the formal application route:
+- The launcher intent filter remains on `MainActivity`.
+- The extra is ignored by release builds.
+- No Activity entrypoint is replaced and no WebView fallback is removed.
+- ADB launch for a debug APK: `adb shell am start -n com.nairoclip.app/.MainActivity --ez com.nairoclip.app.extra.ENABLE_NATIVE_EDITOR true`.
+
+Acceptance still requires Android Kotlin compilation/unit tests, NDK and host CI, plus real-device checks for Surface attach/detach, rotation/recreation, system Back, repeated native↔legacy switching, and preservation of the current project state. Until those pass, the pilot must remain opt-in.
+
 ## Native host boundary
 
 `NativeEditorHost` and `NativeEditorHostController` provide a feature-scoped host without changing `MainActivity` or the formal WebView entry. The host serializes engine mutations and reads back authoritative timeline/history state. Native clip split/delete/duplicate/ripple-delete, undo/redo, track visibility/mute/lock, markers, transforms/keyframes, speed/speed curves, clip audio/denoise, filters/LUT/color grade/masks, effects, transitions, text clips and subtitle cues are wired through the command adapter. Scrub requests render through `NativePreviewSurfaceController` on its dedicated worker, including a render request when the Surface attaches.
