@@ -537,9 +537,12 @@ class NativeTimelineView(context: Context) : View(context) {
                     val nodeHeight = (nodeBottom - nodeTop).coerceAtLeast(1)
                     blurNode.setPosition(nodeLeft, nodeTop, nodeRight, nodeBottom)
                     val recordingCanvas = blurNode.beginRecording(nodeWidth, nodeHeight)
+                    // RenderNode recording coordinates are local to its
+                    // integer position; shift the row's view-space content into
+                    // that local coordinate system before recording.
                     recordingCanvas.translate(
-                        nodeLeft.toFloat(),
-                        nodeTop.toFloat() - top
+                        -nodeLeft.toFloat(),
+                        -nodeTop.toFloat()
                     )
                     recordingCanvas.drawRect(featherBounds, lane)
                     drawTrackClips(recordingCanvas, track, top, bottom)
