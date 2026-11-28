@@ -156,6 +156,8 @@ class NativeTimelineView(context: Context) : View(context) {
     private var playheadUs: Long = 0L
     private var pixelsPerSecond = 42f * density
     private var scrollOffset = 0f
+    private var pendingInitialFit = false
+    private var didFitInitialTimeline = false
     private var lastTouchX = 0f
     private var lastTouchY = 0f
     private var moved = false
@@ -243,6 +245,10 @@ class NativeTimelineView(context: Context) : View(context) {
             scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
             verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
         }
+        if (!didFitInitialTimeline && tracks.isNotEmpty()) {
+            pendingInitialFit = true
+            if (width > 0) fitInitialTimeline()
+        }
         invalidate()
     }
 
@@ -255,6 +261,7 @@ class NativeTimelineView(context: Context) : View(context) {
         super.onSizeChanged(w, h, oldw, oldh)
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
         verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
+        if (pendingInitialFit && width > 0) fitInitialTimeline()
     }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
@@ -767,6 +774,16 @@ class NativeTimelineView(context: Context) : View(context) {
     private fun maxScrollOffset(): Float =
         NativeTimelineViewportSpec.maxScrollOffset(durationUs, pixelsPerSecond.toDouble())
             .coerceAtMost(Float.MAX_VALUE.toDouble()).toFloat()
+
+    private fun fitInitialTimeline() {
+        if (width <= 0 || durationUs <= 0L) return
+        pixelsPerSecond = NativeTimelineViewportSpec.fitPixelsPerSecond(
+            width.toFloat(), density, durationUs
+        )
+        scrollOffset = 0f
+        pendingInitialFit = false
+        didFitInitialTimeline = true
+    }
 
     private fun maxVerticalScrollOffset(): Float {
         if (tracks.isEmpty()) return 0f
