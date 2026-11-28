@@ -594,7 +594,8 @@ class NativeTimelineView(context: Context) : View(context) {
         val speakerMutedTint = 0xFFD69A58.toInt()
         val lockOpenTint = 0xFF9AA3A8.toInt()
         val lockClosedTint = 0xFFD69A58.toInt()
-        val centers = floatArrayOf(7f, 20f, 33f)
+        // Each icon is centered inside its own 40dp touch target.
+        val centers = floatArrayOf(20f, 60f, 100f).map { it * density }.toFloatArray()
         drawTrackIcon(
             canvas,
             if (track.visible) eyeDrawable else eyeOffDrawable,
