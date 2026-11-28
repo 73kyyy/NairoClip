@@ -50,7 +50,8 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val filter: ClipFilterState?,
         val lut: ClipLutState?,
         val colorGrade: ClipColorGradeState?,
-        val mask: ClipMaskState?
+        val mask: ClipMaskState?,
+        val opacity: Double?
     )
 
     /**
@@ -78,6 +79,7 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             val lutResult = readClipLut(target)
             val gradeResult = readClipColorGrade(target)
             val maskResult = readClipMask(target)
+            val opacityResult = readClipOpacity(target)
             Result(
                 true,
                 ClipEditorPanelSnapshot(
@@ -89,7 +91,8 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                     filter = filterResult.value.takeIf { filterResult.ok },
                     lut = lutResult.value.takeIf { lutResult.ok },
                     colorGrade = gradeResult.value.takeIf { gradeResult.ok },
-                    mask = maskResult.value.takeIf { maskResult.ok }
+                    mask = maskResult.value.takeIf { maskResult.ok },
+                    opacity = opacityResult.value.takeIf { opacityResult.ok }
                 )
             )
         }
@@ -772,6 +775,74 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             return@withEditorStateLock Result(false, error = changed.error ?: "切换片段状态失败")
         }
         readEditorStateSnapshotLocked()
+    }
+
+
+    /** Reads the engine-owned clip opacity (0.0 = transparent, 1.0 = opaque). */
+    fun readClipOpacity(target: ClipTarget): Result<Double> {
+        val result = invoke("opacity_get", targetArgs(target)) { payload ->
+            payload.getDouble("value").also {
+                require(it.isFinite() && it in 0.0..1.0) { "引擎返回的不透明度超出 0–100% 范围" }
+            }
+        }
+        return result
+    }
+
+    /** Sets clip opacity and publishes the engine's authoritative editor snapshot. */
+    fun setClipOpacityAndReadEditorState(
+        target: ClipTarget,
+        opacity: Double
+    ): Result<EditorStateSnapshot> {
+        if (!opacity.isFinite() || opacity !in 0.0..1.0) {
+            return Result(false, error = "不透明度必须在 0–100% 范围内")
+        }
+        return bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            val changed = invoke(
+                "opacity",
+                targetArgs(target).put("value", opacity)
+            ) { Unit }
+            if (!changed.ok) return@withEditorStateLock Result(false, error = changed.error ?: "设置不透明度失败")
+            readEditorStateSnapshotLocked()
+        }
+    }
+
+    /**
+     * Inserts a two-second frozen frame at the playhead. The playhead must be
+     * inside the selected source clip; the native insert-edit operation then
+     * splits/shifts the track atomically and returns the new frozen clip ID.
+     */
+    fun freezeFrameAndReadEditorState(
+        target: ClipTarget,
+        atUs: Long,
+        durationUs: Long = 2_000_000L
+    ): Result<ClipMutationResult> {
+        if (atUs < 0L || durationUs <= 0L || durationUs > 60_000_000L ||
+            atUs > Long.MAX_VALUE - durationUs
+        ) return Result(false, error = "定格时间或持续时长无效")
+        return bridge.withEditorStateLock {
+            val before = readTimelineSnapshotLocked()
+            if (!before.ok) return@withEditorStateLock Result(false, error = before.error ?: "读取工程时间轴失败")
+            val track = before.value?.tracks?.firstOrNull { it.engineIndex == target.trackIndex }
+                ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能定格")
+            val clip = track.clips.firstOrNull { it.id == target.clipId }
+                ?: return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            if (atUs < clip.startUs || atUs >= clip.startUs + clip.durationUs) {
+                return@withEditorStateLock Result(false, error = "播放头必须位于所选片段范围内才能定格")
+            }
+            val created = invoke(
+                "freeze",
+                targetArgs(target).put("at_us", atUs).put("duration_us", durationUs)
+            ) { payload ->
+                payload.getLong("value").also { require(it > 0L) { "定格结果缺少有效片段 ID" } }
+            }
+            if (!created.ok) return@withEditorStateLock Result(false, error = created.error ?: "定格失败")
+            val state = readEditorStateSnapshotLocked()
+            if (!state.ok) return@withEditorStateLock Result(false, error = state.error ?: "定格已执行，但工程状态读取失败")
+            Result(true, ClipMutationResult(state.value!!, created.value))
+        }
     }
 
     /** Removes the selected clip and returns the authoritative post-edit state. */
