@@ -188,7 +188,8 @@ fun NativeEditorScreen(
     onTogglePlayback: (() -> Unit)? = null,
     onTrackLockChanged: ((Int, Boolean) -> Unit)? = null,
     onPlayFromStart: (() -> Unit)? = null,
-    onClipSelectionCleared: (() -> Unit)? = null
+    onClipSelectionCleared: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -229,7 +230,7 @@ fun NativeEditorScreen(
 
     MaterialTheme {
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
                 .background(NcColors.background)
         ) {
