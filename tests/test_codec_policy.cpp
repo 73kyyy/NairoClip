@@ -3,12 +3,12 @@
 // + 第九章强制校验规则）
 // =============================================================================
 // 覆盖：
-//   · 许可分级：硬件编码器识别、宽松白名单（OpenH264/AV1/VP9/Opus）、
+//   · 许可分级：硬件编码器识别、软件实现识别（仅诊断，不允许选择）、
 //     GPL 传染识别（libx264/libx265/libxvid/libfdk_aac）、未知保守；
-//   · 视频选择：硬件优先、宽松优先于 GPL、HEVC 全线禁用、fail-closed；
+//   · 视频选择：系统硬件编码器唯一允许、HEVC 全线禁用、fail-closed；
 //   · GPL / 软件 H.264 / HEVC 在所有构建中均拒绝；
-//   · 候选序列：仅硬件与宽松许可软件实现按优先级稳定排序；
-//   · 音频选择：内置 AAC/Opus 宽松；libfdk_aac（不可分发）拒绝；
+//   · 候选序列：仅系统硬件编码器按优先级稳定排序；
+//   · 音频选择：内置 AAC/Opus 软件实现拒绝；系统硬件音频编码器允许；
 //   · encoderAllowed 代理判定。
 // =============================================================================
 #include "test_framework.h"
@@ -161,18 +161,14 @@ NC_TEST(CodecPolicy, HevcDeniedEntirely) {
     NC_CHECK(!selectVideoEncoder("libx265", available, EncoderPolicy{}).valid());
 }
 
-NC_TEST(CodecPolicy, RoyaltyFreeCodecsAllowed) {
+NC_TEST(CodecPolicy, BundledSoftwareVideoEncodersDenied) {
     EncoderPolicy release;
-    release.allowGplForDevelopment = false;
-    // AV1：SVT-AV1（BSD）
-    const auto av1 = selectVideoEncoder("av1", {sw("libsvtav1", "av1"), sw("libaom-av1", "av1")},
-                                        release);
-    NC_CHECK(av1.valid());
-    NC_CHECK_EQ(av1.name, std::string("libsvtav1"));
-    // VP9：libvpx（BSD）
+    const auto av1 = selectVideoEncoder("av1", {sw("libsvtav1", "av1"), sw("libaom-av1", "av1")}, release);
+    NC_CHECK(!av1.valid());
     const auto vp9 = selectVideoEncoder("vp9", {sw("libvpx-vp9", "vp9")}, release);
-    NC_CHECK(vp9.valid());
-    NC_CHECK_EQ(vp9.name, std::string("libvpx-vp9"));
+    NC_CHECK(!vp9.valid());
+    NC_CHECK(!encoderAllowed("libsvtav1", release));
+    NC_CHECK(!encoderAllowed("libvpx-vp9", release));
 }
 
 NC_TEST(CodecPolicy, UnknownEncoderSkipped) {
@@ -225,19 +221,11 @@ NC_TEST(CodecPolicy, CandidateRankingOrder) {
 // ---------------------------------------------------------------------------
 
 NC_TEST(CodecPolicy, AudioEncoderSelection) {
-    // 内置 AAC（宽松）可用
     EncoderPolicy release;
-    release.allowGplForDevelopment = false;
-    const auto aac = selectAudioEncoder("aac", {sw("aac", "aac")}, release);
-    NC_CHECK(aac.valid());
-    NC_CHECK_EQ(aac.name, std::string("aac"));
-    // libfdk_aac（不可分发）→ 拒绝
-    const auto fdk = selectAudioEncoder("aac", {sw("libfdk_aac", "aac")}, release);
-    NC_CHECK(!fdk.valid());
-    // Opus（BSD）可用
-    const auto opus = selectAudioEncoder("opus", {sw("libopus", "opus")}, release);
-    NC_CHECK(opus.valid());
-    NC_CHECK_EQ(opus.name, std::string("libopus"));
+    NC_CHECK(!selectAudioEncoder("aac", {sw("aac", "aac")}, release).valid());
+    NC_CHECK(!selectAudioEncoder("opus", {sw("libopus", "opus")}, release).valid());
+    NC_CHECK(!selectAudioEncoder("aac", {sw("libfdk_aac", "aac")}, release).valid());
+    NC_CHECK(selectAudioEncoder("aac", {hw("aac_mediacodec", "aac")}, release).valid());
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +237,7 @@ NC_TEST(CodecPolicy, EncoderAllowedProxy) {
     policy.allowGplForDevelopment = true;  // Compatibility flag is intentionally ignored.
     NC_CHECK(encoderAllowed("h264_videotoolbox", policy));
     NC_CHECK(!encoderAllowed("openh264", policy));
-    NC_CHECK(encoderAllowed("libsvtav1", policy));
+    NC_CHECK(!encoderAllowed("libsvtav1", policy));
     NC_CHECK(!encoderAllowed("libx264", policy));
     NC_CHECK(!encoderAllowed("libx265", policy));
     NC_CHECK(!encoderAllowed("libxvid", policy));
