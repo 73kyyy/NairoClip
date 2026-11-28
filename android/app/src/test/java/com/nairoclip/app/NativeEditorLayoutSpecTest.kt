@@ -11,7 +11,7 @@ class NativeEditorLayoutSpecTest {
         assertEquals(1536, NativeEditorLayoutSpec.REFERENCE_HEIGHT_PX)
         assertEquals(9f / 16f, NativeEditorLayoutSpec.PREVIEW_ASPECT_WIDTH.toFloat() /
             NativeEditorLayoutSpec.PREVIEW_ASPECT_HEIGHT.toFloat(), 0.0001f)
-        assertEquals(44, NativeEditorLayoutSpec.TOP_BAR_HEIGHT_DP)
+        assertEquals(40, NativeEditorLayoutSpec.TOP_BAR_HEIGHT_DP)
         assertEquals(46, NativeEditorLayoutSpec.QUICK_ACTION_ROW_HEIGHT_DP)
         assertEquals(282, NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP)
         assertEquals(56, NativeEditorLayoutSpec.TRANSPORT_ROW_HEIGHT_DP)
