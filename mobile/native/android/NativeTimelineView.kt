@@ -205,6 +205,10 @@ class NativeTimelineView(context: Context) : View(context) {
                 // the legal scroll range at the new zoom level.
                 val requestedOffset = focusTimeSeconds * pixelsPerSecond.toDouble() - focusOffset
                 scrollOffset = requestedOffset.coerceIn(0.0, maxScrollOffset().toDouble()).toFloat()
+                playheadUs = (
+                    scrollOffset.toDouble() / pixelsPerSecond.toDouble() * 1_000_000.0
+                ).toLong().coerceIn(0L, durationUs)
+                onPlayheadChanged?.invoke(playheadUs)
                 invalidate()
                 return true
             }
@@ -252,12 +256,19 @@ class NativeTimelineView(context: Context) : View(context) {
         if (!didFitInitialTimeline && tracks.isNotEmpty()) {
             pendingInitialFit = true
             if (width > 0) fitInitialTimeline()
+        } else if (playheadChanged) {
+            scrollOffset = (
+                playheadUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+            ).coerceIn(0.0, maxScrollOffset().toDouble()).toFloat()
         }
         invalidate()
     }
 
     fun setPlayhead(timeUs: Long) {
         playheadUs = timeUs.coerceIn(0L, durationUs)
+        scrollOffset = (
+            playheadUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+        ).coerceIn(0.0, maxScrollOffset().toDouble()).toFloat()
         invalidate()
     }
 
@@ -602,9 +613,17 @@ class NativeTimelineView(context: Context) : View(context) {
                         draggingTimelineHorizontally = true
                         moved = true
                         scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
+                        playheadUs = (
+                            scrollOffset.toDouble() / pixelsPerSecond.toDouble() * 1_000_000.0
+                        ).toLong().coerceIn(0L, durationUs)
+                        onPlayheadChanged?.invoke(playheadUs)
                         invalidate()
                     } else if (draggingTimelineHorizontally) {
                         scrollOffset = (scrollOffset - dx).coerceIn(0f, maxScrollOffset())
+                        playheadUs = (
+                            scrollOffset.toDouble() / pixelsPerSecond.toDouble() * 1_000_000.0
+                        ).toLong().coerceIn(0L, durationUs)
+                        onPlayheadChanged?.invoke(playheadUs)
                         invalidate()
                     }
                     lastTouchX = event.x
@@ -732,6 +751,7 @@ class NativeTimelineView(context: Context) : View(context) {
             callback()
         } else {
             playheadUs = 0L
+            scrollOffset = 0f
             onPlayheadChanged?.invoke(0L)
             invalidate()
         }
@@ -765,16 +785,8 @@ class NativeTimelineView(context: Context) : View(context) {
         return true
     }
 
-    private fun playheadXPosition(): Float {
-        val requestedX = NativeTimelineViewportSpec.xForTime(
-            width.toFloat(),
-            playheadUs.toDouble() / 1_000_000.0,
-            pixelsPerSecond.toDouble(),
-            scrollOffset.toDouble()
-        ).toFloat()
-        val maximumX = width.toFloat().coerceAtLeast(0f)
-        return requestedX.coerceIn(0f, maximumX)
-    }
+    private fun playheadXPosition(): Float =
+        NativeTimelineViewportSpec.originX(width.toFloat())
 
     private fun maxScrollOffset(): Float =
         NativeTimelineViewportSpec.maxScrollOffset(durationUs, pixelsPerSecond.toDouble())
@@ -785,7 +797,9 @@ class NativeTimelineView(context: Context) : View(context) {
         pixelsPerSecond = NativeTimelineViewportSpec.fitPixelsPerSecond(
             width.toFloat(), density, durationUs
         )
-        scrollOffset = 0f
+        scrollOffset = (
+            playheadUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+        ).coerceIn(0.0, maxScrollOffset().toDouble()).toFloat()
         pendingInitialFit = false
         didFitInitialTimeline = true
     }
@@ -811,6 +825,9 @@ class NativeTimelineView(context: Context) : View(context) {
         ).coerceIn(0.0, durationUs.toDouble() / 1_000_000.0)
         val requestedUs = (seconds * 1_000_000.0).coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
         playheadUs = requestedUs.coerceIn(0L, durationUs)
+        scrollOffset = (
+            playheadUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+        ).coerceIn(0.0, maxScrollOffset().toDouble()).toFloat()
         onPlayheadChanged?.invoke(playheadUs)
         invalidate()
     }
