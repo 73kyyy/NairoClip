@@ -297,7 +297,6 @@ NC_TEST(ExportRunner, AudioExportFailsClosedWithoutSystemAacEncoder) {
 }
 
 
-#ifdef NAIROCLIP_HAS_FFMPEG
 /// 音频增益/淡入淡出不能绕过系统 AAC encoder 缺失时的 fail-closed 约束。
 NC_TEST(ExportRunner, AudioGainFadeExportFailsClosedWithoutSystemAacEncoder) {
     Fixture f;
@@ -321,7 +320,7 @@ NC_TEST(ExportRunner, AudioGainFadeExportFailsClosedWithoutSystemAacEncoder) {
     const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
     NC_CHECK(audioExportIsRejected(plan, "/tmp/media_gen/runner_gain_rejected.mp4"));
 }
-
+#endif
 
 NC_TEST(ExportRunner, SubtitlesAttachedToFrames) {
     Fixture f;
