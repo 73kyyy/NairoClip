@@ -107,5 +107,10 @@ NC_TEST(MediaWriter, FFmpegWriterRejectsBundledSoftwareVideoEncoder) {
     const Result result = writer.open("/tmp/media_gen/software_codec_rejected.mp4", config);
     NC_CHECK(!result.isOk());
     NC_CHECK(!writer.isOpen());
+    // A failed open may still have allocated an output context; abort must clean it.
+    writer.abort();
+    NC_CHECK(!writer.isOpen());
+    NC_CHECK(!writer.open("/tmp/media_gen/software_codec_rejected_again.mp4", config).isOk());
+    NC_CHECK(!writer.isOpen());
 }
 #endif
