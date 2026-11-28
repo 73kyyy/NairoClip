@@ -141,12 +141,16 @@ class NativeEditorHostController(
             val track = mutableState.value.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
                 (item.engineIndex.takeIf { it >= 0 } ?: index) == trackIndex
             }?.value
-            val confirmed = when (control) {
-                TrackToggle.VISIBILITY -> track?.visible
-                TrackToggle.MUTE -> track?.muted
-                TrackToggle.LOCK -> track?.locked
+            if (track == null) {
+                null
+            } else {
+                val confirmed = when (control) {
+                    TrackToggle.VISIBILITY -> track.visible
+                    TrackToggle.MUTE -> track.muted
+                    TrackToggle.LOCK -> track.locked
+                }
+                trackToggleIntents.reserve(key, confirmed)
             }
-            trackToggleIntents.reserve(key, confirmed)
         } ?: return scope.launch {
             dispatch(NativeEditorHostEvent.MutationFailed("找不到轨道，无法切换轨道控制"))
         }
