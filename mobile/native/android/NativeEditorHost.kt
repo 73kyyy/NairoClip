@@ -685,12 +685,22 @@ fun NativeEditorHost(
         onDuplicateClip = { track, clipId -> controller.duplicateClip(track, clipId) },
         onRippleDeleteClip = { track, clipId -> controller.rippleDeleteClip(track, clipId) },
         onPrewarmPreviewFrame = { timeUs, width ->
-            // Prewarming runs on Dispatchers.IO and must populate the engine
-            // frame cache without presenting every sample to the Surface.
-            NativeEngineBridge.prewarmPreviewFrame(
-                timeUs,
-                width.coerceIn(16, 2048)
-            )
+            // Prewarming runs on Dispatchers.IO and fills the engine cache;
+            // it must not present every sample to the visible Surface.
+            adapter.prewarmPreviewFrame(timeUs, width).ok
+        },
+        onReadPreviewCacheStats = {
+            adapter.previewCacheStats().let { result ->
+                result.value?.takeIf { result.ok }?.let { stats ->
+                    NativePreviewCacheUiStats(
+                        frameHits = stats.frameHits,
+                        frameMisses = stats.frameMisses,
+                        readerOpens = stats.readerOpens,
+                        cachedFrames = stats.cachedFrames,
+                        capacity = stats.capacity
+                    )
+                }
+            }
         },
         autoSubtitleState = resolvedAutoSubtitleState,
         onStartAutoSubtitle = onStartAutoSubtitle ?: {
