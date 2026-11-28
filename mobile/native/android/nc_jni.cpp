@@ -237,6 +237,10 @@ std::string BuildState(NcEditor* ed) {
     j += ",\"width\":" + std::to_string(w);
     j += ",\"height\":" + std::to_string(h);
     j += ",\"duration_us\":" + std::to_string(nc_project_duration_us(ed));
+    uint32_t backgroundRgba = 0x000000FF;
+    if (nc_get_background_color(ed, &backgroundRgba) == NC_OK) {
+        j += ",\"background_rgba\":" + std::to_string(backgroundRgba);
+    }
     j += "},";
 
     j += "\"tracks\":[";
