@@ -198,17 +198,21 @@ NC_TEST(CodecPolicy, CandidateRankingOrder) {
         hw("h264_nvenc", "h264"),
         sw("openh264", "h264"),
         hw("h264_videotoolbox", "h264"),
+        sw("h264_mf", "h264"),  // 系统兼容路径可用，但必须排在硬件后端之后。
     };
     EncoderPolicy policy;
     policy.allowGplForDevelopment = true;  // Must not change the allowlist.
     const auto ranked = rankVideoEncoderCandidates("h264", available, policy);
-    NC_CHECK_EQ(ranked.size(), std::size_t(2));
+    NC_CHECK_EQ(ranked.size(), std::size_t(3));
     NC_CHECK_EQ(ranked[0].name, std::string("h264_videotoolbox"));
     NC_CHECK_EQ(ranked[1].name, std::string("h264_nvenc"));
-    for (const auto& candidate : ranked) {
-        NC_CHECK(candidate.license == EncoderLicenseClass::Hardware);
-        NC_CHECK(!candidate.usedDevelopmentException);
-    }
+    NC_CHECK_EQ(ranked[2].name, std::string("h264_mf"));
+    NC_CHECK(ranked[0].license == EncoderLicenseClass::Hardware);
+    NC_CHECK(ranked[1].license == EncoderLicenseClass::Hardware);
+    NC_CHECK(ranked[2].license == EncoderLicenseClass::Hardware);
+    NC_CHECK(!ranked[0].usedDevelopmentException);
+    NC_CHECK(!ranked[1].usedDevelopmentException);
+    NC_CHECK(!ranked[2].usedDevelopmentException);
 
     const auto softwareOnly = rankVideoEncoderCandidates(
         "h264", {sw("openh264", "h264"), sw("libx264", "h264")}, policy);
