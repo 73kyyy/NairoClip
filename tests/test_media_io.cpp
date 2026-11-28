@@ -109,6 +109,8 @@ NC_TEST(MediaIo, ReadsUncompressedPcmWavWithoutCodec) {
     NC_CHECK(reader.open("/tmp/media_gen/speech.wav").isOk());
     NC_CHECK(reader.isOpen());
     NC_CHECK(reader.probe().type == MediaType::Audio);
+    NC_CHECK(reader.probe().hasAudioStream);
+    NC_CHECK(reader.probe().audioDecoderAvailable);
     NC_CHECK_EQ(reader.probe().sampleRate, 48000);
     NC_CHECK_EQ(reader.probe().channels, 1);
     NC_CHECK(std::abs(reader.probe().duration.toDouble() - 8.0) < 0.001);
