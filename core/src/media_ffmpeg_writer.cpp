@@ -42,8 +42,7 @@ std::vector<EncoderCandidate> availableEncodersFor(AVCodecID codecId,
         EncoderCandidate candidate;
         candidate.name = codec->name != nullptr ? codec->name : "";
         candidate.codec = codecName;
-        candidate.hardware =
-            classifyEncoderLicense(candidate.name) == EncoderLicenseClass::Hardware;
+        candidate.hardware = (codec->capabilities & AV_CODEC_CAP_HARDWARE) != 0;
         candidates.push_back(std::move(candidate));
     }
     return candidates;
