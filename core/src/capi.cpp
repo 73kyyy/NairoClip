@@ -74,9 +74,13 @@ extern "C" {
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <limits>
+#include <cmath>
 #include <fstream>
 #include <new>
 #include <vector>
+#include <atomic>
+#include <mutex>
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 // POSIX 目录列举（自动扫描查找重链候选；仅 FFmpeg 构建下使用）
@@ -85,6 +89,17 @@ extern "C" {
 #include <string>
 
 using namespace nairoclip::core;
+
+// 独立于编辑器句柄的语音识别会话。取消标志/进度可由 UI 线程无锁读取。
+struct NcSpeechSession {
+    nairoclip::core::SpeechRecognizer recognizer;
+    mutable std::mutex mutex;
+    std::atomic<bool> busy{false};
+    std::atomic<bool> cancelRequested{false};
+    std::atomic<int32_t> state{0};
+    std::atomic<double> progress{0.0};
+    std::string lastError;
+};
 
 // 不透明句柄的真实定义。
 struct NcEditor {
@@ -155,6 +170,109 @@ struct NcEditor {
 };
 
 namespace {
+
+class SpeechSourceReader final : public MediaReader {
+public:
+    Result open(const std::string& path) override {
+        close();
+        const Result pcm = wav_.open(path);
+        if (pcm.isOk()) {
+            useWav_ = true;
+            return pcm;
+        }
+#ifdef NAIROCLIP_HAS_FFMPEG
+        const Result systemMedia = ffmpeg_.open(path);
+        if (systemMedia.isOk()) {
+            if (!ffmpeg_.probe().hasAudioStream) {
+                ffmpeg_.close();
+                return Result::fail(ErrorCode::NotFound, "素材没有音频流。");
+            }
+            if (!ffmpeg_.probe().audioDecoderAvailable) {
+                ffmpeg_.close();
+                return Result::fail(
+                    ErrorCode::Unsupported,
+                    "当前平台没有可用的系统音频解码器；未使用应用自带软件解码回退。");
+            }
+            useWav_ = false;
+            return systemMedia;
+        }
+        return systemMedia;
+#else
+        return pcm;
+#endif
+    }
+    void close() override {
+        wav_.close();
+#ifdef NAIROCLIP_HAS_FFMPEG
+        ffmpeg_.close();
+#endif
+        useWav_ = false;
+    }
+    bool isOpen() const override {
+        if (useWav_) return wav_.isOpen();
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.isOpen();
+#else
+        return false;
+#endif
+    }
+    const MediaProbeResult& probe() const override {
+        if (useWav_) return wav_.probe();
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.probe();
+#else
+        return wav_.probe();
+#endif
+    }
+    Result seek(const Time& time) override {
+        if (useWav_) return wav_.seek(time);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.seek(time);
+#else
+        return Result::fail(ErrorCode::Unsupported, "当前构建没有系统压缩媒体 reader");
+#endif
+    }
+    bool readVideoFrame(VideoFrame& out) override {
+        if (useWav_) return wav_.readVideoFrame(out);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.readVideoFrame(out);
+#else
+        (void)out;
+        return false;
+#endif
+    }
+    bool readAudioBlock(AudioBlock& out) override {
+        if (useWav_) return wav_.readAudioBlock(out);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        return ffmpeg_.readAudioBlock(out);
+#else
+        (void)out;
+        return false;
+#endif
+    }
+    void suggestSequential(const SequentialHint& hint) override {
+        if (useWav_) wav_.suggestSequential(hint);
+#ifdef NAIROCLIP_HAS_FFMPEG
+        else ffmpeg_.suggestSequential(hint);
+#else
+        (void)hint;
+#endif
+    }
+
+private:
+    WavPcmReader wav_;
+#ifdef NAIROCLIP_HAS_FFMPEG
+    FFmpegMediaReader ffmpeg_;
+#endif
+    bool useWav_ = false;
+};
+
+class SpeechSourceReaderFactory final : public MediaReaderFactory {
+public:
+    std::unique_ptr<MediaReader> create() override {
+        return std::make_unique<SpeechSourceReader>();
+    }
+};
 
 char* dupString(const std::string& text) {
     char* out = new (std::nothrow) char[text.size() + 1];
@@ -1685,6 +1803,29 @@ int32_t nc_clip_info(const NcEditor* editor, int32_t track_index, uint32_t clip_
     return NC_OK;
 }
 
+int32_t nc_clip_source_info(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                            int64_t* out_source_in_us, int64_t* out_source_out_us,
+                            int32_t* out_reversed, int32_t* out_frozen,
+                            int32_t* out_has_speed_curve) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "片段源区间参数无效");
+    }
+    const Clip* clip = findClipById(editor, track_index, clip_id);
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    const bool hasSpeedCurve = !clip->speedCurve.empty();
+    const bool sourceRangeIsLinear = !clip->freeze && !hasSpeedCurve;
+    if (out_source_in_us != nullptr) *out_source_in_us = toMicroseconds(clip->sourceIn);
+    if (out_source_out_us != nullptr) {
+        *out_source_out_us = sourceRangeIsLinear
+            ? toMicroseconds(clip->sourceOut())
+            : toMicroseconds(clip->sourceIn);
+    }
+    if (out_reversed != nullptr) *out_reversed = clip->reversed ? 1 : 0;
+    if (out_frozen != nullptr) *out_frozen = clip->freeze ? 1 : 0;
+    if (out_has_speed_curve != nullptr) *out_has_speed_curve = hasSpeedCurve ? 1 : 0;
+    return NC_OK;
+}
+
 int32_t nc_set_clip_enabled(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             int32_t enabled) {
     SequenceId seqId;
@@ -2455,6 +2596,66 @@ int32_t nc_remove_transition_keyframe(NcEditor* editor, int32_t track_index,
                                           static_cast<ClipProperty>(property), keyframeLocal));
 }
 
+int32_t nc_upsert_subtitles_batch(NcEditor* editor, const NcSubtitleCueInput* cues,
+                                  int32_t count, uint64_t* out_subtitle_ids) {
+    if (editor == nullptr || cues == nullptr || out_subtitle_ids == nullptr ||
+        count <= 0 || count > 10000) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕参数无效");
+    }
+    // Failure is atomic for both project state and output IDs: never expose a
+    // partially populated ID array when a later cue rejects the batch.
+    for (int32_t i = 0; i < count; ++i) out_subtitle_ids[i] = 0;
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "主序列不存在");
+    if (editor->editor->inTransaction()) {
+        return failNc(NC_ERROR_LOCKED, "编辑器已有事务，不能嵌套自动字幕批量写入");
+    }
+
+    std::vector<SubtitleCue> prepared;
+    prepared.reserve(static_cast<std::size_t>(count));
+    for (int32_t i = 0; i < count; ++i) {
+        if (cues[i].text == nullptr || cues[i].start_us < 0 || cues[i].duration_us <= 0 ||
+            cues[i].start_us > std::numeric_limits<int64_t>::max() - cues[i].duration_us) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕包含非法文本或时间范围");
+        }
+        const std::string text(cues[i].text);
+        if (text.empty() || text.size() > 16 * 1024) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "字幕文本不能为空且不得超过 16 KiB");
+        }
+        SubtitleCue cue;
+        cue.id = SubtitleId{editor->project.ids.next()};
+        cue.start = fromMicroseconds(cues[i].start_us);
+        cue.duration = fromMicroseconds(cues[i].duration_us);
+        cue.text = text;
+        if (!cue.valid()) {
+            return failNc(NC_ERROR_INVALID_ARGUMENT, "批量字幕时间参数校验失败");
+        }
+        prepared.push_back(std::move(cue));
+    }
+
+    std::vector<uint64_t> insertedIds;
+    insertedIds.reserve(prepared.size());
+    editor->editor->beginTransaction("自动字幕");
+    for (std::size_t i = 0; i < prepared.size(); ++i) {
+        const uint64_t id = prepared[i].id.value;
+        const Result result = editor->editor->upsertSubtitle(main->id, std::move(prepared[i]));
+        if (!result.isOk()) {
+            const bool grouped = editor->editor->endTransaction();
+            if (grouped) (void)editor->editor->undo();
+            return failResult(result);
+        }
+        insertedIds.push_back(id);
+    }
+    if (!editor->editor->endTransaction()) {
+        return failNc(NC_ERROR_INTERNAL, "自动字幕事务未形成历史记录");
+    }
+    // Publish identifiers only after the entire transaction is committed.
+    for (std::size_t i = 0; i < insertedIds.size(); ++i) {
+        out_subtitle_ids[i] = insertedIds[i];
+    }
+    return NC_OK;
+}
+
 uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration_us,
                             const char* text) {
     if (editor == nullptr || text == nullptr || start_us < 0 || duration_us <= 0) {
@@ -2466,6 +2667,7 @@ uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration
     }
     SubtitleCue cue;
     cue.id = SubtitleId{editor->project.ids.next()};
+    const uint64_t cueId = cue.id.value;
     cue.start = fromMicroseconds(start_us);
     cue.duration = fromMicroseconds(duration_us);
     cue.text = text;
@@ -2473,15 +2675,9 @@ uint64_t nc_upsert_subtitle(NcEditor* editor, int64_t start_us, int64_t duration
     if (!r.isOk()) {
         return 0;
     }
-    const SubtitleTrack& subtitles = editor->project.mainSequence()->subtitles;
-    // 返回最新插入的字幕 ID（按时间匹配最后一条）
-    const SubtitleCue* found = nullptr;
-    for (const auto& c : subtitles.cues()) {
-        if (c.start == fromMicroseconds(start_us) && c.text == std::string(text)) {
-            found = &c;
-        }
-    }
-    return found != nullptr ? found->id.value : 0;
+    // Return the exact ID allocated for this operation. Searching by time/text
+    // is ambiguous when two identical cues are inserted at the same timestamp.
+    return cueId;
 }
 
 int32_t nc_remove_subtitle(NcEditor* editor, uint64_t subtitle_id) {
@@ -2516,6 +2712,18 @@ int32_t nc_subtitle_get(const NcEditor* editor, int32_t index, int64_t* start_us
     if (start_us != nullptr) *start_us = toMicroseconds(cue.start);
     if (duration_us != nullptr) *duration_us = toMicroseconds(cue.duration);
     if (out_text != nullptr) *out_text = dupString(cue.text);
+    return NC_OK;
+}
+
+int32_t nc_subtitle_get_id(const NcEditor* editor, int32_t index, uint64_t* out_subtitle_id) {
+    if (editor == nullptr || index < 0 || out_subtitle_id == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "字幕 ID 查询参数无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(index) >= main->subtitles.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "字幕索引超出范围");
+    }
+    *out_subtitle_id = main->subtitles.cues()[static_cast<std::size_t>(index)].id.value;
     return NC_OK;
 }
 
@@ -3209,6 +3417,25 @@ int32_t nc_set_clip_audio(NcEditor* editor, int32_t track_index, uint64_t clip_i
                                         fromMicroseconds(fade_out_us)));
 }
 
+int32_t nc_get_clip_audio(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                          double* out_gain_db, int64_t* out_fade_in_us,
+                          int64_t* out_fade_out_us) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr || static_cast<std::size_t>(track_index) >= main->tracks.size()) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "main 为空");
+    }
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "clip 不存在");
+    if (out_gain_db != nullptr) *out_gain_db = clip->audioGainDb;
+    if (out_fade_in_us != nullptr) *out_fade_in_us = toMicroseconds(clip->audioFadeIn);
+    if (out_fade_out_us != nullptr) *out_fade_out_us = toMicroseconds(clip->audioFadeOut);
+    return NC_OK;
+}
+
 int32_t nc_set_clip_denoise(NcEditor* editor, int32_t track_index, uint64_t clip_id,
                             int32_t strength) {
     if (editor == nullptr || track_index < 0 || clip_id == 0) {
@@ -3280,6 +3507,18 @@ int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba) {
     }
     return applyResultKeepingLastError(editor->editor->setCanvasBackground(
         main->id, CanvasBackground::fromRgba32(rgba)));
+}
+
+int32_t nc_get_background_color(const NcEditor* editor, uint32_t* out_rgba) {
+    if (editor == nullptr || out_rgba == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    *out_rgba = main->backgroundRgba;
+    return NC_OK;
 }
 
 // ---- 画布能力（B1-02）----------------------------------------------------
@@ -3796,12 +4035,13 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
                           int32_t quality, int32_t crf, int32_t max_frames,
                           int32_t (*progress_cb)(double), int32_t* out_frames,
                           int32_t* out_width, int32_t* out_height, char** out_error) {
-    if (editor == nullptr || out_path == nullptr) {
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
-    }
     if (out_frames != nullptr) *out_frames = 0;
     if (out_width != nullptr) *out_width = 0;
     if (out_height != nullptr) *out_height = 0;
+    if (out_error != nullptr) *out_error = nullptr;
+    if (editor == nullptr || out_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
 #ifdef NAIROCLIP_HAS_FFMPEG
     // 1) 找素材
     const MediaAsset* asset = nullptr;
@@ -3835,7 +4075,7 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
     const Result openResult = reader.open(asset->path);
     if (!openResult.isOk()) {
         setDetail(out_error, openResult.message);
-        return failNc(NC_ERROR_NOT_FOUND, "原片打开失败");
+        return failResult(openResult);
     }
     FFmpegMediaWriter writer;
     WriterConfig config;
@@ -3850,7 +4090,7 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
     const Result writerOpen = writer.open(out_path, config);
     if (!writerOpen.isOk()) {
         setDetail(out_error, writerOpen.message);
-        return failNc(NC_ERROR_UNSUPPORTED, "代理写入器打开失败（可能没有可用编码器）");
+        return failResult(writerOpen);
     }
 
     // 4) 逐帧转码
@@ -3868,11 +4108,12 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
         setDetail(out_error, gen.result.message);
         // 用户取消 → 用 CANCELLED 语义返回，平台层据此不提示「失败」
         return gen.cancelled ? failNc(NC_ERROR_CANCELLED, "已取消")
-                             : failNc(NC_ERROR_INTERNAL, "代理转码失败");
+                             : failResult(gen.result);
     }
-    if (!writer.finish().isOk()) {
-        setDetail(out_error, "代理文件收尾失败");
-        return failNc(NC_ERROR_INTERNAL, "代理文件写入失败");
+    const Result finishResult = writer.finish();
+    if (!finishResult.isOk()) {
+        setDetail(out_error, finishResult.message);
+        return failResult(finishResult);
     }
 
     if (out_frames != nullptr) *out_frames = static_cast<int32_t>(gen.framesWritten);
@@ -3988,12 +4229,8 @@ int32_t nc_speech_analyze(NcEditor* editor, uint64_t asset_id, int64_t* out_spee
         return -1;
     }
     SpeechActivityResult result;
-#ifdef NAIROCLIP_HAS_FFMPEG
-    FFmpegReaderFactory readerFactory;
+SpeechSourceReaderFactory readerFactory;
     result = analyzeAssetSpeech(*asset, &readerFactory);
-#else
-    result = analyzeAssetSpeech(*asset, nullptr);
-#endif
     if (out_speech_us != nullptr) *out_speech_us = toMicroseconds(result.speechDuration);
     if (out_silence_us != nullptr) *out_silence_us = toMicroseconds(result.silenceDuration);
     if (out_keep_ratio != nullptr) *out_keep_ratio = result.keepRatio;
@@ -4053,12 +4290,8 @@ int32_t nc_speech_cut_apply(NcEditor* editor, int32_t track_index, char** out_er
         return -1;
     }
     SpeechActivityResult activity;
-#ifdef NAIROCLIP_HAS_FFMPEG
-    FFmpegReaderFactory readerFactory;
+SpeechSourceReaderFactory readerFactory;
     activity = analyzeAssetSpeech(*asset, &readerFactory);
-#else
-    activity = analyzeAssetSpeech(*asset, nullptr);
-#endif
     if (!activity.valid()) {
         if (out_error != nullptr) {
             *out_error = dupString(activity.note.empty() ? "语音分析无效" : activity.note);
@@ -4417,6 +4650,76 @@ int32_t nc_get_clip_lut(const NcEditor* editor, int32_t track_index, uint64_t cl
     // 未设置时输出空串而不是 NULL：UI 侧统一按字符串处理，不用到处判空。
     if (out_path != nullptr) *out_path = dupString(clip->lutPath);
     if (out_strength != nullptr) *out_strength = clip->lutStrength;
+    return NC_OK;
+}
+
+
+int32_t nc_set_clip_color_grade(NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                const double* master_xy, int32_t master_count,
+                                const double* red_xy, int32_t red_count,
+                                const double* green_xy, int32_t green_count,
+                                const double* blue_xy, int32_t blue_count) {
+    if (editor == nullptr || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 或片段 ID 无效");
+    }
+    const auto readCurve = [](const double* values, int32_t count, ColorCurve& out) {
+        if (values == nullptr || count < static_cast<int32_t>(ColorCurve::kMinPoints) ||
+            count > static_cast<int32_t>(ColorCurve::kMaxPoints)) return false;
+        out.points.clear();
+        out.points.reserve(static_cast<std::size_t>(count));
+        for (int32_t i = 0; i < count; ++i) {
+            out.points.push_back({values[i * 2], values[i * 2 + 1]});
+        }
+        return out.valid();
+    };
+    ColorGrade grade;
+    if (!readCurve(master_xy, master_count, grade.master) ||
+        !readCurve(red_xy, red_count, grade.red) ||
+        !readCurve(green_xy, green_count, grade.green) ||
+        !readCurve(blue_xy, blue_count, grade.blue)) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "RGB 曲线必须为 2–32 个合法控制点");
+    }
+    SequenceId sequenceId;
+    TrackId trackId;
+    int32_t code = NC_OK;
+    if (!resolveTrack(editor, track_index, &sequenceId, &trackId, &code)) return code;
+    return failResult(editor->editor->setClipColorGrade(
+        sequenceId, trackId, ClipId{clip_id}, grade));
+}
+
+int32_t nc_get_clip_color_grade(const NcEditor* editor, int32_t track_index, uint64_t clip_id,
+                                double* master_xy, int32_t master_capacity, int32_t* master_count,
+                                double* red_xy, int32_t red_capacity, int32_t* red_count,
+                                double* green_xy, int32_t green_capacity, int32_t* green_count,
+                                double* blue_xy, int32_t blue_capacity, int32_t* blue_count) {
+    if (editor == nullptr || track_index < 0 || clip_id == 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 或片段目标无效");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) return failNc(NC_ERROR_NOT_FOUND, "主序列不存在");
+    if (static_cast<std::size_t>(track_index) >= main->tracks.size())
+        return failNc(NC_ERROR_OUT_OF_RANGE, "轨道索引越界");
+    const Track& track = main->tracks[static_cast<std::size_t>(track_index)];
+    const Clip* clip = track.findClip(ClipId{clip_id});
+    if (clip == nullptr) return failNc(NC_ERROR_NOT_FOUND, "片段不存在");
+    const auto writeCurve = [](const ColorCurve& curve, double* values,
+                               int32_t capacity, int32_t* count) {
+        if (count != nullptr) *count = static_cast<int32_t>(curve.points.size());
+        if (values == nullptr) return true;
+        if (capacity < static_cast<int32_t>(curve.points.size() * 2)) return false;
+        for (std::size_t i = 0; i < curve.points.size(); ++i) {
+            values[i * 2] = curve.points[i].input;
+            values[i * 2 + 1] = curve.points[i].output;
+        }
+        return true;
+    };
+    const ColorGrade& grade = clip->colorGrade;
+    if (!writeCurve(grade.master, master_xy, master_capacity, master_count) ||
+        !writeCurve(grade.red, red_xy, red_capacity, red_count) ||
+        !writeCurve(grade.green, green_xy, green_capacity, green_count) ||
+        !writeCurve(grade.blue, blue_xy, blue_capacity, blue_count)) {
+        return failNc(NC_ERROR_OUT_OF_RANGE, "RGB 曲线输出缓冲区容量不足");
+    }
     return NC_OK;
 }
 
@@ -5068,15 +5371,53 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
                           double* out_opacity, double* out_scale, double* out_pos_x,
                           double* out_pos_y, double* out_rotation,
                           int32_t* out_transition_type, double* out_transition_progress) {
+    // Initialize every optional output before validating arguments so callers
+    // never observe stale pointers/metadata after an error.
+    if (out_width != nullptr) *out_width = 0;
+    if (out_height != nullptr) *out_height = 0;
+    if (out_rgba != nullptr) *out_rgba = nullptr;
+    if (out_clip_id != nullptr) *out_clip_id = 0;
+    if (out_opacity != nullptr) *out_opacity = 0.0;
+    if (out_scale != nullptr) *out_scale = 1.0;
+    if (out_pos_x != nullptr) *out_pos_x = 0.0;
+    if (out_pos_y != nullptr) *out_pos_y = 0.0;
+    if (out_rotation != nullptr) *out_rotation = 0.0;
+    if (out_transition_type != nullptr) *out_transition_type = -1;
+    if (out_transition_progress != nullptr) *out_transition_progress = 0.0;
     if (editor == nullptr || time_us < 0) {
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或时间为负");
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
     PreviewRenderer* renderer = ensurePreviewRenderer(editor);
     if (renderer == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
     }
-    const PreviewFrame frame = renderer->renderAt(fromMicroseconds(time_us));
+    const Time timelineTime = fromMicroseconds(time_us);
+    const PreviewFrame frame = renderer->renderAt(timelineTime);
+    // A timeline gap is a valid empty frame; an active video clip that produced
+    // no pixels means its media backend/decoder failed. Do not report NC_OK
+    // with a blank preview, which would hide unsupported system codecs.
+    if (frame.rgba.empty() && frame.clipId == 0) {
+        const Sequence* sequence = editor->project.mainSequence();
+        bool hasActiveVideoClip = false;
+        if (sequence != nullptr) {
+            for (const auto& track : sequence->tracks) {
+                if (track.type != TrackType::Video || track.hidden) continue;
+                for (const auto& clip : track.clips) {
+                    if (clip.enabled && clip.contains(timelineTime)) {
+                        hasActiveVideoClip = true;
+                        break;
+                    }
+                }
+                if (hasActiveVideoClip) break;
+            }
+        }
+        if (hasActiveVideoClip) {
+            return failNc(NC_ERROR_UNSUPPORTED,
+                          "当前片段无法通过已接入的系统媒体解码后端生成预览帧；"
+                          "未回退到应用自带的软件解码器。");
+        }
+    }
     if (out_width != nullptr) *out_width = frame.width;
     if (out_height != nullptr) *out_height = frame.height;
     if (out_clip_id != nullptr) *out_clip_id = frame.clipId;
@@ -5204,6 +5545,11 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
                               int32_t max_width, int32_t max_height,
                               uint8_t** out_images, int64_t* out_times_us,
                               int32_t* out_count) {
+    if (out_images != nullptr) *out_images = nullptr;
+    if (out_count != nullptr) *out_count = 0;
+    if (out_times_us != nullptr) {
+        for (int32_t i = 0; i < count && i < 64; ++i) out_times_us[i] = 0;
+    }
     if (editor == nullptr || asset_id == 0 || count < 0 || count > 64) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -5212,6 +5558,15 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
     if (asset == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "asset 为空");
     }
+    // Distinguish an absent file from an unavailable system decoder.
+    // Never report success with an empty thumbnail list when decoding is unsupported.
+    FFmpegMediaReader capabilityProbe;
+    const Result readerOpen = capabilityProbe.open(asset->path);
+    if (!readerOpen.isOk()) {
+        return failResult(readerOpen);
+    }
+    capabilityProbe.close();
+
     ThumbnailConfig config;
     config.count = count > 0 ? count : 8;
     if (max_width > 0) config.maxWidth = max_width;
@@ -5219,6 +5574,10 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
     FFmpegMediaReader reader;
     const std::vector<Thumbnail> thumbs =
         generateThumbnails(reader, asset->path, asset->duration, config);
+    if (thumbs.size() != static_cast<std::size_t>(config.count)) {
+        return failNc(NC_ERROR_UNSUPPORTED,
+                      "系统视频解码后端未能生成全部请求的缩略图；未使用软件解码回退。");
+    }
     if (out_count != nullptr) *out_count = static_cast<int32_t>(thumbs.size());
     if (!thumbs.empty()) {
         editor->thumbnailWidth = thumbs.front().width;
@@ -5269,17 +5628,29 @@ int32_t nc_thumbnail_size(const NcEditor* editor, int32_t* out_width, int32_t* o
 int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket_count,
                              double* out_peak, int32_t* out_sample_rate,
                              int32_t* out_channels) {
+    if (out_peak != nullptr) *out_peak = 0.0;
+    if (out_sample_rate != nullptr) *out_sample_rate = 0;
+    if (out_channels != nullptr) *out_channels = 0;
     if (editor == nullptr || asset_id == 0 || bucket_count < 0 || bucket_count > 100000) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
+    editor->waveformCache = Waveform{};
 #ifdef NAIROCLIP_HAS_FFMPEG
     const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
     if (asset == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "asset 为空");
     }
     FFmpegMediaReader reader;
-    if (!reader.open(asset->path).isOk()) {
-        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
+    const Result readerOpen = reader.open(asset->path);
+    if (!readerOpen.isOk()) {
+        return failResult(readerOpen);
+    }
+    if (!reader.probe().hasAudioStream) {
+        return failNc(NC_ERROR_NOT_FOUND, "素材没有音频流");
+    }
+    if (!reader.probe().audioDecoderAvailable) {
+        return failNc(NC_ERROR_UNSUPPORTED,
+                      "当前平台没有可用的系统音频解码器；未使用软件解码回退。");
     }
     // 上限保护：只解码前 120s 音频（波形显示无需全片；避免长素材 OOM/耗时）
     constexpr double kMaxSeconds = 120.0;
@@ -5294,6 +5665,10 @@ int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket
         blocks.push_back(std::move(block));
     }
     reader.close();
+    if (blocks.empty()) {
+        return failNc(NC_ERROR_UNSUPPORTED,
+                      "系统音频解码后端未输出采样数据；未使用软件解码回退。");
+    }
     editor->waveformCache = buildWaveform(blocks, bucket_count > 0 ? bucket_count : 512);
     if (out_peak != nullptr) *out_peak = editor->waveformCache.peak();
     if (out_sample_rate != nullptr) *out_sample_rate = editor->waveformCache.sampleRate;
@@ -5658,6 +6033,8 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
 
 int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_samples,
                         int32_t* out_boundary_count, double** out_boundaries) {
+    if (out_boundary_count != nullptr) *out_boundary_count = 0;
+    if (out_boundaries != nullptr) *out_boundaries = nullptr;
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -5668,6 +6045,7 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
     }
     // 采集帧特征（真实解码；复用章节检测的采样约定）
     std::vector<FrameFeature> features;
+    bool hasVideoAsset = false;
     int sampleCap = max_samples > 0 ? max_samples : 600;
     // 上一采样点状态（直方图差异 + 颜色差）
     std::vector<std::uint8_t> prevLuma;
@@ -5683,9 +6061,11 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
             if (asset == nullptr || asset->isImage()) {
                 continue;
             }
+            hasVideoAsset = true;
             FFmpegMediaReader reader;
-            if (!reader.open(asset->path).isOk()) {
-                continue;
+            const Result readerOpen = reader.open(asset->path);
+            if (!readerOpen.isOk()) {
+                return failResult(readerOpen);
             }
             // 步长自适应：短片段细采样（0.25s），长片段粗采样（至 1s）
             const double clipSeconds = clip.duration.toDouble();
@@ -5784,7 +6164,10 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
         }
     }
     if (features.empty()) {
-        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
+        return hasVideoAsset
+                   ? failNc(NC_ERROR_UNSUPPORTED,
+                            "系统视频解码后端未能输出场景检测帧；未使用软件解码回退。")
+                   : failNc(NC_ERROR_NOT_FOUND, "没有可检测的视频片段");
     }
     const std::vector<ShotBoundary> shots =
         detectShots(features, seq->duration(), SceneDetectConfig{});
@@ -5872,21 +6255,31 @@ const Track* pickAudioTrack(const NcEditor* editor, int32_t track_index,
 /// 采集目标音频轨的全部音频块，并映射到时间轴坐标。
 /// 抽出来给 nc_beat_detect 与 nc_beat_sync_apply 共用 ——
 /// 两边各抄一遍这段循环，迟早会改漏一处。
-bool collectAudioBlocks(const NcEditor* editor, const Track& target,
-                        std::vector<AudioBlock>* outBlocks) {
-    if (outBlocks == nullptr) return false;
+Result collectAudioBlocks(const NcEditor* editor, const Track& target,
+                          std::vector<AudioBlock>* outBlocks) {
+    if (outBlocks == nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "音频块输出为空");
+    }
     for (const auto& clip : target.clips) {
         const MediaAsset* asset = editor->project.findAsset(clip.asset);
         if (asset == nullptr) {
             continue;
         }
         FFmpegMediaReader reader;
-        if (!reader.open(asset->path).isOk()) {
-            continue;
+        const Result openResult = reader.open(asset->path);
+        if (!openResult.isOk()) {
+            return openResult;
         }
-        if (!reader.seek(clip.sourceIn).isOk()) {
-            reader.close();
-            continue;
+        if (!reader.probe().hasAudioStream) {
+            return Result::fail(ErrorCode::NotFound, "素材没有音频流。");
+        }
+        if (!reader.probe().audioDecoderAvailable) {
+            return Result::fail(ErrorCode::Unsupported,
+                                "系统媒体后端没有可用的音频解码器；未使用软件解码回退。");
+        }
+        const Result seekResult = reader.seek(clip.sourceIn);
+        if (!seekResult.isOk()) {
+            return seekResult;
         }
         const Time sourceEnd = clip.sourceIn + clip.duration * clip.speed;
         AudioBlock block;
@@ -5905,7 +6298,11 @@ bool collectAudioBlocks(const NcEditor* editor, const Track& target,
         }
         reader.close();
     }
-    return !outBlocks->empty();
+    if (outBlocks->empty()) {
+        return Result::fail(ErrorCode::Unsupported,
+                            "系统音频解码后端未输出采样数据；未使用软件解码回退。");
+    }
+    return Result::ok();
 }
 
 }  // namespace
@@ -5914,6 +6311,10 @@ bool collectAudioBlocks(const NcEditor* editor, const Track& target,
 
 int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
                        double* out_confidence, int32_t* out_beat_count, double** out_beats) {
+    if (out_bpm != nullptr) *out_bpm = 0.0;
+    if (out_confidence != nullptr) *out_confidence = 0.0;
+    if (out_beat_count != nullptr) *out_beat_count = 0;
+    if (out_beats != nullptr) *out_beats = nullptr;
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -5930,8 +6331,9 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
         return failNc(code, trackError);
     }
     std::vector<AudioBlock> blocks;
-    if (!collectAudioBlocks(editor, *target, &blocks)) {
-        return failNc(NC_ERROR_NOT_FOUND, "没有可用的音频数据");
+    const Result collectResult = collectAudioBlocks(editor, *target, &blocks);
+    if (!collectResult.isOk()) {
+        return failResult(collectResult);
     }
     const BeatAnalysis analysis = analyzeBeats(blocks, BeatDetectConfig{});
     if (out_bpm != nullptr) *out_bpm = analysis.bpm;
@@ -7392,6 +7794,10 @@ int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* d
     if (decoder_path == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "decoder_path 为空");
     }
+    if (tokenizer_path == nullptr || tokenizer_path[0] == '\0') {
+        setDetail(out_error, "Whisper tokenizer_path 必须提供，不能在缺少 BPE 词表时标记模型已加载");
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "tokenizer_path 为空");
+    }
     std::string failure;
     if (editor->speechRecognizer == nullptr) {
         editor->speechRecognizer.reset(new (std::nothrow) SpeechRecognizer());
@@ -7405,14 +7811,13 @@ int32_t nc_speech_load(NcEditor* editor, const char* encoder_path, const char* d
         editor->speechRecognizer.reset();
         return failNc(NC_ERROR_UNSUPPORTED, "参数或状态非法");
     }
-    // 词表（可选；失败不影响模型加载，但解码输出为空——明确告知）
-    if (tokenizer_path != nullptr && tokenizer_path[0] != '\0') {
-        std::string tokenizerFailure;
-        if (!editor->speechRecognizer->loadTokenizer(tokenizer_path, &tokenizerFailure)) {
-            setDetail(out_error, "词表加载失败（解码将返回空文本）：" + tokenizerFailure);
-            // 模型仍可用（部分功能）；返回 OK 但给出提示
-        }
+    std::string tokenizerFailure;
+    if (!editor->speechRecognizer->loadTokenizer(tokenizer_path, &tokenizerFailure)) {
+        setDetail(out_error, "Whisper tokenizer 加载失败：" + tokenizerFailure);
+        editor->speechRecognizer.reset();
+        return failNc(NC_ERROR_UNSUPPORTED, "Whisper tokenizer 加载失败");
     }
+    if (out_error != nullptr) *out_error = nullptr;
     return NC_OK;
 }
 
@@ -7467,6 +7872,157 @@ int32_t nc_speech_transcribe(NcEditor* editor, const float* samples, int64_t fra
     }
     if (out_segments_json != nullptr) {
         *out_segments_json = dupString(toJsonString(array));
+    }
+    return NC_OK;
+}
+
+NcSpeechSession* nc_speech_session_create(void) {
+    return new (std::nothrow) NcSpeechSession();
+}
+
+void nc_speech_session_destroy(NcSpeechSession* session) {
+    // Contract: caller joins the worker before destroying the opaque handle.
+    delete session;
+}
+
+int32_t nc_speech_session_load_memory(NcSpeechSession* session,
+    const uint8_t* encoder, int64_t encoder_size,
+    const uint8_t* decoder, int64_t decoder_size,
+    const char* tokenizer_json, int64_t tokenizer_size, char** out_error) {
+    if (session == nullptr || encoder == nullptr || decoder == nullptr ||
+        encoder_size <= 0 || decoder_size <= 0 ||
+        tokenizer_json == nullptr || tokenizer_size <= 0 ||
+        tokenizer_size > 32 * 1024 * 1024) {
+        setDetail(out_error, "语音模型内存参数非法（tokenizer 必须提供且不超过 32 MiB）");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    bool expected = false;
+    if (!session->busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        setDetail(out_error, "语音识别会话正忙，不能重新加载模型");
+        return NC_ERROR_LOCKED;
+    }
+    struct LoadBusyReset {
+        NcSpeechSession* value;
+        ~LoadBusyReset() { value->busy.store(false, std::memory_order_release); }
+    } busyReset{session};
+    std::lock_guard<std::mutex> lock(session->mutex);
+    std::string failure;
+    if (!session->recognizer.loadFromMemory(encoder, static_cast<std::size_t>(encoder_size),
+            decoder, static_cast<std::size_t>(decoder_size), &failure)) {
+        session->lastError = failure.empty() ? "Whisper 模型加载失败" : failure;
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    if (!session->recognizer.loadTokenizerJson(
+            std::string(tokenizer_json, static_cast<std::size_t>(tokenizer_size)), &failure)) {
+        session->recognizer.unload();
+        session->lastError = failure.empty() ? "Whisper tokenizer 加载失败" : failure;
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    session->lastError.clear();
+    session->cancelRequested.store(false, std::memory_order_release);
+    session->progress.store(0.0, std::memory_order_release);
+    session->state.store(1, std::memory_order_release);
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_speech_session_transcribe(NcSpeechSession* session,
+    const float* samples, int64_t frame_count, int32_t sample_rate, int32_t language,
+    char** out_segments_json, char** out_error) {
+    if (out_segments_json != nullptr) *out_segments_json = nullptr;
+    if (session == nullptr || samples == nullptr || out_segments_json == nullptr ||
+        frame_count <= 0 || sample_rate < 8000 || sample_rate > 192000 ||
+        frame_count > static_cast<int64_t>(sample_rate) * 600LL) {
+        setDetail(out_error, "PCM 参数非法（采样率须为 8–192 kHz，时长不得超过 10 分钟，结果指针必需）");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    for (int64_t i = 0; i < frame_count; ++i) {
+        if (!std::isfinite(samples[i]) || samples[i] < -1.0f || samples[i] > 1.0f) {
+            setDetail(out_error, "PCM 必须是有限值且位于 [-1,1]");
+            return NC_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    bool expected = false;
+    if (!session->busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        setDetail(out_error, "当前语音识别会话正在运行");
+        return NC_ERROR_LOCKED;
+    }
+    struct BusyReset {
+        NcSpeechSession* value;
+        ~BusyReset() { value->busy.store(false, std::memory_order_release); }
+    } busyReset{session};
+    SpeechLanguage speechLanguage;
+    if (!speechLanguageFromInt(language, speechLanguage)) {
+        setDetail(out_error, "识别语言不受支持");
+        return NC_ERROR_INVALID_ARGUMENT;
+    }
+    std::unique_lock<std::mutex> lock(session->mutex);
+    if (!session->recognizer.loaded() || !session->recognizer.tokenizerLoaded()) {
+        session->lastError = "语音识别模型或 tokenizer 尚未完整加载";
+        session->state.store(4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return NC_ERROR_UNSUPPORTED;
+    }
+    session->cancelRequested.store(false, std::memory_order_release);
+    session->progress.store(0.0, std::memory_order_release);
+    session->lastError.clear();
+    session->state.store(2, std::memory_order_release);
+    std::vector<SpeechSegment> segments;
+    std::string failure;
+    const bool ok = session->recognizer.transcribe(samples,
+        static_cast<std::size_t>(frame_count), sample_rate, speechLanguage, segments,
+        [session](double value) {
+            session->progress.store(std::max(0.0, std::min(1.0, value)), std::memory_order_release);
+            return !session->cancelRequested.load(std::memory_order_acquire);
+        }, &failure);
+    if (!ok) {
+        const bool cancelled = session->cancelRequested.load(std::memory_order_acquire);
+        session->lastError = cancelled ? "用户已取消语音识别" :
+            (failure.empty() ? "语音识别失败" : failure);
+        session->state.store(cancelled ? 5 : 4, std::memory_order_release);
+        setDetail(out_error, session->lastError);
+        return cancelled ? NC_ERROR_CANCELLED : NC_ERROR_INTERNAL;
+    }
+    JsonValue array = JsonValue::array();
+    for (const auto& segment : segments) {
+        JsonValue item = JsonValue::object();
+        item.set("start", JsonValue::number(segment.startSeconds));
+        item.set("end", JsonValue::number(segment.endSeconds));
+        item.set("text", JsonValue::string(segment.text));
+        array.push(std::move(item));
+    }
+    if (out_segments_json != nullptr) *out_segments_json = dupString(toJsonString(array));
+    session->progress.store(1.0, std::memory_order_release);
+    session->state.store(3, std::memory_order_release);
+    if (out_error != nullptr) *out_error = nullptr;
+    return NC_OK;
+}
+
+int32_t nc_speech_session_cancel(NcSpeechSession* session) {
+    if (session == nullptr) return NC_ERROR_INVALID_ARGUMENT;
+    if (!session->busy.load(std::memory_order_acquire) ||
+        session->state.load(std::memory_order_acquire) != 2) return NC_ERROR_NOT_FOUND;
+    session->cancelRequested.store(true, std::memory_order_release);
+    return NC_OK;
+}
+
+int32_t nc_speech_session_status(const NcSpeechSession* session,
+    int32_t* out_state, double* out_progress, char** out_error) {
+    if (session == nullptr) return NC_ERROR_INVALID_ARGUMENT;
+    if (out_state != nullptr) *out_state = session->state.load(std::memory_order_acquire);
+    if (out_progress != nullptr) *out_progress = session->progress.load(std::memory_order_acquire);
+    if (out_error != nullptr) {
+        // Never wait for the long-running inference mutex just to poll progress.
+        if (session->busy.load(std::memory_order_acquire)) {
+            *out_error = dupString(std::string());
+        } else {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            *out_error = dupString(session->lastError);
+        }
     }
     return NC_OK;
 }

@@ -3,6 +3,7 @@
 #include "nairoclip/core/canvas.h"
 #include "nairoclip/core/contract/event.h"
 #include "nairoclip/core/command.h"
+#include "nairoclip/core/color_grade.h"
 /* setClipShake / getClipShake 按值收发 ShakeParams，需要完整类型。 */
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/xform.h"
@@ -219,6 +220,9 @@ public:
     ///   这里不预检：UI 允许用户先设好路径、稍后再放文件（也便于跨机器打开工程）。
     Result setClipLut(SequenceId sequenceId, TrackId trackId, ClipId clipId,
                       const std::string& path, double strength);
+    /// 设置片段 RGB 主曲线（单次可撤销操作）。
+    Result setClipColorGrade(SequenceId sequenceId, TrackId trackId, ClipId clipId,
+                             const ColorGrade& grade);
     // ---- 音频属性 ----
     /// 设置片段音频属性（增益 dB / 淡入 / 淡出）。
     Result setClipAudio(SequenceId sequenceId, TrackId trackId, ClipId clipId, double gainDb,

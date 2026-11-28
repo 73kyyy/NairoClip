@@ -140,6 +140,11 @@ Result KeyframeTrack::insert(Keyframe keyframe) {
     if (keyframe.time.isNegative()) {
         return Result::fail(ErrorCode::InvalidArgument, "关键帧时刻不能为负");
     }
+    if (!std::isfinite(keyframe.value) ||
+        !std::isfinite(keyframe.easing.c1x) || !std::isfinite(keyframe.easing.c1y) ||
+        !std::isfinite(keyframe.easing.c2x) || !std::isfinite(keyframe.easing.c2y)) {
+        return Result::fail(ErrorCode::InvalidArgument, "关键帧数值与曲线控制点必须为有限值");
+    }
     for (auto& k : keyframes_) {
         if (k.time == keyframe.time) {
             k = std::move(keyframe);  // 同时刻替换
@@ -196,7 +201,9 @@ double KeyframeTrack::sample(const Time& t, double fallback) const {
 
 bool KeyframeTrack::invariantsHold() const {
     for (std::size_t i = 0; i < keyframes_.size(); ++i) {
-        if (keyframes_[i].time.isNegative()) {
+        if (keyframes_[i].time.isNegative() || !std::isfinite(keyframes_[i].value) ||
+            !std::isfinite(keyframes_[i].easing.c1x) || !std::isfinite(keyframes_[i].easing.c1y) ||
+            !std::isfinite(keyframes_[i].easing.c2x) || !std::isfinite(keyframes_[i].easing.c2y)) {
             return false;
         }
         if (i > 0 && !(keyframes_[i - 1].time < keyframes_[i].time)) {

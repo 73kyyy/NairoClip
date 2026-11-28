@@ -5,7 +5,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 
 /**
- * 预览区坐标桥（P6 SurfaceView 零拷贝）。
+ * 预览区坐标桥（SurfaceView：EGL/GLES2 GPU 呈现优先，CPU 回退）。
  *
  * ## 为什么需要单独一个桥
  *

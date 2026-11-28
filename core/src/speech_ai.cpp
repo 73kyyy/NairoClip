@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <vector>
 
@@ -151,18 +152,6 @@ std::vector<float> resampleTo16k(const float* samples, std::size_t frameCount,
 ///   中文 = 50260 / 英语 = 50259 / 日语 = 50266 / 韩语 = 50264
 ///   <|transcribe|> = 50359 / <|notimestamps|> = 50363
 constexpr int kStartOfTranscript = 50258;
-constexpr int kEndOfText = 50257;
-
-/// 少量多语言 token → 文本（tiny 多语言模型的词表极大，无法内嵌全表；
-/// 本实现把 token id 转为「占位标记 + id」，由平台层可选的 BPE 词表
-/// 做最终解码。这样不伪造识别结果：无词表时输出明确标注）。
-std::string tokenToTextPlaceholder(int tokenId) {
-    if (tokenId == kEndOfText) {
-        return std::string();
-    }
-    // 明确标注：真实部署时应由平台层提供 tokenizer.json 做 BPE 解码。
-    return "[" + std::to_string(tokenId) + "]";
-}
 
 }  // namespace
 
@@ -284,7 +273,7 @@ struct SpeechRecognizer::Impl {
 };
 
 SpeechRecognizer::SpeechRecognizer() : impl_(new (std::nothrow) Impl()) {}
-SpeechRecognizer::~SpeechRecognizer() = default;
+SpeechRecognizer::~SpeechRecognizer() { unload(); }
 
 bool SpeechRecognizer::load(const std::string& encoderPath, const std::string& decoderPath,
                             std::string* outputFailure) {
@@ -293,6 +282,11 @@ bool SpeechRecognizer::load(const std::string& encoderPath, const std::string& d
         if (outputFailure != nullptr) *outputFailure = "内存分配失败";
         return false;
     }
+    // A new model must never inherit the previous model's tokenizer.
+    impl_->vocab.clear();
+    impl_->idToToken.clear();
+    impl_->addedTokens.clear();
+    impl_->tokenizerReady = false;
     if (!aiEngineAvailable()) {
         if (outputFailure != nullptr) {
             *outputFailure = "AI 推理引擎不可用（未链接 ONNX Runtime）";
@@ -306,6 +300,161 @@ bool SpeechRecognizer::load(const std::string& encoderPath, const std::string& d
         impl_->encoder.unload();
         return false;
     }
+
+    // This implementation is specifically the Whisper-tiny merged decoder:
+    // 4 transformer layers × (self K/V + cross K/V) = 16 cache inputs,
+    // plus input_ids, encoder_hidden_states and use_cache_branch.
+    // Whisper-small/base/large or split decoder exports have different tensor
+    // contracts; reject them before inference rather than failing mid-task.
+    const auto& encoderInputs = impl_->encoder.inputs();
+    const auto& encoderOutputs = impl_->encoder.outputs();
+    const auto& decoderInputs = impl_->decoder.inputs();
+    const auto& decoderOutputs = impl_->decoder.outputs();
+    const auto dimMatches = [](std::int64_t actual, std::int64_t expected) {
+        return actual < 0 || actual == expected;
+    };
+    if (encoderInputs.size() != 1 || encoderOutputs.empty() ||
+        encoderInputs[0].type != AiTensorType::Float32 || encoderOutputs[0].type != AiTensorType::Float32 ||
+        encoderInputs[0].shape.size() != 3 || encoderOutputs[0].shape.size() != 3 ||
+        !dimMatches(encoderInputs[0].shape[1], kMelBins) ||
+        !dimMatches(encoderInputs[0].shape[2], melFrames()) ||
+        !dimMatches(encoderOutputs[0].shape[2], 384)) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny encoder 张量契约不匹配（期望 [1,80,3000]）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    if (decoderInputs.size() != 19 || decoderOutputs.size() < 17 ||
+        decoderInputs[0].type != AiTensorType::Int64 ||
+        decoderInputs[0].name.find("input_ids") == std::string::npos ||
+        decoderInputs[1].type != AiTensorType::Float32 ||
+        decoderInputs[1].name.find("encoder_hidden_states") == std::string::npos ||
+        decoderInputs[18].type != AiTensorType::Bool ||
+        decoderInputs[1].shape.size() != 3 ||
+        !dimMatches(decoderInputs[1].shape[2], 384) ||
+        decoderInputs[18].name.find("use_cache_branch") == std::string::npos ||
+        decoderOutputs[0].shape.size() != 3 || decoderOutputs[0].type != AiTensorType::Float32) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny merged decoder 张量契约不匹配（期望 19 输入/至少 17 输出）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    for (std::size_t i = 2; i < 18; ++i) {
+        const auto& info = decoderInputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("past_key_values") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) ||
+            !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输入形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
+    for (std::size_t i = 1; i < 17; ++i) {
+        const auto& info = decoderOutputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("present") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) || !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输出形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
+    loaded_ = true;
+    return true;
+}
+
+bool SpeechRecognizer::loadFromMemory(const void* encoderData, std::size_t encoderSize,
+                                        const void* decoderData, std::size_t decoderSize,
+                                        std::string* outputFailure) {
+    loaded_ = false;
+    if (impl_ == nullptr) {
+        if (outputFailure != nullptr) *outputFailure = "内存分配失败";
+        return false;
+    }
+    // A new model must never inherit the previous model's tokenizer.
+    impl_->vocab.clear();
+    impl_->idToToken.clear();
+    impl_->addedTokens.clear();
+    impl_->tokenizerReady = false;
+    if (!aiEngineAvailable()) {
+        if (outputFailure != nullptr) *outputFailure = "AI 推理引擎不可用（未链接 ONNX Runtime）";
+        return false;
+    }
+    if (!impl_->encoder.loadFromMemory(encoderData, encoderSize, AiBackend::Cpu, outputFailure)) {
+        return false;
+    }
+    if (!impl_->decoder.loadFromMemory(decoderData, decoderSize, AiBackend::Cpu, outputFailure)) {
+        impl_->encoder.unload();
+        return false;
+    }
+    // This implementation is specifically the Whisper-tiny merged decoder:
+    // 4 transformer layers × (self K/V + cross K/V) = 16 cache inputs,
+    // plus input_ids, encoder_hidden_states and use_cache_branch.
+    // Whisper-small/base/large or split decoder exports have different tensor
+    // contracts; reject them before inference rather than failing mid-task.
+    const auto& encoderInputs = impl_->encoder.inputs();
+    const auto& encoderOutputs = impl_->encoder.outputs();
+    const auto& decoderInputs = impl_->decoder.inputs();
+    const auto& decoderOutputs = impl_->decoder.outputs();
+    const auto dimMatches = [](std::int64_t actual, std::int64_t expected) {
+        return actual < 0 || actual == expected;
+    };
+    if (encoderInputs.size() != 1 || encoderOutputs.empty() ||
+        encoderInputs[0].type != AiTensorType::Float32 || encoderOutputs[0].type != AiTensorType::Float32 ||
+        encoderInputs[0].shape.size() != 3 || encoderOutputs[0].shape.size() != 3 ||
+        !dimMatches(encoderInputs[0].shape[1], kMelBins) ||
+        !dimMatches(encoderInputs[0].shape[2], melFrames()) ||
+        !dimMatches(encoderOutputs[0].shape[2], 384)) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny encoder 张量契约不匹配（期望 [1,80,3000]）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    if (decoderInputs.size() != 19 || decoderOutputs.size() < 17 ||
+        decoderInputs[0].type != AiTensorType::Int64 ||
+        decoderInputs[0].name.find("input_ids") == std::string::npos ||
+        decoderInputs[1].type != AiTensorType::Float32 ||
+        decoderInputs[1].name.find("encoder_hidden_states") == std::string::npos ||
+        decoderInputs[18].type != AiTensorType::Bool ||
+        decoderInputs[1].shape.size() != 3 ||
+        !dimMatches(decoderInputs[1].shape[2], 384) ||
+        decoderInputs[18].name.find("use_cache_branch") == std::string::npos ||
+        decoderOutputs[0].shape.size() != 3 || decoderOutputs[0].type != AiTensorType::Float32) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper-tiny merged decoder 张量契约不匹配（期望 19 输入/至少 17 输出）";
+        impl_->encoder.unload();
+        impl_->decoder.unload();
+        return false;
+    }
+    for (std::size_t i = 2; i < 18; ++i) {
+        const auto& info = decoderInputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("past_key_values") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) ||
+            !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输入形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
+    for (std::size_t i = 1; i < 17; ++i) {
+        const auto& info = decoderOutputs[i];
+        if (info.type != AiTensorType::Float32 ||
+            info.name.find("present") == std::string::npos || info.shape.size() != 4 ||
+            !dimMatches(info.shape[0], 1) || !dimMatches(info.shape[1], 6) ||
+            !dimMatches(info.shape[3], 64)) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper-tiny KV cache 输出形状不匹配（期望 [1,6,sequence,64]）";
+            impl_->encoder.unload();
+            impl_->decoder.unload();
+            return false;
+        }
+    }
     loaded_ = true;
     return true;
 }
@@ -314,14 +463,18 @@ void SpeechRecognizer::unload() {
     if (impl_ != nullptr) {
         impl_->encoder.unload();
         impl_->decoder.unload();
+        impl_->vocab.clear();
+        impl_->idToToken.clear();
+        impl_->addedTokens.clear();
+        impl_->tokenizerReady = false;
     }
     loaded_ = false;
 }
 
 bool SpeechRecognizer::loadTokenizer(const std::string& tokenizerJsonPath,
                                       std::string* outputFailure) {
-    if (impl_ == nullptr) {
-        if (outputFailure != nullptr) *outputFailure = "内存分配失败";
+    if (tokenizerJsonPath.empty()) {
+        if (outputFailure != nullptr) *outputFailure = "词表路径为空";
         return false;
     }
     std::ifstream file(tokenizerJsonPath, std::ios::binary);
@@ -331,52 +484,121 @@ bool SpeechRecognizer::loadTokenizer(const std::string& tokenizerJsonPath,
     }
     std::string text((std::istreambuf_iterator<char>(file)),
                      std::istreambuf_iterator<char>());
+    return loadTokenizerJson(text, outputFailure);
+}
+
+bool SpeechRecognizer::loadTokenizerJson(const std::string& tokenizerJson,
+                                          std::string* outputFailure) {
+    if (impl_ == nullptr) {
+        if (outputFailure != nullptr) *outputFailure = "内存分配失败";
+        return false;
+    }
+    // A failed replacement must not leave stale tokenizer readiness or tokens.
+    impl_->vocab.clear();
+    impl_->idToToken.clear();
+    impl_->addedTokens.clear();
+    impl_->tokenizerReady = false;
+    if (tokenizerJson.empty()) {
+        if (outputFailure != nullptr) *outputFailure = "词表 JSON 为空";
+        return false;
+    }
     JsonValue root;
     JsonParseError parseError;
-    if (!parseJson(text, root, parseError) || !root.isObject()) {
+    if (!parseJson(tokenizerJson, root, parseError) || !root.isObject()) {
         if (outputFailure != nullptr) {
             *outputFailure = "词表 JSON 解析失败：" + parseError.message;
         }
         return false;
     }
-    impl_->vocab.clear();
-    impl_->idToToken.clear();
-    impl_->addedTokens.clear();
-    // model.vocab：{token: id} 对象
-    if (root.has("model")) {
-        const JsonValue& model = root.get("model");
-        if (model.has("vocab") && model.get("vocab").isObject()) {
-            const JsonValue& vocab = model.get("vocab");
-            for (const auto& member : vocab.members()) {
-                const int id = static_cast<int>(member.second.asInteger(-1));
-                if (id >= 0) {
-                    impl_->vocab[member.first] = id;
-                    impl_->idToToken[id] = member.first;
-                }
-            }
-        }
+    if (!root.has("model") || !root.get("model").isObject() ||
+        !root.get("model").has("vocab") || !root.get("model").get("vocab").isObject()) {
+        if (outputFailure != nullptr) *outputFailure = "词表缺少 model.vocab BPE 词典";
+        return false;
     }
-    // added_tokens：[{id, content}, ...]
-    if (root.has("added_tokens") && root.get("added_tokens").isArray()) {
+    if (!root.get("model").has("type") ||
+        root.get("model").get("type").asString() != "BPE") {
+        if (outputFailure != nullptr) *outputFailure = "Whisper tokenizer 必须使用 BPE 模型";
+        return false;
+    }
+    if (!root.has("decoder") || !root.get("decoder").isObject() ||
+        root.get("decoder").get("type").asString() != "ByteLevel") {
+        if (outputFailure != nullptr) *outputFailure = "Whisper tokenizer 必须使用 ByteLevel 解码器";
+        return false;
+    }
+    const JsonValue& vocab = root.get("model").get("vocab");
+    for (const auto& member : vocab.members()) {
+        const std::int64_t rawId = member.second.asInteger(-1);
+        if (member.first.empty() || rawId < 0 ||
+            rawId > static_cast<std::int64_t>(std::numeric_limits<int>::max())) {
+            if (outputFailure != nullptr) *outputFailure = "BPE 词表包含无效 token 或 token ID";
+            impl_->vocab.clear();
+            impl_->idToToken.clear();
+            return false;
+        }
+        const int id = static_cast<int>(rawId);
+        if (impl_->idToToken.find(id) != impl_->idToToken.end()) {
+            if (outputFailure != nullptr) *outputFailure = "BPE 词表包含重复 token ID";
+            impl_->vocab.clear();
+            impl_->idToToken.clear();
+            return false;
+        }
+        impl_->vocab.emplace(member.first, id);
+        impl_->idToToken.emplace(id, member.first);
+    }
+    if (impl_->vocab.empty()) {
+        if (outputFailure != nullptr) *outputFailure = "BPE 词表为空";
+        impl_->idToToken.clear();
+        return false;
+    }
+    if (root.has("added_tokens")) {
+        if (!root.get("added_tokens").isArray()) {
+            if (outputFailure != nullptr) *outputFailure = "added_tokens 必须是数组";
+            impl_->vocab.clear();
+            impl_->idToToken.clear();
+            return false;
+        }
         const JsonValue& added = root.get("added_tokens");
         for (std::size_t i = 0; i < added.size(); ++i) {
             const JsonValue& entry = added.at(i);
-            if (!entry.isObject()) continue;
-            const int id = static_cast<int>(entry.get("id").asInteger(-1));
+            if (!entry.isObject()) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens 包含非法条目";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
+            const std::int64_t rawId = entry.get("id").asInteger(-1);
             const std::string content = entry.get("content").asString();
-            if (id >= 0 && !content.empty()) {
-                impl_->addedTokens[id] = content;
-                if (impl_->idToToken.find(id) == impl_->idToToken.end()) {
-                    impl_->idToToken[id] = content;
-                }
+            if (rawId < 0 || rawId > static_cast<std::int64_t>(std::numeric_limits<int>::max()) ||
+                content.empty()) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens 包含无效 ID 或内容";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
+            const int id = static_cast<int>(rawId);
+            const auto existingToken = impl_->idToToken.find(id);
+            if (existingToken != impl_->idToToken.end() && existingToken->second != content) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens ID 与 BPE vocab 的 token 内容冲突";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
+            if (!impl_->addedTokens.emplace(id, content).second) {
+                if (outputFailure != nullptr) *outputFailure = "added_tokens 包含重复 token ID";
+                impl_->vocab.clear();
+                impl_->idToToken.clear();
+                impl_->addedTokens.clear();
+                return false;
+            }
+            if (existingToken == impl_->idToToken.end()) {
+                impl_->idToToken.emplace(id, content);
             }
         }
     }
-    impl_->tokenizerReady = !impl_->idToToken.empty();
-    if (!impl_->tokenizerReady) {
-        if (outputFailure != nullptr) *outputFailure = "词表为空（model.vocab 缺失）";
-        return false;
-    }
+    impl_->tokenizerReady = true;
     return true;
 }
 
@@ -479,7 +701,9 @@ std::string SpeechRecognizer::decodeTokens(const std::vector<int>& tokens) const
         }
         const auto it = impl_->idToToken.find(token);
         if (it == impl_->idToToken.end()) {
-            continue;
+            // Unknown IDs indicate a model/tokenizer mismatch. Never silently
+            // drop them and publish a plausible but truncated subtitle.
+            return std::string();
         }
         merged += it->second;
     }
@@ -524,6 +748,10 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
     }
     if (samples == nullptr || frameCount == 0 || sampleRate <= 0) {
         if (outputFailure != nullptr) *outputFailure = "音频数据为空或参数非法";
+        return false;
+    }
+    if (!impl_->tokenizerReady) {
+        if (outputFailure != nullptr) *outputFailure = "Whisper tokenizer 尚未加载，拒绝生成 token 占位字幕";
         return false;
     }
     // ① Mel 频谱（30 秒窗口；长音频分段处理）
@@ -648,7 +876,11 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
             generated.push_back(static_cast<std::int64_t>(best));
             tokenIds.push_back(static_cast<std::int64_t>(best));
             // 更新 KV cache（present.* → past）
-            if (decOuts.size() >= 17) {
+            if (decOuts.size() < 17) {
+                if (outputFailure != nullptr) *outputFailure = "Whisper-tiny decoder 未返回完整 KV cache（至少 17 个输出）";
+                return false;
+            }
+            {
                 for (int i = 0; i < 16; ++i) {
                     past[static_cast<std::size_t>(i)] = decOuts[static_cast<std::size_t>(i + 1)];
                 }
@@ -667,21 +899,26 @@ bool SpeechRecognizer::transcribe(const float* samples, std::size_t frameCount, 
                 }
             }
         }
-        // 文本解码：优先用 BPE 词表；未加载则明确标注（不伪造文本）
-        std::string text;
-        if (impl_->tokenizerReady) {
-            text = decodeTokens(std::vector<int>(generated.begin(), generated.end()));
-        } else {
-            // 无词表：输出 token 标记（明确告知调用方需提供 tokenizer.json）
-            for (std::int64_t token : generated) {
-                text += tokenToTextPlaceholder(static_cast<int>(token));
+        // tokenizer 在进入推理前已强制加载；任何未知 ID 都表示模型/词表不匹配。
+        for (const std::int64_t token : generated) {
+            if (token < 0 || token > std::numeric_limits<int>::max() ||
+                impl_->idToToken.find(static_cast<int>(token)) == impl_->idToToken.end()) {
+                if (outputFailure != nullptr) *outputFailure = "Whisper 输出了当前 tokenizer 不认识的 token ID，拒绝生成不完整字幕";
+                return false;
             }
         }
-        SpeechSegment segment;
-        segment.startSeconds = static_cast<double>(startFrame) / sampleRate;
-        segment.endSeconds = segment.startSeconds + static_cast<double>(count) / sampleRate;
-        segment.text = text;
-        outSegments.push_back(std::move(segment));
+        const std::string text = decodeTokens(std::vector<int>(generated.begin(), generated.end()));
+        if (!generated.empty() && text.empty()) {
+            if (outputFailure != nullptr) *outputFailure = "Whisper token 解码结果为空，拒绝写入无效字幕";
+            return false;
+        }
+        if (!text.empty()) {
+            SpeechSegment segment;
+            segment.startSeconds = static_cast<double>(startFrame) / sampleRate;
+            segment.endSeconds = segment.startSeconds + static_cast<double>(count) / sampleRate;
+            segment.text = text;
+            outSegments.push_back(std::move(segment));
+        }
         if (progress != nullptr && !progress(1.0)) {
             if (outputFailure != nullptr) *outputFailure = "用户取消";
             return false;

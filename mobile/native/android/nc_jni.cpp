@@ -16,6 +16,7 @@
    必须在文件顶部 —— 放在函数定义之间会污染后续所有声明的可见性。 */
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include "AndroidGpuPreviewRenderer.h"
 
 #include <jni.h>
 #include "nairoclip/core/text_content.h"
@@ -27,6 +28,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <atomic>
+#include <cmath>
 #include <limits>
 #include <mutex>
 #include <string>
@@ -235,6 +237,10 @@ std::string BuildState(NcEditor* ed) {
     j += ",\"width\":" + std::to_string(w);
     j += ",\"height\":" + std::to_string(h);
     j += ",\"duration_us\":" + std::to_string(nc_project_duration_us(ed));
+    uint32_t backgroundRgba = 0x000000FF;
+    if (nc_get_background_color(ed, &backgroundRgba) == NC_OK) {
+        j += ",\"background_rgba\":" + std::to_string(backgroundRgba);
+    }
     j += "},";
 
     j += "\"tracks\":[";
@@ -302,9 +308,12 @@ std::string BuildState(NcEditor* ed) {
         for (int32_t ci = 0; ci < cn; ++ci) {
             uint64_t cid = 0, aid = 0;
             int64_t start = 0, dur = 0, sn = 1, sd = 1;
-            int32_t enabled = 1;
+            int64_t sourceIn = 0, sourceOut = 0;
+            int32_t enabled = 1, reversed = 0, frozen = 0, hasSpeedCurve = 0;
             if (nc_clip_info(ed, ti, static_cast<uint32_t>(ci), &cid, &start, &dur,
-                             &aid, &sn, &sd, &enabled) != NC_OK) {
+                             &aid, &sn, &sd, &enabled) != NC_OK ||
+                nc_clip_source_info(ed, ti, cid, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve) != NC_OK) {
                 // 读失败仍然占一个槽位（{}），保持 index 与引擎一致；
                 // 逗号在写入前统一补，避免失败分支留下 ",," 这种非法 JSON。
                 if (ci) j += ",";
@@ -319,6 +328,11 @@ std::string BuildState(NcEditor* ed) {
             j += ",\"speed_num\":" + std::to_string(sn);
             j += ",\"speed_den\":" + std::to_string(sd);
             j += ",\"enabled\":" + std::to_string(enabled);
+            j += ",\"source_in_us\":" + std::to_string(sourceIn);
+            j += ",\"source_out_us\":" + std::to_string(sourceOut);
+            j += ",\"reversed\":" + std::to_string(reversed);
+            j += ",\"frozen\":" + std::to_string(frozen);
+            j += ",\"has_speed_curve\":" + std::to_string(hasSpeedCurve);
             // 特效栈：前端要靠这份数据渲染「已添加效果列表」。
             // 只给 id/type/value/enabled —— 名称由前端按 type 映射，
             // 协议里不传中文字符串（省字节，改名也不必动后端）。
@@ -342,7 +356,8 @@ std::string BuildState(NcEditor* ed) {
                 j += ",\"enabled\":" + std::to_string(een) + "}";
                 ++enWritten;
             }
-            j += "]}";
+            // 这里只结束 effects 数组；clip 对象还要继续承载 xforms 等字段。
+            j += "]";
             // 几何变换 8 槽：前端靠 enabled 决定宫格「已添加」小圆点。
             // 只下发启用的槽（未启用的用默认值也没意义，省带宽）。
             j += ",\"xforms\":[";
@@ -372,7 +387,8 @@ std::string BuildState(NcEditor* ed) {
                     ++xfWritten;
                 }
             }
-            j += "]";
+            // 结束 xforms 数组并关闭当前 clip 对象；随后由外层关闭 clips 数组和 track 对象。
+            j += "]}";
         }
         j += "]}";
     }
@@ -426,6 +442,29 @@ std::string BuildState(NcEditor* ed) {
     }
     j += "],";
 
+    // Timeline markers are part of the editor snapshot so native UI can
+    // render the marker list without reaching back into the WebView.
+    j += "\"markers\":[";
+    const int32_t markerCount = nc_marker_count(ed);
+    for (int32_t mi = 0; mi < markerCount; ++mi) {
+        if (mi) j += ",";
+        uint64_t markerId = 0;
+        int64_t markerTimeUs = 0;
+        char* markerName = nullptr;
+        char* markerColor = nullptr;
+        if (nc_marker_get(ed, mi, &markerId, &markerTimeUs,
+                          &markerName, &markerColor) != NC_OK) {
+            j += "{}";
+            continue;
+        }
+        j += "{\"id\":" + std::to_string(markerId);
+        j += ",\"time_us\":" + std::to_string(markerTimeUs);
+        j += ",\"name\":\"" + JEsc(markerName ? markerName : "") + "\"";
+        j += ",\"color\":\"" + JEsc(markerColor ? markerColor : "") + "\"}";
+        if (markerName) nc_free_string(markerName);
+        if (markerColor) nc_free_string(markerColor);
+    }
+    j += "],";
     j += "\"can_undo\":" + std::to_string(nc_can_undo(ed));
     j += ",\"can_redo\":" + std::to_string(nc_can_redo(ed));
     j += "}";
@@ -467,7 +506,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("分割失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "delete") {
+    if (op == "delete" || op == "nc_remove_clip") {
         const int32_t rc = nc_remove_clip(ed, ti, cid);
         *out = rc == NC_OK ? Ok("") : Err("删除失败，错误码 " + std::to_string(rc));
         return true;
@@ -512,10 +551,147 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置不透明度失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "opacity_get") {
+        double value = 1.0;
+        const int32_t rc = nc_get_clip_opacity(ed, ti, cid, &value);
+        if (rc != NC_OK) {
+            *out = Err("读取不透明度失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"value\":" + Num(value) + "}");
+        return true;
+    }
     if (op == "filter") {
         const int32_t style = static_cast<int32_t>(JInt(a, "style", 0));
         const int32_t rc = nc_set_clip_filter(ed, ti, cid, style, JNum(a, "intensity", 60.0));
         *out = rc == NC_OK ? Ok("") : Err("设置滤镜失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "filter_get") {
+        int32_t style = 0;
+        double intensity = 0.0;
+        const int32_t enabled = nc_get_clip_filter(ed, ti, cid, &style, &intensity);
+        if (enabled < 0) {
+            *out = Err("读取滤镜状态失败");
+            return true;
+        }
+        *out = Ok("{\"style\":" + std::to_string(style) +
+                  ",\"intensity\":" + Num(intensity) +
+                  ",\"enabled\":" + std::to_string(enabled) + "}");
+        return true;
+    }
+    if (op == "color_grade_set") {
+        if (ti < 0 || cid == 0) { *out = Err("缺少颜色曲线目标片段"); return true; }
+        std::vector<double> master, red, green, blue;
+        if (!JVecDouble(a, "master", &master) || !JVecDouble(a, "red", &red) ||
+            !JVecDouble(a, "green", &green) || !JVecDouble(a, "blue", &blue) ||
+            master.size() % 2 != 0 || red.size() % 2 != 0 ||
+            green.size() % 2 != 0 || blue.size() % 2 != 0) {
+            *out = Err("RGB 曲线数组格式非法"); return true;
+        }
+        const int32_t rc = nc_set_clip_color_grade(
+            ed, ti, cid, master.data(), static_cast<int32_t>(master.size() / 2),
+            red.data(), static_cast<int32_t>(red.size() / 2),
+            green.data(), static_cast<int32_t>(green.size() / 2),
+            blue.data(), static_cast<int32_t>(blue.size() / 2));
+        *out = rc == NC_OK ? Ok("") : Err("设置 RGB 曲线失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "color_grade_get") {
+        if (ti < 0 || cid == 0) { *out = Err("缺少颜色曲线目标片段"); return true; }
+        double master[64] = {}, red[64] = {}, green[64] = {}, blue[64] = {};
+        int32_t mc = 0, rcnt = 0, gc = 0, bc = 0;
+        const int32_t rc = nc_get_clip_color_grade(
+            ed, ti, cid, master, 64, &mc, red, 64, &rcnt,
+            green, 64, &gc, blue, 64, &bc);
+        if (rc != NC_OK) { *out = Err("读取 RGB 曲线失败，错误码 " + std::to_string(rc)); return true; }
+        const auto arrayJson = [](const double* values, int32_t count) {
+            std::string result = "[";
+            for (int32_t i = 0; i < count * 2; ++i) {
+                if (i) result += ",";
+                result += Num(values[i]);
+            }
+            return result + "]";
+        };
+        *out = Ok("{\"master\":" + arrayJson(master, mc) +
+                  ",\"red\":" + arrayJson(red, rcnt) +
+                  ",\"green\":" + arrayJson(green, gc) +
+                  ",\"blue\":" + arrayJson(blue, bc) + "}");
+        return true;
+    }
+    if (op == "lut") {
+        const std::string path = JStrField(a, "path");
+        const int32_t rc = nc_set_clip_lut(ed, ti, cid, path.c_str(),
+                                            JNum(a, "strength", 1.0));
+        *out = rc == NC_OK ? Ok("") : Err("设置 LUT 失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "lut_get") {
+        char* path = nullptr;
+        double strength = 1.0;
+        const int32_t rc = nc_get_clip_lut(ed, ti, cid, &path, &strength);
+        if (rc != NC_OK) {
+            if (path) nc_free_string(path);
+            *out = Err("读取 LUT 状态失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        const std::string value = path ? path : "";
+        if (path) nc_free_string(path);
+        *out = Ok("{\"path\":\"" + JEsc(value) +
+                  "\",\"strength\":" + Num(strength) + "}");
+        return true;
+    }
+    if (op == "lut_validate") {
+        const std::string path = JStrField(a, "path");
+        int32_t size = 0;
+        char* title = nullptr;
+        char* message = nullptr;
+        const int32_t rc = nc_lut_validate_file(path.c_str(), &size, &title, &message);
+        const std::string titleValue = title ? title : "";
+        const std::string messageValue = message ? message : "";
+        if (title) nc_free_string(title);
+        if (message) nc_free_string(message);
+        if (rc != NC_OK) {
+            *out = Err(messageValue.empty() ? "LUT 文件校验失败" : messageValue);
+            return true;
+        }
+        *out = Ok("{\"size\":" + std::to_string(size) +
+                  ",\"title\":\"" + JEsc(titleValue) +
+                  "\",\"message\":\"" + JEsc(messageValue) + "\"}");
+        return true;
+    }
+    if (op == "mask_get") {
+        if (ti < 0 || cid == 0) {
+            *out = Err("缺少蒙版目标片段");
+            return true;
+        }
+        int32_t shape = 0;
+        double centerX = 0.5;
+        double centerY = 0.5;
+        double rotation = 0.0;
+        // Match core::Mask defaults when the clip has no mask yet.
+        double width = 0.5;
+        double height = 0.5;
+        double feather = 0.0;
+        double cornerRadius = 0.0;
+        int32_t invert = 0;
+        const int32_t enabled = nc_get_clip_mask(
+            ed, ti, cid, &shape, &centerX, &centerY, &rotation,
+            &width, &height, &feather, &cornerRadius, &invert);
+        if (enabled < 0) {
+            *out = Err("读取蒙版状态失败");
+            return true;
+        }
+        *out = Ok("{\"shape\":" + std::to_string(shape) +
+                  ",\"center_x\":" + Num(centerX) +
+                  ",\"center_y\":" + Num(centerY) +
+                  ",\"rotation_degrees\":" + Num(rotation) +
+                  ",\"width\":" + Num(width) +
+                  ",\"height\":" + Num(height) +
+                  ",\"feather\":" + Num(feather) +
+                  ",\"corner_radius\":" + Num(cornerRadius) +
+                  ",\"invert\":" + std::to_string(invert) +
+                  ",\"enabled\":" + std::to_string(enabled) + "}");
         return true;
     }
     if (op == "rename_project") {
@@ -560,6 +736,42 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("创建文本失败");
         return true;
     }
+    if (op == "subtitle_upsert") {
+        const int64_t startUs = JInt(a, "start_us", -1);
+        const int64_t durationUs = JInt(a, "duration_us", 0);
+        const std::string text = JStrField(a, "text");
+        if (text.empty() || startUs < 0 || durationUs <= 0) { *out = Err("字幕文本或时间范围无效"); return true; }
+        const uint64_t id = nc_upsert_subtitle(ed, startUs, durationUs, text.c_str());
+        *out = id > 0 ? Ok("{\"subtitle_id\":" + std::to_string(id) + "}") : Err("添加字幕失败");
+        return true;
+    }
+    if (op == "subtitle_remove") {
+        const uint64_t id = static_cast<uint64_t>(JInt(a, "subtitle_id", 0));
+        const int32_t rc = nc_remove_subtitle(ed, id);
+        *out = rc == NC_OK ? Ok("{}") : Err("删除字幕失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "subtitle_list") {
+        const int32_t count = nc_subtitle_count(ed);
+        if (count < 0 || count > 10000) { *out = Err("字幕数量超出安全范围"); return true; }
+        std::string items = "[";
+        for (int32_t index = 0; index < count; ++index) {
+            int64_t startUs = 0, durationUs = 0;
+            char* rawText = nullptr;
+            uint64_t subtitleId = 0;
+            const int32_t idRc = nc_subtitle_get_id(ed, index, &subtitleId);
+            if (idRc != NC_OK || subtitleId == 0) { *out = Err("读取字幕 ID 失败"); return true; }
+            const int32_t rc = nc_subtitle_get(ed, index, &startUs, &durationUs, &rawText);
+            if (rc != NC_OK || rawText == nullptr) { if (rawText) nc_free_string(rawText); *out = Err("读取字幕记录失败"); return true; }
+            const std::string text = rawText;
+            nc_free_string(rawText);
+            if (index) items += ",";
+            items += "{\"index\":" + std::to_string(index) + ",\"subtitle_id\":" + std::to_string(subtitleId) + ",\"start_us\":" + std::to_string(startUs) +
+                     ",\"duration_us\":" + std::to_string(durationUs) + ",\"text\":\""+ JEsc(text) + "\"}";
+        }
+        *out = Ok("{\"items\":" + items + "]}");
+        return true;
+    }
     if (op == "nc_set_clip_text") {
         const int32_t rc = nc_set_clip_text(ed, cid, JStrField(a, "text").c_str());
         if (rc != NC_OK) {
@@ -574,7 +786,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const std::string outline = JStrField(a, "outline_color");
         const int32_t rc = nc_set_text_style(
             ed, cid, JNum(a, "font_size", 48.0), JStrField(a, "color").c_str(),
-            outline.empty() ? "#000000" : outline.c_str(), JNum(a, "outline_width", 0.0),
+            outline.c_str(), JNum(a, "outline_width", -1.0),
             static_cast<int32_t>(JInt(a, "alignment", 1)), JNum(a, "anchor_x", 0.5),
             JNum(a, "anchor_y", 0.5));
         if (rc != NC_OK) {
@@ -700,7 +912,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     // 复制片段
-    if (op == "duplicate") {
+    if (op == "duplicate" || op == "nc_duplicate_clip") {
         if (cid == 0) { *out = Err("缺少目标片段"); return true; }
         const uint64_t newId = nc_duplicate_clip(ed, ti, cid);
         *out = newId ? Ok("{\"clip_id\":" + std::to_string(newId) + "}")
@@ -723,7 +935,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     // 波纹删除（删后自动前移）
-    if (op == "ripple_delete") {
+    if (op == "ripple_delete" || op == "nc_ripple_delete") {
         if (cid == 0) { *out = Err("缺少目标片段"); return true; }
         const uint64_t ids[1] = {cid};
         const int32_t rc = nc_ripple_delete(ed, ti, ids, 1);
@@ -766,7 +978,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         return true;
     }
     // 加时间标记 / 改标记颜色（两者都走 nc_add_marker，颜色是参数）
-    if (op == "marker" || op == "marker_color") {
+    if (op == "marker" || op == "marker_color" || op == "nc_add_marker") {
         const char* defColor = (op == "marker_color") ? "#F0A03C" : "#C6F24E";
         const uint64_t mid = nc_add_marker(ed, JInt(a, "time_us", 0),
                                            JStrField(a, "name").empty()
@@ -775,6 +987,22 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
                                                ? defColor : JStrField(a, "color").c_str());
         *out = mid ? Ok("{\"marker_id\":" + std::to_string(mid) + "}")
                    : Err("添加标记失败");
+        return true;
+    }
+    if (op == "marker_remove" || op == "nc_remove_marker") {
+        double markerIdValue = 0.0;
+        const JParamStatus markerStatus = JNumParam(a, "marker_id", &markerIdValue);
+        if (markerStatus != JParamStatus::Ok || !std::isfinite(markerIdValue) ||
+            std::floor(markerIdValue) != markerIdValue || markerIdValue <= 0.0 ||
+            markerIdValue >= 9.223372036854776E18) {
+            *out = Err(markerStatus == JParamStatus::Missing
+                           ? "缺少有效的标记 ID"
+                           : "标记 ID 必须是正整数且处于可表示范围内");
+            return true;
+        }
+        const uint64_t markerId = static_cast<uint64_t>(markerIdValue);
+        const int32_t rc = nc_remove_marker(ed, markerId);
+        *out = rc == NC_OK ? Ok("") : Err("删除标记失败，错误码 " + std::to_string(rc));
         return true;
     }
     if (op == "undo") {
@@ -856,7 +1084,7 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置混合模式失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "speed") {
+    if (op == "speed" || op == "nc_set_clip_speed") {
         // nc_set_clip_speed 收的是**整数分数**（num/den），不是 double ——
         // 用 double 传会直接编译失败，且分数形式能保证 1/3 这类速度精确可逆。
         int64_t num = static_cast<int64_t>(JInt(a, "num", -1));
@@ -875,7 +1103,37 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置速度失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "speed_curve") {
+    if (op == "speed_curve_preset" || op == "nc_apply_speed_curve_preset") {
+        const int32_t preset = static_cast<int32_t>(JInt(a, "preset", -1));
+        const int64_t sourceDurationUs = static_cast<int64_t>(JInt(a, "source_duration_us", 0));
+        if (preset < 0 || preset > 6 || sourceDurationUs < 0) {
+            *out = Err("变速曲线预设参数非法");
+            return true;
+        }
+        const int32_t rc = nc_apply_speed_curve_preset(ed, ti, cid, preset, sourceDurationUs);
+        *out = rc == NC_OK ? Ok("") : Err("应用变速曲线预设失败，错误码 " + std::to_string(rc));
+        return true;
+    }
+    if (op == "nc_clip_speed_curve_count") {
+        const int32_t count = nc_clip_speed_curve_count(ed, ti, cid);
+        if (count < 0) { *out = Err("读取速度曲线控制点数量失败"); return true; }
+        *out = Ok("{\"count\":" + std::to_string(count) + "}");
+        return true;
+    }
+    if (op == "nc_clip_speed_curve_get") {
+        const int32_t index = static_cast<int32_t>(JInt(a, "index", -1));
+        if (index < 0) { *out = Err("速度曲线控制点索引非法"); return true; }
+        double sourceSeconds = 0.0, speed = 1.0;
+        int32_t easing = 0;
+        const int32_t rc = nc_clip_speed_curve_get(
+            ed, ti, cid, index, &sourceSeconds, &speed, &easing);
+        if (rc != NC_OK) { *out = Err("读取速度曲线控制点失败，错误码 " + std::to_string(rc)); return true; }
+        *out = Ok("{\"source_seconds\":" + Num(sourceSeconds) +
+                  ",\"speed\":" + Num(speed) +
+                  ",\"easing\":" + std::to_string(easing) + "}");
+        return true;
+    }
+    if (op == "speed_curve" || op == "nc_set_clip_speed_curve" || op == "nc_set_clip_speed_curve_points") {
         // 参数是数组：points:[{t,v,e}]。JInt/JNum 只能读标量，
         // 这里用最小 JSON 扫描取出三元组；点少于 2 个视为清除曲线。
         std::vector<double> ts, vs;
@@ -884,13 +1142,32 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
            times[] / speeds[] / easing，**不是** points:[{t,v,e}]。
            旧实现只扫 points → 永远拿不到点 → 报「至少需要 2 个控制点」，
            速度曲线功能完全不可用。这里先试 points，再回退 times/speeds。 */
-        std::vector<double> fTimes, fSpeeds;
+        std::vector<double> fTimes, fSpeeds, fEasings;
         if (JVecDouble(a, "times", &fTimes) && JVecDouble(a, "speeds", &fSpeeds) &&
             fTimes.size() >= 2 && fTimes.size() == fSpeeds.size()) {
-            const int32_t ease = static_cast<int32_t>(JInt(a, "easing", 0));
             ts = fTimes;
             vs = fSpeeds;
-            es.assign(fTimes.size(), ease);
+            if (JVecDouble(a, "easings", &fEasings)) {
+                if (fEasings.size() != fTimes.size()) {
+                    *out = Err("速度曲线缓动数组长度与控制点不一致");
+                    return true;
+                }
+                for (double easing : fEasings) {
+                    if (!std::isfinite(easing) || std::floor(easing) != easing ||
+                        easing < 0.0 || easing > 4.0) {
+                        *out = Err("速度曲线缓动类型非法");
+                        return true;
+                    }
+                    es.push_back(static_cast<int32_t>(easing));
+                }
+            } else {
+                const int32_t ease = static_cast<int32_t>(JInt(a, "easing", 0));
+                if (ease < 0 || ease > 4) {
+                    *out = Err("速度曲线缓动类型非法");
+                    return true;
+                }
+                es.assign(fTimes.size(), ease);
+            }
         }
         size_t p = a.find("\"points\"");
         if (ts.empty() && p != std::string::npos) {
@@ -1053,13 +1330,29 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置抠像失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "denoise") {
+    if (op == "nc_get_clip_denoise") {
+        const int32_t strength = nc_get_clip_denoise(ed, ti, cid);
+        if (strength < 0) { *out = Err("读取降噪强度失败"); return true; }
+        *out = Ok("{\"strength\":" + std::to_string(strength) + "}");
+        return true;
+    }
+    if (op == "denoise" || op == "nc_set_clip_denoise") {
         const int32_t rc = nc_set_clip_denoise(
             ed, ti, cid, static_cast<int32_t>(JInt(a, "strength", 0)));
         *out = rc == NC_OK ? Ok("") : Err("设置降噪失败，错误码 " + std::to_string(rc));
         return true;
     }
-    if (op == "audio") {
+    if (op == "nc_get_clip_audio") {
+        double gainDb = 0.0;
+        int64_t fadeInUs = 0, fadeOutUs = 0;
+        const int32_t rc = nc_get_clip_audio(ed, ti, cid, &gainDb, &fadeInUs, &fadeOutUs);
+        if (rc != NC_OK) { *out = Err("读取音频参数失败，错误码 " + std::to_string(rc)); return true; }
+        *out = Ok("{\"gain_db\":" + Num(gainDb) +
+                  ",\"fade_in_us\":" + std::to_string(fadeInUs) +
+                  ",\"fade_out_us\":" + std::to_string(fadeOutUs) + "}");
+        return true;
+    }
+    if (op == "audio" || op == "nc_set_clip_audio") {
         const int32_t rc = nc_set_clip_audio(
             ed, ti, cid, JNum(a, "gain_db", 0.0),
             static_cast<int64_t>(JInt(a, "fade_in_us", 0)),
@@ -1117,6 +1410,42 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         const uint64_t toId = static_cast<uint64_t>(JInt(a, "to_clip", 0));
         const uint64_t id = nc_add_transition(ed, ti, type, durUs, fromId, toId);
         *out = id ? Ok("{\"value\":" + std::to_string(id) + "}") : Err("添加转场失败");
+        return true;
+    }
+    if (op == "transition_get") {
+        if (ti < 0) { *out = Err("缺少目标轨道"); return true; }
+        const int32_t count = nc_transition_count(ed, ti);
+        if (count < 0 || count > 10000) {
+            *out = Err("转场数量异常");
+            return true;
+        }
+        std::string items = "[";
+        for (int32_t index = 0; index < count; ++index) {
+            int32_t type = -1;
+            int64_t durationUs = 0;
+            uint64_t fromClip = 0;
+            uint64_t toClip = 0;
+            uint64_t transitionId = 0;
+            char* name = nullptr;
+            const int32_t readRc = nc_transition_get(
+                ed, ti, index, &type, &durationUs, &fromClip, &toClip, &name);
+            const int32_t idRc = nc_transition_get_id(ed, ti, index, &transitionId);
+            if (readRc != NC_OK || idRc != NC_OK || transitionId == 0) {
+                if (name != nullptr) nc_free_string(name);
+                *out = Err("读取转场列表失败");
+                return true;
+            }
+            if (index != 0) items += ",";
+            items += "{\"id\":" + std::to_string(transitionId) +
+                     ",\"type\":" + std::to_string(type) +
+                     ",\"duration_us\":" + std::to_string(durationUs) +
+                     ",\"from_clip\":" + std::to_string(fromClip) +
+                     ",\"to_clip\":" + std::to_string(toClip) +
+                     ",\"name\":\"" + JEsc(name ? name : "") + "\"}";
+            if (name != nullptr) nc_free_string(name);
+        }
+        items += "]";
+        *out = Ok("{\"items\":" + items + "}");
         return true;
     }
     if (op == "canvas") {
@@ -2506,6 +2835,27 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeState(JNIEnv* env, jobject, jlon
     return ToJStr(env, BuildState(ed));
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeLoadProject(
+    JNIEnv* env, jobject, jlong h, jstring nclipText) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (ed == nullptr) return ToJStr(env, Err("引擎未初始化"));
+
+    const std::string contents = JStr(env, nclipText);
+    if (contents.empty()) return ToJStr(env, Err("工程内容为空"));
+
+    char* detail = nullptr;
+    const int32_t rc = nc_project_load(ed, contents.c_str(), &detail);
+    std::string message = detail != nullptr ? detail : "";
+    if (detail != nullptr) nc_free_string(detail);
+    if (rc != NC_OK) {
+        if (message.empty()) message = "工程载入失败（C ABI 错误码 " + std::to_string(rc) + "）";
+        return ToJStr(env, Err(message));
+    }
+    return ToJStr(env, "{\"ok\":true,\"code\":0,\"message\":\"\",\"result\":{}}");
+}
+
 JNIEXPORT jbyteArray JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeFrame(
     JNIEnv* env, jobject, jlong h, jlong timeUs, jint width) {
@@ -2964,13 +3314,12 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeRegisterTextRasterizer(
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SurfaceView 零拷贝（P6）
+   SurfaceView GPU presentation（EGL/GLES2 优先，CPU Reference 回退）
    ══════════════════════════════════════════════════════════════════════════
-   把预览帧直接写进 Surface 的显示缓冲，绕开
-   `RGBA → PNG → Base64 → JNI byte[] → WebView <img>` 这条链路。
-
-   1080p 25fps 下那条链路每秒产生约 65MB 字符串，WebView 解析就吃满主线程 ——
-   这是「预览卡顿」的主因。直写显存后传输段耗时从数十毫秒降到 <2ms。
+   绕开 `RGBA → PNG → Base64 → JNI byte[] → WebView <img>` 这条链路。
+   当前 C++ Reference renderer 仍生成 CPU RGBA 帧；本层优先上传纹理并由系统
+   EGL/GLES2 GPU 完成缩放与 Surface 呈现，初始化/运行失败时保留 ANativeWindow
+   CPU 回退。此阶段尚未把时间轴合成、滤镜和转场迁移到 GPU，也不是零拷贝。
 
    实现要点：
      · ANativeWindow_lock 拿到的 buffer 可能带 stride 与格式 padding，
@@ -2991,32 +3340,38 @@ struct SurfaceState {
 };
 
 SurfaceState g_surface;
+std::mutex g_surfaceMutex;
 
 }  // namespace
 
 JNIEXPORT jboolean JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeAttachSurface(
     JNIEnv* env, jobject, jobject surface, jint width, jint height) {
-    if (surface == nullptr) return JNI_FALSE;
+    if (surface == nullptr || width <= 0 || height <= 0) return JNI_FALSE;
+    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
+    if (win == nullptr) return JNI_FALSE;
 
-    // 先分离旧的（重复附加是合法操作，例如 Activity 重建）
+    std::lock_guard<std::mutex> lock(g_surfaceMutex);
+    // 先销毁 EGL window surface，再释放其关联的旧 ANativeWindow。
+    nairoclip_android_preview::detach();
     if (g_surface.window != nullptr) {
         ANativeWindow_release(g_surface.window);
         g_surface.window = nullptr;
     }
 
-    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
-    if (win == nullptr) return JNI_FALSE;
-
     ANativeWindow_setBuffersGeometry(win, width, height, WINDOW_FORMAT_RGBA_8888);
     g_surface.window = win;
     g_surface.width = width;
     g_surface.height = height;
+    // EGL/GLES 初始化失败时仍保留 Surface，nativeBlitFrame 会走 CPU 回退。
+    (void)nairoclip_android_preview::attach(win, width, height);
     return JNI_TRUE;
 }
 
 JNIEXPORT void JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeDetachSurface(JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(g_surfaceMutex);
+    nairoclip_android_preview::detach();
     if (g_surface.window != nullptr) {
         ANativeWindow_release(g_surface.window);
         g_surface.window = nullptr;
@@ -3030,7 +3385,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeBlitFrame(
     JNIEnv*, jobject, jlong h, jlong timeUs) {
     EditorHandleGuard guard(h);
     NcEditor* ed = guard.get();
-    if (ed == nullptr || g_surface.window == nullptr) return JNI_FALSE;
+    if (ed == nullptr) return JNI_FALSE;
 
     uint8_t* rgba = nullptr;
     int32_t w = 0, hgt = 0;
@@ -3043,36 +3398,40 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeBlitFrame(
                                          &ttype, &tprog);
     if (rc != NC_OK || rgba == nullptr || w <= 0 || hgt <= 0) return JNI_FALSE;
 
-    ANativeWindow_Buffer buf;
-    if (ANativeWindow_lock(g_surface.window, &buf, nullptr) != 0) {
-        // Surface 正在重建 —— 正常状态，静默丢弃这一帧
-        nc_free_buffer(rgba);
-        return JNI_FALSE;
+    bool presented = false;
+    {
+        std::lock_guard<std::mutex> lock(g_surfaceMutex);
+        if (g_surface.window != nullptr) {
+            // 首选系统 EGL/GLES：GPU 完成纹理采样、缩放和 Surface 合成。
+            presented = nairoclip_android_preview::draw(rgba, w, hgt);
+            if (!presented) {
+                // GPU 初始化/上下文/交换失败时保留原 CPU Reference 显示路径。
+                ANativeWindow_Buffer buf;
+                if (ANativeWindow_lock(g_surface.window, &buf, nullptr) == 0) {
+                    const int copyW = (w < buf.width) ? w : buf.width;
+                    const int copyH = (hgt < buf.height) ? hgt : buf.height;
+                    const auto* src = reinterpret_cast<const uint8_t*>(rgba);
+                    auto* dst = static_cast<uint8_t*>(buf.bits);
+                    const std::size_t dstStride = static_cast<std::size_t>(buf.stride) * 4u;
+                    const std::size_t srcStride = static_cast<std::size_t>(w) * 4u;
+                    for (int y = 0; y < copyH; ++y) {
+                        std::memcpy(dst + static_cast<std::size_t>(y) * dstStride,
+                                    src + static_cast<std::size_t>(y) * srcStride,
+                                    static_cast<std::size_t>(copyW) * 4u);
+                    }
+                    ANativeWindow_unlockAndPost(g_surface.window);
+                    presented = true;
+                }
+            }
+        }
     }
-
-    /* 逐行拷贝，按 buf.stride 走而不是 w：
-       显示缓冲的行距通常大于宽度（硬件对齐），
-       假设 stride == w 会写出斜切画面。 */
-    const int copyW = (w < buf.width) ? w : buf.width;
-    const int copyH = (hgt < buf.height) ? hgt : buf.height;
-    const auto* src = reinterpret_cast<const uint8_t*>(rgba);
-    auto* dst = static_cast<uint8_t*>(buf.bits);
-    const std::size_t dstStride = static_cast<std::size_t>(buf.stride) * 4u;
-    const std::size_t srcStride = static_cast<std::size_t>(w) * 4u;
-
-    for (int y = 0; y < copyH; ++y) {
-        std::memcpy(dst + static_cast<std::size_t>(y) * dstStride,
-                    src + static_cast<std::size_t>(y) * srcStride,
-                    static_cast<std::size_t>(copyW) * 4u);
-    }
-
-    ANativeWindow_unlockAndPost(g_surface.window);
     nc_free_buffer(rgba);
-    return JNI_TRUE;
+    return presented ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeSurfaceReady(JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(g_surfaceMutex);
     return g_surface.window != nullptr ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -3142,6 +3501,136 @@ Java_com_nairoclip_app_NativeEngineBridge_nativePreviewGetCacheBudget(JNIEnv*, j
         if (ed == nullptr) return -1L;
         return static_cast<jlong>(nc_preview_get_cache_budget(ed));
     });
+}
+
+
+JNIEXPORT jlongArray JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeUpsertSubtitlesBatch(
+    JNIEnv* env, jobject, jlongArray starts, jlongArray durations, jobjectArray texts) {
+    if (starts == nullptr || durations == nullptr || texts == nullptr) return nullptr;
+    const jsize count = env->GetArrayLength(starts);
+    if (count <= 0 || count > 10000 || env->GetArrayLength(durations) != count ||
+        env->GetArrayLength(texts) != count) return nullptr;
+
+    std::vector<jlong> startValues(static_cast<std::size_t>(count));
+    std::vector<jlong> durationValues(static_cast<std::size_t>(count));
+    env->GetLongArrayRegion(starts, 0, count, startValues.data());
+    env->GetLongArrayRegion(durations, 0, count, durationValues.data());
+    if (env->ExceptionCheck()) return nullptr;
+
+    std::vector<std::string> textValues;
+    std::vector<NcSubtitleCueInput> cues;
+    std::vector<uint64_t> ids(static_cast<std::size_t>(count), 0);
+    textValues.reserve(static_cast<std::size_t>(count));
+    cues.reserve(static_cast<std::size_t>(count));
+    for (jsize i = 0; i < count; ++i) {
+        auto value = static_cast<jstring>(env->GetObjectArrayElement(texts, i));
+        if (value == nullptr) return nullptr;
+        const char* utf = env->GetStringUTFChars(value, nullptr);
+        if (utf == nullptr) {
+            env->DeleteLocalRef(value);
+            return nullptr;
+        }
+        textValues.emplace_back(utf);
+        env->ReleaseStringUTFChars(value, utf);
+        env->DeleteLocalRef(value);
+        cues.push_back(NcSubtitleCueInput{
+            static_cast<int64_t>(startValues[static_cast<std::size_t>(i)]),
+            static_cast<int64_t>(durationValues[static_cast<std::size_t>(i)]),
+            textValues.back().c_str()
+        });
+    }
+
+    const int32_t rc = withCurrentEditor([&](NcEditor* editor) -> int32_t {
+        return editor == nullptr ? NC_ERROR_NOT_FOUND :
+            nc_upsert_subtitles_batch(editor, cues.data(), count, ids.data());
+    });
+    if (rc != NC_OK) return nullptr;
+    jlongArray result = env->NewLongArray(count);
+    if (result == nullptr) return nullptr;
+    std::vector<jlong> output(ids.begin(), ids.end());
+    env->SetLongArrayRegion(result, 0, count, output.data());
+    return env->ExceptionCheck() ? nullptr : result;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionCreate(JNIEnv*, jobject) {
+    return reinterpret_cast<jlong>(nc_speech_session_create());
+}
+
+JNIEXPORT void JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionDestroy(
+    JNIEnv*, jobject, jlong handle) {
+    nc_speech_session_destroy(reinterpret_cast<NcSpeechSession*>(handle));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionLoad(
+    JNIEnv* env, jobject, jlong handle, jobject encoder, jobject decoder, jobject tokenizer) {
+    auto* session = reinterpret_cast<NcSpeechSession*>(handle);
+    auto* enc = static_cast<const uint8_t*>(env->GetDirectBufferAddress(encoder));
+    auto* dec = static_cast<const uint8_t*>(env->GetDirectBufferAddress(decoder));
+    auto* tok = static_cast<const char*>(env->GetDirectBufferAddress(tokenizer));
+    const jlong encSize = env->GetDirectBufferCapacity(encoder);
+    const jlong decSize = env->GetDirectBufferCapacity(decoder);
+    const jlong tokSize = env->GetDirectBufferCapacity(tokenizer);
+    if (session == nullptr || enc == nullptr || dec == nullptr || tok == nullptr ||
+        encSize <= 0 || decSize <= 0 || tokSize <= 0) {
+        return ToJStr(env, "{\"ok\":false,\"message\":\"模型必须使用非空 direct ByteBuffer\"}");
+    }
+    char* error = nullptr;
+    const int32_t rc = nc_speech_session_load_memory(session, enc, encSize, dec, decSize,
+                                                       tok, tokSize, &error);
+    const std::string message = error != nullptr ? error : "";
+    if (error != nullptr) nc_free_string(error);
+    return ToJStr(env, rc == NC_OK ? "{\"ok\":true}" :
+        "{\"ok\":false,\"code\":" + std::to_string(rc) +
+        ",\"message\":\"" + JEsc(message) + "\"}");
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionTranscribe(
+    JNIEnv* env, jobject, jlong handle, jobject pcm, jlong frameCount,
+    jint sampleRate, jint language) {
+    auto* session = reinterpret_cast<NcSpeechSession*>(handle);
+    auto* samples = static_cast<const float*>(env->GetDirectBufferAddress(pcm));
+    const jlong capacity = env->GetDirectBufferCapacity(pcm);
+    if (session == nullptr || samples == nullptr || frameCount <= 0 ||
+        capacity < 0 || frameCount > capacity / static_cast<jlong>(sizeof(float))) {
+        return ToJStr(env, "{\"ok\":false,\"message\":\"PCM direct buffer 或帧数非法\"}");
+    }
+    char* segments = nullptr;
+    char* error = nullptr;
+    const int32_t rc = nc_speech_session_transcribe(session, samples, frameCount,
+        sampleRate, language, &segments, &error);
+    const std::string message = error != nullptr ? error : "";
+    const std::string result = segments != nullptr ? segments : "[]";
+    if (segments != nullptr) nc_free_string(segments);
+    if (error != nullptr) nc_free_string(error);
+    return ToJStr(env, rc == NC_OK ? "{\"ok\":true,\"segments\":" + result + "}" :
+        "{\"ok\":false,\"code\":" + std::to_string(rc) +
+        ",\"message\":\"" + JEsc(message) + "\"}");
+}
+
+JNIEXPORT jint JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionCancel(
+    JNIEnv*, jobject, jlong handle) {
+    return nc_speech_session_cancel(reinterpret_cast<NcSpeechSession*>(handle));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeSpeechSessionStatus(
+    JNIEnv* env, jobject, jlong handle) {
+    int32_t state = 0;
+    double progress = 0.0;
+    char* error = nullptr;
+    const int32_t rc = nc_speech_session_status(reinterpret_cast<NcSpeechSession*>(handle),
+                                                 &state, &progress, &error);
+    const std::string message = error != nullptr ? error : "";
+    if (error != nullptr) nc_free_string(error);
+    return ToJStr(env, "{\"ok\":" + std::string(rc == NC_OK ? "true" : "false") +
+        ",\"state\":" + std::to_string(state) + ",\"progress\":" +
+        std::to_string(progress) + ",\"message\":\"" + JEsc(message) + "\"}");
 }
 
 }  // extern "C"

@@ -5,100 +5,79 @@
 
 ---
 
-## 一、编解码器合规（FFmpeg 协议与禁令）
 
-### 1.1 编译参数锁定（强制）
+## 一、全平台媒体编解码总政策
 
-| 参数 | 状态 | 原因 |
+NairoClip 不再分发或调用应用自带的软件视频/音频解码器与编码器。Android、iOS、macOS、Windows、Linux 均必须通过各自平台的系统媒体框架完成压缩媒体解码/编码；硬件加速优先。若系统硬件路径不可用，可评估系统框架本身提供的兼容实现，但不得加载 NairoClip 自带的 FFmpeg/libx264/OpenH264/libx265/libvpx/libaom/libopus/AAC 等软件编解码实现。系统框架也无法处理时必须 fail-closed。
+
+| 平台 | 目标系统媒体框架 | 迁移要求 |
 |---|---|---|
-| `--enable-gpl` | ❌ 禁止 | 启用后整体升级 GPL，强制开源 |
-| `--enable-nonfree` | ❌ 禁止 | 编译产物不可分发 |
-| 核心库链接 | ✅ 必须动态链接 | LGPL 要求 |
-| 版权声明 | ✅ 必须保留 | 「关于-开源软件许可」页面 |
+| Android | MediaCodec / MediaExtractor / MediaMuxer；AAudio / AudioTrack | 完善 codec 能力探测、AAC 系统编码、音频输出及 Surface/HardwareBuffer 路径 |
+| iOS / iPadOS / macOS | AVFoundation / VideoToolbox / CoreAudio | 用系统 reader/writer 与硬件 codec 替代 FFmpeg codec 路径 |
+| Windows | Media Foundation / WASAPI | 明确选择系统 MFT，优先硬件 MFT；不得打包软件 codec |
+| Linux | VA-API / V4L2 与系统媒体栈、PipeWire/ALSA | 运行时探测系统后端；不支持时安全拒绝 |
 
-### 1.2 编码器白名单（代码级强制，`core/src/codec_policy.cpp`）
+FFmpeg 不能被整体粗暴删除：在平台媒体 API 尚未接管前，仍可能承担容器 demux/mux、bitstream parser、时间戳、流信息和必要的像素/采样格式转换。上述职责属于迁移过渡层，不得借此启用 FFmpeg 软件 decoder/encoder。每个平台完成系统 reader/writer 接管并有回归证据后，才删除该平台不再需要的 FFmpeg 依赖和构建产物。
 
-| 类别 | 实现 | 规则 |
-|---|---|---|
-| **硬件（H.264 唯一路径）** | MediaCodec / VideoToolbox / MF / NVENC / QSV / VAAPI / V4L2M2M / AMF | ✅ **三端统一，且是 H.264 的唯一允许实现**（专利费由设备厂商在 SoC 授权中支付） |
-| 宽松软件（**非 H.264**） | libaom-av1 / libsvtav1 / librav1e / libvpx-vp9 / libopus / 内置 AAC / FLAC | ✅ 可用（royalty-free 或专利已到期） |
-| **软件 H.264（一律禁用）** | **OpenH264（源码或打包）/ FFmpeg 内置 h264 / libx264 / libx264rgb** | ❌ **禁止**——见下方 §1.2.1 |
-| GPL 传染 | libx265 / libxvid / libfdk_aac | ❌ 禁止（`libfdk_aac` 为不可分发许可） |
-| HEVC/H.265 | 全部实现 | ❌ 全线禁止（专利池复杂） |
+## 二、Android 编解码器合规与系统媒体策略
 
-#### 1.2.1 为什么软件 H.264 一律禁用（2026-11-05 决定）
+### 1.1 Android 构建硬性规则
 
-原设计是「硬件优先 + OpenH264 兜底」。放弃 OpenH264 的三个原因：
+Android APK 不捆绑任何软件视频或音频编解码器。媒体编解码必须调用 Android 系统 MediaCodec；系统不支持时明确报错，不允许退回 FFmpeg 软件实现。
 
-**① Cisco 的专利覆盖只适用于其分发的二进制，条件苛刻**
-
-`openh264.org/BINARY_LICENSE.txt` 原文要求：
-
-1. 二进制必须**由最终用户设备单独下载**，不能预先打包进 App；
-2. 最终用户必须能**开启/关闭**该二进制；
-3. 第三方软件在用户可控制的位置必须显示 **"OpenH264 Video Codec provided by Cisco Systems, Inc."**；
-4. EULA 必须完整复述上述条款。
-
-本项目把 `.so` 打进 APK，**不满足条件 1**，专利覆盖不适用。
-
-**② iOS 上根本不可行**
-
-OpenH264 FAQ 原文：
-
-> iOS does not allow for applications to fetch and install modules from the Internet once that application has been installed on the device.
-
-iOS 禁止 App 安装后下载可执行模块，该路径不可用。
-
-**③ 自行编译源码 = 自己承担专利费**
-
-FAQ 原文：
-
-> If I use the source code in my product, and then distribute that product on my own, will Cisco cover the MPEG LA licensing fees which I'd otherwise have to pay? **A: No.**
-
-**结论**：软件 H.264 在任何构建里都不可用。无硬件编码器时 **fail-closed 拒绝导出**，无硬件解码器时 **拒绝导入并提示转码**。
-
-#### 1.2.2 **没有任何开发例外**（2026-11-05 定稿）
-
-曾考虑给开发构建留一个「软件 H.264 兜底」，理由是本地沙箱 / CI 没有 GPU，不兜底就导不出、测不了。
-
-**这个想法被否决了。** 理由：
-
-- 产品里到底有没有软件 H.264，不该由「本机能不能跑测试」决定；
-- 一旦存在「仅开发可用」的开关，就永远有人能把它打开（误配置、fork、构建脚本改动）；
-- 而 APK 里只要含 H.264 编解码实现，就构成 AVC Product，专利费跑不掉 ——
-  审计看的是**产物**，不是「我们本意只用开发构建」。
-
-**正确的解法是反过来：让测试不依赖 H.264。**
-
-| 场景 | 做法 |
+| FFmpeg 构建项 | Android 策略 |
 |---|---|
-| 测试素材 | 改用 **VP9** 生成（`tests/fixtures/generate_media.sh`） |
-| 测试导出 | 显式指定 `videoCodec = "vp9"`（`libvpx-vp9`，BSD-3） |
-| C ABI | 新增 `nc_export_run_ex(..., video_codec, ...)`，保留原 `nc_export_run` |
-| H.264 路径验证 | 由**真机**承担（模拟器/CI 都不具备可信的硬件编解码器） |
+| `--disable-decoders` | 先关闭全部内置解码器 |
+| `--disable-encoders` | 先关闭全部内置编码器 |
+| `*_mediacodec` 视频解码器 | 仅启用系统 MediaCodec wrapper |
+| `*_mediacodec` 音频解码器 | 仅启用系统 MediaCodec wrapper |
+| `*_mediacodec` 视频编码器 | 仅启用系统 MediaCodec wrapper |
+| AAC / Opus / MP3 / FLAC 等软件编码器 | 不编入 Android 构建 |
+| demuxer / muxer / parser | 保留容器读写和码流解析能力，不承担软件编解码 |
 
-**所以现在代码里没有任何条件分支能让软件 H.264 复活**：
-`classifyEncoderLicense()` 把软件 H.264 判为 `SoftwareH264`，
-`rankVideoEncoderCandidates()` 与 `encoderAllowed()` 直接丢弃，
-解码侧的候选列表里也不含 `"h264"`。三处都不受任何编译开关影响。
+### 1.2 Android 系统编解码器白名单
 
-### 1.3 运行时策略（fail-closed）
+| 类型 | 系统 MediaCodec 格式 | 规则 |
+|---|---|---|
+| 视频解码 | H.264、MPEG-2、MPEG-4、VP8、VP9、AV1 | 仅通过系统 MediaCodec wrapper；设备不支持则拒绝导入 |
+| 视频编码 | H.264、VP8、VP9、MPEG-4、AV1 | 仅通过系统 MediaCodec wrapper；按设备能力选择 |
+| 音频解码 | AAC、MP3、AMR-NB、AMR-WB | 仅通过系统 MediaCodec wrapper；其他格式暂不支持 |
+| 音频编码 | AAC | 必须通过 Android 系统 MediaCodec + 容器封装链路；该链路接入前拒绝带音轨导出 |
+| 音频播放 | AAudio / Oboe，兼容 AudioTrack | 使用系统音频输出 API；不等同于压缩音频解码 |
+| GPU 呈现 | Vulkan / OpenGL ES | 使用系统图形 API 和设备驱动 |
 
-- 编码器选择顺序：**硬件 → 宽松软件 → （仅开发构建）GPL 例外**；
-- 无合规实现时**拒绝编码**并返回明确错误（不静默降级到 GPL）；
-- 构建开关：`-DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF`（发布构建必须）；
-  开发构建（默认 ON）用于沙箱/CI（仅有 libx264 环境）——日志中显著标记
-  「开发例外」。
+H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软件实现打入 APK；HEVC/H.265 继续全线禁用，不因系统 API 存在而重新开放。系统 API 返回的实际 codec 能力仍取决于设备厂商、Android 版本、profile、分辨率和帧率；不能把“存在 MediaCodec API”误写成“所有设备都支持硬件加速”。
 
-### 1.4 三端部署要求（文档第八章）
+### 1.3 Fail-closed 与当前实现边界
 
-- 导出格式选项、可导入素材格式范围三端**完全一致**（不因设备性能增减）；
-- 硬件解码不可用（如老旧设备 AV1）→ **软件解码兜底（dav1d）**，不拒绝导入；
-- 分辨率档位不因设备性能减少（耗时提示见第四章「预览速度≠功能差异」）。
+- Android FFmpeg 构建先执行 `--disable-decoders --disable-encoders`，再显式启用 MediaCodec wrappers。
+- Android 视频解码只枚举 `h264_mediacodec`、`mpeg4_mediacodec`、`vp8_mediacodec`、`vp9_mediacodec`、`av1_mediacodec` 等系统 wrapper。
+- Android 音频解码只枚举 AAC / MP3 / AMR 对应的 MediaCodec wrapper；不支持的音轨明确拒绝，不走 FFmpeg 原生软件解码。
+- Android 视频编码候选必须以 `_mediacodec` 结尾；即使未来构建配置意外启用了软件编码器，也会在运行时过滤。
+- AAC 软件编码已在所有平台的 FFmpeg writer 路径中禁用。Android MediaCodec、Apple AudioConverter/AVAssetWriter、Windows Media Foundation、Linux 系统音频编码与最终封装链路尚未全部接通前，任何平台的带音轨导出均明确失败；不得静默生成无声视频。
+- 当前 FFmpeg reader 的系统视频解码适配仍是迁移中的子集：Android 使用 MediaCodec wrappers；桌面仅尝试已列出的 H.264 平台硬件候选；其他视频格式在对应系统后端接入前明确拒绝，不允许调用 FFmpeg 内置软件 decoder。
+- 当前 EGL/GLES 预览仍然接收 CPU Reference renderer 生成的 RGBA 数据；这不等于 MediaCodec Surface / HardwareBuffer 到 GPU 的零拷贝链路。
+- 当前 Android 音频混音核心仍由 NairoClip C++ Audio Mixer 执行；AAudio / Oboe / AudioTrack 输出接线仍需完成。
+- 以上是 Android 当前迁移范围。iOS、Windows、macOS、Linux 必须分别接入各自系统媒体框架后，才能声明达到同样的系统-only 策略；不能将 Android 状态外推为三端已完成。
+
+### 1.4 软件编解码器禁令
+
+- Android APK 不得包含 H.264、HEVC、AV1、VP9、AAC、MP3、Opus、FLAC、Vorbis 等格式的软件编解码实现。
+- 不允许 GPL、nonfree 或其他未获批准的编解码器进入 Android APK。
+- FFmpeg 在 Android 侧保留容器 demux/mux、bitstream parser、像素/采样格式转换等非编解码职责；FFmpeg 的 MediaCodec wrapper 只作为系统 API 适配层。
+
+### 1.5 FFmpeg 最终移除目标
+
+FFmpeg 在当前阶段仅作为迁移过渡层，不是 NairoClip 的最终媒体架构。最终验收目标是从所有平台构建与仓库依赖中彻底移除 FFmpeg，包括 `ffmpeg-build`、`libavcodec` / `libavformat` / `libavutil` 等库、头文件、预编译二进制、wrapper、构建脚本和仅服务于 FFmpeg 的代码。
+
+删除门槛：Android、iOS/macOS、Windows、Linux 均已由各自系统媒体框架接管容器读写、码流参数解析、时间戳/seek、音视频解码与编码、像素/采样格式转换、音视频封装及错误处理；跨平台回归覆盖项目导入、预览、波形、字幕/语音处理、代理、导出、暂停/seek/旋转/多音轨和异常媒体；构建产物扫描确认不再链接或打包 FFmpeg。任一平台尚未达到门槛时，不删除该平台仍在使用的过渡组件。
+
+达到门槛后，删除 FFmpeg 专属许可证材料；仍被保留的第三方依赖及代码必须继续保留其各自许可证和 NOTICE，不得一并清除。
+- 系统不支持时提示用户格式或设备不兼容；不得下载、加载或静默启用软件编解码器。
 
 ---
 
-## 二、AI 模型协议（锁定清单）
+## 三、AI 模型协议（锁定清单）
 
 ### 2.1 锁定模型（协议已核对，均为 MIT/BSD/Apache-2.0）
 
@@ -141,7 +120,7 @@ FAQ 原文：
 
 ---
 
-## 三、三端功能对等原则（强制）
+## 四、三端功能对等原则（强制）
 
 - **三端（Android/iOS/桌面）功能集合与最终导出效果质量上限必须完全一致**；
 - 唯一允许差异：**模型量化精度**（FP32/FP16/INT8，体积与速度差异）；
@@ -162,7 +141,7 @@ FAQ 原文：
 
 ---
 
-## 四、AI 生成合成内容标识（《标识办法》2025-09-01 施行）
+## 五、AI 生成合成内容标识（《标识办法》2025-09-01 施行）
 
 ### 4.1 触发范围
 
@@ -191,7 +170,7 @@ FAQ 原文：
 
 ---
 
-## 五、开源许可与发布合规
+## 六、开源许可与发布合规
 
 ### 5.1 NOTICE 页面（「关于-开源软件许可」）
 
@@ -213,7 +192,7 @@ FAQ 原文：
 
 ---
 
-## 六、强制校验清单（对照本文档逐项检查）
+## 七、强制校验清单（对照本文档逐项检查）
 
 | # | 校验项 | 代码/文档位置 | 状态 |
 |---|---|---|---|
@@ -228,9 +207,9 @@ FAQ 原文：
 | 9 | 桌面端性能模式为用户主动开关 | 本文档 3 | ✅ 已定义 |
 | 10 | FFmpeg 编译参数锁定（禁 GPL/nonfree） | 本文档 1.1 | ⚠️ 平台层构建时执行 |
 | 11 | 禁用 libx264/libx265（代码级） | `core/src/codec_policy.cpp` + 测试 | ✅ 已实现（源码级） |
-| 12 | AV1/VP9/Opus 三端可用 | `codec_policy` 白名单 | ✅ 已实现（源码级） |
+| 12 | AV1/VP9/Opus 仅走系统媒体 API，不含应用自带软件 codec | `codec_policy` + 平台适配层 | ⚠️ 编码策略已收紧；各平台适配未全部完成 |
 | 13 | 导出格式/导入范围三端一致 | 本文档 1.4 | ✅ 已定义（平台层执行） |
-| 14 | 格式不支持时软解兜底（dav1d） | 本文档 1.4 | ⚠️ 平台层构建时执行 |
+| 14 | 格式不支持时不得调用应用自带软件解码器；系统不支持则 fail-closed | 本文档 1.1/1.4 | ⚠️ Android 已收紧；其余平台系统 reader 迁移中 |
 | 15 | AI 标识（显式画面 + 显式音频 + 隐式元数据） | `ai_label` / `ai_marking` | ✅ 已实现（源码级）+ 端到端验证 |
 | 16 | 日志留存 ≥6 个月 | 本文档 4.3 | ⚠️ 平台层执行 |
 | 17 | 开源 NOTICE 页面（协议全文 + CI 审计） | `docs/THIRD_PARTY_NOTICES.md` | ✅ 已产出（CI 待接） |

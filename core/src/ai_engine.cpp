@@ -239,6 +239,8 @@ struct AiSession::Impl {
     std::vector<std::string> outputNames;
     std::vector<TensorInfo> inputInfos;
     std::vector<TensorInfo> outputInfos;
+    // ORT 内存模型可能在 Session 生命周期内引用输入字节；保留私有副本直到 session 销毁。
+    std::vector<std::uint8_t> modelBytes;
 };
 
 #else  // 无 ONNX Runtime
@@ -246,12 +248,13 @@ struct AiSession::Impl {
 struct AiSession::Impl {
     std::vector<TensorInfo> inputInfos;
     std::vector<TensorInfo> outputInfos;
+    std::vector<std::uint8_t> modelBytes;
 };
 
 #endif
 
 AiSession::AiSession() : impl_(std::make_unique<Impl>()) {}
-AiSession::~AiSession() = default;
+AiSession::~AiSession() { unload(); }
 
 bool AiSession::loaded() const {
 #ifdef NAIROCLIP_HAS_ONNX_RUNTIME
@@ -269,6 +272,11 @@ void AiSession::unload() {
     impl_->inputInfos.clear();
     impl_->outputInfos.clear();
 #endif
+    // 尽力清除解密后的模型副本（volatile 防止普通优化器删除写入）。
+    volatile std::uint8_t* bytes = impl_->modelBytes.empty()
+        ? nullptr : impl_->modelBytes.data();
+    for (std::size_t i = 0; i < impl_->modelBytes.size(); ++i) bytes[i] = 0;
+    std::vector<std::uint8_t>().swap(impl_->modelBytes);
 }
 
 const std::vector<AiSession::TensorInfo>& AiSession::inputs() const {
@@ -355,6 +363,75 @@ bool AiSession::load(const std::string& modelPath, AiBackend backend,
     }
 #else
     (void)modelPath;
+    (void)backend;
+    if (outputFailure != nullptr) {
+        *outputFailure = "此构建未链接 ONNX Runtime——AI 推理不可用（可选依赖）";
+    }
+    return false;
+#endif
+}
+
+bool AiSession::loadFromMemory(const void* modelData, std::size_t modelSize,
+                              AiBackend backend, std::string* outputFailure) {
+#ifdef NAIROCLIP_HAS_ONNX_RUNTIME
+    unload();
+    if (modelData == nullptr || modelSize == 0) {
+        if (outputFailure != nullptr) *outputFailure = "模型内存为空";
+        return false;
+    }
+    try {
+        const auto* source = static_cast<const std::uint8_t*>(modelData);
+        impl_->modelBytes.assign(source, source + modelSize);
+        Ort::SessionOptions options;
+        options.SetIntraOpNumThreads(2);
+        options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
+        const char* provider = ortProviderName(backend);
+        if (provider != nullptr) {
+            tryAppendExecutionProvider(options, backend);
+        }
+        // 使用 ORT 的内存构造入口：不会将解密后的模型写入文件系统。
+        impl_->session = std::make_unique<Ort::Session>(
+            impl_->env, impl_->modelBytes.data(), impl_->modelBytes.size(), options);
+
+        const std::size_t inputCount = impl_->session->GetInputCount();
+        impl_->inputNames.clear();
+        impl_->inputInfos.clear();
+        for (std::size_t i = 0; i < inputCount; ++i) {
+            auto name = impl_->session->GetInputNameAllocated(i, impl_->allocator);
+            impl_->inputNames.push_back(name.get());
+            Ort::TypeInfo typeInfo = impl_->session->GetInputTypeInfo(i);
+            const auto info = typeInfo.GetTensorTypeAndShapeInfo();
+            TensorInfo tensor;
+            tensor.name = name.get();
+            tensor.shape = info.GetShape();
+            tensor.type = mapOrtType(info.GetElementType());
+            impl_->inputInfos.push_back(std::move(tensor));
+        }
+        const std::size_t outputCount = impl_->session->GetOutputCount();
+        impl_->outputNames.clear();
+        impl_->outputInfos.clear();
+        for (std::size_t i = 0; i < outputCount; ++i) {
+            auto name = impl_->session->GetOutputNameAllocated(i, impl_->allocator);
+            impl_->outputNames.push_back(name.get());
+            Ort::TypeInfo typeInfo = impl_->session->GetOutputTypeInfo(i);
+            const auto info = typeInfo.GetTensorTypeAndShapeInfo();
+            TensorInfo tensor;
+            tensor.name = name.get();
+            tensor.shape = info.GetShape();
+            tensor.type = mapOrtType(info.GetElementType());
+            impl_->outputInfos.push_back(std::move(tensor));
+        }
+        return true;
+    } catch (const std::exception& e) {
+        unload();
+        if (outputFailure != nullptr) {
+            *outputFailure = std::string("内存模型加载失败：") + e.what();
+        }
+        return false;
+    }
+#else
+    (void)modelData;
+    (void)modelSize;
     (void)backend;
     if (outputFailure != nullptr) {
         *outputFailure = "此构建未链接 ONNX Runtime——AI 推理不可用（可选依赖）";

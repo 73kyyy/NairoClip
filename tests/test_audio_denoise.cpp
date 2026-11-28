@@ -104,13 +104,18 @@ double toneAmplitude(const std::vector<float>& x, int channels, double startSeco
     return count > 0 ? std::sqrt(re * re + im * im) / static_cast<double>(count) : 0.0;
 }
 
-/// 音节突发窗口的 300Hz 幅度（7 个突发的中段平均；避开起止边沿）。
+/// 单个音节突发窗口的 300Hz 幅度（避开起止边沿）。
+double burstToneWindow(const std::vector<float>& x, int channels, int sampleRate, int k) {
+    const double start = k * 0.2 + 0.03;
+    const double end = k * 0.2 + 0.13;
+    return toneAmplitude(x, channels, start, end, sampleRate);
+}
+
+/// 音节突发窗口的 300Hz 幅度（7 个突发的中段平均）。
 double burstTone(const std::vector<float>& x, int channels, int sampleRate) {
     double total = 0.0;
     for (int k = 1; k < 8; ++k) {
-        const double start = k * 0.2 + 0.03;
-        const double end = k * 0.2 + 0.13;
-        total += toneAmplitude(x, channels, start, end, sampleRate);
+        total += burstToneWindow(x, channels, sampleRate, k);
     }
     return total / 7.0;
 }
@@ -578,6 +583,11 @@ NC_TEST(AudioDenoise, MixerAppliesDenoiseToRealMedia) {
                  "[AUDIO_DENOISE_METRICS] tone_in=%.9f tone_out=%.9f tone_retention_db=%.3f "
                  "noise_in=%.9f noise_out=%.9f noise_reduction_db=%.3f\n",
                  toneIn, toneOut, toneRetentionDb, noiseIn, noiseOut, noiseReductionDb);
+    for (int k = 1; k < 8; ++k) {
+        std::fprintf(stderr, "[AUDIO_DENOISE_BURST] k=%d input=%.9f output=%.9f\n",
+                     k, burstToneWindow(off, 2, 48000, k),
+                     burstToneWindow(on, 2, 48000, k));
+    }
     NC_CHECK(toneIn > 0.05);
     NC_CHECK(20.0 * std::log10((toneOut + 1e-12) / (toneIn + 1e-12)) > -8.0);
 }

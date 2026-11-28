@@ -29,7 +29,7 @@ std::string avErr(int err) {
 }
 
 /// 枚举 FFmpeg 中某 codec id 的可用编码器 → 合规策略候选列表。
-/// hardware 判定：编码器名匹配硬件后缀（codec_policy 分级为 Hardware）。
+/// 硬件判定：使用 FFmpeg AV_CODEC_CAP_HARDWARE 能力位；后端名称不作为硬件证明。
 std::vector<EncoderCandidate> availableEncodersFor(AVCodecID codecId,
                                                    const char* codecName) {
     std::vector<EncoderCandidate> candidates;
@@ -42,8 +42,7 @@ std::vector<EncoderCandidate> availableEncodersFor(AVCodecID codecId,
         EncoderCandidate candidate;
         candidate.name = codec->name != nullptr ? codec->name : "";
         candidate.codec = codecName;
-        candidate.hardware =
-            classifyEncoderLicense(candidate.name) == EncoderLicenseClass::Hardware;
+        candidate.hardware = (codec->capabilities & AV_CODEC_CAP_HARDWARE) != 0;
         candidates.push_back(std::move(candidate));
     }
     return candidates;
@@ -53,7 +52,8 @@ std::vector<EncoderCandidate> availableEncodersFor(AVCodecID codecId,
 AVCodecID ffmpegCodecIdFor(const std::string& codec) {
     if (codec == "av1") return AV_CODEC_ID_AV1;
     if (codec == "vp9") return AV_CODEC_ID_VP9;
-    return AV_CODEC_ID_H264;
+    if (codec == "h264") return AV_CODEC_ID_H264;
+    return AV_CODEC_ID_NONE;
 }
 
 /// 按合规策略打开视频编码器：
@@ -92,31 +92,6 @@ const AVCodec* openCompliantVideoEncoder(const std::string& codec,
         note = primary.note;
     }
     return nullptr;
-}
-
-/// 按合规策略打开音频编码器（AAC 内置实现视为宽松；libfdk_aac 为不可分发）。
-const AVCodec* openCompliantAudioEncoder(const std::string& codec,
-                                         const EncoderPolicy& policy,
-                                         std::string& note) {
-    const AVCodecID targetId = codec == "opus" ? AV_CODEC_ID_OPUS : AV_CODEC_ID_AAC;
-    std::vector<EncoderCandidate> candidates;
-    void* iter = nullptr;
-    const AVCodec* c = nullptr;
-    while ((c = av_codec_iterate(&iter)) != nullptr) {
-        if (c->id != targetId || !av_codec_is_encoder(c)) {
-            continue;
-        }
-        EncoderCandidate candidate;
-        candidate.name = c->name != nullptr ? c->name : "";
-        candidate.codec = codec;
-        candidates.push_back(std::move(candidate));
-    }
-    const EncoderSelection selection = selectAudioEncoder(codec, candidates, policy);
-    note = selection.note;
-    if (!selection.valid()) {
-        return nullptr;
-    }
-    return avcodec_find_encoder_by_name(selection.name.c_str());
 }
 
 }  // namespace
@@ -165,15 +140,18 @@ struct FFmpegMediaWriter::Impl {
         videoStream = nullptr;
         audioStream = nullptr;
         open = false;
+        videoPts = 0;
+        audioPts = 0;
+        encoderNote.clear();
         audioFifo.clear();
     }
 };
 
 FFmpegMediaWriter::FFmpegMediaWriter() : impl_(std::make_unique<Impl>()) {}
 FFmpegMediaWriter::~FFmpegMediaWriter() {
-    if (impl_ != nullptr && impl_->open) {
-        abort();  // 未 finish 的写入器：丢弃
-    }
+    // open() 的失败路径也可能已经分配 format/codec/IO 资源；
+    // 清理不能依赖 open 标志，否则早期失败会泄漏。
+    abort();
 }
 
 Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& config) {
@@ -182,27 +160,42 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     impl.config = config;
     impl.path = path;
 
+    // Reject audio export before allocating a container or opening a video
+    // encoder. Until every platform has a native AAC encoder + muxer path,
+    // this is an unconditional fail-closed contract; never emit silent video
+    // or fall back to an app-bundled software AAC implementation.
+    if (config.includeAudio) {
+        return Result::fail(
+            ErrorCode::Unsupported,
+            "当前平台的系统 AAC 音频编码/封装链路尚未接入；"
+            "NairoClip 不使用应用自带软件 AAC 编码器，也不会静默导出无声视频。");
+    }
+
     int err = avformat_alloc_output_context2(&impl.format, nullptr, nullptr, path.c_str());
     if (err < 0 || impl.format == nullptr) {
         return Result::fail(ErrorCode::Internal, "无法创建输出上下文");
     }
 
-    // ---- 视频编码器（合规策略选择）----
-    // 说明：此前的 avcodec_find_encoder(AV_CODEC_ID_H264) 自动选择会解析到
-    // libx264（GPL-2.0），违反协议清单。现在按 codec_policy 生成候选序列：
-    //
-    //   **H.264 只有硬件实现可用**（2026-11-05 策略变更）。
-    //   软件 H.264（openh264 / FFmpeg 内置 h264 / libx264）一律被
-    //   codec_policy 剔除 —— 前两者要自付 AVC 专利费，后者是 GPL。
-    //
-    //   AV1 / VP9 仍可用软件实现（libsvtav1 / libaom-av1 / libvpx-vp9，
-    //   全部 BSD 且 royalty-free），走 Permissive 组。
-    //
-    // 逐个尝试打开（硬件编码器可能因驱动/GPU 缺失失败，如无 GPU 环境下
-    // h264_nvenc 报 "Cannot load libcuda.so.1" → 按序回退到下一个硬件后端）；
-    // 全部失败时 fail-closed 拒绝编码，**不静默降级到任何软件 H.264 实现**。
-    const std::vector<EncoderCandidate> videoCandidates =
+    // ---- 视频编码器（系统硬件优先）----
+    // Android 构建只编入 *_mediacodec 视频编码 wrapper，不包含任何软件编码器。
+    // 逐个真正打开候选，设备不支持所选格式/尺寸/帧率时 fail-closed。
+    const std::vector<EncoderCandidate> discoveredVideoCandidates =
         availableEncodersFor(ffmpegCodecIdFor(config.videoCodec), config.videoCodec.c_str());
+    std::vector<EncoderCandidate> videoCandidates;
+#if defined(__ANDROID__)
+    // Defense in depth: even if a future FFmpeg configure change accidentally
+    // enables a software encoder, Android export must never select it.
+    const std::string mediaCodecSuffix = "_mediacodec";
+    for (const auto& candidate : discoveredVideoCandidates) {
+        if (candidate.name.size() >= mediaCodecSuffix.size() &&
+            candidate.name.compare(candidate.name.size() - mediaCodecSuffix.size(),
+                                    mediaCodecSuffix.size(), mediaCodecSuffix) == 0) {
+            videoCandidates.push_back(candidate);
+        }
+    }
+#else
+    videoCandidates = discoveredVideoCandidates;
+#endif
     const std::vector<EncoderSelection> rankedVideo =
         rankVideoEncoderCandidates(config.videoCodec, videoCandidates, EncoderPolicy{});
     std::string attempted;
@@ -277,10 +270,12 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
             message += "（尝试失败：" + attempted + "）";
         }
         if (rankedVideo.empty()) {
-            message += "：没有任何可用的硬件编码器。"
-                       "出于编解码授权考虑，本应用不使用软件 H.264 编码——"
-                       "请在有硬件编码器的设备上导出，"
-                       "或改用 AV1 / VP9 格式（这两个是 royalty-free 的软件实现）。";
+#if defined(__ANDROID__)
+            message += "：没有可用的系统 MediaCodec 视频编码器。"
+                       "本 Android 构建不包含软件视频编码器。";
+#else
+            message += "：没有符合当前授权策略的平台视频编码器。";
+#endif
         }
         return Result::fail(ErrorCode::Unsupported, message);
     }
@@ -294,34 +289,6 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     if (!config.aiMetadata.empty()) {
         for (const auto& entry : config.aiMetadata) {
             av_dict_set(&impl.format->metadata, entry.first.c_str(), entry.second.c_str(), 0);
-        }
-    }
-
-    // ---- 音频编码器（AAC；合规策略：硬件 > 宽松软件（内置 AAC）> 开发例外）----
-    std::string audioNote;
-    const AVCodec* audioEncoder =
-        openCompliantAudioEncoder("aac", EncoderPolicy{}, audioNote);
-    if (config.includeAudio && audioEncoder != nullptr) {
-        impl.audioCodec = avcodec_alloc_context3(audioEncoder);
-        impl.audioCodec->sample_rate = config.audioSampleRate;
-        AVChannelLayout layout;
-        av_channel_layout_default(&layout, config.audioChannels);
-        impl.audioCodec->ch_layout = layout;
-        impl.audioCodec->sample_fmt = audioEncoder->sample_fmts != nullptr
-                                          ? audioEncoder->sample_fmts[0]
-                                          : AV_SAMPLE_FMT_FLTP;
-        impl.audioCodec->bit_rate = config.audioBitrate;
-        impl.audioCodec->time_base = AVRational{1, config.audioSampleRate};
-
-        impl.audioStream = avformat_new_stream(impl.format, nullptr);
-        err = avcodec_open2(impl.audioCodec, audioEncoder, nullptr);
-        if (err < 0) {
-            avcodec_free_context(&impl.audioCodec);
-            impl.audioCodec = nullptr;
-            impl.audioStream = nullptr;
-        } else {
-            avcodec_parameters_from_context(impl.audioStream->codecpar, impl.audioCodec);
-            impl.audioStream->time_base = impl.audioCodec->time_base;
         }
     }
 
@@ -697,12 +664,10 @@ Result FFmpegMediaWriter::finish() {
 }
 
 void FFmpegMediaWriter::abort() {
-    if (impl_ == nullptr || !impl_->open) {
-        return;
-    }
+    if (impl_ == nullptr) return;
+    // reset() 对 open 之前已分配的部分资源同样有效；不能只在 open=true 时清理。
     impl_->reset();
-    // 删除半成品文件（由调用方控制是否删除；这里保守地保留，
-    // 因为某些平台下删除行为需要用户确认）。
+    // 删除半成品文件（由调用方控制是否删除；这里保守地保留）。
 }
 
 bool FFmpegMediaWriter::isOpen() const { return impl_ != nullptr && impl_->open; }

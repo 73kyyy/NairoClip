@@ -47,6 +47,11 @@ struct MediaProbeResult {
     /// 短期不改渲染管线（tone mapping 是独立的大工程），
     /// 但至少让 UI 能诚实提示：「此素材为 HDR，当前按 SDR 显示」。
     bool isHdr = false;
+
+    /// 容器是否包含音频流（与系统解码器是否可用分开记录）。
+    bool hasAudioStream = false;
+    /// 当前平台是否成功打开了该音频流的系统解码器。
+    bool audioDecoderAvailable = false;
 };
 
 /// 一帧音频采样块（交错格式，16-bit 或 float 由实现约定；
@@ -163,6 +168,31 @@ class MediaReaderFactory {
 public:
     virtual ~MediaReaderFactory() = default;
     virtual std::unique_ptr<MediaReader> create() = 0;
+};
+
+/// 无压缩 PCM WAV 读取器。
+///
+/// 仅解析 RIFF/WAVE 容器并转换 PCM 样本格式，不包含压缩音频解码器。
+/// 支持 PCM 整数 8/16/24/32-bit 与 IEEE float32；适用于录音、WAV 素材和
+/// 系统解码输出落盘后的 PCM 输入。其他压缩格式必须交给平台系统媒体 API。
+class WavPcmReader : public MediaReader {
+public:
+    WavPcmReader();
+    ~WavPcmReader() override;
+    WavPcmReader(const WavPcmReader&) = delete;
+    WavPcmReader& operator=(const WavPcmReader&) = delete;
+
+    Result open(const std::string& path) override;
+    void close() override;
+    bool isOpen() const override;
+    const MediaProbeResult& probe() const override;
+    Result seek(const Time& sourceTime) override;
+    bool readVideoFrame(VideoFrame& out) override;
+    bool readAudioBlock(AudioBlock& out) override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 /// 内存 Mock 读取器（测试与流水线骨架验证用）。

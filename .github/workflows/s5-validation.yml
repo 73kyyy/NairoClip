@@ -1,0 +1,130 @@
+name: S5 Android Validation
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    branches: [ development/v3.3.3 ]
+    paths:
+      - 'android/**'
+      - 'core/**'
+      - 'mobile/native/android/**'
+      - 'tests/**'
+      - '.github/workflows/s5-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-kotlin:
+    name: Android Kotlin compile and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android compile components
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "cmake;3.22.1"
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Generate Gradle wrapper
+        working-directory: android
+        run: gradle wrapper --gradle-version 8.7 --no-daemon
+
+      - name: Configure local SDK path
+        run: |
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > android/local.properties
+
+      - name: Compile Kotlin and run JVM unit tests
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --no-daemon
+
+  core-ctest:
+    name: Host CMake build and targeted CTest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FFmpeg build and fixture dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg libavformat-dev libavcodec-dev \
+            libavutil-dev libswscale-dev libswresample-dev pkg-config
+
+      - name: Configure host CMake test build
+        run: |
+          cmake -S . -B build-ctest \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNAIROCLIP_BUILD_TESTS=ON \
+            -DNAIROCLIP_BUILD_DESIGN_HARNESS=OFF \
+            -DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF \
+            -DNAIROCLIP_ORT_ROOT=OFF
+
+      - name: Build native test executable
+        run: cmake --build build-ctest --parallel 4 --target nairoclip_tests
+
+      - name: Run targeted JNI and C ABI CTest coverage
+        env:
+          NC_TEST_INCLUDE: S1_2.,Capi.,AudioDenoise.
+        run: ctest --test-dir build-ctest --output-on-failure -R '^nairoclip_tests$'
+
+  android-native-core:
+    name: Android NDK core cross-compile (arm64-v8a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Android NDK r27d
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27d
+          add-to-path: false
+
+      - name: Configure Android CMake
+        run: |
+          cmake -S . -B build-android-arm64 \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNAIROCLIP_ORT_ROOT=OFF \
+            -DNAIROCLIP_DEVELOPMENT_GPL_OK=OFF \
+            -DNAIROCLIP_BUILD_TESTS=OFF \
+            -DNAIROCLIP_BUILD_DESIGN_HARNESS=OFF \
+            -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON
+
+      - name: Build Android core
+        run: cmake --build build-android-arm64 --parallel 4 --target nairoclip_core
+
+      - name: Compile JNI bridge translation unit
+        run: |
+          NDK="${{ steps.ndk.outputs.ndk-path }}"
+          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+          "$CLANG" --target=aarch64-linux-android24 -std=c++17 -fsyntax-only \
+            -Icore/include \
+            -I"$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include" \
+            mobile/native/android/nc_jni.cpp

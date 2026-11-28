@@ -86,6 +86,43 @@ NC_TEST(ExportExecutor, OutputsFramesForWholeTimeline) {
     // 最后一帧时间戳 = 59/30
     NC_CHECK(lastTimestamp == timeAtFrame(fps30(), 59));
 }
+NC_TEST(ExportExecutor, OpacityKeyframesPreserveStaticTransform) {
+    Fixture f;
+    f.build();
+    f.addClip(Rational::make(0), Rational::make(1));
+    Track* track = f.seq()->findTrack(f.videoTrack);
+    NC_CHECK(track != nullptr);
+    Clip* clip = &track->clips.front();
+    clip->transform.enabled = true;
+    clip->transform.scale = 0.5;
+
+    Keyframe opacityStart;
+    opacityStart.time = Rational::make(0);
+    opacityStart.value = 1.0;
+    Keyframe opacityEnd;
+    opacityEnd.time = Rational::make(1);
+    opacityEnd.value = 1.0;
+    NC_CHECK(clip->animation.curve(ClipProperty::Opacity).insert(opacityStart).isOk());
+    NC_CHECK(clip->animation.curve(ClipProperty::Opacity).insert(opacityEnd).isOk());
+
+    const ExportPlan plan = compileExportPlan(f.project, *f.seq());
+    MockMediaReader::Config config = makeReaderConfig();
+    config.grayValue = 200;
+    MockFactory factory(config);
+    bool checkedFrame = false;
+    executeExport(plan, factory, [&](const OutputVideoFrame& frame) {
+        if (checkedFrame) return;
+        checkedFrame = true;
+        // A 50% centered static transform leaves the top-left outside the
+        // source image. An opacity-only curve must not reset scale to 100%.
+        NC_CHECK_EQ(frame.rgba[0], std::uint8_t(0));
+        const std::size_t center =
+            (static_cast<std::size_t>(frame.height / 2) * frame.width +
+             static_cast<std::size_t>(frame.width / 2)) * 4;
+        NC_CHECK(frame.rgba[center] > 0);
+    }, nullptr);
+    NC_CHECK(checkedFrame);
+}
 NC_TEST(ExportExecutor, BlackFramesForGaps) {
     Fixture f;
     f.build();

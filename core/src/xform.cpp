@@ -1,4 +1,5 @@
 #include "nairoclip/core/xform.h"
+#include "nairoclip/core/transform_limits.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,10 +20,25 @@ double clampd(double v, double lo, double hi) {
     return v;
 }
 
+double clampFinite(double value, double fallback, double low, double high) {
+    if (!std::isfinite(value)) value = fallback;
+    return clampd(value, low, high);
+}
+
+double normalizeRadians(double value) {
+    if (!std::isfinite(value)) return 0.0;
+    double normalized = std::fmod(value, kTwoPi);
+    if (normalized < 0.0) normalized += kTwoPi;
+    return normalized;
+}
+
 /// 九宫格锚点 → 相对位置 [0,1]。
 /// 0=左上 1=上中 2=右上 3=左中 4=中心 5=右中 6=左下 7=下中 8=右下
 void anchorPoint(int anchor, double& ax, double& ay) {
-    const int a = (anchor < 0 || anchor > 8) ? 4 : anchor;
+    const int a = (anchor < transform_limits::kAnchorMin ||
+                   anchor > transform_limits::kAnchorMax)
+                      ? transform_limits::kAnchorCenter
+                      : anchor;
     ax = static_cast<double>(a % 3) / 2.0;
     ay = static_cast<double>(a / 3) / 2.0;
 }
@@ -142,20 +158,24 @@ void applyRasterInPlace(std::uint8_t* dst, int dstW, int dstH, const XformParams
 // =============================================================================
 
 void XformParams::clamp() {
-    value = clampd(value, 0.0, 2.0);
-    angle = std::fmod(angle, kTwoPi);
-    if (angle < 0.0) angle += kTwoPi;
-    phase = std::fmod(phase, kTwoPi);
-    if (phase < 0.0) phase += kTwoPi;
-    freq = clampd(freq, 0.0, 30.0);
+    // These are effect-strength controls, not ClipTransform's position/scale/
+    // rotation units. Keep their own documented domains while ensuring NaN
+    // and infinity never leak into the render matrix.
+    value = clampFinite(value, 0.0, 0.0, 2.0);
+    angle = normalizeRadians(angle);
+    phase = normalizeRadians(phase);
+    freq = clampFinite(freq, 2.0, 0.0, 30.0);
     axis = (axis < 0 || axis > 2) ? 0 : axis;
     cols = (cols < 2) ? 2 : ((cols > 12) ? 12 : cols);
     rows = (rows < 2) ? 2 : ((rows > 12) ? 12 : rows);
-    gap = clampd(gap, 0.0, 0.5);
-    anchor = (anchor < 0 || anchor > 8) ? 4 : anchor;
+    gap = clampFinite(gap, 0.0, 0.0, 0.5);
+    anchor = (anchor < transform_limits::kAnchorMin ||
+              anchor > transform_limits::kAnchorMax)
+                 ? transform_limits::kAnchorCenter
+                 : anchor;
     seed = (seed < 0) ? 0 : (seed % 1000);
     trajectory = (trajectory < 0 || trajectory > 2) ? 0 : trajectory;
-    period = clampd(period, 0.5, 10.0);
+    period = clampFinite(period, 2.0, 0.5, 10.0);
     edge = (edge < 0 || edge > 2) ? 1 : edge;
 }
 

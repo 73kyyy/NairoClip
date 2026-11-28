@@ -55,11 +55,9 @@ struct Fixture {
 };
 }  // namespace
 namespace {
-/* 本机可用的测试用视频编码格式。
-   产品默认 h264（兼容性），但 H.264 **只走系统硬件编码器**——
-   软件实现已按合规要求移除（AVC 专利费，docs/COMPLIANCE.md §1.2.1）。
-   CI / 本地沙箱没有 GPU，所以测试显式用 VP9（libvpx-vp9，royalty-free）。
-   H.264 硬件编码路径由真机验证承担。 */
+/* 测试使用 VP9 作为编码格式偏好，但只允许实际可打开的系统编码器。
+   CI 主机可能枚举 VAAPI/QSV 名称却没有可用设备/像素格式；对应 E2E
+   用例通过 system_media_test_support.h 预检后跳过，不启用 libvpx 等软件回退。 */
 inline std::string testVideoCodec() { return "vp9"; }
 }  // namespace
 
@@ -134,10 +132,12 @@ NC_TEST(ExportRunner, WriterOpenFailurePropagates) {
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/media_ffmpeg.h"
 #include "nairoclip/core/media_ffmpeg_writer.h"
+#include "system_media_test_support.h"
 #include <cstdio>
 #include <fstream>
 /// 真实端到端：Mock 解码（可控帧）→ FFmpeg 编码 → FFmpeg 回读验证。
 NC_TEST(ExportRunner, RealEncodeEndToEnd) {
+    if (!test_support::hasUsableSystemVideoCodec(testVideoCodec(), 64, 64)) return;
     Fixture f;
     Clip c;
     c.asset = f.assetId;
@@ -188,6 +188,8 @@ NC_TEST(ExportRunner, RealEncodeEndToEnd) {
 #ifdef NAIROCLIP_HAS_FFMPEG
 /// 真实解码路径验证：用生成的测试视频做源素材，导出后检查像素非占位色。
 NC_TEST(ExportRunner, RealDecodeWithFFmpegSource) {
+    if (!test_support::hasUsableSystemVideoCodec(testVideoCodec(), 160, 120) ||
+        !test_support::hasUsableSystemVideoDecoder("/tmp/media_gen/test_av.mp4")) return;
     // 准备：素材用 /tmp/media_gen/test_av.mp4（160x120, testsrc 彩条）
     // 序列尺寸设为 160x120 匹配源
     Project project;
@@ -258,164 +260,64 @@ NC_TEST(ExportRunner, RealDecodeWithFFmpegSource) {
 #endif
 
 #ifdef NAIROCLIP_HAS_FFMPEG
-/// 真实音频导出验证：源视频带 AAC 音轨 → 混音器解码 → AAC 编码输出。
-NC_TEST(ExportRunner, RealAudioMixToEncodedFile) {
-    Project project;
-    TimelineEditor editor(project);
-    Sequence seq;
-    seq.id = SequenceId{project.ids.next()};
-    seq.width = 160;
-    seq.height = 120;
-    project.sequences.push_back(seq);
-    const SequenceId seqId = project.sequences.front().id;
-    MediaAsset a;
-    a.id = AssetId{project.ids.next()};
-    a.path = "/tmp/media_gen/test_av.mp4";
-    a.type = MediaType::Video;
-    a.duration = Rational::make(3);
-    project.assets.push_back(a);
-    const AssetId assetId = project.assets.front().id;
-    // 视频轨
-    TrackId videoTrack;
-    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &videoTrack).isOk());
-    Clip vc;
-    vc.asset = assetId;
-    vc.start = Rational::make(0);
-    vc.duration = Rational::make(2);
-    NC_CHECK(editor.insertClip(seqId, videoTrack, vc).isOk());
-    // 音频轨（相同素材）
-    TrackId audioTrack;
-    NC_CHECK(editor.addTrack(seqId, TrackType::Audio, "A1", &audioTrack).isOk());
-    Clip ac;
-    ac.asset = assetId;
-    ac.start = Rational::make(0);
-    ac.duration = Rational::make(2);
-    NC_CHECK(editor.insertClip(seqId, audioTrack, ac).isOk());
-
-    const ExportPlan plan = compileExportPlan(project, *project.mainSequence());
-    FFmpegReaderFactory readerFactory;
-    class RealWriterFactory3 : public MediaWriterFactory {
+/// 当前跨平台系统 AAC encoder + muxer 尚未接入；验证导出明确拒绝音轨，
+/// 而不是回退应用自带 AAC 或生成无声视频。
+bool audioExportIsRejected(const ExportPlan& plan, const char* path) {
+    RunnerFactory readerFactory;
+    class SystemWriterFactory : public MediaWriterFactory {
     public:
         std::unique_ptr<MediaWriter> create() override {
             return std::make_unique<FFmpegMediaWriter>();
         }
     };
-    RealWriterFactory3 writerFactory;
+    SystemWriterFactory writerFactory;
     ExportRunConfig config;
-    config.outputPath = "/tmp/media_gen/runner_audio.mp4";
-    config.writer.width = 160;
+    config.outputPath = path;
+    config.writer.width = 64;
+    config.writer.height = 64;
     config.writer.videoCodec = testVideoCodec();
-    config.writer.height = 120;
-    config.writer.crf = 30;
     config.writer.includeAudio = true;
-    config.writer.audioSampleRate = 44100;
-    config.writer.audioChannels = 1;
-    const ExportRunResult result = runExport(plan, readerFactory, writerFactory, config,
-                                             nullptr, &project);
-    NC_CHECK(result.result.isOk());
-    NC_CHECK(result.fileWritten);
-    // 音频块应被写入（混音路径或静音回退路径）
-    NC_CHECK(result.stats.audioBlocksWritten > 0);
-    // 回读验证：音轨存在
-    FFmpegMediaReader reader;
-    NC_CHECK(reader.open(config.outputPath).isOk());
-    NC_CHECK_EQ(reader.probe().sampleRate, 44100);
-    NC_CHECK_EQ(reader.probe().channels, 1);
-    // 解码音频块并验证非全零（真实混音输出）
-    AudioBlock block;
-    bool sawNonZero = false;
-    int audioBlocks = 0;
-    while (reader.readAudioBlock(block) && audioBlocks < 20) {
-        ++audioBlocks;
-        for (const float s : block.samples) {
-            if (s > 0.001f || s < -0.001f) {
-                sawNonZero = true;
-                break;
-            }
-        }
-        if (sawNonZero) break;
-    }
-    NC_CHECK(audioBlocks > 0);
-    NC_CHECK(sawNonZero);  // 源有 440Hz 正弦波 → 输出应非静音
-    reader.close();
+    const ExportRunResult result =
+        runExport(plan, readerFactory, writerFactory, config);
+    return !result.result.isOk() && result.result.code == ErrorCode::Unsupported &&
+           !result.fileWritten &&
+           result.result.message.find("系统 AAC") != std::string::npos;
 }
-#endif
 
-#ifdef NAIROCLIP_HAS_FFMPEG
-/// 音频增益与淡入淡出导出验证：给音频片段加 -6dB 增益 + 0.2s 淡入，
-/// 导出后回读检查首段淡入包络（前段样本幅度明显小于后段）。
-NC_TEST(ExportRunner, AudioGainAndFadeApplied) {
-    Project project;
-    TimelineEditor editor(project);
-    Sequence seq;
-    seq.id = SequenceId{project.ids.next()};
-    seq.width = 160;
-    seq.height = 120;
-    project.sequences.push_back(seq);
-    const SequenceId seqId = project.sequences.front().id;
-    MediaAsset a;
-    a.id = AssetId{project.ids.next()};
-    a.path = "/tmp/media_gen/test_av.mp4";
-    a.type = MediaType::Video;
-    a.duration = Rational::make(3);
-    project.assets.push_back(a);
-    const AssetId assetId = project.assets.front().id;
+NC_TEST(ExportRunner, AudioExportFailsClosedWithoutSystemAacEncoder) {
+    Fixture f;
+    Clip video;
+    video.asset = f.assetId;
+    video.start = Rational::make(0);
+    video.duration = Rational::make(1);
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, video).isOk());
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    NC_CHECK(audioExportIsRejected(plan, "/tmp/media_gen/runner_audio_rejected.mp4"));
+}
+
+
+/// 音频增益/淡入淡出不能绕过系统 AAC encoder 缺失时的 fail-closed 约束。
+NC_TEST(ExportRunner, AudioGainFadeExportFailsClosedWithoutSystemAacEncoder) {
+    Fixture f;
+    Clip video;
+    video.asset = f.assetId;
+    video.start = Rational::make(0);
+    video.duration = Rational::make(1);
+    NC_CHECK(f.editor.insertClip(f.seqId, f.trackId, video).isOk());
+
     TrackId audioTrack;
-    NC_CHECK(editor.addTrack(seqId, TrackType::Audio, "A1", &audioTrack).isOk());
-    Clip ac;
-    ac.asset = assetId;
-    ac.start = Rational::make(0);
-    ac.duration = Rational::make(2);
+    NC_CHECK(f.editor.addTrack(f.seqId, TrackType::Audio, "A1", &audioTrack).isOk());
+    Clip audio;
+    audio.asset = f.assetId;
+    audio.start = Rational::make(0);
+    audio.duration = Rational::make(1);
     ClipId audioClipId;
-    NC_CHECK(editor.insertClip(seqId, audioTrack, ac, &audioClipId).isOk());
-    // 设置增益 -6dB + 0.5s 淡入 + 0.5s 淡出
-    NC_CHECK(editor.setClipAudio(seqId, audioTrack, audioClipId, -6.0,
-                                 Rational::make(1, 2), Rational::make(1, 2))
-                 .isOk());
-    const ExportPlan plan = compileExportPlan(project, *project.mainSequence());
-    FFmpegReaderFactory readerFactory;
-    class RW4 : public MediaWriterFactory {
-    public:
-        std::unique_ptr<MediaWriter> create() override {
-            return std::make_unique<FFmpegMediaWriter>();
-        }
-    };
-    RW4 writerFactory;
-    ExportRunConfig config;
-    config.outputPath = "/tmp/media_gen/runner_gain.mp4";
-    config.writer.width = 160;
-    config.writer.videoCodec = testVideoCodec();
-    config.writer.height = 120;
-    config.writer.crf = 35;
-    config.writer.includeAudio = true;
-    config.writer.audioSampleRate = 44100;
-    config.writer.audioChannels = 1;
-    const ExportRunResult result = runExport(plan, readerFactory, writerFactory, config,
-                                             nullptr, &project);
-    NC_CHECK(result.result.isOk());
-    NC_CHECK(result.fileWritten);
-    // 回读音频：检查淡入（起始段幅度 < 中段）
-    FFmpegMediaReader reader;
-    NC_CHECK(reader.open(config.outputPath).isOk());
-    // 跳过视频解码直接读音频块（ffmpeg 交错流：先读几块音频）
-    AudioBlock block;
-    double earlyPeak = 0.0;   // 前 0.3s 峰值
-    double middlePeak = 0.0;  // 0.6s-1.2s 峰值
-    int blocksRead = 0;
-    while (reader.readAudioBlock(block) && blocksRead < 60) {
-        const double start = block.start.toDouble();
-        for (const float s : block.samples) {
-            const double a = s < 0 ? -s : s;
-            if (start < 0.3 && a > earlyPeak) earlyPeak = a;
-            if (start >= 0.6 && start < 1.2 && a > middlePeak) middlePeak = a;
-        }
-        ++blocksRead;
-    }
-    NC_CHECK(blocksRead > 0);
-    NC_CHECK(middlePeak > 0.001);          // 中段有信号
-    // 淡入区间峰值应显著小于中段（约 0.3/0.5 = 60% 处包络，再乘增益）
-    NC_CHECK(earlyPeak < middlePeak * 0.9);
-    reader.close();
+    NC_CHECK(f.editor.insertClip(f.seqId, audioTrack, audio, &audioClipId).isOk());
+    NC_CHECK(f.editor.setClipAudio(f.seqId, audioTrack, audioClipId, -6.0,
+                                   Rational::make(1, 2), Rational::make(1, 2)).isOk());
+
+    const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+    NC_CHECK(audioExportIsRejected(plan, "/tmp/media_gen/runner_gain_rejected.mp4"));
 }
 #endif
 

@@ -482,10 +482,16 @@ ExportStats executeExport(
                                                 frameIndex, RenderQuality::exportQuality(),
                                                 t.toDouble());
                     }
+                    if (!fromClip->colorGrade.isIdentity()) {
+                        applyColorGradeToRgba(bufA.data(), pixelBytes / 4, fromClip->colorGrade);
+                    }
                     if (!toClip->effects.empty()) {
                         applyEffectStackToFrame(bufB.data(), w, h, toClip->effects,
                                                 frameIndex, RenderQuality::exportQuality(),
                                                 t.toDouble());
+                    }
+                    if (!toClip->colorGrade.isIdentity()) {
+                        applyColorGradeToRgba(bufB.data(), pixelBytes / 4, toClip->colorGrade);
                     }
                     frame.rgba.assign(pixelBytes, 0);
                     blendDone = TransitionRenderer::renderFrame(
@@ -626,7 +632,10 @@ ExportStats executeExport(
                                与预览用**同一个** applyXformStack 重载、
                                同一套取值优先级，保证「预览 = 导出」。 */
                             const auto resolveXf = [&](ClipProperty prop, double fallback) {
-                                if (!active->hasAnimation) return fallback;
+                                // Resolve each channel independently. A keyframe on
+                                // opacity must not replace an unanimated static scale,
+                                // position, or rotation with that channel's default.
+                                if (!active->animation.hasCurve(prop)) return fallback;
                                 return active->animation.sample(prop,
                                                                 t - active->timelineStart);
                             };
@@ -714,6 +723,11 @@ ExportStats executeExport(
                                                     frameIndex,
                                                     RenderQuality::exportQuality(),
                                                     t.toDouble());
+                        }
+                        if (!active->colorGrade.isIdentity()) {
+                            applyColorGradeToRgba(frame.rgba.data(),
+                                static_cast<std::size_t>(plan.width) * plan.height,
+                                active->colorGrade);
                         }
                         // 应用片段蒙版（文档「✂️剪辑 → 蒙版」）：
                         // 多层场景 → Transparent（蒙版外 alpha=0，供下方逐像素混合透出下层）；
@@ -806,7 +820,8 @@ ExportStats executeExport(
                                                 // 说明：仅在需要可变缓冲时拷贝（无滤镜/特效
                                                 //       且已在上层画布路径时零拷贝）。
                                                 if ((lower->filterStyle != FilterStyle::None ||
-                                                     !lower->effects.empty())) {
+                                                     !lower->effects.empty() ||
+                                                     !lower->colorGrade.isIdentity())) {
                                                     if (lowerPixels != lowerCanvas.data()) {
                                                         lowerCanvas.assign(
                                                             lowerPixels,
@@ -833,6 +848,11 @@ ExportStats executeExport(
                                                                 lower->effects, frameIndex,
                                                                 RenderQuality::exportQuality(),
                                                                 t.toDouble());
+                                                        }
+                                                        if (!lower->colorGrade.isIdentity()) {
+                                                            applyColorGradeToRgba(writable,
+                                                                static_cast<std::size_t>(plan.width) * plan.height,
+                                                                lower->colorGrade);
                                                         }
                                                     }
                                                 }

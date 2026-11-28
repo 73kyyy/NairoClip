@@ -17,8 +17,8 @@ std::string toLower(const std::string& s) {
     return out;
 }
 
-/// 硬件编码器名称片段（FFmpeg 约定：<codec>_<backend>）。
-bool isHardwareEncoderName(const std::string& lower) {
+/// 平台系统媒体后端名称片段（FFmpeg 约定：<codec>_<backend>）。
+bool isSystemEncoderBackendName(const std::string& lower) {
     static const char* kSuffixes[] = {
         "_videotoolbox",  // Apple 平台
         "_mediacodec",    // Android
@@ -29,7 +29,6 @@ bool isHardwareEncoderName(const std::string& lower) {
         "_amf",           // AMD
         "_mf",            // Windows Media Foundation
         "_d3d12va",       // Windows
-        "_opencl",        // 通用 OpenCL
     };
     for (const char* suffix : kSuffixes) {
         const std::size_t pos = lower.rfind(suffix);
@@ -40,7 +39,7 @@ bool isHardwareEncoderName(const std::string& lower) {
     return false;
 }
 
-/// 宽松软件编码器白名单（**仅非 H.264**）。
+/// 已识别的软件编码器名称（仅供诊断；系统-only 策略下不允许选择）。
 ///
 /// 2026-11-05 变更：`openh264` 与内置 `h264` 已从此表移除。
 /// 它们虽然许可宽松（BSD / LGPL），但**AVC 专利本身仍要授权**——
@@ -49,7 +48,7 @@ bool isHardwareEncoderName(const std::string& lower) {
 /// iOS 更是明确禁止安装后下载可执行模块。
 ///
 /// 所以软件 H.264 编码器统一归到 `SoftwareH264` 分级 → 一律禁用。
-/// 允许的只剩「非 H.264」的宽松实现：
+/// 非 H.264 软件实现也不允许进入产品编码路径：
 bool isPermissiveSoftware(const std::string& lower) {
     static const char* kExact[] = {
         "libopus",     // BSD-3
@@ -127,32 +126,18 @@ bool isGplEncoder(const std::string& lower) {
     return false;
 }
 
-/// 同一优先级内的确定性排序权重（越小越优先）。
-int preferenceRank(const std::string& lower, bool hardware) {
-    if (hardware) {
-        // 硬件编码器：H.264 场景下 MediaCodec/VideoToolbox（移动）排前，
-        // 桌面后端（nvenc/qsv/vaapi/mf）随后；名称排序保证确定性。
+/// 系统媒体后端内部的确定性顺序（硬件能力优先级由 candidate.hardware 单独排序）。
+int preferenceRank(const std::string& lower) {
+    // 系统媒体后端：移动端系统框架优先，其后为桌面驱动/框架后端。
         static const char* kOrder[] = {"_mediacodec", "_videotoolbox", "_nvenc",
                                        "_qsv",         "_mf",            "_amf",
-                                       "_vaapi",       "_d3d12va",       "_v4l2m2m",
-                                       "_opencl"};
+                                       "_vaapi",       "_d3d12va",       "_v4l2m2m"};
         for (int i = 0; i < static_cast<int>(sizeof(kOrder) / sizeof(kOrder[0])); ++i) {
             if (lower.find(kOrder[i]) != std::string::npos) {
                 return i;
             }
         }
         return 100;
-    }
-    // 宽松软件：OpenH264（文档指定的 H.264 兜底）最优先，其后 AV1/VP9/Opus。
-    static const char* kOrder[] = {"openh264", "libsvtav1", "libaom-av1", "librav1e",
-                                   "libvpx-vp9", "libvpx",     "libopus",    "aac",
-                                   "opus",       "av1",        "vp9",        "h264"};
-    for (int i = 0; i < static_cast<int>(sizeof(kOrder) / sizeof(kOrder[0])); ++i) {
-        if (lower == kOrder[i]) {
-            return i;
-        }
-    }
-    return 100;
 }
 
 /// 通用选择过程（视频/音频共用）。
@@ -164,11 +149,7 @@ int preferenceRank(const std::string& lower, bool hardware) {
 // =============================================================================
 
 bool buildAllowsGplForDevelopment() {
-#ifdef NAIROCLIP_DEVELOPMENT_GPL_OK
-    return true;
-#else
     return false;
-#endif
 }
 
 const char* encoderLicenseClassName(EncoderLicenseClass cls) {
@@ -191,7 +172,7 @@ EncoderLicenseClass classifyEncoderLicense(const std::string& encoderName) {
     if (isGplEncoder(lower)) {
         return EncoderLicenseClass::GplInfectious;
     }
-    if (isHardwareEncoderName(lower)) {
+    if (isSystemEncoderBackendName(lower)) {
         return EncoderLicenseClass::Hardware;
     }
     /* 软件 H.264：**必须排在 Permissive 之前**判断。
@@ -238,7 +219,7 @@ EncoderSelection selectAudioEncoder(const std::string& codec,
                                     const EncoderPolicy& policy) {
     const std::string wanted = codec.empty() ? std::string("aac") : codec;
     /* 音频走同一个排序函数：它对非视频编解码器同样适用
-       （Permissive 组里 aac/opus/flac 都能选到；libfdk_aac 在 GPL 组）。 */
+       软件编码器即使许可宽松也会在候选排序阶段拒绝。 */
     const std::vector<EncoderSelection> ranked =
         rankVideoEncoderCandidates(wanted, available, policy);
     if (ranked.empty()) {
@@ -252,78 +233,48 @@ EncoderSelection selectAudioEncoder(const std::string& codec,
 std::vector<EncoderSelection> rankVideoEncoderCandidates(
     const std::string& codec, const std::vector<EncoderCandidate>& available,
     const EncoderPolicy& policy) {
+    (void)policy;  // 旧策略字段保留 ABI；系统-only 模式不允许软件回退。
     const std::string wanted = codec.empty() ? std::string("h264") : codec;
     const std::string lower = toLower(wanted);
     if (lower == "hevc" || lower == "h265" || lower == "libx265") {
         return {};  // H.265 全线禁止
     }
-    // 归档：硬件（按优先序）→ 宽松软件（按优先序）→ GPL（仅开发例外）
+    // 仅平台系统媒体后端可进入候选；所有应用自带软件编码器均被排除。
     struct Scored {
         EncoderSelection selection;
         int rank = 100;
+        bool hardware = false;
     };
     std::vector<Scored> hardware;
-    std::vector<Scored> permissive;
-    std::vector<Scored> gpl;
     for (const auto& candidate : available) {
         if (!candidate.codec.empty() && toLower(candidate.codec) != lower) {
             continue;
         }
         const std::string nameLower = toLower(candidate.name);
         const EncoderLicenseClass cls = classifyEncoderLicense(candidate.name);
-        if (cls == EncoderLicenseClass::Unknown) {
+        if (cls != EncoderLicenseClass::Hardware) {
             continue;
         }
-        /* 软件 H.264：**只在开发构建里**作为最后手段保留。
-           ---------------------------------------------------------------- */
-        /* 软件 H.264：**直接丢弃**，任何构建、任何开关都不能启用。
-           ----------------------------------------------------------------
-           之前这里还有一个 `allowSoftwareH264ForDevelopment` 的开发例外，
-           理由是「本地沙箱没 GPU，不放行就导不出」。
-           那是拿产品形态迁就测试环境 —— 产品里有没有软件 H.264，
-           不该取决于「本机能不能跑测试」。
-
-           测试侧的正确解法是改用 royalty-free 编码（VP9/AV1）做导出与素材，
-           而不是在产品代码里留一个「仅开发可用」的后门 ——
-           后门一旦存在，就永远有人能把它打开。 */
-        if (cls == EncoderLicenseClass::SoftwareH264) {
-            continue;
-        }
-        const bool isHw = candidate.hardware || cls == EncoderLicenseClass::Hardware;
+        const bool isHw = candidate.hardware;
         EncoderSelection selection;
         selection.name = candidate.name;
         selection.license = cls;
         selection.note = "候选：" + candidate.name + "（" + encoderLicenseClassName(cls) + "）";
-        Scored scored{selection, preferenceRank(nameLower, isHw)};
+        Scored scored{selection, preferenceRank(nameLower), isHw};
         if (cls == EncoderLicenseClass::Hardware) {
             hardware.push_back(std::move(scored));
-        } else if (cls == EncoderLicenseClass::Permissive) {
-            permissive.push_back(std::move(scored));
-        } else {
-            gpl.push_back(std::move(scored));
         }
     }
     const auto byRank = [](const Scored& a, const Scored& b) {
+        if (a.hardware != b.hardware) return a.hardware;
         if (a.rank != b.rank) return a.rank < b.rank;
         return a.selection.name < b.selection.name;
     };
     std::sort(hardware.begin(), hardware.end(), byRank);
-    std::sort(permissive.begin(), permissive.end(), byRank);
-    std::sort(gpl.begin(), gpl.end(), byRank);
 
     std::vector<EncoderSelection> result;
-    if (policy.preferHardware) {
+    {
         for (auto& s : hardware) {
-            result.push_back(std::move(s.selection));
-        }
-    }
-    for (auto& s : permissive) {
-        result.push_back(std::move(s.selection));
-    }
-    if (policy.allowGplForDevelopment) {
-        for (auto& s : gpl) {
-            s.selection.usedDevelopmentException = true;
-            s.selection.note = "开发例外候选：" + s.selection.name;
             result.push_back(std::move(s.selection));
         }
     }
@@ -332,13 +283,15 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
 
 
 bool encoderAllowed(const std::string& encoderName, const EncoderPolicy& policy) {
+    (void)policy;  // 保留旧接口签名；软件实现不得因策略开关而重新启用。
     const EncoderLicenseClass cls = classifyEncoderLicense(encoderName);
     switch (cls) {
         case EncoderLicenseClass::Hardware:
-        case EncoderLicenseClass::Permissive:
             return true;
+        case EncoderLicenseClass::Permissive:
+            return false;  // 应用自带的软件编码器全平台禁用；只能走平台系统媒体 API。
         case EncoderLicenseClass::GplInfectious:
-            return policy.allowGplForDevelopment;
+            return false;  // GPL 编码器在开发与发布构建中均禁止。
         case EncoderLicenseClass::SoftwareH264:
             /* **无论如何都不允许**，包括开发构建。
                软件 H.264 的风险是 AVC 专利费（不是 GPL），
@@ -351,13 +304,13 @@ bool encoderAllowed(const std::string& encoderName, const EncoderPolicy& policy)
 }
 
 const char* codecComplianceStatement() {
-    return "NairoClip 编解码合规：H.264 仅使用**系统硬件编码器**"
+    return "NairoClip 编解码合规：H.264 仅使用系统媒体 API（硬件优先）"
            "（MediaCodec / VideoToolbox / NVENC / QSV / VAAPI / MF），"
            "软件 H.264 实现（libx264 / OpenH264 / FFmpeg 内置）一律禁用 —— "
-           "AVC 专利费由芯片厂商在 SoC 授权中支付，本应用只调用系统 API；"
+           "不包含应用自带软件 H.264 实现；系统兼容路径由平台框架提供；"
            "H.265/HEVC 全线禁用（专利池复杂）；"
-           "AV1/VP9/Opus/AAC 采用 BSD / royalty-free 实现；"
-           "FFmpeg 核心库动态链接（LGPL 2.1+），许可清单见「关于-开源软件许可」";
+           "AV1/VP9/Opus/AAC 不允许应用自带软件编码实现，必须走平台系统媒体 API；"
+           "系统无兼容实现时 fail-closed；容器读写与必要格式转换可保留独立实现。";
 }
 
 }  // namespace core

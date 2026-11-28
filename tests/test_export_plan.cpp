@@ -106,6 +106,19 @@ NC_TEST(ExportPlan, FlagsAnimatedClips) {
     const ExportPlan plan = compileExportPlan(f.project, *f.seq());
     NC_CHECK(plan.tracks[0].clips[0].hasAnimation);
 }
+
+NC_TEST(ExportPlan, CopiesClipColorGradeIntoRenderSnapshot) {
+    Fixture f;
+    const TrackId v1 = f.addTrack(TrackType::Video, "V1");
+    f.addClip(v1, Rational::make(0), Rational::make(2));
+    auto& grade = f.track(v1)->clips[0].colorGrade;
+    grade.master.points = {{0.0, 0.0}, {1.0, 0.75}};
+    const ExportPlan plan = compileExportPlan(f.project, *f.seq());
+    const ColorGrade& snapshot = plan.tracks[0].clips[0].colorGrade;
+    NC_CHECK(!snapshot.isIdentity());
+    NC_CHECK_EQ(snapshot.master.points.size(), std::size_t(2));
+    NC_CHECK(snapshot.master.points[1].output == 0.75);
+}
 NC_TEST(ExportPlan, RejectsInvalidPlan) {
     ExportPlan plan;
     plan.width = 0;  // 非法尺寸

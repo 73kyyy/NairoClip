@@ -15,11 +15,11 @@ JOBS=(
   # 说明：每项标注「协议 / 状态」。未接入的功能不下载占位模型，
   #       避免"有文件但跑不通"的假可用状态（见 docs/ROADMAP.md §5）。
 
-  # 语音转字幕：whisper.cpp 同源权重（MIT）
-  "onnx-community/whisper-small/resolve/main/onnx/encoder_model.onnx|whisper_zh/encoder_model.onnx"
-  "onnx-community/whisper-small/resolve/main/onnx/decoder_model_merged.onnx|whisper_zh/decoder_model_merged.onnx"
-  "onnx-community/whisper-small/resolve/main/config.json|whisper_zh/config.json"
-  "onnx-community/whisper-small/resolve/main/tokenizer.json|whisper_zh/tokenizer.json"
+  # 语音转字幕：Whisper-tiny merged ONNX（MIT）；核心解码器固定 4 层 / 6 heads / 64 dim KV。
+  "onnx-community/whisper-tiny/resolve/main/onnx/encoder_model.onnx|whisper_zh/encoder_model.onnx"
+  "onnx-community/whisper-tiny/resolve/main/onnx/decoder_model_merged.onnx|whisper_zh/decoder_model_merged.onnx"
+  "onnx-community/whisper-tiny/resolve/main/config.json|whisper_zh/config.json"
+  "onnx-community/whisper-tiny/resolve/main/tokenizer.json|whisper_zh/tokenizer.json"
 
   # 深度图：Depth-Anything V2 Small（Apache-2.0）
   #

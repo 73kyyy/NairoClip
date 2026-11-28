@@ -89,12 +89,20 @@ NC_TEST(Rational, ComparisonHandlesLargeValues) {
 }
 
 NC_TEST(Rational, NegativeDenominatorNormalizationHandlesMin) {
-    // INT64_MIN 取反是 UB；旧实现直接 `denominator = -denominator` 会触发。
-    // 新实现走 128 位，结果必须确定（此极端值饱和为 INT64_MAX 后归正）。
+    // INT64_MIN 取反后分母需要 2^63，无法放入 int64；按数学符号饱和。
     rationalResetOverflowFlag();
     const Rational r = Rational::make(1, INT64_MIN);
-    // 不崩溃、分母为正即满足基本安全要求
-    NC_CHECK(r.den > 0);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, NegativeDenominatorNormalizationPreservesPositiveOverflowSign) {
+    rationalResetOverflowFlag();
+    const Rational r = Rational::make(INT64_MIN, -1);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MAX);
+    NC_CHECK_EQ(r.den, 1);
 }
 
 NC_TEST(Rational, RoundToIntDoesNotOverflow) {
@@ -147,4 +155,104 @@ NC_TEST(Rational, FramerateArithmeticStaysExact) {
     NC_CHECK(!rationalLastOpOverflowed());
     // 7200 * 30000 / 1001 = 216000000/1001
     NC_CHECK(frames == Rational::make(216000000, 1001));
+}
+
+NC_TEST(Rational, NegativeAdditionSaturatesTowardMin) {
+    const Rational a = Rational::make(INT64_MIN, 1);
+    const Rational b = Rational::make(INT64_MIN, 1);
+    rationalResetOverflowFlag();
+    const Rational r = a + b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, PositiveSubtractionOverflowSaturatesTowardMax) {
+    const Rational a = Rational::make(INT64_MAX, 1);
+    const Rational b = Rational::make(INT64_MIN, 1);
+    rationalResetOverflowFlag();
+    const Rational r = a - b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MAX);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, NegativeSubtractionOverflowSaturatesTowardMin) {
+    const Rational a = Rational::make(INT64_MIN, 1);
+    const Rational b = Rational::make(INT64_MAX, 1);
+    rationalResetOverflowFlag();
+    const Rational r = a - b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, NegativeMultiplicationDenominatorOverflowSaturatesBySign) {
+    const Rational a = Rational::make(-1, INT64_MAX);
+    const Rational b = Rational::make(1, INT64_MAX - 1);
+    rationalResetOverflowFlag();
+    const Rational r = a * b;
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MIN);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+
+NC_TEST(Rational, MakeTracksNumeratorOverflowWhenNormalizingNegativeDenominator) {
+    rationalResetOverflowFlag();
+    const Rational r = Rational::make(INT64_MIN, -1);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, INT64_MAX);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+
+NC_TEST(Rational, ZeroNumeratorWithMinimumNegativeDenominatorNormalizesToZero) {
+    rationalResetOverflowFlag();
+    const Rational r = Rational::make(0, INT64_MIN);
+    NC_CHECK(!rationalLastOpOverflowed());
+    NC_CHECK_EQ(r.num, 0);
+    NC_CHECK_EQ(r.den, 1);
+}
+
+NC_TEST(Rational, RoundToIntHandlesDenominatorBeyondHalfInt64) {
+    const Rational belowHalf = Rational::make(INT64_C(4611686018427387903),
+                                               INT64_MAX);
+    const Rational aboveHalf = Rational::make(INT64_C(4611686018427387904),
+                                               INT64_MAX);
+    rationalResetOverflowFlag();
+    NC_CHECK_EQ(roundToInt(belowHalf), 0);
+    NC_CHECK_EQ(roundToInt(aboveHalf), 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+}
+
+NC_TEST(Rational, RoundToIntNegativeHalfRoundsTowardPositiveInfinity) {
+    NC_CHECK_EQ(roundToInt(Rational::make(-1, 2)), 0);
+    NC_CHECK_EQ(roundToInt(Rational::make(-3, 2)), -1);
+    NC_CHECK_EQ(roundToInt(Rational::make(-2, 3)), -1);
+}
+NC_TEST(Rational, MakeReducesMinimumMagnitudeBeforeNormalizingSign) {
+    rationalResetOverflowFlag();
+    const Rational sameMinimum = Rational::make(INT64_MIN, INT64_MIN);
+    NC_CHECK_EQ(sameMinimum.num, 1);
+    NC_CHECK_EQ(sameMinimum.den, 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+
+    const Rational negativeDenominator = Rational::make(INT64_MIN, -2);
+    NC_CHECK_EQ(negativeDenominator.num, INT64_C(4611686018427387904));
+    NC_CHECK_EQ(negativeDenominator.den, 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+
+    const Rational positiveDenominator = Rational::make(INT64_MIN, 2);
+    NC_CHECK_EQ(positiveDenominator.num, -INT64_C(4611686018427387904));
+    NC_CHECK_EQ(positiveDenominator.den, 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+}
+
+NC_TEST(Rational, MakeSaturatesOnlyWhenReducedValueCannotBeRepresented) {
+    rationalResetOverflowFlag();
+    const Rational unrepresentableDenominator = Rational::make(1, INT64_MIN);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(unrepresentableDenominator.num, INT64_MIN);
+    NC_CHECK_EQ(unrepresentableDenominator.den, 1);
 }

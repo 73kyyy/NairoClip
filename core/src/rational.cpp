@@ -150,17 +150,40 @@ std::int64_t wideToInt64(const Wide& v, bool& overflow) {
 thread_local bool g_lastOverflow = false;
 
 /// 由 Wide 分子/分母构造（约分 + 分母归正 + 溢出饱和）。
+Rational saturatedRational(bool negative) {
+    Rational result;
+    result.num = negative ? INT64_MIN : INT64_MAX;
+    result.den = 1;
+    return result;
+}
+
+/// Convert an exact wide fraction. If either normalized component cannot fit,
+/// saturate by the mathematical sign instead of clipping numerator/denominator
+/// independently (which would silently produce a different, non-saturated value).
 Rational rationalFromWide(const Wide& numW, const Wide& denW) {
-    // 注意：wideToInt64 会**写** overflow 标志，两次调用必须用独立变量，
-    // 否则后一次会把前一次的溢出覆盖掉（此前实现即此缺陷）。
     bool ofNum = false;
     bool ofDen = false;
     const std::int64_t num = wideToInt64(numW, ofNum);
     const std::int64_t den = wideToInt64(denW, ofDen);
     if (ofNum || ofDen) {
         g_lastOverflow = true;
+        return saturatedRational(numW.isNegative() != denW.isNegative());
     }
     return Rational::make(num, den);
+}
+
+/// Sign of a+b, computed from exact cross-products. Opposite-sign terms cannot
+/// overflow the signed 128-bit addition; same-sign terms already determine it.
+bool rationalSumIsNegative(const Rational& a, const Rational& b, bool subtractB) {
+    const Wide left = wideMul(a.num, b.den);
+    const Wide right = wideMul(b.num, a.den);
+    bool overflow = false;
+    const Wide combined = subtractB ? wideSub(left, right, overflow)
+                                    : wideAdd(left, right, overflow);
+    if (overflow) {
+        return left.isNegative();
+    }
+    return combined.isNegative();
 }
 
 }  // namespace
@@ -171,26 +194,50 @@ Rational rationalFromWide(const Wide& numW, const Wide& denW) {
 
 Rational Rational::make(std::int64_t numerator, std::int64_t denominator) {
     Rational r;
-    if (denominator == 0) {
-        return r;  // 0/1
+    if (denominator == 0 || numerator == 0) {
+        return r;  // 0/1；零分子无需归一化分母符号
     }
-    if (denominator < 0) {
-        // 注意：INT64_MIN 取反是 UB，先转 Wide 再取反。
-        bool of = false;
-        const Wide negNum = wideNegate(wideFrom(numerator));
-        const Wide negDen = wideNegate(wideFrom(denominator));
-        numerator = wideToInt64(negNum, of);
-        denominator = wideToInt64(negDen, of);
-        if (of) {
-            g_lastOverflow = true;
-        }
-        if (denominator <= 0) {  // 取反后仍不合法（极端溢出）→ 退化为 0
-            return r;
-        }
+
+    // 先用无符号绝对值约分，再处理符号。若先把负分母取反，
+    // INT64_MIN 会溢出；而且像 INT64_MIN/INT64_MIN 这样本可化简为
+    // 1/1 的比例，会在约分前被错误地判为溢出。
+    const auto magnitude = [](std::int64_t value) -> std::uint64_t {
+        const std::uint64_t bits = static_cast<std::uint64_t>(value);
+        return value < 0 ? (0u - bits) : bits;
+    };
+    std::uint64_t numeratorMagnitude = magnitude(numerator);
+    std::uint64_t denominatorMagnitude = magnitude(denominator);
+    std::uint64_t a = numeratorMagnitude;
+    std::uint64_t b = denominatorMagnitude;
+    while (b != 0u) {
+        const std::uint64_t remainder = a % b;
+        a = b;
+        b = remainder;
     }
-    const std::int64_t g = gcd64(numerator, denominator);
-    r.num = numerator / g;
-    r.den = denominator / g;
+    const std::uint64_t divisor = a == 0u ? 1u : a;
+    numeratorMagnitude /= divisor;
+    denominatorMagnitude /= divisor;
+
+    const bool negative = (numerator < 0) != (denominator < 0);
+    constexpr std::uint64_t kMax = static_cast<std::uint64_t>(INT64_MAX);
+    constexpr std::uint64_t kMinMagnitude = kMax + 1u;
+
+    // 分母必须为正且可由 int64 表示；分子允许负向多表示一个值。
+    if (denominatorMagnitude > kMax ||
+        (!negative && numeratorMagnitude > kMax) ||
+        (negative && numeratorMagnitude > kMinMagnitude)) {
+        g_lastOverflow = true;
+        return saturatedRational(negative);
+    }
+
+    if (negative) {
+        r.num = numeratorMagnitude == kMinMagnitude
+            ? INT64_MIN
+            : -static_cast<std::int64_t>(numeratorMagnitude);
+    } else {
+        r.num = static_cast<std::int64_t>(numeratorMagnitude);
+    }
+    r.den = static_cast<std::int64_t>(denominatorMagnitude);
     return r;
 }
 
@@ -217,7 +264,7 @@ Rational operator+(const Rational& a, const Rational& b) {
     const std::int64_t lcm = wideToInt64(lcmW, of);
     if (of || lcm <= 0) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);  // 饱和
+        return saturatedRational(rationalSumIsNegative(a, b, false)); // 饱和
     }
     const Wide an = wideMul(a.num, lcm / a.den);
     const Wide bn = wideMul(b.num, lcm / b.den);
@@ -225,7 +272,7 @@ Rational operator+(const Rational& a, const Rational& b) {
     const Wide sum = wideAdd(an, bn, ofSum);
     if (ofSum) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);
+        return saturatedRational(an.isNegative());
     }
     return rationalFromWide(sum, wideFrom(lcm));
 }
@@ -237,7 +284,7 @@ Rational operator-(const Rational& a, const Rational& b) {
     const std::int64_t lcm = wideToInt64(lcmW, of);
     if (of || lcm <= 0) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);
+        return saturatedRational(rationalSumIsNegative(a, b, true));
     }
     const Wide an = wideMul(a.num, lcm / a.den);
     const Wide bn = wideMul(b.num, lcm / b.den);
@@ -245,7 +292,7 @@ Rational operator-(const Rational& a, const Rational& b) {
     const Wide diff = wideSub(an, bn, ofDiff);
     if (ofDiff) {
         g_lastOverflow = true;
-        return Rational::make(INT64_MAX, 1);
+        return saturatedRational(an.isNegative());
     }
     return rationalFromWide(diff, wideFrom(lcm));
 }
@@ -322,26 +369,33 @@ std::int64_t floorToInt(const Rational& r) {
 }
 
 std::int64_t roundToInt(const Rational& r) {
-    // 四舍五入（0.5 向上）：floor(x + 1/2) = floor((2·num + den) / (2·den))
-    // 原实现直接写 `2 * r.num + r.den`，num 接近 INT64_MAX/2 时溢出（UB）。
-    // 改用 Wide 计算。
-    bool of = false;
-    const Wide num2 = wideMul(r.num, 2);
-    bool ofSum = false;
-    const Wide numPlus = wideAdd(num2, wideFrom(r.den), ofSum);
-    const Wide den2 = wideMul(r.den, 2);
-    if (of || ofSum) {
-        g_lastOverflow = true;
-        return r.isNegative() ? INT64_MIN : INT64_MAX;
+    // 与 floor(x + 1/2) 等价：正数半值向上，负数半值向正无穷。
+    // 使用商/余数避免构造 2*num+den 或 2*den，后者可能超出 int64。
+    if (r.den <= 0) {
+        return 0;
     }
-    bool ofN = false, ofD = false;
-    const std::int64_t n = wideToInt64(numPlus, ofN);
-    const std::int64_t d = wideToInt64(den2, ofD);
-    if (ofN || ofD) {
-        g_lastOverflow = true;
-        return r.isNegative() ? INT64_MIN : INT64_MAX;
+    std::int64_t quotient = r.num / r.den;  // C++ 向零截断
+    const std::int64_t remainder = r.num % r.den;
+    if (remainder == 0) {
+        return quotient;
     }
-    return floorDiv(n, d);
+    const std::uint64_t remainderMagnitude =
+        remainder < 0 ? (0u - static_cast<std::uint64_t>(remainder))
+                      : static_cast<std::uint64_t>(remainder);
+    const std::uint64_t denominator = static_cast<std::uint64_t>(r.den);
+    if (r.num >= 0) {
+        // 2*remainder >= denominator，改写为 remainder >= ceil(denominator/2)
+        const std::uint64_t threshold = denominator / 2u + denominator % 2u;
+        if (remainderMagnitude >= threshold) {
+            ++quotient;
+        }
+    } else {
+        // 负数的精确半值向正无穷，因此只有严格大于半数才向下取整。
+        if (remainderMagnitude > denominator / 2u) {
+            --quotient;
+        }
+    }
+    return quotient;
 }
 
 bool rationalLastOpOverflowed() {

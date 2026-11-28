@@ -1,11 +1,15 @@
 #include "test_framework.h"
 #include "nairoclip/core/audio_mixer.h"
 #include "nairoclip/core/editor.h"
+#include <algorithm>
 #include <cmath>
 using namespace nairoclip::core;
 namespace {
 class MixMockFactory : public MediaReaderFactory {
 public:
+    explicit MixMockFactory(int audioBlockFrames = 1024)
+        : audioBlockFrames_(audioBlockFrames) {}
+
     std::unique_ptr<MediaReader> create() override {
         MockMediaReader::Config cfg;
         cfg.probe.type = MediaType::Audio;
@@ -13,9 +17,12 @@ public:
         cfg.probe.channels = 2;
         cfg.probe.duration = Rational::make(60);
         cfg.audioBlockCount = 100000;  // 足够多
-        cfg.audioBlockFrames = 1024;
+        cfg.audioBlockFrames = audioBlockFrames_;
         return std::make_unique<MockMediaReader>(cfg);
     }
+
+private:
+    int audioBlockFrames_;
 };
 struct Fixture {
     Project project;
@@ -146,4 +153,37 @@ NC_TEST(AudioMixer, SeekNegativeRejected) {
     MixMockFactory factory;
     AudioMixer mixer(MixFormat{48000, 2}, factory);
     NC_CHECK(!mixer.seek(Rational::make(-1)).isOk());
+}
+
+NC_TEST(AudioMixer, DenoisePreservesSamplesAcrossVariableReaderBlockSizes) {
+    auto render = [](int sourceBlockFrames) {
+        Fixture f;
+        const ClipId clip = f.addClip(Rational::make(0), Rational::make(1));
+        NC_CHECK(f.editor.setClipDenoise(f.seqId, f.audioTrack, clip,
+                                         DenoiseStrength::Medium).isOk());
+        const ExportPlan plan = compileExportPlan(f.project, *f.project.mainSequence());
+        MixMockFactory factory(sourceBlockFrames);
+        AudioMixer mixer(MixFormat{48000, 2}, factory);
+        NC_CHECK(mixer.prepare(plan, f.project));
+        std::vector<float> samples;
+        OutputAudioBlock block;
+        while (mixer.readBlock(block)) {
+            samples.insert(samples.end(), block.samples.begin(), block.samples.end());
+        }
+        return samples;
+    };
+
+    const std::vector<float> aligned = render(1024);
+    const std::vector<float> irregular = render(3000);
+    NC_CHECK(!aligned.empty());
+    NC_CHECK_EQ(aligned.size(), irregular.size());
+    if (aligned.size() == irregular.size()) {
+        double maxDifference = 0.0;
+        for (std::size_t i = 0; i < aligned.size(); ++i) {
+            maxDifference = std::max(
+                maxDifference,
+                std::abs(static_cast<double>(aligned[i]) - irregular[i]));
+        }
+        NC_CHECK(maxDifference < 1e-6);
+    }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nairoclip/core/effects.h"
+#include "nairoclip/core/color_grade.h"
 #include "nairoclip/core/shake_effect.h"
 #include "nairoclip/core/frame_fit.h"
 #include "nairoclip/core/xform.h"
@@ -46,6 +47,8 @@ struct RenderClip {
     /// 导出用：该片段的动画采样（关键属性，逐帧渲染时重采样）。
     /// 这里仅携带标记；具体采样由渲染器在每帧调用 animation 完成。
     bool hasAnimation = false;
+    /// 片段调色快照（导出单帧、转场两侧及多层混合均消费）。
+    ColorGrade colorGrade;
     /// 特效栈快照（颜色变换在导出时逐帧应用）。
     EffectStack effects;
     /// 蒙版快照（hasMask 时导出逐帧裁剪可见区域）。

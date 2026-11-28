@@ -1,5 +1,7 @@
 #include "test_framework.h"
 #include "nairoclip/core/media_io.h"
+#include <cmath>
+#include <fstream>
 using namespace nairoclip::core;
 namespace {
 MockMediaReader::Config makeConfig() {
@@ -96,4 +98,58 @@ NC_TEST(MediaIo, SeekResetsStreams) {
 NC_TEST(MediaIo, SeekBeforeOpenFails) {
     MockMediaReader reader(makeConfig());
     NC_CHECK(!reader.seek(Rational::make(1)).isOk());
+}
+
+NC_TEST(MediaIo, ReadsUncompressedPcmWavWithoutCodec) {
+    std::ifstream fixture("/tmp/media_gen/speech.wav", std::ios::binary);
+    if (!fixture.good()) return;
+    fixture.close();
+
+    WavPcmReader reader;
+    NC_CHECK(reader.open("/tmp/media_gen/speech.wav").isOk());
+    NC_CHECK(reader.isOpen());
+    NC_CHECK(reader.probe().type == MediaType::Audio);
+    NC_CHECK(reader.probe().hasAudioStream);
+    NC_CHECK(reader.probe().audioDecoderAvailable);
+    NC_CHECK_EQ(reader.probe().sampleRate, 48000);
+    NC_CHECK_EQ(reader.probe().channels, 1);
+    NC_CHECK(std::abs(reader.probe().duration.toDouble() - 8.0) < 0.001);
+
+    AudioBlock block;
+    NC_CHECK(reader.readAudioBlock(block));
+    NC_CHECK_EQ(block.sampleRate, 48000);
+    NC_CHECK_EQ(block.channels, 1);
+    NC_CHECK_EQ(block.frameCount(), std::size_t(1024));
+    NC_CHECK(block.start == Rational::make(0));
+    NC_CHECK(block.samples[0] > -0.01f && block.samples[0] < 0.01f);
+
+    NC_CHECK(reader.seek(fromMilliseconds(4000)).isOk());
+    NC_CHECK(reader.readAudioBlock(block));
+    NC_CHECK(std::abs(block.start.toDouble() - 4.0) < 0.001);
+    NC_CHECK(block.samples.size() == std::size_t(1024));
+    reader.close();
+    NC_CHECK(!reader.isOpen());
+}
+
+NC_TEST(MediaIo, RejectsNonWavAndRecoversAfterFailedOpen) {
+    WavPcmReader reader;
+    NC_CHECK(!reader.open("/tmp/does_not_exist_pcm_wav.wav").isOk());
+    NC_CHECK(!reader.isOpen());
+
+    // A real compressed-media probe must fail as WAV without poisoning reuse.
+    std::ifstream videoFixture("/tmp/media_gen/test_av.mp4", std::ios::binary);
+    if (videoFixture.good()) {
+        videoFixture.close();
+        NC_CHECK(!reader.open("/tmp/media_gen/test_av.mp4").isOk());
+        NC_CHECK(!reader.isOpen());
+    }
+
+    std::ifstream wavFixture("/tmp/media_gen/speech.wav", std::ios::binary);
+    if (!wavFixture.good()) return;
+    wavFixture.close();
+    NC_CHECK(reader.open("/tmp/media_gen/speech.wav").isOk());
+    NC_CHECK(reader.isOpen());
+    AudioBlock block;
+    NC_CHECK(reader.readAudioBlock(block));
+    NC_CHECK_EQ(block.frameCount(), std::size_t(1024));
 }

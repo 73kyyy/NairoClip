@@ -1,14 +1,21 @@
 package com.nairoclip.app
 
 import android.os.Bundle
+import android.net.Uri
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 
 /**
- * NairoClip 主界面：全屏 WebView + 两个原生桥。
+ * NairoClip 主界面：全屏 WebView + 原生引擎/认证/剪辑试验桥。
  *
  * 页面资源经 WebViewAssetLoader 以
  * https://appassets.androidplatform.net/assets/ 提供。
@@ -19,6 +26,11 @@ import androidx.webkit.WebViewClientCompat
  */
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        /** Debug pilot: adb shell am start --ez com.nairoclip.app.extra.ENABLE_NATIVE_EDITOR true ... */
+        const val EXTRA_ENABLE_NATIVE_EDITOR = "com.nairoclip.app.extra.ENABLE_NATIVE_EDITOR"
+    }
+
     private lateinit var webView: WebView
     /// 预览 Surface（P6 零拷贝）。垫在 WebView 下层，预览画面直接写显存。
     private lateinit var previewSurface: PreviewSurfaceView
@@ -27,6 +39,13 @@ class MainActivity : AppCompatActivity() {
     /** 正常状态下的帧缓存预算（字节）；压力兜底时按比例下调。 */
     private var cacheBudgetBase: Long = 0L
     private var engine: NativeEngineBridge? = null
+    private lateinit var contentRoot: android.widget.FrameLayout
+    private var nativeEditorOverlay: ComposeView? = null
+    @Volatile private var nativeEditorVisible: Boolean = false
+
+    /** Native editor can only be entered by an explicit internal launch extra. */
+    private val nativeEditorEnabled: Boolean
+        get() = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_ENABLE_NATIVE_EDITOR, false)
 
     /**
      * 面板层级（由 JS 通过 NCEngine.setPanelDepth 推送）。
@@ -196,6 +215,7 @@ class MainActivity : AppCompatActivity() {
         /* 预览区坐标桥（P6）：JS 上报预览区位置，SurfaceView 据此定位。
            独立命名空间，不与认证桥混用。 */
         webView.addJavascriptInterface(PreviewBridge(this, webView), "NCPreview")
+        webView.addJavascriptInterface(NativeEditorEntryBridge(), "NCNativeEditor")
 
         /* 入口用**页面版**而不是静态版。
            assets/nairoclip-home.html 是 make_static.py / make_pages_static.py
@@ -213,6 +233,10 @@ class MainActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 /* 按层级由内到外退：三级面板 → 二级工具栏 → 系统退出。
                    一次只退一层，符合用户对「返回上一步」的预期。 */
+                if (nativeEditorVisible) {
+                    closeNativeEditor()
+                    return
+                }
                 if (panelDepth > 0) {
                     // 面板自己退一层；退完它会重新推送新的 depth
                     webView.evaluateJavascript("window.NCL3BACK && window.NCL3BACK()", null)
@@ -254,32 +278,241 @@ class MainActivity : AppCompatActivity() {
          *   · SurfaceView 不支持圆角 —— 预览区那 8px 圆角靠 WebView 画遮罩；
          *   · 折叠屏/键盘弹出时坐标要重新上报（setPreviewRect）。
          */
-        val root = android.widget.FrameLayout(this)
+        contentRoot = android.widget.FrameLayout(this)
         previewSurface = PreviewSurfaceView(this).apply {
-            onSurfaceAvailable = { surface ->
-                NativeEngineBridge.attachSurface(surface, width, height)
-            }
-            onSurfaceDestroyed = {
-                NativeEngineBridge.detachSurface()
-            }
             // 初始给一个占位尺寸，JS 上报后会被 setPreviewRect 覆盖
             layout(0, 0, 1080, 1920)
         }
-        root.addView(previewSurface)
+        configureLegacyPreviewSurface()
+        contentRoot.addView(previewSurface)
         // WebView 背景透明：让下层 Surface 的画面透出来
         webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        root.addView(webView)
-        setContentView(root)
+        contentRoot.addView(webView)
+        setContentView(contentRoot)
+    }
+
+    /** Rebind the original WebView preview surface after leaving the native pilot. */
+    private fun configureLegacyPreviewSurface() {
+        previewSurface.onSurfaceAvailable = { surface ->
+            if (previewSurface.width > 0 && previewSurface.height > 0) {
+                NativeEngineBridge.attachSurface(surface, previewSurface.width, previewSurface.height)
+            }
+        }
+        previewSurface.onSurfaceSizeChanged = { surface, _, width, height ->
+            NativeEngineBridge.attachSurface(surface, width, height)
+        }
+        previewSurface.onSurfaceDestroyed = {
+            NativeEngineBridge.detachSurface()
+        }
+    }
+
+    /**
+     * Re-check read access at the point a native feature consumes a saved asset.
+     * A syntactically valid content:// string is not proof that Android still
+     * holds its URI grant after process recreation or draft restoration.
+     */
+    private fun resolveNativeEditorAssetUri(
+        assetUris: Map<Long, String>,
+        assetId: Long
+    ): Uri? {
+        val raw = assetUris[assetId] ?: return null
+        val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        return when {
+            uri.scheme.equals("content", ignoreCase = true) -> runCatching {
+                val descriptor = contentResolver.openFileDescriptor(uri, "r") ?: return null
+                descriptor.use { }
+                uri
+            }.getOrNull()
+            uri.scheme.equals("file", ignoreCase = true) -> runCatching {
+                val path = uri.path ?: return null
+                java.io.File(path).takeIf { it.isFile && it.canRead() }?.let { uri }
+            }.getOrNull()
+            else -> null
+        }
+    }
+
+    /**
+     * Internal S5 pilot only. The WebView remains attached and alive underneath
+     * the Compose overlay, so returning to legacy editing restores the exact
+     * current page and engine instance instead of rebuilding project state.
+     */
+    private fun showNativeEditor(projectName: String) {
+        if (!nativeEditorEnabled || nativeEditorVisible || !this::contentRoot.isInitialized) return
+        // The JavaScript bridge is visible to WebView frames. Accept the
+        // request only from the local editor document, never from the home or
+        // an unrelated page that happens to share this WebView.
+        val currentUrl = webView.url.orEmpty()
+        if (!currentUrl.startsWith(
+                "https://appassets.androidplatform.net/assets/pages/10-editor.html"
+            )
+        ) {
+            android.util.Log.w("NcNativeEditor", "忽略非剪辑页发起的原生入口请求")
+            return
+        }
+        val activeEngine = engine ?: return
+        val engineStateJson = activeEngine.state()
+        val resolvedName = NativeEditorProjectSnapshot.resolveProjectName(
+            engineStateJson,
+            projectName
+        ) ?: run {
+            android.util.Log.w(
+                "NcNativeEditor",
+                "拒绝打开原生剪辑页：当前引擎没有有效工程快照"
+            )
+            return
+        }
+        val assetUris = NativeEditorAssetSnapshot.resolveUris(engineStateJson)
+        android.util.Log.i(
+            "NcNativeEditor",
+            "工程素材 URI 已解析：${assetUris.size} 项"
+        )
+        val overlay = ComposeView(this).apply {
+            setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
+            setContent {
+                MaterialTheme {
+                    NativeEditorHost(
+                        bridge = activeEngine,
+                        projectName = resolvedName,
+                        onOpenLegacy = { closeNativeEditor() },
+                        onOpenLegacyAction = { action -> openLegacyQuickAction(action) },
+                        suppliedPreviewView = previewSurface,
+                        resolveAssetUri = { assetId ->
+                            resolveNativeEditorAssetUri(assetUris, assetId)
+                        }
+                    )
+                }
+            }
+        }
+
+        // The same SurfaceView is moved into Compose; never create a second
+        // renderer Surface or a second NativeEngineBridge for the pilot.
+        contentRoot.removeView(previewSurface)
+        // Stop the hidden legacy page from polling/rendering against the same
+        // engine while Compose owns the editor session. Its DOM and JS state
+        // remain alive; onPause does not destroy or reload the WebView.
+        webView.onPause()
+        // WebView.onPause() alone does not reliably stop JavaScript timers.
+        // Pause them while Compose owns the same engine session to prevent
+        // legacy polling/preview requests racing native editor commands.
+        webView.pauseTimers()
+        webView.visibility = View.INVISIBLE
+        contentRoot.addView(
+            overlay,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        nativeEditorOverlay = overlay
+        nativeEditorVisible = true
+        android.util.Log.i("NcNativeEditor", "S5 原生剪辑页已打开（内部受控入口）")
+    }
+
+    /**
+     * Return to the retained WebView editor and dispatch the original action.
+     * The selector values come only from NativeLegacyQuickActionRoute's fixed
+     * allowlist; no JavaScript supplied string is interpolated here.
+     */
+    private fun openLegacyQuickAction(action: NativeQuickAction) {
+        val dataAction = NativeLegacyQuickActionRoute.dataAction(action)
+        // Defer overlay disposal until the current Compose click callback returns.
+        contentRoot.post {
+            closeNativeEditor()
+            if (dataAction == null) {
+                android.util.Log.w("NcNativeEditor", "没有对应的旧编辑器动作：$action")
+                return@post
+            }
+            webView.post {
+                val editorUrl = webView.url.orEmpty()
+                if (!editorUrl.startsWith(
+                        "https://appassets.androidplatform.net/assets/pages/10-editor.html"
+                    )
+                ) {
+                    android.util.Log.w(
+                        "NcNativeEditor",
+                        "忽略旧编辑器动作：当前页面不是剪辑页"
+                    )
+                    return@post
+                }
+                webView.evaluateJavascript(
+                    "(function(){var button=document.querySelector(" +
+                        "'.cbtn[data-act=\\\"$dataAction\\\"]');" +
+                        "if(button){button.click();return true;}return false;})()",
+                    null
+                )
+            }
+        }
+    }
+
+    /** Return to the still-live WebView editor without changing Activity routing. */
+    private fun closeNativeEditor() {
+        if (!nativeEditorVisible) return
+        val overlay = nativeEditorOverlay
+        nativeEditorOverlay = null
+        if (overlay != null) {
+            contentRoot.removeView(overlay)
+            overlay.disposeComposition()
+        }
+        (previewSurface.parent as? ViewGroup)?.removeView(previewSurface)
+        configureLegacyPreviewSurface()
+        contentRoot.addView(previewSurface, 0)
+        webView.visibility = View.VISIBLE
+        webView.onResume()
+        webView.resumeTimers()
+        webView.post {
+            webView.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
+        }
+        nativeEditorVisible = false
+        android.util.Log.i("NcNativeEditor", "已返回保留的 WebView 剪辑页")
+    }
+
+    inner class NativeEditorEntryBridge {
+        @JavascriptInterface
+        fun isEnabled(): Boolean = nativeEditorEnabled
+
+        @JavascriptInterface
+        fun openNativeEditor(projectName: String) {
+            if (!nativeEditorEnabled) return
+            runOnUiThread { showNativeEditor(projectName) }
+        }
+    }
+
+    override fun onPause() {
+        if (this::webView.isInitialized) webView.onPause()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The legacy page stays paused underneath the native editor overlay.
+        if (this::webView.isInitialized && !nativeEditorVisible) webView.onResume()
     }
 
     override fun onDestroy() {
         memoryGuard?.let { unregisterComponentCallbacks(it) }
         memoryGuard = null
+        nativeEditorOverlay?.let { overlay ->
+            if (this::contentRoot.isInitialized) contentRoot.removeView(overlay)
+            overlay.disposeComposition()
+        }
+        nativeEditorOverlay = null
+        nativeEditorVisible = false
+        // Explicitly detach the renderer before releasing its bound engine.
+        // This is idempotent if NativePreviewSurfaceController already detached
+        // during Compose disposal, and prevents a late Surface callback from
+        // targeting a released engine during Activity teardown.
+        runCatching { NativeEngineBridge.detachSurface() }
         engine?.release()
         engine = null
         if (this::webView.isInitialized) {
+            // pauseTimers is process-wide; always balance it during teardown.
+            webView.resumeTimers()
             webView.removeJavascriptInterface("NCEngine")
             webView.removeJavascriptInterface("NCAndroid")
+            webView.removeJavascriptInterface("NCPreview")
+            webView.removeJavascriptInterface("NCNativeEditor")
             webView.destroy()
         }
         super.onDestroy()

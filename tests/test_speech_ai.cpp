@@ -5,14 +5,16 @@
 //   1. 语言枚举 / 名称 / token 映射（文档 3.2「语言选择」）；
 //   2. Mel 频谱（Whisper 标准：80 通道 × 帧数；标准化范围 [-1,1]）；
 //   3. BPE 词表加载与 token 解码（真实词表；未加载时明确空串）；
-//   4. 真实推理链路（需 ORT + 模型；缺失跳过）；
+//   4. 真实 Whisper-tiny merged decoder 自回归链路（需 ORT + 模型；缺失跳过）；
 //   5. 失败路径（未加载/空音频/文件缺失）。
 #include "test_framework.h"
 #include "nairoclip/core/speech_ai.h"
+#include "nairoclip/core/capi.h"
 
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -20,30 +22,41 @@ using namespace nairoclip::core;
 
 namespace {
 
+std::string findModelFile(const char* workspacePath, const char* repositoryPath) {
+    for (const char* candidate : {workspacePath, repositoryPath}) {
+        FILE* file = std::fopen(candidate, "rb");
+        if (file != nullptr) {
+            std::fclose(file);
+            return candidate;
+        }
+    }
+    return {};
+}
+
+const std::string& whisperEncoderPath() {
+    static const std::string path = findModelFile(
+        "/workspace/deps/whisper_tiny_encoder.onnx", "models/whisper_zh/encoder_model.onnx");
+    return path;
+}
+
+const std::string& whisperDecoderPath() {
+    static const std::string path = findModelFile(
+        "/workspace/deps/whisper_tiny_decoder.onnx", "models/whisper_zh/decoder_model_merged.onnx");
+    return path;
+}
+
+const std::string& whisperTokenizerPath() {
+    static const std::string path = findModelFile(
+        "/workspace/deps/whisper_tiny_tokenizer.json", "models/whisper_zh/tokenizer.json");
+    return path;
+}
+
 bool whisperModelsAvailable() {
-    if (!aiEngineAvailable()) {
-        return false;
-    }
-    FILE* enc = std::fopen("/workspace/deps/whisper_tiny_encoder.onnx", "rb");
-    if (enc == nullptr) {
-        return false;
-    }
-    std::fclose(enc);
-    FILE* dec = std::fopen("/workspace/deps/whisper_tiny_decoder.onnx", "rb");
-    if (dec == nullptr) {
-        return false;
-    }
-    std::fclose(dec);
-    return true;
+    return aiEngineAvailable() && !whisperEncoderPath().empty() && !whisperDecoderPath().empty();
 }
 
 bool tokenizerAvailable() {
-    FILE* f = std::fopen("/workspace/deps/whisper_tiny_tokenizer.json", "rb");
-    if (f == nullptr) {
-        return false;
-    }
-    std::fclose(f);
-    return true;
+    return !whisperTokenizerPath().empty();
 }
 
 /// 合成音频（语音类：440Hz 调制 + 静音间隙）。
@@ -146,7 +159,7 @@ NC_TEST(SpeechAI, TokenizerLoadAndDecode) {
     if (!tokenizerAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
-    NC_CHECK(recognizer.loadTokenizer("/workspace/deps/whisper_tiny_tokenizer.json", &failure));
+    NC_CHECK(recognizer.loadTokenizer(whisperTokenizerPath(), &failure));
     NC_CHECK(recognizer.tokenizerLoaded());
     // 已知 token 解码：Whisper BPE 中 15496="Hello" 相关词；验证非空
     const std::vector<int> tokens = {15496, 11, 50257};
@@ -159,6 +172,92 @@ NC_TEST(SpeechAI, TokenizerLoadAndDecode) {
     NC_CHECK(filtered.find("<|") == std::string::npos);
     // 空 token → 空串
     NC_CHECK_EQ(recognizer.decodeTokens({}), std::string());
+}
+
+NC_TEST(SpeechAI, TokenizerLoadsFromMemoryJson) {
+    SpeechRecognizer recognizer;
+    std::string failure;
+    const std::string tokenizer =
+        R"({"model":{"type":"BPE","vocab":{"Hello":15496}},"decoder":{"type":"ByteLevel"},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
+    NC_CHECK(recognizer.loadTokenizerJson(tokenizer, &failure));
+    NC_CHECK(recognizer.tokenizerLoaded());
+    NC_CHECK(!recognizer.decodeTokens({15496}).empty());
+    NC_CHECK(recognizer.decodeTokens({50257}).empty());
+    NC_CHECK(recognizer.decodeTokens({999999}).empty());
+
+    // Added tokens alone are not a BPE vocabulary.
+    failure.clear();
+    NC_CHECK(!recognizer.loadTokenizerJson(
+        R"({"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})", &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
+    NC_CHECK(recognizer.decodeTokens({15496}).empty());
+
+    failure.clear();
+    NC_CHECK(!recognizer.loadTokenizerJson("{}", &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
+
+    // Special-token IDs must not collide with ordinary BPE entries.
+    failure.clear();
+    NC_CHECK(!recognizer.loadTokenizerJson(
+        R"({"model":{"type":"BPE","vocab":{"ordinary":42}},"decoder":{"type":"ByteLevel"},"added_tokens":[{"id":42,"content":"<|special|>"}]})",
+        &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
+
+    // Duplicate IDs make reverse lookup ambiguous and must be rejected.
+    failure.clear();
+    NC_CHECK(!recognizer.loadTokenizerJson(
+        R"({"model":{"type":"BPE","vocab":{"alpha":10,"beta":10}},"decoder":{"type":"ByteLevel"}})", &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.tokenizerLoaded());
+
+    // GPT-2 byte-level BPE encodes spaces as Ġ (U+0120).
+    failure.clear();
+    NC_CHECK(recognizer.loadTokenizerJson(
+        R"({"model":{"type":"BPE","vocab":{"helloĠworld":1}},"decoder":{"type":"ByteLevel"}})", &failure));
+    NC_CHECK(recognizer.decodeTokens({1}) == "hello world");
+}
+
+NC_TEST(SpeechAI, UnloadClearsTokenizerState) {
+    SpeechRecognizer recognizer;
+    std::string failure;
+    const std::string tokenizer =
+        R"({"model":{"type":"BPE","vocab":{"Hello":15496}},"decoder":{"type":"ByteLevel"},"added_tokens":[{"id":50257,"content":"<|endoftext|>"}]})";
+    NC_CHECK(recognizer.loadTokenizerJson(tokenizer, &failure));
+    NC_CHECK(recognizer.tokenizerLoaded());
+    recognizer.unload();
+    NC_CHECK(!recognizer.tokenizerLoaded());
+    NC_CHECK(recognizer.decodeTokens({15496}).empty());
+}
+
+NC_TEST(SpeechAI, CApiSpeechLoadRequiresTokenizerPath) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    if (editor == nullptr) return;
+
+    char* error = nullptr;
+    const int32_t missing = nc_speech_load(editor, "encoder.onnx", "decoder.onnx", nullptr, &error);
+    NC_CHECK_EQ(missing, NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(nc_speech_loaded(editor) == 0);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    const int32_t empty = nc_speech_load(editor, "encoder.onnx", "decoder.onnx", "", &error);
+    NC_CHECK_EQ(empty, NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(nc_speech_loaded(editor) == 0);
+    if (error != nullptr) nc_free_string(error);
+    nc_editor_destroy(editor);
+}
+
+NC_TEST(SpeechAI, MemoryModelLoadRejectsEmptyBuffers) {
+    SpeechRecognizer recognizer;
+    std::string failure;
+    NC_CHECK(!recognizer.loadFromMemory(nullptr, 0, nullptr, 0, &failure));
+    NC_CHECK(!failure.empty());
+    NC_CHECK(!recognizer.loaded());
 }
 
 NC_TEST(SpeechAI, TokenizerFailurePaths) {
@@ -178,29 +277,29 @@ NC_TEST(SpeechAI, TokenizerFailurePaths) {
 // ---------------------------------------------------------------------------
 
 NC_TEST(SpeechAI, RealInferenceChain) {
-    if (!whisperModelsAvailable()) return;
+    // Model-only runs must not masquerade as a successful inference test:
+    // require encoder, decoder, ORT and the real tokenizer fixture together.
+    if (!whisperModelsAvailable() || !tokenizerAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
-    NC_CHECK(recognizer.load("/workspace/deps/whisper_tiny_encoder.onnx",
-                             "/workspace/deps/whisper_tiny_decoder.onnx", &failure));
+    NC_CHECK(recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure));
     NC_CHECK(recognizer.loaded());
-    // 说明：解码器含 KV cache（多输入）；完整自回归由平台层驱动。
-    // 本条验证「编码器推理链路」真实可跑通（Mel → 编码 → 输出张量）。
+    NC_CHECK(recognizer.loadTokenizer(whisperTokenizerPath(), &failure));
+    NC_CHECK(recognizer.tokenizerLoaded());
+
+    // Whisper-tiny merged decoder is exercised through the full KV-cache path.
     const int sampleRate = 16000;
     const std::vector<float> pcm = makeSpeechAudio(sampleRate, 2.0);
     std::vector<SpeechSegment> segments;
-    // 调用 transcribe：编码器应成功；解码器因多输入明确失败（不伪造文本）
     const bool ok = recognizer.transcribe(pcm.data(), pcm.size(), sampleRate,
                                           SpeechLanguage::Chinese, segments, nullptr, &failure);
-    if (!ok) {
-        // 断言：失败原因是明确的（不可用/需 KV cache 驱动），而非静默假成功
-        NC_CHECK(!failure.empty());
-        NC_CHECK(failure.find("KV cache") != std::string::npos ||
-                 failure.find("解码") != std::string::npos ||
-                 failure.find("不可用") != std::string::npos);
-    } else {
-        // 若未来支持完整解码：分段应有效
-        NC_CHECK(!segments.empty());
+    NC_CHECK(ok);
+    for (const auto& segment : segments) {
+        NC_CHECK(std::isfinite(segment.startSeconds));
+        NC_CHECK(std::isfinite(segment.endSeconds));
+        NC_CHECK(segment.startSeconds >= 0.0);
+        NC_CHECK(segment.endSeconds > segment.startSeconds);
+        NC_CHECK(!segment.text.empty());
     }
 }
 
@@ -217,30 +316,98 @@ NC_TEST(SpeechAI, FailurePaths) {
     // 不存在的模型 → 失败
     NC_CHECK(!recognizer.load("/tmp/no_encoder.onnx", "/tmp/no_decoder.onnx", &failure));
     // 加载后空音频 → 失败
-    NC_CHECK(recognizer.load("/workspace/deps/whisper_tiny_encoder.onnx",
-                             "/workspace/deps/whisper_tiny_decoder.onnx", &failure));
+    NC_CHECK(recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure));
     NC_CHECK(!recognizer.transcribe(nullptr, 0, 16000, SpeechLanguage::Auto, segments, nullptr,
                                     &failure));
 }
 
 NC_TEST(SpeechAI, ProgressCallback) {
-    if (!whisperModelsAvailable()) return;
+    if (!whisperModelsAvailable() || !tokenizerAvailable()) return;
     SpeechRecognizer recognizer;
     std::string failure;
-    if (!recognizer.load("/workspace/deps/whisper_tiny_encoder.onnx",
-                         "/workspace/deps/whisper_tiny_decoder.onnx", &failure)) {
-        return;
-    }
+    NC_CHECK(recognizer.load(whisperEncoderPath(), whisperDecoderPath(), &failure));
+    NC_CHECK(recognizer.loadTokenizer(whisperTokenizerPath(), &failure));
+    NC_CHECK(recognizer.tokenizerLoaded());
+
     const std::vector<float> pcm = makeSpeechAudio(16000, 1.0);
     std::vector<SpeechSegment> segments;
     double lastProgress = -1.0;
     bool monotonic = true;
-    recognizer.transcribe(pcm.data(), pcm.size(), 16000, SpeechLanguage::Chinese, segments,
-                          [&](double p) {
-                              if (p < lastProgress) monotonic = false;
-                              lastProgress = p;
-                              return true;  // 不取消
-                          },
-                          &failure);
-    NC_CHECK(monotonic);  // 进度单调不减（若回调被调用）
+    const bool ok = recognizer.transcribe(
+        pcm.data(), pcm.size(), 16000, SpeechLanguage::Chinese, segments,
+        [&](double progress) {
+            if (!std::isfinite(progress) || progress < lastProgress ||
+                progress < 0.0 || progress > 1.0) {
+                monotonic = false;
+            }
+            lastProgress = progress;
+            return true;  // do not cancel
+        },
+        &failure
+    );
+    NC_CHECK(ok);
+    NC_CHECK(monotonic);
+    NC_CHECK(lastProgress >= 0.0);  // callback must actually be exercised
 }
+
+NC_TEST(SpeechAI, IndependentSessionLifecycleAndArgumentGuards) {
+    NcSpeechSession* session = nc_speech_session_create();
+    NC_CHECK(session != nullptr);
+    if (session == nullptr) return;
+
+    int32_t state = -1;
+    double progress = -1.0;
+    char* error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_status(session, &state, &progress, &error), NC_OK);
+    NC_CHECK_EQ(state, 0);
+    NC_CHECK_EQ(progress, 0.0);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_load_memory(session, nullptr, 0, nullptr, 0,
+                                               nullptr, 0, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, nullptr, 0, 16000, 1,
+                                              nullptr, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK(error != nullptr);
+    if (error != nullptr) nc_free_string(error);
+
+    NC_CHECK_EQ(nc_speech_session_cancel(session), NC_ERROR_NOT_FOUND);
+
+    float validPcm = 0.0f;
+    char* segments = nullptr;
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &validPcm, 1, 7999, 1,
+                                              &segments, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
+    float outOfRangePcm = 1.01f;
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &outOfRangePcm, 1, 16000, 1,
+                                              &segments, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
+    float nonFinitePcm = std::nanf("");
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &nonFinitePcm, 1, 16000, 1,
+                                              &segments, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
+    error = nullptr;
+    NC_CHECK_EQ(nc_speech_session_transcribe(session, &validPcm, 1, 16000, 1,
+                                              nullptr, &error),
+                NC_ERROR_INVALID_ARGUMENT);
+    if (error != nullptr) nc_free_string(error);
+
+    nc_speech_session_destroy(session);
+}
+

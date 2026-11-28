@@ -135,6 +135,23 @@ NC_TEST(Capi, SubtitleCrud) {
     const std::uint64_t sid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
     NC_CHECK(sid != 0);
     NC_CHECK_EQ(nc_subtitle_count(editor), 1);
+    // 稳定 ID 必须与 upsert 返回值一致，不能用排序后的数组下标代替。
+    std::uint64_t readId = 0;
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 0, &readId), NC_OK);
+    NC_CHECK_EQ(readId, sid);
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 0, nullptr), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_subtitle_get_id(editor, 5, &readId), NC_ERROR_OUT_OF_RANGE);
+    // 相同时间与相同文本也必须返回本次新分配的 ID，而不是按内容猜测。
+    const std::uint64_t duplicateSid = nc_upsert_subtitle(editor, 1000000, 2000000, "你好世界");
+    NC_CHECK(duplicateSid != 0 && duplicateSid != sid);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 2);
+    bool foundDuplicateId = false;
+    for (int32_t index = 0; index < nc_subtitle_count(editor); ++index) {
+        std::uint64_t candidate = 0;
+        NC_CHECK_EQ(nc_subtitle_get_id(editor, index, &candidate), NC_OK);
+        if (candidate == duplicateSid) foundDuplicateId = true;
+    }
+    NC_CHECK(foundDuplicateId);
     // 读取
     std::int64_t start = 0;
     std::int64_t duration = 0;
@@ -149,11 +166,49 @@ NC_TEST(Capi, SubtitleCrud) {
     }
     // 删除
     NC_CHECK_EQ(nc_remove_subtitle(editor, sid), NC_OK);
+    NC_CHECK_EQ(nc_remove_subtitle(editor, duplicateSid), NC_OK);
     NC_CHECK_EQ(nc_subtitle_count(editor), 0);
     // 越界
     NC_CHECK_EQ(nc_subtitle_get(editor, 5, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
     nc_editor_destroy(editor);
 }
+NC_TEST(Capi, SubtitleBatchIsAtomicAndUndoable) {
+    NcEditor* editor = nc_editor_create();
+    NC_CHECK(editor != nullptr);
+    const NcSubtitleCueInput cues[] = {
+        {0, 800000, "第一句"},
+        {900000, 700000, "第二句"},
+        {1700000, 600000, "第三句"},
+    };
+    std::uint64_t ids[3] = {};
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, cues, 3, ids), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+    NC_CHECK(ids[0] > 0 && ids[1] > 0 && ids[2] > 0);
+    NC_CHECK(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2]);
+    // 整批字幕必须只形成一条撤销记录。
+    NC_CHECK_EQ(nc_undo_count(editor), 1);
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 0);
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+
+    const NcSubtitleCueInput invalid[] = {
+        {2500000, 500000, "合法条目"},
+        {-1, 500000, "非法起点"},
+    };
+    std::uint64_t invalidIds[2] = {99, 100};
+    const int32_t beforeUndo = nc_undo_count(editor);
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, invalid, 2, invalidIds),
+                NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_subtitle_count(editor), 3);
+    NC_CHECK_EQ(nc_undo_count(editor), beforeUndo);
+    NC_CHECK_EQ(invalidIds[0], std::uint64_t(0));
+    NC_CHECK_EQ(invalidIds[1], std::uint64_t(0));
+    NC_CHECK_EQ(nc_upsert_subtitles_batch(editor, cues, 0, ids),
+                NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(Capi, TransitionCrud) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
@@ -200,6 +255,68 @@ NC_TEST(Capi, ClipGet) {
     NC_CHECK_EQ(nc_clip_get(editor, 0, 9, nullptr, nullptr, nullptr), NC_ERROR_OUT_OF_RANGE);
     nc_editor_destroy(editor);
 }
+
+NC_TEST(Capi, ClipSourceInfo) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t assetId = nc_import_asset(editor, "source.mp4", "/videos/source.mp4", 0, 60000000);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clipId = nc_insert_clip(editor, 0, assetId, 1000000, 2500000);
+    NC_CHECK(clipId != 0);
+    std::int64_t sourceIn = -1, sourceOut = -1;
+    std::int32_t reversed = -1, frozen = -1, hasSpeedCurve = -1;
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, std::int64_t(0));
+    NC_CHECK_EQ(sourceOut, std::int64_t(2500000));
+    NC_CHECK_EQ(reversed, 0);
+    NC_CHECK_EQ(frozen, 0);
+    NC_CHECK_EQ(hasSpeedCurve, 0);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, nullptr, nullptr,
+                                    nullptr, nullptr, nullptr), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId + 999, &sourceIn, nullptr,
+                                    nullptr, nullptr, nullptr), NC_ERROR_NOT_FOUND);
+
+    // Trim must advance sourceIn while preserving the source out-point.
+    NC_CHECK_EQ(nc_trim_clip_start(editor, 0, clipId, 1500000), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, std::int64_t(500000));
+    NC_CHECK_EQ(sourceOut, std::int64_t(2500000));
+    // Changing constant speed changes timeline duration, not the source interval.
+    NC_CHECK_EQ(nc_set_clip_speed(editor, 0, clipId, 2, 1), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, std::int64_t(500000));
+    NC_CHECK_EQ(sourceOut, std::int64_t(2500000));
+    NC_CHECK_EQ(reversed, 0);
+    NC_CHECK_EQ(frozen, 0);
+    NC_CHECK_EQ(hasSpeedCurve, 0);
+
+    NC_CHECK_EQ(nc_reverse_clip(editor, 0, clipId), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, clipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(reversed, 1);
+    NC_CHECK(sourceOut > sourceIn);  // Reverse changes direction, not the source interval.
+
+    const std::uint64_t frozenId = nc_freeze_frame(editor, 0, clipId, 1500000, 1000000);
+    NC_CHECK(frozenId != 0);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, frozenId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, sourceOut);  // Frozen frames expose an unknown-range sentinel.
+    NC_CHECK_EQ(frozen, 1);
+    NC_CHECK_EQ(hasSpeedCurve, 0);
+
+    const std::uint64_t curveClipId = nc_insert_clip(editor, 0, assetId, 5000000, 2500000);
+    NC_CHECK(curveClipId != 0);
+    NC_CHECK_EQ(nc_apply_speed_curve_preset(editor, 0, curveClipId, 1, 2500000), NC_OK);
+    NC_CHECK_EQ(nc_clip_source_info(editor, 0, curveClipId, &sourceIn, &sourceOut,
+                                    &reversed, &frozen, &hasSpeedCurve), NC_OK);
+    NC_CHECK_EQ(sourceIn, sourceOut);  // Speed curves also expose an unknown linear range.
+    NC_CHECK_EQ(frozen, 0);
+    NC_CHECK_EQ(hasSpeedCurve, 1);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(Capi, EffectCrud) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t assetId = nc_import_asset(editor, "a", "/a.mp4", 0, 60000000);
@@ -390,6 +507,9 @@ NC_TEST(Capi, FrameFitSetGet) {
     NC_CHECK_EQ(nc_get_frame_fit(editor), 2);  // 保持原值
     // 背景色
     NC_CHECK_EQ(nc_set_background_color(editor, 0x1E1E1EFF), NC_OK);
+    uint32_t backgroundRgba = 0;
+    NC_CHECK_EQ(nc_get_background_color(editor, &backgroundRgba), NC_OK);
+    NC_CHECK_EQ(backgroundRgba, 0x1E1E1EFF);
     nc_editor_destroy(editor);
 }
 
@@ -397,6 +517,9 @@ NC_TEST(Capi, FrameFitNullSafety) {
     NC_CHECK_EQ(nc_set_frame_fit(nullptr, 1), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_get_frame_fit(nullptr), -1);
     NC_CHECK_EQ(nc_set_background_color(nullptr, 0), NC_ERROR_INVALID_ARGUMENT);
+    uint32_t backgroundRgba = 0;
+    NC_CHECK_EQ(nc_get_background_color(nullptr, &backgroundRgba), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_background_color(nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
 }
 
 NC_TEST(Capi, FrameFitPersistsThroughSaveLoad) {
@@ -1279,9 +1402,22 @@ NC_TEST(Capi, ChapterRealMediaEndToEnd) {
     const int32_t count =
         nc_chapter_detect(editor, 0.5, 0, 1.5, -1, -1, 0, &summary, &note, &err);
     NC_CHECK_EQ(err, nullptr);
-    NC_CHECK(count >= 2);
     NC_CHECK(summary != nullptr);
     NC_CHECK(std::string(summary).find("章节") != std::string::npos);
+    if (count < 2) {
+        // Host CI 没有保证存在系统 VP9/H.264 解码器；禁止用软件解码器兜底。
+        // 此时 C ABI 应明确保留时长级章节结果，而不是伪造场景切点。
+        NC_CHECK_EQ(count, 1);
+        NC_CHECK(note != nullptr && note[0] != '\0');
+        const int32_t written = nc_chapter_apply(editor, &err);
+        NC_CHECK_EQ(written, 1);
+        NC_CHECK_EQ(nc_chapter_count(editor), 1);
+        if (err != nullptr) nc_free_string(err);
+        nc_free_string(summary);
+        nc_free_string(note);
+        nc_editor_destroy(editor);
+        return;
+    }
     nc_free_string(summary);
     nc_free_string(note);
     const int32_t written = nc_chapter_apply(editor, &err);
@@ -1794,12 +1930,22 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
     char* err = nullptr;
     if (doExport) {
         heapOk("nc_export_run 之前");
-        /* 用 nc_export_run_ex 指定 VP9：本机（CI / 沙箱）没有硬件 H.264
-           编码器，而软件 H.264 已按合规要求移除，默认 h264 必然失败。
-           VP9 有 royalty-free 软件实现（libvpx-vp9），纯 CPU 就能编。
-           这也顺带验证了 nc_export_run_ex 的编码格式参数通路。 */
+        // 导出必须使用系统硬件编码后端；CI 没有保证具备可用编码器。
+        // 无系统编码器时验证 fail-closed，不允许改用 libvpx/libx264 等软件实现。
         const int64_t frames = nc_export_run_ex(editor, "/tmp/media_gen/capi_wm_export.mp4",
-                                                18, 0, 0, nullptr, "vp9", nullptr, &err);
+                                                18, 0, 0, nullptr, "h264", nullptr, &err);
+        if (frames < 0) {
+            NC_CHECK(err != nullptr);
+            if (err != nullptr) {
+                const std::string message(err);
+                NC_CHECK(message.find("编码器") != std::string::npos ||
+                         message.find("系统") != std::string::npos);
+                nc_free_string(err);
+            }
+            heapOk("系统编码器不可用后的 fail-closed");
+            nc_editor_destroy(editor);
+            NC_SKIP("系统 H.264 编码器不可用；fail-closed 已验证，真实水印导出/解码阶段跳过");
+        }
         NC_CHECK(frames > 0);
         if (err != nullptr) nc_free_string(err);
         heapOk("nc_export_run 之后");
@@ -1972,5 +2118,52 @@ NC_TEST(Capi, HeartbeatLifecycle) {
     NC_CHECK_EQ(nc_heartbeat_status(nullptr, nullptr, nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_heartbeat_periodic_due(nullptr, 0, 0), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_heartbeat_clear_lock(nullptr), NC_ERROR_INVALID_ARGUMENT);
+    nc_editor_destroy(editor);
+}
+
+
+NC_TEST(Capi, ClipColorGradeUndoRoundtrip) {
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t asset = nc_import_asset(editor, "curve.mp4", "/curve.mp4", 0, 10000000);
+    NC_CHECK(asset != 0);
+    NC_CHECK(nc_add_track(editor, "V1", 0) != 0);
+    const std::uint64_t clip = nc_insert_clip(editor, 0, asset, 0, 5000000);
+    NC_CHECK(clip != 0);
+    const double master[] = {0.0, 0.0, 0.5, 0.75, 1.0, 1.0};
+    const double identity[] = {0.0, 0.0, 1.0, 1.0};
+    const int32_t historyBefore = nc_undo_count(editor);
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        master, 3, identity, 2, identity, 2, identity, 2), NC_OK);
+    NC_CHECK_EQ(nc_undo_count(editor), historyBefore + 1);
+    // Re-applying an identical curve is a no-op and must not create a dead undo step.
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        master, 3, identity, 2, identity, 2, identity, 2), NC_OK);
+    NC_CHECK_EQ(nc_undo_count(editor), historyBefore + 1);
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        nullptr, 3, identity, 2, identity, 2, identity, 2), NC_ERROR_INVALID_ARGUMENT);
+    double readMaster[64] = {}, readRed[64] = {}, readGreen[64] = {}, readBlue[64] = {};
+    int32_t mc = 0, rc = 0, gc = 0, bc = 0;
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 3);
+    NC_CHECK(std::abs(readMaster[3] - 0.75) < 1e-9);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 2, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_ERROR_OUT_OF_RANGE);
+    NC_CHECK_EQ(nc_undo(editor), NC_OK);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 2);
+    NC_CHECK(std::abs(readMaster[3] - 1.0) < 1e-9);
+    NC_CHECK_EQ(nc_redo(editor), NC_OK);
+    NC_CHECK_EQ(nc_get_clip_color_grade(editor, 0, clip,
+        readMaster, 64, &mc, readRed, 64, &rc, readGreen, 64, &gc,
+        readBlue, 64, &bc), NC_OK);
+    NC_CHECK_EQ(mc, 3);
+    const double invalid[] = {0.0, 0.0, 0.8, 0.6, 0.7, 0.9, 1.0, 1.0};
+    NC_CHECK_EQ(nc_set_clip_color_grade(editor, 0, clip,
+        invalid, 4, identity, 2, identity, 2, identity, 2), NC_ERROR_INVALID_ARGUMENT);
     nc_editor_destroy(editor);
 }

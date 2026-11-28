@@ -109,90 +109,13 @@ std::vector<FrameFeature> sampleFeatures(const char* path, double stepSeconds) {
 }
 }  // namespace
 
-namespace {
-// 本机可用的测试用视频编码格式（产品默认 h264 但只用硬件编码器，
-// CI 无 GPU → 测试用 royalty-free 的 VP9）。见 docs/COMPLIANCE.md §1.2.1。
-inline std::string testVideoCodec() { return "vp9"; }
-}  // namespace
-
-NC_TEST(ReferenceWorkflowFFmpeg, FullRealPipeline) {
-    const char* reference = "/tmp/media_gen/two_shots.mp4";
+NC_TEST(ReferenceWorkflowFFmpeg, RejectsBundledSoftwareDecoder) {
     const char* material = "/tmp/media_gen/test_av.mp4";
-    if (!mediaExists(reference) || !mediaExists(material)) {
-        return;  // 素材未生成：跳过
-    }
-    // 1) 采样参考素材帧特征（0.1s 间隔）
-    const auto features = sampleFeatures(reference, 0.1);
-    NC_CHECK(features.size() > 20);  // 4s / 0.1 = 40 帧
-    // 2) 场景检测
-    SceneDetectConfig detectConfig;
-    detectConfig.threshold = 0.3;
-    detectConfig.minShotDurationSeconds = 0.5;
-    const auto shots = detectShots(features, Rational::make(4), detectConfig);
-    NC_CHECK(shots.size() >= std::size_t(2));  // 两段素材至少切出 2 镜
-    // 3) 节奏画像
-    const RhythmProfile rhythm = analyzeRhythm(shots);
-    NC_CHECK(rhythm.valid());
-    NC_CHECK(rhythm.shotCount >= std::size_t(2));
-    // 4) 用户素材自动剪辑
-    Project project;
-    TimelineEditor editor(project);
-    Sequence seq;
-    seq.id = SequenceId{project.ids.next()};
-    seq.width = 160;
-    seq.height = 120;
-    project.sequences.push_back(seq);
-    const SequenceId seqId = project.sequences.front().id;
-    MediaAsset asset;
-    asset.id = AssetId{project.ids.next()};
-    asset.path = material;
-    asset.type = MediaType::Video;
-    asset.duration = Rational::make(3);
-    project.assets.push_back(asset);
-    const AssetId assetId = project.assets.front().id;
-    TrackId trackId;
-    NC_CHECK(editor.addTrack(seqId, TrackType::Video, "V1", &trackId).isOk());
-    StyleProfile profile;
-    profile.rhythm = rhythm;
-    profile.color = analyzeColor(0.6, 0.5, 0.4, 0.6, 0.5);
-    const AutoEditResult editResult = applyAutoEdit(
-        editor, project, seqId, trackId, profile,
-        {{assetId, Rational::make(3)}}, AutoEditOptions{});
-    NC_CHECK(editResult.result.isOk());
-    NC_CHECK(editResult.clipsInserted > 0);
-    // 5) 真实导出
-    class FFWriterF : public MediaWriterFactory {
-    public:
-        std::unique_ptr<MediaWriter> create() override {
-            return std::make_unique<FFmpegMediaWriter>();
-        }
-    };
-    FFmpegReaderFactory readerFactory;
-    FFWriterF writerFactory;
-    const ExportPlan plan = compileExportPlan(project, *project.mainSequence());
-    ExportRunConfig config;
-    config.outputPath = "/tmp/media_gen/reference_workflow_out.mp4";
-    config.writer.width = 160;
-    config.writer.videoCodec = testVideoCodec();
-    config.writer.height = 120;
-    config.writer.crf = 30;
-    config.writer.includeAudio = false;
-    const ExportRunResult result =
-        runExport(plan, readerFactory, writerFactory, config, nullptr, &project);
-    NC_CHECK(result.result.isOk());
-    NC_CHECK(result.fileWritten);
-    // 6) 回读验证：输出可解码且帧数正确
-    std::ifstream f(config.outputPath, std::ios::binary | std::ios::ate);
-    NC_CHECK(f.good());
-    NC_CHECK(f.tellg() > 1000);
-    FFmpegMediaReader verify;
-    NC_CHECK(verify.open(config.outputPath).isOk());
-    int decoded = 0;
-    VideoFrame frame;
-    while (verify.readVideoFrame(frame) && decoded < 1000) {
-        ++decoded;
-    }
-    NC_CHECK_EQ(decoded, static_cast<int>(result.stats.framesWritten));
-    verify.close();
+    if (!mediaExists(material)) return;
+    FFmpegMediaReader reader;
+    const Result result = reader.open(material);
+    NC_CHECK(!result.isOk());
+    NC_CHECK(!reader.isOpen());
+    NC_CHECK(sampleFeatures(material, 0.1).empty());
 }
 #endif

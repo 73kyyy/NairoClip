@@ -26,6 +26,7 @@ RenderClip compileClip(const Clip& clip, const Project& project) {
     rc.shake = clip.shake;
     rc.xforms = clip.xforms;   // 几何变换随片段进导出计划快照
     rc.hasAnimation = !clip.animation.empty();
+    rc.colorGrade = clip.colorGrade;
     rc.effects = clip.effects;
     rc.hasMask = clip.hasMask;
     rc.mask = clip.mask;

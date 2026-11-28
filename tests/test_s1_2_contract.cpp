@@ -18,8 +18,18 @@
 #include <string>
 
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/json.h"
 
 #include "../mobile/native/android/nc_jni.cpp"
+
+// The host contract test includes the JNI translation unit but does not link
+// Android EGL/GLES. Keep only the presentation calls inert in host tests.
+#if !defined(__ANDROID__)
+namespace nairoclip_android_preview {
+void detach() {}
+bool draw(const std::uint8_t*, int, int) { return false; }
+}  // namespace nairoclip_android_preview
+#endif
 
 namespace {
 
@@ -66,6 +76,46 @@ std::string j(const char* fmt, ...) {
 
 }  // namespace
 
+// JNI 手工拼接的工程快照必须保持完整 JSON 对象结构。
+NC_TEST(S1_2, BuildStateClipJsonIsWellFormed) {
+    Fixture f;
+    NC_CHECK(f.ed != nullptr);
+    if (f.ed == nullptr) return;
+
+    // Exercise non-empty arrays as well as the empty-array case: the bridge
+    // manually serializes both nested effect and transform objects.
+    NC_CHECK(nc_add_effect(f.ed, 0, f.clipId, 1, 0.5) != 0);
+    double xformArgs[NC_XFORM_ARG_COUNT] = {};
+    xformArgs[0] = 12.0;
+    NC_CHECK_EQ(nc_set_clip_xform(f.ed, 0, f.clipId, 0, xformArgs), NC_OK);
+
+    nairoclip::core::JsonValue root;
+    nairoclip::core::JsonParseError error;
+    const bool parsed = nairoclip::core::parseJson(BuildState(f.ed), root, error);
+    NC_CHECK(parsed);
+    if (!parsed) return;
+    NC_CHECK(root.isObject());
+    NC_CHECK(root.get("ok").asBool(false));
+
+    const auto& result = root.get("result");
+    const auto& tracks = result.get("tracks");
+    NC_CHECK(tracks.isArray() && tracks.size() > 0);
+    if (!tracks.isArray() || tracks.size() == 0) return;
+    const auto& clips = tracks.at(0).get("clips");
+    NC_CHECK(clips.isArray() && clips.size() > 0);
+    if (!clips.isArray() || clips.size() == 0) return;
+    const auto& clip = clips.at(0);
+    NC_CHECK(clip.isObject());
+    NC_CHECK(clip.has("effects"));
+    NC_CHECK(clip.has("xforms"));
+    NC_CHECK(clip.get("effects").isArray());
+    NC_CHECK(clip.get("effects").size() == 1);
+    NC_CHECK(clip.get("xforms").isArray());
+    NC_CHECK(clip.get("xforms").size() == 1);
+    NC_CHECK(clip.get("effects").at(0).isObject());
+    NC_CHECK(clip.get("xforms").at(0).isObject());
+}
+
 // ===================== D-1 关键帧参数映射兼容 =====================
 
 NC_TEST(S1_2, D1KeyframeTimeUsP1) {
@@ -73,7 +123,7 @@ NC_TEST(S1_2, D1KeyframeTimeUsP1) {
     NC_CHECK(f.ed != nullptr);
     // P1：前端发 time_us（旧实现只读 at_us/t → 恒落片头）
     NC_CHECK(f.isOk("keyframe", j("{\"track\":0,\"clip\":%llu,\"property\":0,"
-                                  "\"time_us\":2000000,\"value\":5}",
+                                  "\"time_us\":2000000,\"value\":0.5}",
                                   (unsigned long long)f.clipId)));
     int64_t t = -1;
     NC_CHECK_EQ(nc_keyframe_get(f.ed, 0, f.clipId, 0, 0, &t, nullptr, nullptr), 0);
@@ -85,7 +135,7 @@ NC_TEST(S1_2, D1KeyframeTimeUsP2) {
     NC_CHECK(f.ed != nullptr);
     // P2：OP_TO_ABI 发 track_index/clip_id/time_us
     NC_CHECK(f.isOk("keyframe", j("{\"track_index\":0,\"clip_id\":%llu,\"property\":0,"
-                                  "\"time_us\":3000000,\"value\":7}",
+                                  "\"time_us\":3000000,\"value\":0.7}",
                                   (unsigned long long)f.clipId)));
     int64_t t = -1;
     NC_CHECK_EQ(nc_keyframe_get(f.ed, 0, f.clipId, 0, 0, &t, nullptr, nullptr), 0);
@@ -127,7 +177,7 @@ NC_TEST(S1_2, D1RemoveKeyframeTimeUs) {
     Fixture f;
     NC_CHECK(f.ed != nullptr);
     NC_CHECK(f.isOk("keyframe", j("{\"track\":0,\"clip\":%llu,\"property\":0,"
-                                  "\"time_us\":4000000,\"value\":2}",
+                                  "\"time_us\":4000000,\"value\":0.2}",
                                   (unsigned long long)f.clipId)));
     // 删除必须按同一时间点命中（旧实现读 at_us → 删不到）
     NC_CHECK(f.isOk("remove_keyframe", j("{\"track\":0,\"clip\":%llu,"

@@ -129,6 +129,66 @@ class NativeEngineBridge(
             }
         }
 
+    /** 原子写入一批 ASR 字幕；所有条目作为一条撤销记录。 */
+    fun upsertSubtitlesBatch(
+        startsUs: LongArray,
+        durationsUs: LongArray,
+        texts: Array<String>
+    ): LongArray? {
+        require(startsUs.isNotEmpty() && startsUs.size == durationsUs.size &&
+            startsUs.size == texts.size && startsUs.size <= 10000)
+        synchronized(stateLock) {
+            return nativeUpsertSubtitlesBatch(startsUs, durationsUs, texts)
+        }
+    }
+
+    /** 创建独立 ASR 会话；调用方负责在线程结束后释放。 */
+    fun createSpeechSession(): Long = nativeSpeechSessionCreate()
+
+    fun destroySpeechSession(session: Long) {
+        require(session != 0L)
+        nativeSpeechSessionDestroy(session)
+    }
+
+    /** 所有 ByteBuffer 必须是 direct buffer；模型明文只在调用期间位于内存。 */
+    fun loadSpeechSession(
+        session: Long, encoder: java.nio.ByteBuffer,
+        decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer
+    ): String {
+        require(session != 0L)
+        require(
+            listOf(encoder, decoder, tokenizer).all {
+                it.isDirect && !it.isReadOnly && it.hasRemaining()
+            }
+        ) { "Whisper 模型缓冲区必须是非空、可写 direct ByteBuffer" }
+        return nativeSpeechSessionLoad(session, encoder.slice(), decoder.slice(), tokenizer.slice())
+    }
+
+    /** PCM 为 mono float32 [-1,1]；必须在工作线程调用，禁止主线程推理。 */
+    fun transcribeSpeechSession(
+        session: Long, pcm: java.nio.ByteBuffer, frameCount: Long,
+        sampleRate: Int = 16000, language: Int = 0
+    ): String {
+        require(session != 0L && pcm.isDirect && !pcm.isReadOnly && frameCount > 0L)
+        require(sampleRate == 16000 && language in 0..4)
+        // slice() below exposes only the caller's remaining range. Validate
+        // against that same range, never against the original buffer capacity.
+        require(frameCount <= pcm.remaining().toLong() / Float.SIZE_BYTES)
+        return nativeSpeechSessionTranscribe(
+            session,
+            pcm.slice().order(java.nio.ByteOrder.nativeOrder()),
+            frameCount,
+            sampleRate,
+            language
+        )
+    }
+
+    fun cancelSpeechSession(session: Long): Boolean =
+        session != 0L && nativeSpeechSessionCancel(session) == 0
+
+    fun speechSessionStatus(session: Long): String =
+        if (session == 0L) "" else nativeSpeechSessionStatus(session)
+
     /**
      * 任意 C ABI 函数。fn 必须是 nc_ 开头的函数名，argsJson 为参数对象。
      * 失败也返回结构化 JSON，绝不把异常抛给 JS。
@@ -146,6 +206,93 @@ class NativeEngineBridge(
         }
     
         }}
+
+    /**
+     * Executes a multi-call editor read as one serialized snapshot. The monitor
+     * is reentrant, so bridge calls made inside the block keep their normal
+     * validation while no competing JNI mutation can interleave between them.
+     */
+    internal fun <T> withEditorStateLock(block: () -> T): T =
+        synchronized(stateLock) { block() }
+
+    /** Uses the exact short operation names implemented by DispatchEdit. */
+    fun editorUndo(): String = synchronized(stateLock) {
+        try {
+            nativeCall(ensure(), "undo", "{}")
+        } catch (error: Throwable) {
+            err("撤销失败：${error.message}")
+        }
+    }
+
+    fun editorRedo(): String = synchronized(stateLock) {
+        try {
+            nativeCall(ensure(), "redo", "{}")
+        } catch (error: Throwable) {
+            err("重做失败：${error.message}")
+        }
+    }
+
+    /**
+     * 专用原生变换读取入口。仅开放 JNI 已实现的 transform_get，
+     * 不放宽 call() 的 nc_* 函数名前缀限制。
+     */
+    fun editorTransformGet(trackIndex: Int, clipId: Long): String =
+        synchronized(stateLock) {
+            if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
+            try {
+                nativeCall(
+                    ensure(),
+                    "transform_get",
+                    JSONObject().put("track_index", trackIndex).put("clip_id", clipId).toString()
+                )
+            } catch (error: Throwable) {
+                err("读取片段变换失败：${error.message}")
+            }
+        }
+
+    /**
+     * 专用原生变换写入入口。仅开放 JNI 已实现的 transform_set，
+     * 所有数值在进入 C ABI 前进行有限值和范围校验。
+     */
+    fun editorTransformSet(
+        trackIndex: Int,
+        clipId: Long,
+        transform: NativeTransform,
+        enabled: Boolean = true,
+        anchor: Int = NativeTransformRange.ANCHOR_CENTER
+    ): String = synchronized(stateLock) {
+        if (trackIndex < 0 || clipId <= 0L) return@synchronized err("片段目标无效")
+        val scale = transform.scale / 100.0f
+        if (!transform.scale.isFinite() ||
+            transform.scale !in NativeTransformRange.SCALE_MIN_PERCENT..NativeTransformRange.SCALE_MAX_PERCENT ||
+            !scale.isFinite() ||
+            !transform.x.isFinite() ||
+            transform.x !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX ||
+            !transform.y.isFinite() ||
+            transform.y !in NativeTransformRange.POSITION_MIN..NativeTransformRange.POSITION_MAX ||
+            !transform.rotation.isFinite() ||
+            transform.rotation !in NativeTransformRange.ROTATION_MIN_DEGREES..NativeTransformRange.ROTATION_MAX_DEGREES ||
+            anchor !in NativeTransformRange.ANCHOR_MIN..NativeTransformRange.ANCHOR_MAX
+        ) return@synchronized err("变换参数超出引擎范围：缩放 5%–1000%，X/Y -10–10，旋转 -3600°–3600°，锚点 0–8")
+        try {
+            nativeCall(
+                ensure(),
+                "transform_set",
+                JSONObject()
+                    .put("track_index", trackIndex)
+                    .put("clip_id", clipId)
+                    .put("enabled", if (enabled) 1 else 0)
+                    .put("scale", scale.toDouble())
+                    .put("pos_x", transform.x.toDouble())
+                    .put("pos_y", transform.y.toDouble())
+                    .put("rotation", transform.rotation.toDouble())
+                    .put("anchor", anchor)
+                    .toString()
+            )
+        } catch (error: Throwable) {
+            err("写入片段变换失败：${error.message}")
+        }
+    }
 
     /**
      * 契约层统一命令入口（P1/P2）。
@@ -294,6 +441,26 @@ class NativeEngineBridge(
         fun frameDataUrl(timeUs: Long, width: Int): String =
         renderDataUrl(timeUs, width, isThumb = false, thumbIndex = 0)
 
+    /**
+     * Render and discard one preview frame solely to populate the engine LRU cache.
+     * This avoids PNG/Base64 allocation used by the WebView-facing frameDataUrl path.
+     * The JNI call and handle lookup share stateLock with release().
+     */
+    fun prewarmPreviewFrame(timeUs: Long, width: Int): Boolean = synchronized(stateLock) {
+        if (timeUs < 0L || width !in 16..2048) return@synchronized false
+        try {
+            val handle = ensure()
+            if (handle == 0L) return@synchronized false
+            val raw = nativeFrame(handle, timeUs, width)
+            if (raw.size < 12) return@synchronized false
+            val w = readIntLE(raw, 0)
+            val h = readIntLE(raw, 4)
+            w > 0 && h > 0 && raw.size.toLong() - 8L == w.toLong() * h.toLong() * 4L
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /** 素材缩略图。 */
     @JavascriptInterface
         fun thumbDataUrl(assetId: Long, index: Int, width: Int): String =
@@ -326,6 +493,47 @@ class NativeEngineBridge(
         }}
 
     /**
+     * Load one existing draft selected by the home page.
+     * Only a single .nclip filename directly under app-private filesDir is accepted;
+     * paths, traversal, symlinks escaping the root and oversized files are rejected.
+     */
+    @JavascriptInterface
+    fun loadProject(fileName: String): String {
+        val root = appContext?.filesDir?.canonicalFile
+            ?: return err("应用私有工程目录不可用")
+        if (fileName.isBlank() || fileName != java.io.File(fileName).name ||
+            !fileName.endsWith(".nclip", ignoreCase = true)) {
+            return err("工程文件名无效")
+        }
+        val file = try {
+            java.io.File(root, fileName).canonicalFile
+        } catch (error: Throwable) {
+            return err("工程路径无效：${error.message}")
+        }
+        if (file.parentFile != root || !file.isFile) {
+            return err("工程文件不存在或不在应用私有目录内")
+        }
+        val length = file.length()
+        if (length <= 0L || length > 64L * 1024L * 1024L) {
+            return err("工程文件为空或超过 64 MB 安全上限")
+        }
+        val contents = try {
+            file.readText(Charsets.UTF_8)
+        } catch (error: Throwable) {
+            return err("工程文件读取失败：${error.message}")
+        }
+        return synchronized(stateLock) {
+            val handle = ensure()
+            if (handle == 0L) err("引擎不可用")
+            else try {
+                nativeLoadProject(handle, contents)
+            } catch (error: Throwable) {
+                err("工程载入失败：${error.message}")
+            }
+        }
+    }
+
+    /**
      * 草稿列表。C ABI 没有工程目录接口，草稿扫描是平台层职责：
      * 扫描应用私有目录下的 .nclip，返回 {"projects":[...]}。
      */
@@ -354,33 +562,62 @@ class NativeEngineBridge(
      * 返回 {"installed":1|0,"message":"…"}。
      */
     @JavascriptInterface
-        fun installModel(modelId: String, filePath: String): String {
-        synchronized(stateLock) {
-        val f = java.io.File(filePath)
-        if (!f.isFile) return err("文件不存在：$filePath")
+    fun installModel(modelId: String, filePath: String): String {
+        // File I/O and hashing can take a long time. Keep them outside the
+        // engine monitor so preview rendering, state reads and task heartbeats
+        // are not blocked while a model file is loaded.
+        val root = modelRoot() ?: return err("应用私有模型目录不可用")
+        val canonicalFile = try {
+            NativeModelPathPolicy.resolveWithinRoot(root, java.io.File(filePath))
+        } catch (error: Throwable) {
+            return err("模型路径无效：${error.message}")
+        } ?: return err("模型文件必须位于应用私有模型目录内")
+        if (!canonicalFile.isFile) return err("模型文件不存在或不是普通文件")
+        val expectedLength = canonicalFile.length()
+        if (expectedLength <= 0L) return err("模型文件为空")
+        if (expectedLength > Int.MAX_VALUE.toLong()) {
+            return err("模型文件超过当前 JNI byte-array 接口上限，拒绝整文件载入内存")
+        }
 
         val bytes: ByteArray = try {
-            f.readBytes()
-        } catch (e: Throwable) {
-            return err("读取失败：${e.message}")
+            canonicalFile.readBytes()
+        } catch (error: Throwable) {
+            return err("读取失败：${error.message}")
         }
-        if (bytes.isEmpty()) return err("文件为空")
+        if (bytes.isEmpty() || bytes.size.toLong() != expectedLength) {
+            bytes.fill(0)
+            return err("模型文件读取长度不一致")
+        }
 
         val sha = try {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            md.digest(bytes).joinToString("") { "%02x".format(it) }
-        } catch (e: Throwable) {
-            return err("计算 SHA-256 失败：${e.message}")
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            digest.digest(bytes).joinToString("") { "%02x".format(it) }
+        } catch (error: Throwable) {
+            bytes.fill(0)
+            return err("计算 SHA-256 失败：${error.message}")
         }
 
+        // Only the native mutation is serialized with the engine lifecycle.
+        // The temporary copy is wiped regardless of JNI success or failure.
         return try {
-            nativeInstallModel(ensure(), modelId, bytes, f.absolutePath, sha,
-                               System.currentTimeMillis() / 1000)
-        } catch (e: Throwable) {
-            err("安装调用失败：${e.message}")
+            synchronized(stateLock) {
+                try {
+                    nativeInstallModel(
+                        ensure(),
+                        modelId,
+                        bytes,
+                        canonicalFile.absolutePath,
+                        sha,
+                        System.currentTimeMillis() / 1000
+                    )
+                } catch (error: Throwable) {
+                    err("安装调用失败：${error.message}")
+                }
+            }
+        } finally {
+            bytes.fill(0)
         }
-    
-        }}
+    }
 
     /** 模型文件应放的目录（应用私有）。 */
     @JavascriptInterface
@@ -388,7 +625,13 @@ class NativeEngineBridge(
 
     private fun modelRoot(): java.io.File? {
         val base = appContext?.filesDir ?: return null
-        return java.io.File(base, "models").also { it.mkdirs() }
+        val candidate = java.io.File(base, "models")
+        return try {
+            if (!candidate.exists() && !candidate.mkdirs()) return null
+            NativeModelPathPolicy.resolveRootWithinBase(base, candidate)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /** AI 模型目录与状态（nc_model_catalog / nc_model_info / nc_model_status）。 */
@@ -404,11 +647,24 @@ class NativeEngineBridge(
     private fun renderDataUrl(
         a: Long, width: Int, isThumb: Boolean, thumbIndex: Int
     ): String {
-        val raw: ByteArray = try {
-            if (isThumb) nativeThumb(ensure(), a, thumbIndex, width.coerceIn(16, 1024))
-            else nativeFrame(ensure(), a, width.coerceIn(16, 2048))
-        } catch (e: Throwable) {
-            ByteArray(0)
+        // Acquire the editor handle and execute JNI under the same lifecycle
+        // monitor used by release()/nativeDestroy(). Previously ensure() returned
+        // a handle before the JNI call, leaving a window in which release() could
+        // destroy it and the render path could then use a stale native handle.
+        // Keep bitmap allocation and PNG encoding outside the monitor.
+        val raw: ByteArray = synchronized(stateLock) {
+            try {
+                val handle = ensure()
+                if (handle == 0L) {
+                    ByteArray(0)
+                } else if (isThumb) {
+                    nativeThumb(handle, a, thumbIndex, width.coerceIn(16, 1024))
+                } else {
+                    nativeFrame(handle, a, width.coerceIn(16, 2048))
+                }
+            } catch (e: Throwable) {
+                ByteArray(0)
+            }
         }
         return rgbaToDataUrl(raw)
     }
@@ -472,6 +728,18 @@ class NativeEngineBridge(
             put("result", JSONObject())
         }.toString()
 
+    private external fun nativeUpsertSubtitlesBatch(startsUs: LongArray, durationsUs: LongArray, texts: Array<String>): LongArray?
+
+    // Whisper session is independent from NcEditor and must run on a worker thread.
+    private external fun nativeSpeechSessionCreate(): Long
+    private external fun nativeSpeechSessionDestroy(session: Long)
+    private external fun nativeSpeechSessionLoad(session: Long, encoder: java.nio.ByteBuffer,
+        decoder: java.nio.ByteBuffer, tokenizer: java.nio.ByteBuffer): String
+    private external fun nativeSpeechSessionTranscribe(session: Long, pcm: java.nio.ByteBuffer,
+        frameCount: Long, sampleRate: Int, language: Int): String
+    private external fun nativeSpeechSessionCancel(session: Long): Int
+    private external fun nativeSpeechSessionStatus(session: Long): String
+
     private external fun nativeCreate(): Long
     private external fun nativeDestroy(handle: Long)
     private external fun nativeCall(handle: Long, fn: String, argsJson: String): String
@@ -486,6 +754,7 @@ class NativeEngineBridge(
     private external fun nativeTaskQuery(handle: Long, taskId: String): String
     private external fun nativeTaskTick(handle: Long, nowMs: Long): Int
     private external fun nativeState(handle: Long): String
+    private external fun nativeLoadProject(handle: Long, nclipText: String): String
     private external fun nativeFrame(handle: Long, timeUs: Long, width: Int): ByteArray
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
     private external fun nativeWaveform(handle: Long, assetId: Long): String
@@ -644,6 +913,29 @@ class NativeEngineBridge(
                 } catch (e: Throwable) {
                     false
                 }
+            }
+        }
+
+        /**
+         * Render one project timestamp into the currently attached native Surface.
+         * This is a synchronous frame render, not a playback clock or transport API.
+         */
+        fun renderPreviewFrame(
+            timeUs: Long,
+            isRequestCurrent: () -> Boolean = { true }
+        ): Boolean = synchronized(stateLock) {
+            if (timeUs < 0L || !isRequestCurrent()) return@synchronized false
+            val inst = instanceForSurface ?: return@synchronized false
+            val handle = inst.editor
+            if (handle == 0L) return@synchronized false
+            try {
+                // Validate the Surface generation while holding the same lock
+                // that serializes JNI rendering and Surface detach/release.
+                // This closes the check-then-enter-JNI race during Surface teardown.
+                if (!isRequestCurrent()) return@synchronized false
+                inst.nativeBlitFrame(handle, timeUs)
+            } catch (_: Throwable) {
+                false
             }
         }
 

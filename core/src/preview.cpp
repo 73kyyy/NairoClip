@@ -124,6 +124,15 @@ std::uint64_t mixClipVisuals(std::uint64_t h, const Clip& clip) {
         h = fnvMixDouble(h, effect.value);
         h = fnvMix(h, effect.enabled ? 1u : 0u);
     }
+    const ColorCurve* gradeCurves[] = {&clip.colorGrade.master, &clip.colorGrade.red,
+                                       &clip.colorGrade.green, &clip.colorGrade.blue};
+    for (const ColorCurve* curve : gradeCurves) {
+        h = fnvMix(h, static_cast<std::uint64_t>(curve->points.size()));
+        for (const auto& point : curve->points) {
+            h = fnvMixDouble(h, point.input);
+            h = fnvMixDouble(h, point.output);
+        }
+    }
 
     // 8 槽几何变换：只混启用且有值的槽（关掉的槽不影响像素）
     for (int i = 0; i < static_cast<int>(XformKind::Count); ++i) {
@@ -148,6 +157,14 @@ std::uint64_t mixClipVisuals(std::uint64_t h, const Clip& clip) {
         for (const auto& k : curve->keyframes()) {
             h = fnvMixDouble(h, k.time.toDouble());
             h = fnvMixDouble(h, k.value);
+            // Easing changes the evaluated frame even when key time/value stay
+            // identical. Include the type and all Bezier controls in the cache
+            // fingerprint or curve edits can incorrectly reuse stale pixels.
+            h = fnvMix(h, static_cast<std::uint64_t>(k.easing.type));
+            h = fnvMixDouble(h, k.easing.c1x);
+            h = fnvMixDouble(h, k.easing.c1y);
+            h = fnvMixDouble(h, k.easing.c2x);
+            h = fnvMixDouble(h, k.easing.c2y);
         }
     }
 
@@ -222,9 +239,15 @@ std::uint64_t PreviewRenderer::contentFingerprint(const Time& timelineTime) cons
                         continue;
                     }
                     h = fnvMix(h, static_cast<std::uint64_t>(prop));
+                    h = fnvMix(h, static_cast<std::uint64_t>(curve->size()));
                     for (const auto& k : curve->keyframes()) {
                         h = fnvMixDouble(h, k.time.toDouble());
                         h = fnvMixDouble(h, k.value);
+                        h = fnvMix(h, static_cast<std::uint64_t>(k.easing.type));
+                        h = fnvMixDouble(h, k.easing.c1x);
+                        h = fnvMixDouble(h, k.easing.c1y);
+                        h = fnvMixDouble(h, k.easing.c2x);
+                        h = fnvMixDouble(h, k.easing.c2y);
                     }
                 }
                 h = fnvMixStr(h, track.adjustmentLutPath);
@@ -731,10 +754,27 @@ bool PreviewRenderer::renderClipLayer(const Clip& clip, const Time& timelineTime
     out.height = canvasH;
     out.clipId = clip.id.value;
     out.opacity = clip.animation.sample(ClipProperty::Opacity, local);
-    out.scale = clip.animation.sample(ClipProperty::Scale, local);
-    out.posX = clip.animation.sample(ClipProperty::PositionX, local);
-    out.posY = clip.animation.sample(ClipProperty::PositionY, local);
-    out.rotation = clip.animation.sample(ClipProperty::Rotation, local);
+
+    /* 关键帧 > 静态值 > 默认。每个属性独立判断是否存在曲线；
+       不能因为透明度等其它通道有关键帧，就把静态变换重置为默认值。 */
+    const auto resolve = [&](ClipProperty prop, double fallback) {
+        if (clip.animation.hasCurve(prop)) {
+            return clip.animation.sample(prop, local);
+        }
+        return fallback;
+    };
+    out.scale = clip.transform.enabled
+                    ? resolve(ClipProperty::Scale, clip.transform.scale)
+                    : resolve(ClipProperty::Scale, 1.0);
+    out.posX = clip.transform.enabled
+                   ? resolve(ClipProperty::PositionX, clip.transform.posX)
+                   : resolve(ClipProperty::PositionX, 0.0);
+    out.posY = clip.transform.enabled
+                   ? resolve(ClipProperty::PositionY, clip.transform.posY)
+                   : resolve(ClipProperty::PositionY, 0.0);
+    out.rotation = clip.transform.enabled
+                       ? resolve(ClipProperty::Rotation, clip.transform.rotation)
+                       : resolve(ClipProperty::Rotation, 0.0);
 
     MediaReader* reader = readerFor(clip.asset);
     if (reader == nullptr) {
@@ -751,27 +791,11 @@ bool PreviewRenderer::renderClipLayer(const Clip& clip, const Time& timelineTime
 
     const FrameFit fit = seq != nullptr ? seq->frameFit : FrameFit::Fit;
     const std::uint32_t background = seq != nullptr ? seq->backgroundRgba : 0x000000FF;
-    /* 画面变换（画中画位置/大小/旋转）的取值优先级：
-       关键帧 > 静态值 > 默认 —— 与 resolveClipXformValue 的契约一致。
-       这里就地解析，避免为一个四元组引入额外结构。 */
-    const auto resolve = [&](ClipProperty prop, double fallback) {
-        if (clip.animation.hasCurve(prop)) {
-            return clip.animation.sample(prop, local);
-        }
-        return fallback;
-    };
-    const double xfScale = clip.transform.enabled
-                               ? resolve(ClipProperty::Scale, clip.transform.scale)
-                               : resolve(ClipProperty::Scale, 1.0);
-    const double xfPosX = clip.transform.enabled
-                              ? resolve(ClipProperty::PositionX, clip.transform.posX)
-                              : resolve(ClipProperty::PositionX, 0.0);
-    const double xfPosY = clip.transform.enabled
-                              ? resolve(ClipProperty::PositionY, clip.transform.posY)
-                              : resolve(ClipProperty::PositionY, 0.0);
-    const double xfRot = clip.transform.enabled
-                             ? resolve(ClipProperty::Rotation, clip.transform.rotation)
-                             : resolve(ClipProperty::Rotation, 0.0);
+    // Rendered pixels and PreviewFrame metadata use the same resolved values.
+    const double xfScale = out.scale;
+    const double xfPosX = out.posX;
+    const double xfPosY = out.posY;
+    const double xfRot = out.rotation;
     const int xfAnchor = clip.transform.enabled ? clip.transform.anchor : 4;
     const Affine2D extra = clipTransformMatrix(xfScale, xfPosX, xfPosY, xfRot, xfAnchor,
                                                canvasW, canvasH);
@@ -807,6 +831,11 @@ bool PreviewRenderer::renderClipLayer(const Clip& clip, const Time& timelineTime
                                 clip.effects, frameIndex,
                                 RenderQuality::previewQuality(),
                                 timelineTime.toDouble());
+    }
+    if (!clip.colorGrade.isIdentity()) {
+        applyColorGradeToRgba(out.rgba.data(),
+                              static_cast<std::size_t>(out.width) * out.height,
+                              clip.colorGrade);
     }
     if (clip.filterStyle != FilterStyle::None && clip.filterIntensity > 0.0) {
         applyFilterToRgba(out.rgba.data(), out.width, out.height,

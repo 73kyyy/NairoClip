@@ -421,6 +421,8 @@ NC_TEST(AtmosphereMotionPipeline, SerializationRoundtrip) {
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/capi.h"
 #include "nairoclip/core/media_ffmpeg.h"
+#include "nairoclip/core/media_ffmpeg_writer.h"
+#include "system_media_test_support.h"
 #include <cstdio>
 #include <fstream>
 
@@ -474,10 +476,18 @@ NC_TEST(AtmosphereMotionE2E, SnowBrightensDarkAreas) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
+    if (!test_support::hasUsableSystemVideoCodec("vp9", 1920, 1080) ||
+        !test_support::hasUsableSystemVideoDecoder("/tmp/media_gen/detail_src.mp4")) return;
     std::vector<std::uint8_t> snow, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
-    NC_CHECK(exportWithEffect(19, "/tmp/media_gen/t_snow.mp4", snow, w1, h1));
-    NC_CHECK(exportWithEffect(0, "/tmp/media_gen/t_plain3.mp4", plain, w2, h2));
+    const bool snowExported =
+        exportWithEffect(19, "/tmp/media_gen/t_snow.mp4", snow, w1, h1);
+    NC_CHECK(snowExported);
+    if (!snowExported || snow.empty() || w1 <= 0 || h1 <= 0) return;
+    const bool plainExported =
+        exportWithEffect(0, "/tmp/media_gen/t_plain3.mp4", plain, w2, h2);
+    NC_CHECK(plainExported);
+    if (!plainExported || plain.empty() || w2 <= 0 || h2 <= 0) return;
     NC_CHECK_EQ(w1, w2);
     // 雪花是白色加法粒子 → 亮像素数增加
     long long brighter = 0, samples = 0;
@@ -497,11 +507,18 @@ NC_TEST(AtmosphereMotionE2E, ZoomPunchChangesFrameAtPulsePeak) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
+    if (!test_support::hasUsableSystemVideoCodec("vp9", 1920, 1080)) return;
     std::vector<std::uint8_t> punch, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
     // 第 8 帧（0.27s，缩放脉冲峰值附近）
-    NC_CHECK(exportWithEffect(24, "/tmp/media_gen/t_punch.mp4", punch, w1, h1, 8));
-    NC_CHECK(exportWithEffect(0, "/tmp/media_gen/t_plain4.mp4", plain, w2, h2, 8));
+    const bool punchExported =
+        exportWithEffect(24, "/tmp/media_gen/t_punch.mp4", punch, w1, h1, 8);
+    NC_CHECK(punchExported);
+    if (!punchExported || punch.empty() || w1 <= 0 || h1 <= 0) return;
+    const bool plainExported =
+        exportWithEffect(0, "/tmp/media_gen/t_plain4.mp4", plain, w2, h2, 8);
+    NC_CHECK(plainExported);
+    if (!plainExported || plain.empty() || w2 <= 0 || h2 <= 0) return;
     NC_CHECK_EQ(w1, w2);
     long long diff = 0;
     for (int y = 700; y < 1200; y += 4) {

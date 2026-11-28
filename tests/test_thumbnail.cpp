@@ -63,6 +63,13 @@ NC_TEST(Thumbnail, EmptyDurationReturnsEmpty) {
 NC_TEST(Thumbnail, FFmpegRealVideo) {
     std::ifstream f("/tmp/media_gen/test_av.mp4");
     if (!f.good()) return;
+    FFmpegMediaReader capabilityProbe;
+    const Result decoder = capabilityProbe.open("/tmp/media_gen/test_av.mp4");
+    if (!decoder.isOk()) {
+        NC_SKIP(std::string("系统 VP9 解码后端不可用，跳过真实媒体缩略图测试：") +
+                decoder.message);
+    }
+    capabilityProbe.close();
     FFmpegMediaReader reader;
     ThumbnailConfig cfg;
     cfg.count = 6;

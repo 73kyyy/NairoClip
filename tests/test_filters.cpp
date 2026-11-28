@@ -392,6 +392,12 @@ bool filterMediaExists() {
     return f.good();
 }
 
+bool filterSystemVideoDecodeAvailable() {
+    FFmpegMediaReader reader;
+    if (!reader.open("/tmp/media_gen/test_av.mp4").isOk()) return false;
+    return reader.probe().width > 0 && reader.probe().height > 0;
+}
+
 /// 平均通道饱和度（max-min；用于验证去色/色调效果）。
 double meanSaturation(const std::vector<std::uint8_t>& rgba) {
     double sum = 0.0;
@@ -463,7 +469,7 @@ std::vector<std::uint8_t> exportFirstFrame(Project& project, const ExportPlan& p
 }  // namespace
 
 NC_TEST(Filters, ExportAppliesBlackWhite) {
-    if (!filterMediaExists()) return;
+    if (!filterMediaExists() || !filterSystemVideoDecodeAvailable()) return;
     // 无滤镜基线
     ExportFilterFixture plain;
     Clip c;
@@ -498,7 +504,7 @@ NC_TEST(Filters, ExportAppliesBlackWhite) {
 NC_TEST(Filters, ExportAppliesLowerLayerFilterInMultiLayer) {
     // 缺陷回归：多层合成时下层帧必须吃自己的滤镜
     // （此前只处理上层，下层按原始像素参与混合）
-    if (!filterMediaExists()) return;
+    if (!filterMediaExists() || !filterSystemVideoDecodeAvailable()) return;
     // 单层对照（无滤镜）
     ExportFilterFixture single;
     Clip c;

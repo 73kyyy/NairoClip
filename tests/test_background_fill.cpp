@@ -402,10 +402,16 @@ bool bgMediaExists() {
     return f.good();
 }
 
+bool bgSystemVideoDecodeAvailable() {
+    FFmpegMediaReader reader;
+    if (!reader.open("/tmp/media_gen/test_av.mp4").isOk()) return false;
+    return reader.probe().width > 0 && reader.probe().height > 0;
+}
+
 }  // namespace
 
 NC_TEST(BackgroundFill, ExportFillColorInLetterbox) {
-    if (!bgMediaExists()) return;
+    if (!bgMediaExists() || !bgSystemVideoDecodeAvailable()) return;
     // 素材 160x120（4:3）放入 160x160（1:1）画布 Fit 模式 → 上下留白 → 填红
     Project project;
     TimelineEditor editor(project);

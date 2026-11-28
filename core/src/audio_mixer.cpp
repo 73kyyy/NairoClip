@@ -460,27 +460,56 @@ bool AudioMixer::serveDenoisedBlock(const TrackedClip& clip, const Time& sourceT
             std::vector<float> chunk(static_cast<std::size_t>(wantFeed) * channels, 0.0f);
             long long got = 0;
             if (!state.sourceExhausted) {
-                // 读取源（连续）：读取器位置由自身维护（首次已 seek 到 baseToken）
+                // MediaReader 返回的 AudioBlock 大小不保证与本次 feed 剩余量对齐。
+                // 必须保留未消费尾部；若 take < frames 后直接读下一块，会丢失
+                // 当前块的剩余样本，造成降噪输入时间轴跳跃和语音突发被误抑制。
                 while (got < wantFeed) {
-                    AudioBlock block;
-                    if (!reader->readAudioBlock(block) || block.frameCount() == 0) {
-                        state.sourceExhausted = true;
-                        break;
+                    if (!state.hasPendingSourceBlock) {
+                        AudioBlock block;
+                        if (!reader->readAudioBlock(block) || block.frameCount() == 0) {
+                            state.sourceExhausted = true;
+                            break;
+                        }
+                        if (block.channels <= 0 ||
+                            block.samples.size() % static_cast<std::size_t>(block.channels) != 0) {
+                            state.sourceExhausted = true;
+                            break;
+                        }
+                        state.pendingSourceBlock = std::move(block);
+                        state.pendingSourceOffsetFrames = 0;
+                        state.hasPendingSourceBlock = true;
                     }
-                    const long long frames = static_cast<long long>(block.frameCount());
-                    const long long take = std::min(frames, wantFeed - got);
-                    for (std::size_t i = 0; i < static_cast<std::size_t>(take) * channels; ++i) {
-                        const int srcCh = static_cast<int>(i % channels);
-                        const std::size_t srcIdx =
-                            static_cast<std::size_t>(i / channels) * static_cast<std::size_t>(block.channels) +
-                            static_cast<std::size_t>(srcCh < block.channels ? srcCh : 0);
-                        // i 已是「帧 × 声道」连续下标：目标 = got*channels + i
-                        chunk[static_cast<std::size_t>(got) * channels + i] =
-                            srcIdx < block.samples.size() ? block.samples[srcIdx] : 0.0f;
+
+                    const AudioBlock& pending = state.pendingSourceBlock;
+                    const long long pendingFrames = static_cast<long long>(pending.frameCount());
+                    const long long available = pendingFrames - state.pendingSourceOffsetFrames;
+                    if (available <= 0) {
+                        state.pendingSourceBlock = AudioBlock{};
+                        state.pendingSourceOffsetFrames = 0;
+                        state.hasPendingSourceBlock = false;
+                        continue;
+                    }
+                    const long long take = std::min(available, wantFeed - got);
+                    for (long long frame = 0; frame < take; ++frame) {
+                        for (std::size_t channel = 0; channel < channels; ++channel) {
+                            const std::size_t sourceChannel =
+                                std::min(channel, static_cast<std::size_t>(pending.channels - 1));
+                            const std::size_t sourceIndex =
+                                static_cast<std::size_t>(state.pendingSourceOffsetFrames + frame) *
+                                    static_cast<std::size_t>(pending.channels) +
+                                sourceChannel;
+                            const std::size_t destinationIndex =
+                                static_cast<std::size_t>(got + frame) * channels + channel;
+                            chunk[destinationIndex] =
+                                sourceIndex < pending.samples.size() ? pending.samples[sourceIndex] : 0.0f;
+                        }
                     }
                     got += take;
-                    if (take < frames) {
-                        break;  // 防御：块内剩余（当前读取器不会发生）
+                    state.pendingSourceOffsetFrames += take;
+                    if (state.pendingSourceOffsetFrames >= pendingFrames) {
+                        state.pendingSourceBlock = AudioBlock{};
+                        state.pendingSourceOffsetFrames = 0;
+                        state.hasPendingSourceBlock = false;
                     }
                 }
             }
