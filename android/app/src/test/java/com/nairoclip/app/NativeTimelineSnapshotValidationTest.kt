@@ -210,4 +210,21 @@ class NativeTimelineSnapshotValidationTest {
     }
 
 
+    @Test
+    fun parsesLockedTrackControlStateFromEngineSnapshot() {
+        val snapshot = NativeTimelineSnapshot.tryFromEngineState(
+            stateWithClipMetadata("").replace("\\"locked\\":0", "\\"locked\\":1")
+        )
+        assertNotNull(snapshot)
+        assertTrue(snapshot!!.tracks.single().locked)
+    }
+
+    @Test
+    fun rejectsOutOfRangeTrackLockFlag() {
+        val snapshot = NativeTimelineSnapshot.tryFromEngineState(
+            stateWithClipMetadata("").replace("\\"locked\\":0", "\\"locked\\":2")
+        )
+        assertNull(snapshot)
+    }
+
 }
