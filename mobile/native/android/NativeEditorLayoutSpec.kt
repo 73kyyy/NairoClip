@@ -36,9 +36,11 @@ internal object NativeEditorLayoutSpec {
     const val RULER_HEIGHT_DP = 27
     const val RULER_TICK_HEIGHT_DP = 3
     const val RULER_MAJOR_TICK_HEIGHT_DP = 4
-    // Preserve the reference's compact 40dp overlay; do not shift the clip origin.
-    const val TRACK_CONTROL_WIDTH_DP = 40
+    // The controls float over the clip lane: three independent 40dp touch cells.
+    // This must not alter the timeline time origin or reserve a blank label gutter.
+    const val TRACK_CONTROL_BUTTON_WIDTH_DP = 40
     const val TRACK_CONTROL_BUTTON_COUNT = 3
+    const val TRACK_CONTROL_WIDTH_DP = TRACK_CONTROL_BUTTON_WIDTH_DP * TRACK_CONTROL_BUTTON_COUNT
     const val START_BADGE_WIDTH_DP = 32
     const val START_BADGE_HEIGHT_DP = 20
     const val TRANSPORT_ROW_HEIGHT_DP = 56
