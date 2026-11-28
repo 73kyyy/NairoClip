@@ -165,6 +165,31 @@ public:
     virtual std::unique_ptr<MediaReader> create() = 0;
 };
 
+/// 无压缩 PCM WAV 读取器。
+///
+/// 仅解析 RIFF/WAVE 容器并转换 PCM 样本格式，不包含压缩音频解码器。
+/// 支持 PCM 整数 8/16/24/32-bit 与 IEEE float32；适用于录音、WAV 素材和
+/// 系统解码输出落盘后的 PCM 输入。其他压缩格式必须交给平台系统媒体 API。
+class WavPcmReader : public MediaReader {
+public:
+    WavPcmReader();
+    ~WavPcmReader() override;
+    WavPcmReader(const WavPcmReader&) = delete;
+    WavPcmReader& operator=(const WavPcmReader&) = delete;
+
+    Result open(const std::string& path) override;
+    void close() override;
+    bool isOpen() const override;
+    const MediaProbeResult& probe() const override;
+    Result seek(const Time& sourceTime) override;
+    bool readVideoFrame(VideoFrame& out) override;
+    bool readAudioBlock(AudioBlock& out) override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 /// 内存 Mock 读取器（测试与流水线骨架验证用）。
 /// 可配置：视频若干帧（按帧率生成纯色帧）、音频若干块（正弦波）。
 class MockMediaReader : public MediaReader {
