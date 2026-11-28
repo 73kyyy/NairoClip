@@ -829,6 +829,10 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             if (track.locked) return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能定格")
             val clip = track.clips.firstOrNull { it.id == target.clipId }
                 ?: return@withEditorStateLock Result(false, error = "目标片段已不存在")
+            val assetType = before.value?.assets?.firstOrNull { it.id == clip.assetId }?.type
+            if (assetType !in setOf(0, 2)) {
+                return@withEditorStateLock Result(false, error = "定格仅支持视频或图片片段")
+            }
             if (atUs < clip.startUs || atUs >= clip.startUs + clip.durationUs) {
                 return@withEditorStateLock Result(false, error = "播放头必须位于所选片段范围内才能定格")
             }
