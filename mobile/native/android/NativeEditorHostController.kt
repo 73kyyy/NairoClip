@@ -71,6 +71,14 @@ class NativeEditorHostController(
         )
     }
 
+    fun setClipEnabled(trackIndex: Int, clipId: Long, enabled: Boolean): Job {
+        val target = NativeEditorCommandAdapter.ClipTarget(trackIndex, clipId)
+        return runEditorMutation(
+            operation = { adapter.setClipEnabledAndReadEditorState(target, enabled) },
+            onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+        )
+    }
+
     fun removeClip(trackIndex: Int, clipId: Long): Job {
         val target = NativeEditorCommandAdapter.ClipTarget(trackIndex, clipId)
         return runEditorMutation(
