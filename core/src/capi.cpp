@@ -5521,6 +5521,11 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
                               int32_t max_width, int32_t max_height,
                               uint8_t** out_images, int64_t* out_times_us,
                               int32_t* out_count) {
+    if (out_images != nullptr) *out_images = nullptr;
+    if (out_count != nullptr) *out_count = 0;
+    if (out_times_us != nullptr) {
+        for (int32_t i = 0; i < count && i < 64; ++i) out_times_us[i] = 0;
+    }
     if (editor == nullptr || asset_id == 0 || count < 0 || count > 64) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -5529,6 +5534,15 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
     if (asset == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "asset 为空");
     }
+    // Distinguish an absent file from an unavailable system decoder.
+    // Never report success with an empty thumbnail list when decoding is unsupported.
+    FFmpegMediaReader capabilityProbe;
+    const Result readerOpen = capabilityProbe.open(asset->path);
+    if (!readerOpen.isOk()) {
+        return failResult(readerOpen);
+    }
+    capabilityProbe.close();
+
     ThumbnailConfig config;
     config.count = count > 0 ? count : 8;
     if (max_width > 0) config.maxWidth = max_width;
@@ -5586,17 +5600,22 @@ int32_t nc_thumbnail_size(const NcEditor* editor, int32_t* out_width, int32_t* o
 int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket_count,
                              double* out_peak, int32_t* out_sample_rate,
                              int32_t* out_channels) {
+    if (out_peak != nullptr) *out_peak = 0.0;
+    if (out_sample_rate != nullptr) *out_sample_rate = 0;
+    if (out_channels != nullptr) *out_channels = 0;
     if (editor == nullptr || asset_id == 0 || bucket_count < 0 || bucket_count > 100000) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
+    editor->waveformCache = Waveform{};
 #ifdef NAIROCLIP_HAS_FFMPEG
     const MediaAsset* asset = editor->project.findAsset(AssetId{asset_id});
     if (asset == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "asset 为空");
     }
     FFmpegMediaReader reader;
-    if (!reader.open(asset->path).isOk()) {
-        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
+    const Result readerOpen = reader.open(asset->path);
+    if (!readerOpen.isOk()) {
+        return failResult(readerOpen);
     }
     // 上限保护：只解码前 120s 音频（波形显示无需全片；避免长素材 OOM/耗时）
     constexpr double kMaxSeconds = 120.0;
@@ -5975,6 +5994,8 @@ int32_t nc_ref_apply(NcEditor* editor, int32_t track_index, const uint64_t* asse
 
 int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_samples,
                         int32_t* out_boundary_count, double** out_boundaries) {
+    if (out_boundary_count != nullptr) *out_boundary_count = 0;
+    if (out_boundaries != nullptr) *out_boundaries = nullptr;
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -6001,8 +6022,9 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
                 continue;
             }
             FFmpegMediaReader reader;
-            if (!reader.open(asset->path).isOk()) {
-                continue;
+            const Result readerOpen = reader.open(asset->path);
+            if (!readerOpen.isOk()) {
+                return failResult(readerOpen);
             }
             // 步长自适应：短片段细采样（0.25s），长片段粗采样（至 1s）
             const double clipSeconds = clip.duration.toDouble();
