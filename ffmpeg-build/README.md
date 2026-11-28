@@ -32,9 +32,17 @@ LGPL 允许应用自身闭源，但要求：
 --disable-nonfree      # 不使用不可分发的组件
 --enable-shared        # 动态库（LGPL 要求）
 --disable-static       # 不产出静态库（避免误用成静态链接）
---enable-jni           # MediaCodec 硬解支持
---enable-mediacodec    # 同上
+--enable-jni           # MediaCodec 系统 API 适配
+--enable-mediacodec    # 仅启用系统 MediaCodec wrappers
+--disable-decoders     # 先关闭全部内置/软件解码器，再白名单启用系统 wrappers
+--disable-encoders     # 先关闭全部内置/软件编码器，再白名单启用系统 wrappers
 ```
+
+
+
+Android 构建的编解码策略是 **system-only**：只编译 `*_mediacodec` 系统包装器，
+不把软件视频/音频编解码器打入 APK。当前系统 AAC 音频编码与容器封装接线完成前，
+Android 带音轨导出会明确失败，不允许静默生成无声文件。
 
 ## 获取 FFmpeg 源代码
 
