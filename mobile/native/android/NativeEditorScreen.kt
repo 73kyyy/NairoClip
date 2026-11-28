@@ -32,9 +32,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -187,6 +189,13 @@ fun NativeEditorScreen(
     isPlaying: Boolean = false,
     onTogglePlayback: (() -> Unit)? = null,
     onTrackLockChanged: ((Int, Boolean) -> Unit)? = null,
+    imageAssets: List<NativeTimelineAsset> = emptyList(),
+    backgroundRgba: Long? = null,
+    isImportingImages: Boolean = false,
+    imagePanelMessage: String? = null,
+    onPickImages: () -> Unit = {},
+    onRemoveImage: (Long) -> Unit = {},
+    onSetBackgroundColor: (Long) -> Unit = {},
     onPlayFromStart: (() -> Unit)? = null,
     onClipSelectionCleared: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -196,6 +205,7 @@ fun NativeEditorScreen(
     var activeSubTool by remember { mutableStateOf<String?>(null) }
     var selectedClip by remember(projectName) { mutableStateOf<Pair<Int, Long>?>(null) }
     var showMarkerList by remember(projectName) { mutableStateOf(false) }
+    var showImageBackgroundPanel by remember(projectName) { mutableStateOf(false) }
     var showGuides by remember(projectName) { mutableStateOf(false) }
     // Keyframe editing is a dedicated quick-action panel, not a fabricated L2 toolbar item.
     var showKeyframePanel by remember(projectName) { mutableStateOf(false) }
@@ -217,6 +227,7 @@ fun NativeEditorScreen(
         expandedTool = null
         activeSubTool = null
         showKeyframePanel = false
+        showImageBackgroundPanel = false
     }
     LaunchedEffect(timelineTracks, selectedClip) {
         val selection = selectedClip ?: return@LaunchedEffect
@@ -331,6 +342,7 @@ fun NativeEditorScreen(
                                 }
                             }
                         }
+                        NativeQuickAction.IMAGES -> showImageBackgroundPanel = true
                         NativeQuickAction.KEYFRAMES -> {
                             showKeyframePanel = true
                         }
@@ -338,6 +350,19 @@ fun NativeEditorScreen(
                     }
                 }
             )
+
+            if (showImageBackgroundPanel) {
+                NativeImageBackgroundPanel(
+                    assets = imageAssets.filter { it.type == 2 },
+                    backgroundRgba = backgroundRgba,
+                    isImporting = isImportingImages,
+                    message = imagePanelMessage,
+                    onPickImages = onPickImages,
+                    onRemoveImage = onRemoveImage,
+                    onSetBackgroundColor = onSetBackgroundColor,
+                    onDismiss = { showImageBackgroundPanel = false }
+                )
+            }
 
             NativeTimelinePanel(
                 tracks = timelineTracks,
@@ -3516,3 +3541,133 @@ private fun NativeToolBar(
         }
     }
 }
+
+@Composable
+private fun NativeImageBackgroundPanel(
+    assets: List<NativeTimelineAsset>,
+    backgroundRgba: Long?,
+    isImporting: Boolean,
+    message: String?,
+    onPickImages: () -> Unit,
+    onRemoveImage: (Long) -> Unit,
+    onSetBackgroundColor: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var pendingDelete by remember { mutableStateOf<NativeTimelineAsset?>(null) }
+    val presets = listOf(
+        "纯黑" to 0x000000FFL,
+        "纯白" to 0xFFFFFFFFL,
+        "深灰" to 0x1C1C1EFFL,
+        "米白" to 0xF5F1EAFFL,
+        "雾蓝" to 0x2E3A4CFFL,
+        "墨绿" to 0x1F3A32FFL,
+        "酒红" to 0x3A1F28FFL,
+        "暖沙" to 0xE8DCC8FFL
+    )
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .background(NcColors.panel, RoundedCornerShape(12.dp))
+            .border(1.dp, NcColors.line, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("图片与背景", color = NcColors.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("关闭", color = NcColors.secondary, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onDismiss).padding(6.dp))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("项目图片", color = NcColors.text, fontSize = 11.sp)
+                Text("图片素材默认时长 5 秒；删除前会检查时间轴引用", color = NcColors.secondary, fontSize = 9.sp)
+            }
+            Text(
+                if (isImporting) "正在导入…" else "添加图片",
+                color = if (isImporting) NcColors.muted else NcColors.text,
+                fontSize = 10.sp,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                    .background(NcColors.stage)
+                    .clickable(enabled = !isImporting, onClick = onPickImages)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
+        if (assets.isEmpty()) {
+            Text("项目里还没有图片", color = NcColors.secondary, fontSize = 10.sp)
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 112.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                assets.forEach { asset ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(NcColors.stage, RoundedCornerShape(7.dp))
+                            .padding(start = 9.dp, end = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(vertical = 7.dp)) {
+                            Text(asset.name, color = NcColors.text, fontSize = 10.sp, maxLines = 1)
+                            Text("图片素材 · \${(asset.durationUs / 1_000_000L).coerceAtLeast(0L)} 秒", color = NcColors.secondary, fontSize = 9.sp)
+                        }
+                        Text("删除", color = NcColors.secondary, fontSize = 10.sp,
+                            modifier = Modifier.clickable { pendingDelete = asset }.padding(9.dp))
+                    }
+                }
+            }
+        }
+        Text("画布背景色", color = NcColors.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            presets.forEach { (label, rgba) ->
+                val selected = backgroundRgba == rgba
+                val color = Color(android.graphics.Color.rgb(
+                    ((rgba shr 24) and 0xFF).toInt(),
+                    ((rgba shr 16) and 0xFF).toInt(),
+                    ((rgba shr 8) and 0xFF).toInt()
+                ))
+                Column(horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Box(
+                        modifier = Modifier.size(29.dp).clip(CircleShape).background(color)
+                            .border(if (selected) 2.dp else 1.dp,
+                                if (selected) NcColors.text else NcColors.line, CircleShape)
+                            .clickable { onSetBackgroundColor(rgba) }
+                    )
+                    Text(label, color = if (selected) NcColors.text else NcColors.secondary, fontSize = 8.sp)
+                }
+            }
+        }
+        if (!message.isNullOrBlank()) {
+            Text(message, color = Color(0xFFD69A58), fontSize = 9.sp)
+        }
+    }
+    pendingDelete?.let { asset ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除图片素材？") },
+            text = { Text("确认删除「\${asset.name}」？已被时间轴引用的图片不能删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    onRemoveImage(asset.id)
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+            }
+        )
+    }
+}
+
