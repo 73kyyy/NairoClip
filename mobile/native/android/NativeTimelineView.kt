@@ -127,7 +127,12 @@ class NativeTimelineView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
     }
     private val startBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF2D2118.toInt()
+    }
+    private val startBadgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFB97832.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 1.2f * density
     }
     private val eyeDrawable = context.getDrawable(R.drawable.ic_editor_eye)?.mutate()
     private val eyeOffDrawable = context.getDrawable(R.drawable.ic_editor_eye_off)?.mutate()
@@ -387,8 +392,9 @@ class NativeTimelineView(context: Context) : View(context) {
         val badgeHeight = NativeEditorLayoutSpec.START_BADGE_HEIGHT_DP * density
         val rect = RectF(left, top, left + badgeWidth, top + badgeHeight)
         canvas.drawRoundRect(rect, 4f * density, 4f * density, startBadgePaint)
+        canvas.drawRoundRect(rect, 4f * density, 4f * density, startBadgeBorderPaint)
         startBadgeDrawable?.let { drawable ->
-            drawable.setTint(android.graphics.Color.WHITE)
+            drawable.setTint(0xFFD58A3B.toInt())
             val iconSize = 15f * density
             val centerX = rect.centerX()
             val centerY = rect.centerY()
