@@ -3509,6 +3509,18 @@ int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba) {
         main->id, CanvasBackground::fromRgba32(rgba)));
 }
 
+int32_t nc_get_background_color(const NcEditor* editor, uint32_t* out_rgba) {
+    if (editor == nullptr || out_rgba == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
+    const Sequence* main = editor->project.mainSequence();
+    if (main == nullptr) {
+        return failNc(NC_ERROR_NOT_FOUND, "main 为空");
+    }
+    *out_rgba = main->backgroundRgba;
+    return NC_OK;
+}
+
 // ---- 画布能力（B1-02）----------------------------------------------------
 
 int32_t nc_canvas_preset_count(void) {
