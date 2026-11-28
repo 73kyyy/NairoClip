@@ -187,20 +187,9 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         return Result::fail(ErrorCode::Internal, "无法创建输出上下文");
     }
 
-    // ---- 视频编码器（合规策略选择）----
-    // 说明：此前的 avcodec_find_encoder(AV_CODEC_ID_H264) 自动选择会解析到
-    // libx264（GPL-2.0），违反协议清单。现在按 codec_policy 生成候选序列：
-    //
-    //   **H.264 只有硬件实现可用**（2026-11-05 策略变更）。
-    //   软件 H.264（openh264 / FFmpeg 内置 h264 / libx264）一律被
-    //   codec_policy 剔除 —— 前两者要自付 AVC 专利费，后者是 GPL。
-    //
-    //   AV1 / VP9 仍可用软件实现（libsvtav1 / libaom-av1 / libvpx-vp9，
-    //   全部 BSD 且 royalty-free），走 Permissive 组。
-    //
-    // 逐个尝试打开（硬件编码器可能因驱动/GPU 缺失失败，如无 GPU 环境下
-    // h264_nvenc 报 "Cannot load libcuda.so.1" → 按序回退到下一个硬件后端）；
-    // 全部失败时 fail-closed 拒绝编码，**不静默降级到任何软件 H.264 实现**。
+    // ---- 视频编码器（系统硬件优先）----
+    // Android 构建只编入 *_mediacodec 视频编码 wrapper，不包含任何软件编码器。
+    // 逐个真正打开候选，设备不支持所选格式/尺寸/帧率时 fail-closed。
     const std::vector<EncoderCandidate> videoCandidates =
         availableEncodersFor(ffmpegCodecIdFor(config.videoCodec), config.videoCodec.c_str());
     const std::vector<EncoderSelection> rankedVideo =
@@ -297,16 +286,21 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         }
     }
 
-    // ---- 音频编码器（AAC；合规策略：硬件 > 宽松软件（内置 AAC）> 开发例外）----
+    // ---- 音频编码器 ----
+    // Android FFmpeg 7.1 没有 AAC MediaCodec encoder wrapper；不允许拿内置 AAC
+    // 软件编码器冒充系统编码。Android 音频导出由后续 MediaCodec + MediaMuxer
+    // 路径接管；在该路径接入前明确失败，绝不生成缺失音轨的视频文件。
     std::string audioNote;
-    const AVCodec* audioEncoder =
-        openCompliantAudioEncoder("aac", EncoderPolicy{}, audioNote);
+    const AVCodec* audioEncoder = nullptr;
 #if defined(__ANDROID__)
-    if (config.includeAudio && audioEncoder == nullptr) {
+    if (config.includeAudio) {
+        abort();
         return Result::fail(
             ErrorCode::Unsupported,
-            "Android 音频导出必须接入系统 MediaCodec AAC 编码器；软件 AAC 编码已从构建中移除。");
+            "系统 AAC 音频编码链路尚未接入；软件 AAC 编码已移除，当前拒绝无声导出。");
     }
+#else
+    audioEncoder = openCompliantAudioEncoder("aac", EncoderPolicy{}, audioNote);
 #endif
     if (config.includeAudio && audioEncoder != nullptr) {
         impl.audioCodec = avcodec_alloc_context3(audioEncoder);
