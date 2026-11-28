@@ -136,11 +136,11 @@ build_abi() {
         --enable-mediacodec \
         --disable-decoders \
         --disable-encoders \
-        --enable-decoder=h264_mediacodec,hevc_mediacodec,mpeg2_mediacodec,mpeg4_mediacodec,vp8_mediacodec,vp9_mediacodec,av1_mediacodec,aac_mediacodec,amrnb_mediacodec,amrwb_mediacodec,mp3_mediacodec \
-        --enable-encoder=h264_mediacodec,hevc_mediacodec,vp8_mediacodec,vp9_mediacodec,mpeg4_mediacodec,av1_mediacodec \
+        --enable-decoder=h264_mediacodec,mpeg2_mediacodec,mpeg4_mediacodec,vp8_mediacodec,vp9_mediacodec,av1_mediacodec,aac_mediacodec,amrnb_mediacodec,amrwb_mediacodec,mp3_mediacodec \
+        --enable-encoder=h264_mediacodec,vp8_mediacodec,vp9_mediacodec,mpeg4_mediacodec,av1_mediacodec \
         --enable-demuxer=mov,matroska,avi,mp3,wav,flac,ogg,aac,mpegts \
         --enable-muxer=mp4,mov,matroska,wav,mp3 \
-        --enable-parser=h264,hevc,vp9,av1,aac,mpegaudio,opus,flac \
+        --enable-parser=h264,vp9,av1,aac,mpegaudio,opus,flac \
         --enable-protocol=file,pipe \
         --enable-filter=aresample,scale,null,format \
         --disable-debug \
@@ -168,13 +168,13 @@ build_abi() {
             exit 1
         fi
     done
-    for codec in H264 HEVC MPEG2 MPEG4 VP8 VP9 AV1 AAC AMRNB AMRWB MP3; do
+    for codec in H264 MPEG2 MPEG4 VP8 VP9 AV1 AAC AMRNB AMRWB MP3; do
         if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_DECODER 1$" "$COMPONENTS"; then
             echo "❌ 缺少系统 MediaCodec 解码 wrapper：${codec}"
             exit 1
         fi
     done
-    for codec in H264 HEVC MPEG4 VP8 VP9 AV1; do
+    for codec in H264 MPEG4 VP8 VP9 AV1; do
         if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_ENCODER 1$" "$COMPONENTS"; then
             echo "❌ 缺少系统 MediaCodec 视频编码 wrapper：${codec}"
             exit 1
