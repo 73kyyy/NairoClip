@@ -87,6 +87,26 @@ class NativeEditorHostController(
         )
     }
 
+
+    fun freezeClip(trackIndex: Int, clipId: Long, atUs: Long, durationUs: Long = 2_000_000L): Job {
+        val target = NativeEditorCommandAdapter.ClipTarget(trackIndex, clipId)
+        return runEditorMutation(
+            operation = { adapter.freezeFrameAndReadEditorState(target, atUs, durationUs) },
+            onSuccess = { result ->
+                NativeEditorHostEvent.MutationCommitted(
+                    result.editorState,
+                    result.newClipId?.let { target.copy(clipId = it) }
+                )
+            }
+        )
+    }
+
+    fun setClipOpacity(target: NativeEditorCommandAdapter.ClipTarget, opacity: Double): Job =
+        runEditorMutation(
+            operation = { adapter.setClipOpacityAndReadEditorState(target, opacity) },
+            onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+        )
+
     fun reverseClip(trackIndex: Int, clipId: Long): Job {
         val target = NativeEditorCommandAdapter.ClipTarget(trackIndex, clipId)
         return runEditorMutation(
