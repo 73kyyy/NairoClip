@@ -32,7 +32,7 @@ NC_TEST(MediaWriter, MockLifecycle) {
     MockMediaWriter writer;
     NC_CHECK(!writer.isOpen());
     WriterConfig config;
-    config.videoCodec = testVideoCodec();  // 本机无硬件 H.264 编码器
+    config.videoCodec = testVideoCodec();  // MockWriter 只校验配置，不执行真实编码
     config.width = 64;
     config.height = 64;
     NC_CHECK(writer.open("/tmp/out.mp4", config).isOk());
