@@ -6227,21 +6227,28 @@ const Track* pickAudioTrack(const NcEditor* editor, int32_t track_index,
 /// 采集目标音频轨的全部音频块，并映射到时间轴坐标。
 /// 抽出来给 nc_beat_detect 与 nc_beat_sync_apply 共用 ——
 /// 两边各抄一遍这段循环，迟早会改漏一处。
-bool collectAudioBlocks(const NcEditor* editor, const Track& target,
-                        std::vector<AudioBlock>* outBlocks) {
-    if (outBlocks == nullptr) return false;
+Result collectAudioBlocks(const NcEditor* editor, const Track& target,
+                          std::vector<AudioBlock>* outBlocks) {
+    if (outBlocks == nullptr) {
+        return Result::fail(ErrorCode::InvalidArgument, "音频块输出为空");
+    }
     for (const auto& clip : target.clips) {
         const MediaAsset* asset = editor->project.findAsset(clip.asset);
         if (asset == nullptr) {
             continue;
         }
         FFmpegMediaReader reader;
-        if (!reader.open(asset->path).isOk()) {
-            continue;
+        const Result openResult = reader.open(asset->path);
+        if (!openResult.isOk()) {
+            return openResult;
         }
-        if (!reader.seek(clip.sourceIn).isOk()) {
-            reader.close();
-            continue;
+        if (reader.probe().sampleRate <= 0 || reader.probe().channels <= 0) {
+            return Result::fail(ErrorCode::Unsupported,
+                                "系统媒体后端未提供该素材的音频解码流。");
+        }
+        const Result seekResult = reader.seek(clip.sourceIn);
+        if (!seekResult.isOk()) {
+            return seekResult;
         }
         const Time sourceEnd = clip.sourceIn + clip.duration * clip.speed;
         AudioBlock block;
@@ -6260,7 +6267,11 @@ bool collectAudioBlocks(const NcEditor* editor, const Track& target,
         }
         reader.close();
     }
-    return !outBlocks->empty();
+    if (outBlocks->empty()) {
+        return Result::fail(ErrorCode::Unsupported,
+                            "系统音频解码后端未输出采样数据；未使用软件解码回退。");
+    }
+    return Result::ok();
 }
 
 }  // namespace
@@ -6269,6 +6280,10 @@ bool collectAudioBlocks(const NcEditor* editor, const Track& target,
 
 int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
                        double* out_confidence, int32_t* out_beat_count, double** out_beats) {
+    if (out_bpm != nullptr) *out_bpm = 0.0;
+    if (out_confidence != nullptr) *out_confidence = 0.0;
+    if (out_beat_count != nullptr) *out_beat_count = 0;
+    if (out_beats != nullptr) *out_beats = nullptr;
     if (editor == nullptr) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
@@ -6285,8 +6300,9 @@ int32_t nc_beat_detect(NcEditor* editor, int32_t track_index, double* out_bpm,
         return failNc(code, trackError);
     }
     std::vector<AudioBlock> blocks;
-    if (!collectAudioBlocks(editor, *target, &blocks)) {
-        return failNc(NC_ERROR_NOT_FOUND, "没有可用的音频数据");
+    const Result collectResult = collectAudioBlocks(editor, *target, &blocks);
+    if (!collectResult.isOk()) {
+        return failResult(collectResult);
     }
     const BeatAnalysis analysis = analyzeBeats(blocks, BeatDetectConfig{});
     if (out_bpm != nullptr) *out_bpm = analysis.bpm;
