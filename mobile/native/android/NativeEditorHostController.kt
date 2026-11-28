@@ -26,6 +26,9 @@ class NativeEditorHostController(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val operationMutex = Mutex()
+    private val trackToggleLock = Any()
+    private enum class TrackToggle { VISIBILITY, MUTE, LOCK }
+    private val pendingTrackToggleValues = mutableMapOf<Pair<Int, TrackToggle>, Boolean>()
     private val mutableState = MutableStateFlow(NativeEditorHostState())
     val state: StateFlow<NativeEditorHostState> = mutableState.asStateFlow()
 
@@ -107,6 +110,54 @@ class NativeEditorHostController(
 
     fun setTrackLocked(trackIndex: Int, locked: Boolean): Job =
         runTimelineMutation { adapter.setTrackLockedAndReadSnapshot(trackIndex, locked) }
+
+    /**
+     * Reserve the next toggle synchronously before launching its coroutine.
+     * Rapid taps therefore build on the latest requested value, not a stale
+     * Compose/AndroidView snapshot. The pending value is retired only after
+     * the matching serialized engine mutation succeeds or fails.
+     */
+    fun toggleTrackVisibility(trackIndex: Int): Job =
+        toggleTrackControl(trackIndex, TrackToggle.VISIBILITY) { value ->
+            adapter.setTrackVisibilityAndReadSnapshot(trackIndex, value)
+        }
+
+    fun toggleTrackMuted(trackIndex: Int): Job =
+        toggleTrackControl(trackIndex, TrackToggle.MUTE) { value ->
+            adapter.setTrackMutedAndReadSnapshot(trackIndex, value)
+        }
+
+    fun toggleTrackLocked(trackIndex: Int): Job =
+        toggleTrackControl(trackIndex, TrackToggle.LOCK) { value ->
+            adapter.setTrackLockedAndReadSnapshot(trackIndex, value)
+        }
+
+    private fun toggleTrackControl(
+        trackIndex: Int,
+        control: TrackToggle,
+        operation: (Boolean) -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>
+    ): Job {
+        val key = trackIndex to control
+        val target = synchronized(trackToggleLock) {
+            val track = mutableState.value.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
+                (item.engineIndex.takeIf { it >= 0 } ?: index) == trackIndex
+            }?.value
+            val confirmed = when (control) {
+                TrackToggle.VISIBILITY -> track?.visible
+                TrackToggle.MUTE -> track?.muted
+                TrackToggle.LOCK -> track?.locked
+            }
+            val current = pendingTrackToggleValues[key] ?: confirmed
+            if (current == null) null else !current.also { pendingTrackToggleValues[key] = it }
+        } ?: return scope.launch {
+            dispatch(NativeEditorHostEvent.MutationFailed("找不到轨道，无法切换轨道控制"))
+        }
+
+        return runTimelineMutation(
+            operation = { operation(target) },
+            pendingToggle = key to target
+        )
+    }
 
     fun addMarker(timeUs: Long, name: String = "标记", color: String = "#FFFFFF"): Job =
         runEditorMutation(
@@ -327,7 +378,8 @@ class NativeEditorHostController(
     }
 
     private fun runTimelineMutation(
-        operation: () -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>
+        operation: () -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>,
+        pendingToggle: Pair<Pair<Int, TrackToggle>, Boolean>? = null
     ): Job = scope.launch {
         operationMutex.withLock {
             dispatch(NativeEditorHostEvent.RefreshStarted)
@@ -345,6 +397,13 @@ class NativeEditorHostController(
                         result.error ?: "轨道命令执行失败"
                     )
                 )
+            }
+            pendingToggle?.let { (key, target) ->
+                synchronized(trackToggleLock) {
+                    if (pendingTrackToggleValues[key] == target) {
+                        pendingTrackToggleValues.remove(key)
+                    }
+                }
             }
         }
     }
