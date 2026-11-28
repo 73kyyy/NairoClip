@@ -10,6 +10,7 @@ class NativeEditorHostReducerTest {
     private fun timeline(
         durationUs: Long = 1_000_000L,
         visible: Boolean = true,
+        locked: Boolean = false,
         clips: List<NativeTimelineClip> = listOf(
             NativeTimelineClip(id = 10L, startUs = 0L, durationUs = 500_000L, label = "片段")
         )
@@ -22,6 +23,7 @@ class NativeEditorHostReducerTest {
                 name = "视频 1",
                 clips = clips,
                 visible = visible,
+                locked = locked,
                 engineIndex = 0
             )
         )
@@ -30,13 +32,14 @@ class NativeEditorHostReducerTest {
     private fun editorSnapshot(
         durationUs: Long = 1_000_000L,
         visible: Boolean = true,
+        locked: Boolean = false,
         canUndo: Boolean = false,
         canRedo: Boolean = false,
         clips: List<NativeTimelineClip> = listOf(
             NativeTimelineClip(id = 10L, startUs = 0L, durationUs = 500_000L, label = "片段")
         )
     ) = NativeEditorCommandAdapter.EditorStateSnapshot(
-        timeline = timeline(durationUs, visible, clips),
+        timeline = timeline(durationUs, visible, locked, clips),
         history = NativeEditorCommandAdapter.HistoryState(canUndo, canRedo)
     )
 
@@ -75,6 +78,32 @@ class NativeEditorHostReducerTest {
 
         assertNull(updated.selectedClip)
         assertEquals(400_000L, updated.playheadUs)
+    }
+
+    @Test
+    fun lockingTrackInvalidatesSelectionAndRejectsFutureSelection() {
+        val loaded = NativeEditorHostReducer.reduce(
+            NativeEditorHostState(),
+            NativeEditorHostEvent.SnapshotLoaded(editorSnapshot())
+        )
+        val selected = NativeEditorHostReducer.reduce(
+            loaded,
+            NativeEditorHostEvent.SelectClip(target)
+        )
+        assertEquals(target, selected.selectedClip)
+
+        val locked = NativeEditorHostReducer.reduce(
+            selected,
+            NativeEditorHostEvent.SnapshotLoaded(editorSnapshot(locked = true))
+        )
+        assertNull(locked.selectedClip)
+
+        val rejected = NativeEditorHostReducer.reduce(
+            locked,
+            NativeEditorHostEvent.SelectClip(target)
+        )
+        assertNull(rejected.selectedClip)
+        assertTrue(rejected.errorMessage?.contains("锁定") == true)
     }
 
     @Test
