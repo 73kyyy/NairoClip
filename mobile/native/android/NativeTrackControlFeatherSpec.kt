@@ -9,6 +9,12 @@ internal object NativeTrackControlFeatherSpec {
     const val START_ALPHA = 0.88f
     const val END_ALPHA = 0f
 
+    fun shaderWidth(viewWidthPx: Float, controlWidthPx: Float): Float {
+        val safeViewWidth = if (viewWidthPx.isFinite()) viewWidthPx.coerceAtLeast(0f) else 0f
+        val safeControlWidth = if (controlWidthPx.isFinite()) controlWidthPx.coerceAtLeast(0f) else 0f
+        return minOf(safeViewWidth, safeControlWidth)
+    }
+
     fun alphaAt(position: Float): Float {
         val progress = when {
             position.isNaN() -> 0f
