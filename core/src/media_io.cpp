@@ -102,15 +102,37 @@ Result WavPcmReader::open(const std::string& path) {
             const std::uint32_t sampleRate = readLe32(fmt + 4);
             st.blockAlign = readLe16(fmt + 12);
             st.bitsPerSample = readLe16(fmt + 14);
-            if (st.formatTag == 0xFFFE && chunkSize >= 40U && toRead >= 40) {
-                st.formatTag = readLe16(fmt + 24);  // WAVE_FORMAT_EXTENSIBLE subformat tag
+            if (st.formatTag == 0xFFFE) {
+                if (chunkSize < 40U || toRead < 40 ||
+                    readLe16(fmt + 16) < 22U ||
+                    readLe16(fmt + 18) != st.bitsPerSample) {
+                    close();
+                    return Result::fail(ErrorCode::Unsupported,
+                                        "WAV extensible fmt chunk 参数无效");
+                }
+                static constexpr std::uint8_t kPcmGuid[16] = {
+                    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
+                    0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71};
+                static constexpr std::uint8_t kFloatGuid[16] = {
+                    0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
+                    0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71};
+                if (std::memcmp(fmt + 24, kPcmGuid, sizeof(kPcmGuid)) == 0) {
+                    st.formatTag = 1;
+                } else if (std::memcmp(fmt + 24, kFloatGuid, sizeof(kFloatGuid)) == 0) {
+                    st.formatTag = 3;
+                } else {
+                    close();
+                    return Result::fail(ErrorCode::Unsupported,
+                                        "WAV extensible 子格式不是 PCM/IEEE float");
+                }
             }
             const bool pcmInteger = st.formatTag == 1 &&
                 (st.bitsPerSample == 8 || st.bitsPerSample == 16 ||
                  st.bitsPerSample == 24 || st.bitsPerSample == 32);
             const bool pcmFloat = st.formatTag == 3 && st.bitsPerSample == 32;
             if ((!pcmInteger && !pcmFloat) || channels == 0 || channels > 8 ||
-                sampleRate == 0 || st.blockAlign != channels * (st.bitsPerSample / 8U)) {
+                sampleRate == 0 || sampleRate > static_cast<std::uint32_t>(std::numeric_limits<int>::max()) ||
+                st.blockAlign != channels * (st.bitsPerSample / 8U)) {
                 close();
                 return Result::fail(ErrorCode::Unsupported,
                                     "WAV 仅支持 PCM 8/16/24/32-bit 或 float32");
@@ -205,16 +227,22 @@ bool WavPcmReader::readAudioBlock(AudioBlock& out) {
         } else if (st.bitsPerSample == 8) {
             sample = (static_cast<int>(p[0]) - 128) / 128.0f;
         } else if (st.bitsPerSample == 16) {
-            const auto value = static_cast<std::int16_t>(readLe16(p));
+            const std::uint32_t rawValue = readLe16(p);
+            const std::int32_t value = rawValue >= 0x8000U
+                                           ? static_cast<std::int32_t>(rawValue) - 0x10000
+                                           : static_cast<std::int32_t>(rawValue);
             sample = static_cast<float>(value / 32768.0);
         } else if (st.bitsPerSample == 24) {
             std::int32_t value = static_cast<std::int32_t>(p[0]) |
                 (static_cast<std::int32_t>(p[1]) << 8) |
                 (static_cast<std::int32_t>(p[2]) << 16);
-            if ((value & 0x800000) != 0) value |= static_cast<std::int32_t>(0xFF000000);
+            if ((value & 0x800000) != 0) value -= 0x1000000;
             sample = static_cast<float>(value / 8388608.0);
         } else {
-            const std::int32_t value = static_cast<std::int32_t>(readLe32(p));
+            const std::uint32_t rawValue = readLe32(p);
+            const std::int64_t value = rawValue >= 0x80000000U
+                                           ? static_cast<std::int64_t>(rawValue) - 0x100000000LL
+                                           : static_cast<std::int64_t>(rawValue);
             sample = static_cast<float>(static_cast<double>(value) / 2147483648.0);
         }
         out.samples[i] = std::max(-1.0f, std::min(1.0f, sample));
