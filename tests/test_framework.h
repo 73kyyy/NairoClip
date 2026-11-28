@@ -264,13 +264,13 @@ inline int runAll() {
     }
     if (shards > 1) {
         // 同时打印「执行数/总数」，分片覆盖度可被汇总脚本核对。
-        std::printf("\n===== 分片 %d/%d：执行 %d/%d cases | %d failed | %d checks failed =====\n",
-                    shard, shards, executed, total, failedCases, failureCount());
+        std::printf("\n===== 分片 %d/%d：执行 %d/%d cases | %d failed | %d checks failed | %d skipped =====\n",
+                    shard, shards, executed, total, failedCases, failureCount(), skippedCases);
         std::printf("[SHARD_STATS] shard=%d shards=%d executed=%d total=%d failed=%d\n", shard,
                     shards, executed, total, failedCases);
     } else {
-        std::printf("\n===== 执行 %d/%d cases | %d failed | %d checks failed =====\n", executed,
-                    total, failedCases, failureCount());
+        std::printf("\n===== 执行 %d/%d cases | %d failed | %d checks failed | %d skipped =====\n", executed,
+                    total, failedCases, failureCount(), skippedCases);
         std::printf("[SHARD_STATS] shard=0 shards=1 executed=%d total=%d failed=%d\n", executed,
                     total, failedCases);
     }
