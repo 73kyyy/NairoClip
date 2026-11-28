@@ -65,6 +65,14 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 - Android APK 不得包含 H.264、HEVC、AV1、VP9、AAC、MP3、Opus、FLAC、Vorbis 等格式的软件编解码实现。
 - 不允许 GPL、nonfree 或其他未获批准的编解码器进入 Android APK。
 - FFmpeg 在 Android 侧保留容器 demux/mux、bitstream parser、像素/采样格式转换等非编解码职责；FFmpeg 的 MediaCodec wrapper 只作为系统 API 适配层。
+
+### 1.5 FFmpeg 最终移除目标
+
+FFmpeg 在当前阶段仅作为迁移过渡层，不是 NairoClip 的最终媒体架构。最终验收目标是从所有平台构建与仓库依赖中彻底移除 FFmpeg，包括 `ffmpeg-build`、`libavcodec` / `libavformat` / `libavutil` 等库、头文件、预编译二进制、wrapper、构建脚本和仅服务于 FFmpeg 的代码。
+
+删除门槛：Android、iOS/macOS、Windows、Linux 均已由各自系统媒体框架接管容器读写、码流参数解析、时间戳/seek、音视频解码与编码、像素/采样格式转换、音视频封装及错误处理；跨平台回归覆盖项目导入、预览、波形、字幕/语音处理、代理、导出、暂停/seek/旋转/多音轨和异常媒体；构建产物扫描确认不再链接或打包 FFmpeg。任一平台尚未达到门槛时，不删除该平台仍在使用的过渡组件。
+
+达到门槛后，删除 FFmpeg 专属许可证材料；仍被保留的第三方依赖及代码必须继续保留其各自许可证和 NOTICE，不得一并清除。
 - 系统不支持时提示用户格式或设备不兼容；不得下载、加载或静默启用软件编解码器。
 
 ---
