@@ -405,6 +405,20 @@ fun NativeEditorScreen(
             // BoxWithConstraints scope so all three regions see the same valid
             // (visible, unlocked, enabled) selection.
 
+            val selectedTarget = selectedClip?.takeIf { selection ->
+                timelineTracks.any { track ->
+                    (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
+                        track.visible &&
+                        !track.locked &&
+                        track.clips.any { it.id == selection.second && it.enabled }
+                }
+            }
+            val selectedItem = selectedTarget?.let { selection ->
+                timelineTracks.firstOrNull { track ->
+                    (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
+                }?.clips?.firstOrNull { it.id == selection.second }
+            }
+
             // Dynamic editor panels scroll within a bounded viewport. This keeps
             // the timeline, transport row and tool strip reachable on short screens.
             Column(
@@ -460,19 +474,6 @@ fun NativeEditorScreen(
                 }
             }
 
-            val selectedTarget = selectedClip?.takeIf { selection ->
-                timelineTracks.any { track ->
-                    (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
-                        track.visible &&
-                        !track.locked &&
-                        track.clips.any { it.id == selection.second && it.enabled }
-                }
-            }
-            val selectedItem = selectedTarget?.let { selection ->
-                timelineTracks.firstOrNull { track ->
-                    (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
-                }?.clips?.firstOrNull { it.id == selection.second }
-            }
             if (showKeyframePanel && selectedTarget == null) {
                 Text(
                     "先选择一个时间轴片段，再编辑关键帧",
