@@ -135,6 +135,29 @@ The transport row uses the existing `onSplitClip` and `onDeleteClip` command cal
 
 The native timeline's time origin is now centered, matching the reference and the original editor's `t2x()` mapping. Initial zoom fits the visible sequence around the centered playhead; ruler intervals adapt to pixel density (56px major-tick spacing), and labels switch between seconds, sub-second precision, and `MM:SS` for longer timelines. The fixed start badge seeks to zero. Track clips render across the full timeline width while the eye, speaker, and lock controls float in a 40dp overlay rather than reserving a 120dp label gutter.
 
+## Track-control state and feather behavior
+
+The fixed 40dp track-control overlay contains, from left to right, visibility (eye), audio (speaker), and lock controls. The clip lane continues underneath it; do not reserve a blank 40dp gutter or move the clip origin.
+
+A per-track horizontal feather is drawn over the clip lane before the controls:
+- At the far-left edge, the lane-color veil has 88% opacity, so clip content is most subdued there.
+- Opacity decreases smoothly to 0% at the right edge of the 40dp control overlay.
+- This makes content progressively clearer toward the timeline body and more visually softened toward the left edge.
+- The eye, speaker, and lock glyphs are redrawn above the feather at full clarity. The feather must never tint, blur, or reduce their contrast.
+- Recompute the overlay for each row so alternating lane backgrounds remain color-matched. The feather is screen-space anchored and does not move independently of the fixed controls when the timeline scrolls or zooms.
+
+Toggle-state colors (callback availability must not be confused with the actual toggle state):
+| Control | State | Icon |
+|---|---|---|
+| Eye | Visible | #E4E8EA |
+| Eye | Hidden | #687177 |
+| Speaker | Sound on | #E4E8EA |
+| Speaker | Muted | #D69A58 |
+| Lock | Unlocked | #9AA3A8 |
+| Lock | Locked | #D69A58 |
+
+The glyph also changes with state (eye/eye-off, speaker/speaker-off, unlock/lock). Keep the amber restrained; do not add glow or animated flashing. A state change should update only the affected track row and must not shift timeline geometry.
+
 ## Native host boundary
 
 `NativeEditorHost` and `NativeEditorHostController` provide a feature-scoped host without changing `MainActivity` or the formal WebView entry. The host serializes engine mutations and reads back authoritative timeline/history state. Native clip split/delete/duplicate/ripple-delete, undo/redo, track visibility/mute/lock, markers, transforms/keyframes, speed/speed curves, clip audio/denoise, filters/LUT/color grade/masks, effects, transitions, text clips and subtitle cues are wired through the command adapter. Scrub requests render through `NativePreviewSurfaceController` on its dedicated worker, including a render request when the Surface attaches.
