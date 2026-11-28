@@ -326,15 +326,17 @@ class MainActivity : AppCompatActivity() {
         val activeEngine = engine ?: return
         val project = runCatching {
             val envelope = org.json.JSONObject(activeEngine.state())
-            if (!envelope.optBoolean("ok", false)) {
+            // nativeState() returns the raw BuildState object
+            // { project:{...}, tracks:[...], ... }. Only Kotlin-side bridge
+            // exceptions are wrapped by err() as { ok:false, message:"..." }.
+            if (!envelope.optBoolean("ok", true)) {
                 throw IllegalStateException(
                     envelope.optString("message").ifBlank { "引擎状态读取失败" }
                 )
             }
-            // NativeEngineBridge.state() follows the C ABI envelope:
-            // { ok:true, result:{ project:{...}, tracks:[...], ... } }.
-            envelope.optJSONObject("result")?.optJSONObject("project")
-                ?: throw IllegalStateException("引擎状态缺少 result.project")
+            val stateRoot = envelope.optJSONObject("result") ?: envelope
+            stateRoot.optJSONObject("project")
+                ?: throw IllegalStateException("引擎状态缺少 project")
         }.getOrElse { failure ->
             android.util.Log.w(
                 "NcNativeEditor",
