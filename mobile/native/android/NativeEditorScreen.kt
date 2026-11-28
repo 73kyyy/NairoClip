@@ -400,6 +400,11 @@ fun NativeEditorScreen(
                     .height(responsive.timelineHeightDp.dp)
             )
 
+            // The selected target is shared by the scrollable parameter panels,
+            // transport controls and level-2 toolbar. Keep it in the enclosing
+            // BoxWithConstraints scope so all three regions see the same valid
+            // (visible, unlocked, enabled) selection.
+
             // Dynamic editor panels scroll within a bounded viewport. This keeps
             // the timeline, transport row and tool strip reachable on short screens.
             Column(
