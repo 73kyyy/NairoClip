@@ -3279,13 +3279,12 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeRegisterTextRasterizer(
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SurfaceView 零拷贝（P6）
+   SurfaceView GPU presentation（EGL/GLES2 优先，CPU Reference 回退）
    ══════════════════════════════════════════════════════════════════════════
-   把预览帧直接写进 Surface 的显示缓冲，绕开
-   `RGBA → PNG → Base64 → JNI byte[] → WebView <img>` 这条链路。
-
-   1080p 25fps 下那条链路每秒产生约 65MB 字符串，WebView 解析就吃满主线程 ——
-   这是「预览卡顿」的主因。直写显存后传输段耗时从数十毫秒降到 <2ms。
+   绕开 `RGBA → PNG → Base64 → JNI byte[] → WebView <img>` 这条链路。
+   当前 C++ Reference renderer 仍生成 CPU RGBA 帧；本层优先上传纹理并由系统
+   EGL/GLES2 GPU 完成缩放与 Surface 呈现，初始化/运行失败时保留 ANativeWindow
+   CPU 回退。此阶段尚未把时间轴合成、滤镜和转场迁移到 GPU，也不是零拷贝。
 
    实现要点：
      · ANativeWindow_lock 拿到的 buffer 可能带 stride 与格式 padding，
