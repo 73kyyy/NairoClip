@@ -1,9 +1,15 @@
 package com.nairoclip.app
 
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 
@@ -19,6 +25,11 @@ import androidx.webkit.WebViewClientCompat
  */
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        /** adb shell am start --ez enable_native_editor true ... */
+        const val EXTRA_ENABLE_NATIVE_EDITOR = "com.nairoclip.app.extra.ENABLE_NATIVE_EDITOR"
+    }
+
     private lateinit var webView: WebView
     /// 预览 Surface（P6 零拷贝）。垫在 WebView 下层，预览画面直接写显存。
     private lateinit var previewSurface: PreviewSurfaceView
@@ -27,6 +38,13 @@ class MainActivity : AppCompatActivity() {
     /** 正常状态下的帧缓存预算（字节）；压力兜底时按比例下调。 */
     private var cacheBudgetBase: Long = 0L
     private var engine: NativeEngineBridge? = null
+    private lateinit var contentRoot: android.widget.FrameLayout
+    private var nativeEditorOverlay: ComposeView? = null
+    @Volatile private var nativeEditorVisible: Boolean = false
+
+    /** Native editor can only be entered by an explicit internal launch extra. */
+    private val nativeEditorEnabled: Boolean
+        get() = intent.getBooleanExtra(EXTRA_ENABLE_NATIVE_EDITOR, false)
 
     /**
      * 面板层级（由 JS 通过 NCEngine.setPanelDepth 推送）。
@@ -196,6 +214,7 @@ class MainActivity : AppCompatActivity() {
         /* 预览区坐标桥（P6）：JS 上报预览区位置，SurfaceView 据此定位。
            独立命名空间，不与认证桥混用。 */
         webView.addJavascriptInterface(PreviewBridge(this, webView), "NCPreview")
+        webView.addJavascriptInterface(NativeEditorEntryBridge(), "NCNativeEditor")
 
         /* 入口用**页面版**而不是静态版。
            assets/nairoclip-home.html 是 make_static.py / make_pages_static.py
@@ -213,6 +232,10 @@ class MainActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 /* 按层级由内到外退：三级面板 → 二级工具栏 → 系统退出。
                    一次只退一层，符合用户对「返回上一步」的预期。 */
+                if (nativeEditorVisible) {
+                    closeNativeEditor()
+                    return
+                }
                 if (panelDepth > 0) {
                     // 面板自己退一层；退完它会重新推送新的 depth
                     webView.evaluateJavascript("window.NCL3BACK && window.NCL3BACK()", null)
@@ -254,27 +277,117 @@ class MainActivity : AppCompatActivity() {
          *   · SurfaceView 不支持圆角 —— 预览区那 8px 圆角靠 WebView 画遮罩；
          *   · 折叠屏/键盘弹出时坐标要重新上报（setPreviewRect）。
          */
-        val root = android.widget.FrameLayout(this)
+        contentRoot = android.widget.FrameLayout(this)
         previewSurface = PreviewSurfaceView(this).apply {
-            onSurfaceAvailable = { surface ->
-                NativeEngineBridge.attachSurface(surface, width, height)
-            }
-            onSurfaceDestroyed = {
-                NativeEngineBridge.detachSurface()
-            }
             // 初始给一个占位尺寸，JS 上报后会被 setPreviewRect 覆盖
             layout(0, 0, 1080, 1920)
         }
-        root.addView(previewSurface)
+        configureLegacyPreviewSurface()
+        contentRoot.addView(previewSurface)
         // WebView 背景透明：让下层 Surface 的画面透出来
         webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        root.addView(webView)
-        setContentView(root)
+        contentRoot.addView(webView)
+        setContentView(contentRoot)
+    }
+
+    /** Rebind the original WebView preview surface after leaving the native pilot. */
+    private fun configureLegacyPreviewSurface() {
+        previewSurface.onSurfaceAvailable = { surface ->
+            NativeEngineBridge.attachSurface(surface, previewSurface.width, previewSurface.height)
+        }
+        previewSurface.onSurfaceDestroyed = {
+            NativeEngineBridge.detachSurface()
+        }
+    }
+
+    /**
+     * Internal S5 pilot only. The WebView remains attached and alive underneath
+     * the Compose overlay, so returning to legacy editing restores the exact
+     * current page and engine instance instead of rebuilding project state.
+     */
+    private fun showNativeEditor(projectName: String) {
+        if (!nativeEditorEnabled || nativeEditorVisible || !this::contentRoot.isInitialized) return
+        val activeEngine = engine ?: return
+        val project = runCatching {
+            org.json.JSONObject(activeEngine.state()).optJSONObject("project")
+        }.getOrNull()
+        if (project == null) {
+            android.util.Log.w("NcNativeEditor", "拒绝打开原生剪辑页：当前引擎没有有效工程状态")
+            return
+        }
+
+        val resolvedName = projectName.trim().takeIf { it.isNotEmpty() }
+            ?: project.optString("name").takeIf { it.isNotBlank() }
+            ?: "未命名工程"
+        val overlay = ComposeView(this).apply {
+            setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
+            setContent {
+                MaterialTheme {
+                    NativeEditorHost(
+                        bridge = activeEngine,
+                        projectName = resolvedName,
+                        onOpenLegacy = { closeNativeEditor() },
+                        suppliedPreviewView = previewSurface
+                    )
+                }
+            }
+        }
+
+        // The same SurfaceView is moved into Compose; never create a second
+        // renderer Surface or a second NativeEngineBridge for the pilot.
+        contentRoot.removeView(previewSurface)
+        webView.visibility = View.INVISIBLE
+        contentRoot.addView(
+            overlay,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        nativeEditorOverlay = overlay
+        nativeEditorVisible = true
+        android.util.Log.i("NcNativeEditor", "S5 原生剪辑页已打开（内部受控入口）")
+    }
+
+    /** Return to the still-live WebView editor without changing Activity routing. */
+    private fun closeNativeEditor() {
+        if (!nativeEditorVisible) return
+        val overlay = nativeEditorOverlay
+        nativeEditorOverlay = null
+        if (overlay != null) {
+            contentRoot.removeView(overlay)
+            overlay.disposeComposition()
+        }
+        (previewSurface.parent as? ViewGroup)?.removeView(previewSurface)
+        configureLegacyPreviewSurface()
+        contentRoot.addView(previewSurface, 0)
+        webView.visibility = View.VISIBLE
+        nativeEditorVisible = false
+        android.util.Log.i("NcNativeEditor", "已返回保留的 WebView 剪辑页")
+    }
+
+    private inner class NativeEditorEntryBridge {
+        @JavascriptInterface
+        fun isEnabled(): Boolean = nativeEditorEnabled
+
+        @JavascriptInterface
+        fun openNativeEditor(projectName: String) {
+            if (!nativeEditorEnabled) return
+            runOnUiThread { showNativeEditor(projectName) }
+        }
     }
 
     override fun onDestroy() {
         memoryGuard?.let { unregisterComponentCallbacks(it) }
         memoryGuard = null
+        nativeEditorOverlay?.let { overlay ->
+            if (this::contentRoot.isInitialized) contentRoot.removeView(overlay)
+            overlay.disposeComposition()
+        }
+        nativeEditorOverlay = null
+        nativeEditorVisible = false
         engine?.release()
         engine = null
         if (this::webView.isInitialized) {
