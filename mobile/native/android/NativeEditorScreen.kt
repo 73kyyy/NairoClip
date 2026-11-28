@@ -1881,6 +1881,7 @@ private fun EditorTopBar(
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Spacer(Modifier.weight(1f))
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -1890,7 +1891,7 @@ private fun EditorTopBar(
         ) {
             Text("↥", color = NcColors.text, fontSize = 23.sp)
         }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(4.dp))
         Text(
             text = "导出",
             color = NcColors.text,
