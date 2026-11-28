@@ -148,7 +148,7 @@ class NativeEditorHostController(
                 TrackToggle.LOCK -> track?.locked
             }
             val current = pendingTrackToggleValues[key] ?: confirmed
-            if (current == null) null else !current.also { pendingTrackToggleValues[key] = it }
+            if (current == null) null else (!current).also { pendingTrackToggleValues[key] = it }
         } ?: return scope.launch {
             dispatch(NativeEditorHostEvent.MutationFailed("找不到轨道，无法切换轨道控制"))
         }
