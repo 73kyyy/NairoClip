@@ -56,6 +56,10 @@ fun NativeEditorHost(
     }
     var clipAudio by remember { mutableStateOf<NativeEditorCommandAdapter.ClipAudioState?>(null) }
     var clipDenoiseStrength by remember { mutableStateOf<Int?>(null) }
+    var clipFilter by remember { mutableStateOf<NativeEditorCommandAdapter.ClipFilterState?>(null) }
+    var clipLut by remember { mutableStateOf<NativeEditorCommandAdapter.ClipLutState?>(null) }
+    var clipColorGrade by remember { mutableStateOf<NativeEditorCommandAdapter.ClipColorGradeState?>(null) }
+    var clipMask by remember { mutableStateOf<NativeEditorCommandAdapter.ClipMaskState?>(null) }
     var keyframeRevision by remember { mutableStateOf(0) }
 
     fun seekTo(timeUs: Long) {
@@ -83,18 +87,31 @@ fun NativeEditorHost(
             speedCurvePoints = null
             clipAudio = null
             clipDenoiseStrength = null
+            clipFilter = null
+            clipLut = null
+            clipColorGrade = null
+            clipMask = null
         } else {
             val clipSnapshot = withContext(Dispatchers.IO) {
                 adapter.readClipEditorPanelSnapshot(target)
             }
             val snapshot = clipSnapshot.value
             if (clipSnapshot.ok && snapshot != null) {
-                transform = snapshot.transform.transform
-                anchor = snapshot.transform.anchor
+                snapshot.transform?.let {
+                    transform = it.transform
+                    anchor = it.anchor
+                } ?: run {
+                    transform = NativeTransform()
+                    anchor = NativeTransformRange.ANCHOR_CENTER
+                }
                 keyframes = snapshot.keyframes
                 speedCurvePoints = snapshot.speedCurve
                 clipAudio = snapshot.audio
                 clipDenoiseStrength = snapshot.denoiseStrength
+                clipFilter = snapshot.filter
+                clipLut = snapshot.lut
+                clipColorGrade = snapshot.colorGrade
+                clipMask = snapshot.mask
             }
         }
     }
@@ -138,6 +155,10 @@ fun NativeEditorHost(
         speedCurvePoints = speedCurvePoints,
         clipAudio = clipAudio,
         clipDenoiseStrength = clipDenoiseStrength,
+        clipFilter = clipFilter,
+        clipLut = clipLut,
+        clipColorGrade = clipColorGrade,
+        clipMask = clipMask,
         onTransformChanged = { track, clipId, value ->
             transform = value
             controller.setTransform(
@@ -243,6 +264,48 @@ fun NativeEditorHost(
             val job = controller.setClipDenoise(
                 NativeEditorCommandAdapter.ClipTarget(track, clipId),
                 strength
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onClipFilterChanged = { track, clipId, style, intensity ->
+            val job = controller.setClipFilter(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                style,
+                intensity
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onClipLutChanged = { track, clipId, path, strength ->
+            val job = controller.setClipLut(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                path,
+                strength
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onClipColorGradeChanged = { track, clipId, grade ->
+            val job = controller.setClipColorGrade(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                grade
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onClipMaskChanged = { track, clipId, mask ->
+            val job = controller.setClipMask(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                mask
             )
             scope.launch {
                 job.join()
