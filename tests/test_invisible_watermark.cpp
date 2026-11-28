@@ -391,7 +391,7 @@ NC_TEST(InvisibleWatermark, MultiFrameConsistency) {
 
 NC_TEST(InvisibleWatermark, SurvivesSystemVp9RoundTrip) {
     const int w = 320, h = 240;
-    if (!test_support::hasUsableSystemVideoEncoder("vp9", w, h)) return;
+    if (!test_support::hasUsableSystemVideoCodec("vp9", w, h)) return;
     const WatermarkPayload payload = makePayload(0xABCDEF01, 42);
     // 1) 生成一帧水印图像 → 编码为单帧视频（真实 H.264）
     auto image = makeImage(w, h);
