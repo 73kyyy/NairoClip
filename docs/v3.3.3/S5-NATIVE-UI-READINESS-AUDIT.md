@@ -1213,3 +1213,11 @@
 - This removes the previous sharp source clip underneath the blurred overlay, which could make the visual appear only partially blurred. It also replaces the API 24–30 lane-colored cover with a true alpha-masked offscreen fade, without claiming Gaussian blur on those API levels.
 - Track controls are still redrawn after compositing and remain sharp. The left-to-right alpha ramp and hit-test geometry share the same control-gutter width.
 - Source re-fetch and structural checks are pending; Android Gradle/JVM, NDK and device rendering results must be read from the current S5 workflow before claiming validation.
+
+
+## 2026-11-28 follow-up: timeline redraw allocation reduction
+
+- Cached the invariant horizontal feather shader once per `NativeTimelineView` instead of constructing a new `LinearGradient` for every visible track on every draw pass.
+- Replaced per-track icon-center array/list creation with direct arithmetic from the shared 40dp button width. The eye, speaker and lock remain centered at 0.5, 1.5 and 2.5 button widths.
+- The cached shader derives its endpoint alpha from `NativeTrackControlFeatherSpec` so the renderer and JVM alpha-ramp contract remain tied to one set of constants.
+- Source-level checks only; performance profiling and device rendering remain pending.
