@@ -212,6 +212,46 @@ class NativeEditorHostController(
         adapter.setClipMaskAndRead(target, mask)
     }
 
+    fun addTransition(
+        trackIndex: Int,
+        fromClipId: Long,
+        toClipId: Long,
+        type: Int,
+        durationUs: Long
+    ): Job = runRefreshMutation {
+        adapter.addTransition(trackIndex, fromClipId, toClipId, type, durationUs)
+    }
+
+    fun removeTransition(trackIndex: Int, transitionId: Long): Job = runUnitMutation {
+        adapter.removeTransition(trackIndex, transitionId)
+    }
+
+    fun addTextClip(text: String, startUs: Long, durationUs: Long): Job =
+        runEditorMutation(
+            operation = { adapter.addTextClipAndReadEditorState(text, startUs, durationUs) },
+            onSuccess = { NativeEditorHostEvent.MutationCommitted(it.editorState) }
+        )
+
+    fun setTextStyle(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        update: NativeEditorCommandAdapter.TextStyleUpdate
+    ): Job = runEditorMutation(
+        operation = { adapter.setTextStyleAndReadEditorState(target, update) },
+        onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+    )
+
+    fun addSubtitle(text: String, startUs: Long, durationUs: Long): Job =
+        runEditorMutation(
+            operation = { adapter.addSubtitleAndReadEditorState(text, startUs, durationUs) },
+            onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+        )
+
+    fun removeSubtitle(subtitleId: Long): Job =
+        runEditorMutation(
+            operation = { adapter.removeSubtitleAndReadEditorState(subtitleId) },
+            onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+        )
+
     fun insertTransformKeyframe(
         target: NativeEditorCommandAdapter.ClipTarget,
         parameter: NativeParameter,
