@@ -160,6 +160,17 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     impl.config = config;
     impl.path = path;
 
+    // Reject audio export before allocating a container or opening a video
+    // encoder. Until every platform has a native AAC encoder + muxer path,
+    // this is an unconditional fail-closed contract; never emit silent video
+    // or fall back to an app-bundled software AAC implementation.
+    if (config.includeAudio) {
+        return Result::fail(
+            ErrorCode::Unsupported,
+            "当前平台的系统 AAC 音频编码/封装链路尚未接入；"
+            "NairoClip 不使用应用自带软件 AAC 编码器，也不会静默导出无声视频。");
+    }
+
     int err = avformat_alloc_output_context2(&impl.format, nullptr, nullptr, path.c_str());
     if (err < 0 || impl.format == nullptr) {
         return Result::fail(ErrorCode::Internal, "无法创建输出上下文");
@@ -279,22 +290,6 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
         for (const auto& entry : config.aiMetadata) {
             av_dict_set(&impl.format->metadata, entry.first.c_str(), entry.second.c_str(), 0);
         }
-    }
-
-    // ---- 音频编码器 ----
-    // Android FFmpeg 7.1 没有 AAC MediaCodec encoder wrapper；不允许拿内置 AAC
-    // 软件编码器冒充系统编码。Android 音频导出由后续 MediaCodec + MediaMuxer
-    // 路径接管；在该路径接入前明确失败，绝不生成缺失音轨的视频文件。
-    if (config.includeAudio) {
-        // FFmpeg 不提供可跨平台依赖的系统 AAC encoder wrapper。
-        // 在 Android MediaCodec、Apple AudioConverter/AVAssetWriter、
-        // Windows Media Foundation、Linux 原生音频编码/封装完成接线前，
-        // 所有平台统一 fail-closed，不静默丢弃音轨或回退软件 AAC。
-        impl.reset();
-        return Result::fail(
-            ErrorCode::Unsupported,
-            "当前平台的系统 AAC 音频编码/封装链路尚未接入；"
-            "NairoClip 不使用应用自带软件 AAC 编码器，也不会静默导出无声视频。");
     }
 
     if (!(impl.format->oformat->flags & AVFMT_NOFILE)) {
