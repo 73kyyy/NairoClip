@@ -74,7 +74,7 @@ inline bool kBuildAllowsGplForDevelopmentFn() { return false; }
 /// 现实中 Android 5.0+ / iOS 全版本都有 H.264 硬件编码，影响面极小。
 enum class EncoderLicenseClass {
     Hardware = 0,      ///< 系统硬件编码器（唯一允许的 H.264 路径）
-    Permissive = 1,    ///< 宽松软件实现（**仅非 H.264**：AV1/VP9/Opus/AAC）
+    Permissive = 1,    ///< 已识别的软件实现（仅用于诊断；系统-only 策略下拒绝）
     GplInfectious = 2, ///< GPL 传染（libx264/libx265 等）——禁止商用发布
     SoftwareH264 = 3,  ///< **软件 H.264 编码器**：需自付专利费，一律禁用
     Unknown = 4,       ///< 未在清单中（保守视为不可用）
@@ -123,8 +123,8 @@ struct EncoderSelection {
 
 /// 选择视频编码器（合规优先序）：
 ///   1. 硬件实现（文档：H.264 硬件编码三端统一优先级最高）；
-///   2. 宽松软件实现（仅非 H.264，如 AV1/VP9）；
-///   3. 都没有 → 返回 invalid（fail-closed）；GPL/软件 H.264/HEVC 永不参与选择。
+///   2. 应用自带软件编码器全部禁用；
+///   3. 没有系统编码器 → 返回 invalid（fail-closed）。
 /// - codec：目标格式（"h264" 默认；"av1"/"vp9" 为 royalty-free 选项）；
 /// - available：后端探测到的可用编码器列表。
 /// 说明：同优先级内按「平台常见度」固定顺序（不依赖列表输入顺序，保证确定性）。
@@ -141,7 +141,7 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     const std::string& codec, const std::vector<EncoderCandidate>& available,
     const EncoderPolicy& policy = {});
 
-/// 选择音频编码器（合规优先序：硬件 → 宽松软件；AAC 内置实现视为宽松）。
+/// 选择音频编码器：仅允许平台系统媒体 API；应用自带 AAC/Opus 等软件实现全部拒绝。
 /// - codec："aac"（默认）或 "opus"。
 EncoderSelection selectAudioEncoder(const std::string& codec,
                                     const std::vector<EncoderCandidate>& available,
