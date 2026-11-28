@@ -32,6 +32,7 @@ fun NativeEditorHost(
     bridge: NativeEngineBridge,
     projectName: String,
     onOpenLegacy: () -> Unit,
+    suppliedPreviewView: PreviewSurfaceView? = null,
     resolveAssetUri: (Long) -> Uri? = { null },
     speechWorker: NativeSpeechSessionWorker? = null,
     speechSessionReady: Boolean = false,
@@ -66,7 +67,9 @@ fun NativeEditorHost(
     } else {
         autoSubtitleState ?: localAutoSubtitleState
     }
-    val previewView = remember(context) { PreviewSurfaceView(context) }
+    val previewView = remember(context, suppliedPreviewView) {
+        suppliedPreviewView ?: PreviewSurfaceView(context)
+    }
     val previewController = remember(previewView) {
         NativePreviewSurfaceController(previewView)
     }
