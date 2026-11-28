@@ -243,6 +243,62 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     ): Result<NativeTimelineSnapshot> =
         mutateAndReadTimelineSnapshot { setTrackLocked(trackIndex, locked) }
 
+    fun importImageAsset(name: String, absolutePath: String): Result<Long> {
+        val safeName = name.trim()
+        val safePath = absolutePath.trim()
+        if (safeName.isEmpty() || safeName.length > 1024 || safePath.isEmpty()) {
+            return Result(false, error = "图片名称或文件路径无效")
+        }
+        return bridge.withEditorStateLock {
+            invoke(
+                "nc_import_asset",
+                JSONObject()
+                    .put("name", safeName)
+                    .put("path", safePath)
+                    .put("type", 2)
+                    .put("duration_us", 5_000_000L)
+            ) { payload ->
+                val rawId = payload.opt("value") as? Number
+                    ?: throw IllegalArgumentException("引擎未返回图片素材 ID")
+                rawId.toLong().also { require(it > 0L) { "图片素材导入失败" } }
+            }
+        }
+    }
+
+    fun isAssetReferenced(assetId: Long): Result<Boolean> {
+        if (assetId <= 0L) return Result(false, error = "素材 ID 无效")
+        return bridge.withEditorStateLock {
+            invoke("nc_asset_is_referenced", JSONObject().put("asset_id", assetId)) { payload ->
+                val raw = payload.opt("referenced") as? Number
+                    ?: throw IllegalArgumentException("引擎未返回素材引用状态")
+                val value = raw.toDouble()
+                require(value == 0.0 || value == 1.0) { "素材引用状态无效" }
+                value == 1.0
+            }
+        }
+    }
+
+    fun removeImageAsset(assetId: Long): Result<Unit> {
+        if (assetId <= 0L) return Result(false, error = "素材 ID 无效")
+        return bridge.withEditorStateLock {
+            val reference = isAssetReferenced(assetId)
+            if (!reference.ok) {
+                return@withEditorStateLock Result(false, error = reference.error ?: "无法确认素材引用状态")
+            }
+            if (reference.value == true) {
+                return@withEditorStateLock Result(false, error = "该图片已被时间轴引用，请先删除片段")
+            }
+            invoke("nc_remove_asset", JSONObject().put("asset_id", assetId)) { Unit }
+        }
+    }
+
+    fun setCanvasBackground(rgba: Long): Result<Unit> {
+        if (rgba !in 0L..0xFFFFFFFFL) return Result(false, error = "背景颜色值无效")
+        return bridge.withEditorStateLock {
+            invoke("nc_set_background_color", JSONObject().put("rgba", rgba)) { Unit }
+        }
+    }
+
     private fun mutateAndReadTimelineSnapshot(
         mutation: () -> Result<Unit>
     ): Result<NativeTimelineSnapshot> = bridge.withEditorStateLock {
