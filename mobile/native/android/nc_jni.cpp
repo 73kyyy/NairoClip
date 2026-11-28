@@ -16,6 +16,7 @@
    必须在文件顶部 —— 放在函数定义之间会污染后续所有声明的可见性。 */
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include "AndroidGpuPreviewRenderer.h"
 
 #include <jni.h>
 #include "nairoclip/core/text_content.h"
@@ -3305,32 +3306,38 @@ struct SurfaceState {
 };
 
 SurfaceState g_surface;
+std::mutex g_surfaceMutex;
 
 }  // namespace
 
 JNIEXPORT jboolean JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeAttachSurface(
     JNIEnv* env, jobject, jobject surface, jint width, jint height) {
-    if (surface == nullptr) return JNI_FALSE;
+    if (surface == nullptr || width <= 0 || height <= 0) return JNI_FALSE;
+    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
+    if (win == nullptr) return JNI_FALSE;
 
-    // 先分离旧的（重复附加是合法操作，例如 Activity 重建）
+    std::lock_guard<std::mutex> lock(g_surfaceMutex);
+    // 先销毁 EGL window surface，再释放其关联的旧 ANativeWindow。
+    nairoclip_android_preview::detach();
     if (g_surface.window != nullptr) {
         ANativeWindow_release(g_surface.window);
         g_surface.window = nullptr;
     }
 
-    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
-    if (win == nullptr) return JNI_FALSE;
-
     ANativeWindow_setBuffersGeometry(win, width, height, WINDOW_FORMAT_RGBA_8888);
     g_surface.window = win;
     g_surface.width = width;
     g_surface.height = height;
+    // EGL/GLES 初始化失败时仍保留 Surface，nativeBlitFrame 会走 CPU 回退。
+    (void)nairoclip_android_preview::attach(win, width, height);
     return JNI_TRUE;
 }
 
 JNIEXPORT void JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeDetachSurface(JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(g_surfaceMutex);
+    nairoclip_android_preview::detach();
     if (g_surface.window != nullptr) {
         ANativeWindow_release(g_surface.window);
         g_surface.window = nullptr;
@@ -3344,7 +3351,7 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeBlitFrame(
     JNIEnv*, jobject, jlong h, jlong timeUs) {
     EditorHandleGuard guard(h);
     NcEditor* ed = guard.get();
-    if (ed == nullptr || g_surface.window == nullptr) return JNI_FALSE;
+    if (ed == nullptr) return JNI_FALSE;
 
     uint8_t* rgba = nullptr;
     int32_t w = 0, hgt = 0;
@@ -3357,36 +3364,40 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeBlitFrame(
                                          &ttype, &tprog);
     if (rc != NC_OK || rgba == nullptr || w <= 0 || hgt <= 0) return JNI_FALSE;
 
-    ANativeWindow_Buffer buf;
-    if (ANativeWindow_lock(g_surface.window, &buf, nullptr) != 0) {
-        // Surface 正在重建 —— 正常状态，静默丢弃这一帧
-        nc_free_buffer(rgba);
-        return JNI_FALSE;
+    bool presented = false;
+    {
+        std::lock_guard<std::mutex> lock(g_surfaceMutex);
+        if (g_surface.window != nullptr) {
+            // 首选系统 EGL/GLES：GPU 完成纹理采样、缩放和 Surface 合成。
+            presented = nairoclip_android_preview::draw(rgba, w, hgt);
+            if (!presented) {
+                // GPU 初始化/上下文/交换失败时保留原 CPU Reference 显示路径。
+                ANativeWindow_Buffer buf;
+                if (ANativeWindow_lock(g_surface.window, &buf, nullptr) == 0) {
+                    const int copyW = (w < buf.width) ? w : buf.width;
+                    const int copyH = (hgt < buf.height) ? hgt : buf.height;
+                    const auto* src = reinterpret_cast<const uint8_t*>(rgba);
+                    auto* dst = static_cast<uint8_t*>(buf.bits);
+                    const std::size_t dstStride = static_cast<std::size_t>(buf.stride) * 4u;
+                    const std::size_t srcStride = static_cast<std::size_t>(w) * 4u;
+                    for (int y = 0; y < copyH; ++y) {
+                        std::memcpy(dst + static_cast<std::size_t>(y) * dstStride,
+                                    src + static_cast<std::size_t>(y) * srcStride,
+                                    static_cast<std::size_t>(copyW) * 4u);
+                    }
+                    ANativeWindow_unlockAndPost(g_surface.window);
+                    presented = true;
+                }
+            }
+        }
     }
-
-    /* 逐行拷贝，按 buf.stride 走而不是 w：
-       显示缓冲的行距通常大于宽度（硬件对齐），
-       假设 stride == w 会写出斜切画面。 */
-    const int copyW = (w < buf.width) ? w : buf.width;
-    const int copyH = (hgt < buf.height) ? hgt : buf.height;
-    const auto* src = reinterpret_cast<const uint8_t*>(rgba);
-    auto* dst = static_cast<uint8_t*>(buf.bits);
-    const std::size_t dstStride = static_cast<std::size_t>(buf.stride) * 4u;
-    const std::size_t srcStride = static_cast<std::size_t>(w) * 4u;
-
-    for (int y = 0; y < copyH; ++y) {
-        std::memcpy(dst + static_cast<std::size_t>(y) * dstStride,
-                    src + static_cast<std::size_t>(y) * srcStride,
-                    static_cast<std::size_t>(copyW) * 4u);
-    }
-
-    ANativeWindow_unlockAndPost(g_surface.window);
     nc_free_buffer(rgba);
-    return JNI_TRUE;
+    return presented ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeSurfaceReady(JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(g_surfaceMutex);
     return g_surface.window != nullptr ? JNI_TRUE : JNI_FALSE;
 }
 
