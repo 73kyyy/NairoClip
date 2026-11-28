@@ -526,6 +526,16 @@ NC_TEST(Chapter, RealMediaEndToEnd) {
     if (!chapterMediaExists(path)) {
         return;  // 素材未生成：跳过（与既有 FFmpeg 用例同一约定）
     }
+    // 该真实媒体用例必须使用系统 VP9 解码器；无系统后端的 CI 主机显式跳过，
+    // 不允许为了测试而退回应用自带的软件解码器。
+    FFmpegMediaReader capabilityProbe;
+    const Result decoder = capabilityProbe.open(path);
+    if (!decoder.isOk()) {
+        NC_SKIP(std::string("系统 VP9 解码后端不可用，跳过章节真实媒体测试：") +
+                decoder.message);
+    }
+    capabilityProbe.close();
+
     // 工程：两镜头素材（4s）放入视频轨
     Project project;
     Sequence seq;
