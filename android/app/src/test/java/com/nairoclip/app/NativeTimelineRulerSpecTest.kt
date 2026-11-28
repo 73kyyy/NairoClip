@@ -27,6 +27,17 @@ class NativeTimelineRulerSpecTest {
             NativeTimelineViewportSpec.timeAtX(500f, 600f, 40.0, 0.0),
             0.0
         )
+        // When 5s is the playhead/viewport-center time, the playhead stays at x=300.
+        assertEquals(
+            300.0,
+            NativeTimelineViewportSpec.xForTime(600f, 5.0, 40.0, 200.0),
+            0.0
+        )
+        assertEquals(
+            5.0,
+            NativeTimelineViewportSpec.timeAtX(300f, 600f, 40.0, 200.0),
+            0.0
+        )
         assertEquals(1200.0, NativeTimelineViewportSpec.maxScrollOffset(30_000_000L, 40.0), 0.0)
     }
 
