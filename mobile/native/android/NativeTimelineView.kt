@@ -580,7 +580,8 @@ class NativeTimelineView(context: Context) : View(context) {
         val lockOpenTint = 0xFF9AA3A8.toInt()
         val lockClosedTint = 0xFFD69A58.toInt()
         // Each icon is centered inside its own 40dp touch target.
-        val centers = floatArrayOf(20f, 60f, 100f).map { it * density }.toFloatArray()
+        // Keep these in dp; drawTrackIcon receives physical pixels below.
+        val centers = floatArrayOf(20f, 60f, 100f)
         drawTrackIcon(
             canvas,
             if (track.visible) eyeDrawable else eyeOffDrawable,
