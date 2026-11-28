@@ -355,7 +355,7 @@ class NativeEditorHostController(
     ): Job = scope.launch {
         operationMutex.withLock {
             dispatch(NativeEditorHostEvent.RefreshStarted)
-            val result = withContext(ioDispatcher) { operation() }
+            val result = withContext(ioDispatcher) { executeSafely(operation) }
             val value = result.value
             if (result.ok && value != null) {
                 dispatch(onSuccess(value))
@@ -374,7 +374,7 @@ class NativeEditorHostController(
     ): Job = scope.launch {
         operationMutex.withLock {
             dispatch(NativeEditorHostEvent.RefreshStarted)
-            val changed = withContext(ioDispatcher) { operation() }
+            val changed = withContext(ioDispatcher) { executeSafely(operation) }
             if (!changed.ok || changed.value == null) {
                 dispatch(
                     NativeEditorHostEvent.MutationFailed(
@@ -383,7 +383,7 @@ class NativeEditorHostController(
                 )
                 return@withLock
             }
-            val refreshed = withContext(ioDispatcher) { adapter.editorStateSnapshot() }
+            val refreshed = withContext(ioDispatcher) { executeSafely { adapter.editorStateSnapshot() } }
             val snapshot = refreshed.value
             if (refreshed.ok && snapshot != null) {
                 dispatch(NativeEditorHostEvent.MutationCommitted(snapshot))
@@ -402,7 +402,7 @@ class NativeEditorHostController(
     ): Job = scope.launch {
         operationMutex.withLock {
             dispatch(NativeEditorHostEvent.RefreshStarted)
-            val changed = withContext(ioDispatcher) { operation() }
+            val changed = withContext(ioDispatcher) { executeSafely(operation) }
             if (!changed.ok) {
                 dispatch(
                     NativeEditorHostEvent.MutationFailed(
@@ -411,7 +411,7 @@ class NativeEditorHostController(
                 )
                 return@withLock
             }
-            val refreshed = withContext(ioDispatcher) { adapter.editorStateSnapshot() }
+            val refreshed = withContext(ioDispatcher) { executeSafely { adapter.editorStateSnapshot() } }
             val snapshot = refreshed.value
             if (refreshed.ok && snapshot != null) {
                 dispatch(NativeEditorHostEvent.MutationCommitted(snapshot))
