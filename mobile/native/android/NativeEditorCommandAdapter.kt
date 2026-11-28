@@ -148,6 +148,14 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         ) { Unit }
     }
 
+    fun setTrackLocked(trackIndex: Int, locked: Boolean): Result<Unit> {
+        if (trackIndex < 0) return Result(false, error = "轨道索引不能为负数")
+        return invoke(
+            "nc_set_track_locked",
+            JSONObject().put("track_index", trackIndex).put("locked", locked)
+        ) { Unit }
+    }
+
     /**
      * Reads the authoritative timeline snapshot while holding the same bridge
      * lock used by editor mutations. This prevents a concurrent command from
@@ -172,6 +180,12 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         muted: Boolean
     ): Result<NativeTimelineSnapshot> =
         mutateAndReadTimelineSnapshot { setTrackMuted(trackIndex, muted) }
+
+    fun setTrackLockedAndReadSnapshot(
+        trackIndex: Int,
+        locked: Boolean
+    ): Result<NativeTimelineSnapshot> =
+        mutateAndReadTimelineSnapshot { setTrackLocked(trackIndex, locked) }
 
     private fun mutateAndReadTimelineSnapshot(
         mutation: () -> Result<Unit>
