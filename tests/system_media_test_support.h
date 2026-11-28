@@ -2,6 +2,7 @@
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 
+#include "nairoclip/core/media_ffmpeg.h"
 #include "nairoclip/core/media_ffmpeg_writer.h"
 
 #include <cstdio>
@@ -17,7 +18,7 @@ namespace nairoclip::core::test_support {
 // VAAPI/QSV encoder names without a usable device; name enumeration alone is
 // not proof that the encoder can actually export. Never enable a bundled
 // software encoder to make an integration test pass.
-inline bool hasUsableSystemVideoEncoder(const std::string& codec, int width, int height,
+inline bool hasUsableSystemVideoCodec(const std::string& codec, int width, int height,
                                         FrameRate frameRate = fps30()) {
     if (codec.empty() || width <= 0 || height <= 0 ||
         static_cast<std::size_t>(width) >
@@ -59,15 +60,44 @@ inline bool hasUsableSystemVideoEncoder(const std::string& codec, int width, int
 
     const Result written = writer.writeVideoFrame(frame);
     const Result finished = written.isOk() ? writer.finish() : written;
-    const bool usable = written.isOk() && finished.isOk();
+    bool usable = written.isOk() && finished.isOk();
     if (!usable) {
         const Result& failure = written.isOk() ? finished : written;
         std::printf("[SKIP] 系统视频编码器不能完成当前帧配置（%s）：%s\n",
                     codec.c_str(), failure.message.c_str());
     }
     writer.abort();
+    if (usable) {
+        FFmpegMediaReader reader;
+        const Result readerOpened = reader.open(path);
+        VideoFrame decoded;
+        usable = readerOpened.isOk() && reader.readVideoFrame(decoded) &&
+                 !decoded.pixels.empty();
+        reader.close();
+        if (!usable) {
+            std::printf("[SKIP] 系统视频解码器无法回读系统编码器输出（%s）\n",
+                        codec.c_str());
+        }
+    }
     std::remove(path.c_str());
     return usable;
+}
+
+inline bool hasUsableSystemVideoDecoder(const std::string& path) {
+    FFmpegMediaReader reader;
+    const Result opened = reader.open(path);
+    if (!opened.isOk()) {
+        std::printf("[SKIP] 系统视频解码器无法打开素材：%s（%s）\n",
+                    path.c_str(), opened.message.c_str());
+        return false;
+    }
+    VideoFrame frame;
+    const bool decoded = reader.readVideoFrame(frame) && !frame.pixels.empty();
+    reader.close();
+    if (!decoded) {
+        std::printf("[SKIP] 系统视频解码器无法读取素材首帧：%s\n", path.c_str());
+    }
+    return decoded;
 }
 
 }  // namespace nairoclip::core::test_support
