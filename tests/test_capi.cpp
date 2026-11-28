@@ -1402,7 +1402,7 @@ NC_TEST(Capi, ChapterRealMediaEndToEnd) {
         // Host CI 没有保证存在系统 VP9/H.264 解码器；禁止用软件解码器兜底。
         // 此时 C ABI 应明确保留时长级章节结果，而不是伪造场景切点。
         NC_CHECK_EQ(count, 1);
-        NC_CHECK(note != nullptr && note[0] != '\\0');
+        NC_CHECK(note != nullptr && note[0] != '\0');
         const int32_t written = nc_chapter_apply(editor, &err);
         NC_CHECK_EQ(written, 1);
         NC_CHECK_EQ(nc_chapter_count(editor), 1);
