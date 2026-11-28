@@ -82,12 +82,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * First native editor surface for the S5 migration.
+ * Native editor surface for the S5 migration.
  *
- * This composable deliberately owns presentation only. Editing commands remain
- * routed through the existing editor until their native command adapters and
- * S5 interface contract are accepted. Every not-yet-migrated tool can hand the
- * user back to the complete legacy editor through [onOpenLegacy].
+ * Compose owns the editor presentation and routes migrated editing actions
+ * through the native command adapter/host controller. Tools whose native
+ * command contracts are not yet migrated remain available through the retained
+ * legacy editor via [onOpenLegacy]; the fallback is intentional and must not be
+ * removed as part of incremental page migration.
  */
 data class NativePreviewCacheUiStats(
     val frameHits: Long,
