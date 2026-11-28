@@ -611,8 +611,8 @@ class NativeTimelineView(context: Context) : View(context) {
         val speakerMutedTint = 0xFFD69A58.toInt()
         val lockOpenTint = 0xFF9AA3A8.toInt()
         val lockClosedTint = 0xFFD69A58.toInt()
-        // Preserve the reference's three compact icon centers inside the fixed 40dp overlay.
-        // Coordinates are already physical pixels because trackControlsWidth includes density.
+        // Each control owns one 40dp cell in the floating 120dp overlay.
+        // Coordinates are physical pixels because trackControlsWidth includes density.
         val firstCenterX = trackControlsWidth / 6f
         val middleCenterX = trackControlsWidth / 2f
         val lastCenterX = trackControlsWidth * 5f / 6f
