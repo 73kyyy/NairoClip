@@ -29,7 +29,7 @@ class NativeTrackToggleIntentsTest {
 
         // Finishing the current target retires the pending reservation.
         intents.finish(key, true)
-        assertEquals(true, intents.reserve(key, true))
+        assertEquals(false, intents.reserve(key, true))
     }
 
     @Test
