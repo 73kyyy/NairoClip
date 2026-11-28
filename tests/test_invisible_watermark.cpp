@@ -389,7 +389,7 @@ NC_TEST(InvisibleWatermark, MultiFrameConsistency) {
 #include "system_media_test_support.h"
 #include <fstream>
 
-NC_TEST(InvisibleWatermark, SurvivesH264RoundTrip) {
+NC_TEST(InvisibleWatermark, SurvivesSystemVp9RoundTrip) {
     const int w = 320, h = 240;
     if (!test_support::hasUsableSystemVideoEncoder("vp9", w, h)) return;
     const WatermarkPayload payload = makePayload(0xABCDEF01, 42);
