@@ -115,6 +115,17 @@ class NativeTimelineView(context: Context) : View(context) {
     }
     private val trackControlFeatherMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+        // Horizontal shader is invariant across rows; cache it instead of
+        // allocating a new LinearGradient on every timeline frame.
+        shader = LinearGradient(
+            0f,
+            0f,
+            trackControlsWidth,
+            0f,
+            intArrayOf(0xE0FFFFFF.toInt(), 0x00FFFFFF),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
     }
     private val selectedClipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF777F86.toInt()
@@ -473,20 +484,8 @@ class NativeTimelineView(context: Context) : View(context) {
                 drawTrackClips(canvas, track, top, bottom)
                 canvas.restore()
 
-                trackControlFeatherMaskPaint.shader = LinearGradient(
-                    0f,
-                    top,
-                    featherRight,
-                    top,
-                    intArrayOf(
-                        withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.START_ALPHA),
-                        withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.END_ALPHA)
-                    ),
-                    floatArrayOf(0f, 1f),
-                    Shader.TileMode.CLAMP
-                )
+                // The cached horizontal shader spans the fixed 120dp gutter.
                 canvas.drawRect(featherBounds, trackControlFeatherMaskPaint)
-                trackControlFeatherMaskPaint.shader = null
                 canvas.restore()
             }
             // Controls are always rendered last and remain perfectly sharp.
@@ -570,12 +569,12 @@ class NativeTimelineView(context: Context) : View(context) {
         val lockOpenTint = 0xFF9AA3A8.toInt()
         val lockClosedTint = 0xFFD69A58.toInt()
         // Each icon is centered inside its own 40dp touch target.
-        // Keep these in dp; drawTrackIcon receives physical pixels below.
-        val centers = floatArrayOf(20f, 60f, 100f)
+        // Derive centers directly to avoid per-row arrays/lists during redraw.
+        val buttonWidthPx = NativeEditorLayoutSpec.TRACK_CONTROL_BUTTON_WIDTH_DP * density
         drawTrackIcon(
             canvas,
             if (track.visible) eyeDrawable else eyeOffDrawable,
-            centers[0] * density,
+            buttonWidthPx * 0.5f,
             centerY,
             iconSize,
             if (track.visible) eyeVisibleTint else eyeHiddenTint
@@ -583,7 +582,7 @@ class NativeTimelineView(context: Context) : View(context) {
         drawTrackIcon(
             canvas,
             if (track.muted) speakerOffDrawable else speakerDrawable,
-            centers[1] * density,
+            buttonWidthPx * 1.5f,
             centerY,
             iconSize,
             if (track.muted) speakerMutedTint else speakerOnTint
@@ -591,7 +590,7 @@ class NativeTimelineView(context: Context) : View(context) {
         drawTrackIcon(
             canvas,
             if (track.locked) lockDrawable else unlockDrawable,
-            centers[2] * density,
+            buttonWidthPx * 2.5f,
             centerY,
             iconSize,
             if (track.locked) lockClosedTint else lockOpenTint
