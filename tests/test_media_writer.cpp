@@ -97,6 +97,22 @@ NC_TEST(MediaWriter, MockFactoryCreates) {
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/media_ffmpeg_writer.h"
+NC_TEST(MediaWriter, FFmpegWriterRejectsAudioUntilSystemMuxerIsConnected) {
+    FFmpegMediaWriter writer;
+    WriterConfig config;
+    config.videoCodec = "vp9";
+    config.width = 64;
+    config.height = 64;
+    config.includeAudio = true;
+    const Result result = writer.open("/tmp/media_gen/system_aac_required.mp4", config);
+    NC_CHECK(!result.isOk());
+    NC_CHECK(result.code == ErrorCode::Unsupported);
+    NC_CHECK(result.message.find("系统 AAC") != std::string::npos);
+    NC_CHECK(!writer.isOpen());
+    writer.abort();
+    NC_CHECK(!writer.isOpen());
+}
+
 NC_TEST(MediaWriter, FFmpegWriterRejectsBundledSoftwareVideoEncoder) {
     FFmpegMediaWriter writer;
     WriterConfig config;
