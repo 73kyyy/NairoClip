@@ -28,6 +28,14 @@ class NativeTrackControlFeatherSpecTest {
     }
 
     @Test
+    fun featherShaderEndsAtTheVisibleViewportEdge() {
+        assertEquals(80f, NativeTrackControlFeatherSpec.shaderWidth(80f, 120f), 0f)
+        assertEquals(120f, NativeTrackControlFeatherSpec.shaderWidth(320f, 120f), 0f)
+        assertEquals(0f, NativeTrackControlFeatherSpec.shaderWidth(-1f, 120f), 0f)
+        assertEquals(0f, NativeTrackControlFeatherSpec.shaderWidth(Float.NaN, 120f), 0f)
+    }
+
+    @Test
     fun malformedPositionIsBoundedToTheStrongEdge() {
         assertEquals(0.88f, NativeTrackControlFeatherSpec.alphaAt(Float.NaN), 0.0001f)
         assertEquals(0f, NativeTrackControlFeatherSpec.alphaAt(Float.POSITIVE_INFINITY), 0.0001f)
