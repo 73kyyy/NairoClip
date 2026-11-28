@@ -491,8 +491,8 @@ class NativeTimelineView(context: Context) : View(context) {
                 trackControlsWidth,
                 top,
                 intArrayOf(
-                    withAlpha(laneColor, 0.88f),
-                    withAlpha(laneColor, 0f)
+                    withAlpha(laneColor, NativeTrackControlFeatherSpec.START_ALPHA),
+                    withAlpha(laneColor, NativeTrackControlFeatherSpec.END_ALPHA)
                 ),
                 floatArrayOf(0f, 1f),
                 Shader.TileMode.CLAMP
