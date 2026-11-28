@@ -181,6 +181,37 @@ class NativeEditorHostController(
         onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
     )
 
+    fun setClipFilter(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        style: Int,
+        intensity: Double
+    ): Job = runRefreshMutation {
+        adapter.setClipFilterAndRead(target, style, intensity)
+    }
+
+    fun setClipLut(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        path: String,
+        strength: Double
+    ): Job = runRefreshMutation {
+        adapter.setClipLutAndRead(target, path, strength)
+    }
+
+    fun setClipColorGrade(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        grade: NativeEditorCommandAdapter.ClipColorGradeState
+    ): Job = runEditorMutation(
+        operation = { adapter.setClipColorGradeAndReadEditorState(target, grade) },
+        onSuccess = { NativeEditorHostEvent.MutationCommitted(it.editorState) }
+    )
+
+    fun setClipMask(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        mask: NativeEditorCommandAdapter.ClipMaskState
+    ): Job = runRefreshMutation {
+        adapter.setClipMaskAndRead(target, mask)
+    }
+
     fun insertTransformKeyframe(
         target: NativeEditorCommandAdapter.ClipTarget,
         parameter: NativeParameter,
@@ -252,6 +283,34 @@ class NativeEditorHostController(
                 dispatch(
                     NativeEditorHostEvent.MutationFailed(
                         result.error ?: "原生编辑命令执行失败"
+                    )
+                )
+            }
+        }
+    }
+
+    private fun <T : Any> runRefreshMutation(
+        operation: () -> NativeEditorCommandAdapter.Result<T>
+    ): Job = scope.launch {
+        operationMutex.withLock {
+            dispatch(NativeEditorHostEvent.RefreshStarted)
+            val changed = withContext(ioDispatcher) { operation() }
+            if (!changed.ok || changed.value == null) {
+                dispatch(
+                    NativeEditorHostEvent.MutationFailed(
+                        changed.error ?: "原生编辑命令执行失败"
+                    )
+                )
+                return@withLock
+            }
+            val refreshed = withContext(ioDispatcher) { adapter.editorStateSnapshot() }
+            val snapshot = refreshed.value
+            if (refreshed.ok && snapshot != null) {
+                dispatch(NativeEditorHostEvent.MutationCommitted(snapshot))
+            } else {
+                dispatch(
+                    NativeEditorHostEvent.SnapshotLoadFailed(
+                        refreshed.error ?: "编辑已提交，但刷新工程状态失败"
                     )
                 )
             }
