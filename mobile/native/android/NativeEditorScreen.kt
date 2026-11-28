@@ -338,39 +338,6 @@ fun NativeEditorScreen(
                 }
             )
 
-            if (prewarmRunning || prewarmStatus != null || prewarmStats != null) {
-                NativePreviewPrewarmPanel(
-                    running = prewarmRunning,
-                    progress = prewarmProgress,
-                    status = prewarmStatus,
-                    stats = prewarmStats,
-                    onCancel = {
-                        prewarmJob?.cancel()
-                        prewarmJob = null
-                        prewarmRunning = false
-                        prewarmProgress = 0f
-                        prewarmStatus = "已取消预热"
-                    },
-                    onDismiss = {
-                        prewarmStatus = null
-                        prewarmStats = null
-                    }
-                )
-            }
-
-            if (showMarkerList) {
-                NativeMarkerListPanel(
-                    markers = timelineMarkers,
-                    onSelect = { marker ->
-                        onPausePlayback?.invoke()
-                        onPlayheadChanged(marker.timeUs)
-                        showMarkerList = false
-                    },
-                    onRemove = onRemoveMarker,
-                    onDismiss = { showMarkerList = false }
-                )
-            }
-
             NativeTimelinePanel(
                 tracks = timelineTracks,
                 durationUs = timelineDurationUs,
@@ -404,6 +371,38 @@ fun NativeEditorScreen(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                if (prewarmRunning || prewarmStatus != null || prewarmStats != null) {
+                    NativePreviewPrewarmPanel(
+                        running = prewarmRunning,
+                        progress = prewarmProgress,
+                        status = prewarmStatus,
+                        stats = prewarmStats,
+                        onCancel = {
+                            prewarmJob?.cancel()
+                            prewarmJob = null
+                            prewarmRunning = false
+                            prewarmProgress = 0f
+                            prewarmStatus = "已取消预热"
+                        },
+                        onDismiss = {
+                            prewarmStatus = null
+                            prewarmStats = null
+                        }
+                    )
+                }
+    
+                if (showMarkerList) {
+                    NativeMarkerListPanel(
+                        markers = timelineMarkers,
+                        onSelect = { marker ->
+                            onPausePlayback?.invoke()
+                            onPlayheadChanged(marker.timeUs)
+                            showMarkerList = false
+                        },
+                        onRemove = onRemoveMarker,
+                        onDismiss = { showMarkerList = false }
+                    )
+                }
             selectedClip?.let { selection ->
                 val selectedTrack = timelineTracks.firstOrNull { track ->
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
