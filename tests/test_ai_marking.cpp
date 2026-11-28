@@ -232,6 +232,7 @@ bool systemVp9EncoderAvailable(std::string& reason) {
     config.width = 320;
     config.height = 240;
     config.frameRate = fps30();
+    config.includeAudio = false;
     const char* probePath = "/tmp/media_gen/system_vp9_probe_ai.mp4";
     const Result result = writer.open(probePath, config);
     if (!result.isOk()) {
