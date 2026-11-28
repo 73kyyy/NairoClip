@@ -422,6 +422,11 @@ class MainActivity : AppCompatActivity() {
         }
         nativeEditorOverlay = null
         nativeEditorVisible = false
+        // Explicitly detach the renderer before releasing its bound engine.
+        // This is idempotent if NativePreviewSurfaceController already detached
+        // during Compose disposal, and prevents a late Surface callback from
+        // targeting a released engine during Activity teardown.
+        runCatching { NativeEngineBridge.detachSurface() }
         engine?.release()
         engine = null
         if (this::webView.isInitialized) {
