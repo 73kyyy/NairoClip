@@ -366,11 +366,12 @@ class NativeTimelineView(context: Context) : View(context) {
             if (x < 0f || x > width.toFloat()) continue
             val majorIndex = seconds / majorStep
             val isMajor = kotlin.math.abs(majorIndex - kotlin.math.round(majorIndex)) < 1e-6
-            val tickHeight = if (isMajor) {
+            val tickHeightDp = if (isMajor) {
                 NativeEditorLayoutSpec.RULER_MAJOR_TICK_HEIGHT_DP
             } else {
                 NativeEditorLayoutSpec.RULER_TICK_HEIGHT_DP
-            }.toFloat() * density
+            }
+            val tickHeight = tickHeightDp.toFloat() * density
             canvas.drawLine(x, rulerHeight - tickHeight, x, rulerHeight, tickPaint)
         }
 
