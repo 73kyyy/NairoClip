@@ -126,7 +126,7 @@ The current S5 native editor now follows the reference's major vertical regions:
 - centered three-action transport row (scissors, play/pause, delete);
 - horizontally scrollable first-level toolbar and same-row second-level expansion.
 
-The corresponding geometry is centralized in `mobile/native/android/NativeEditorLayoutSpec.kt` and guarded by `NativeEditorLayoutSpecTest`. The preview expand control is 36dp; the major region heights are 44dp (top row), 46dp (quick actions), 282dp (timeline), 56dp (transport), and 104dp (bottom toolbar), matching the 692x1536 reference's vertical proportions. These are reference-layout baselines, not permission to resize unrelated regions to make room for more controls.
+The corresponding geometry is centralized in `mobile/native/android/NativeEditorLayoutSpec.kt` and guarded by `NativeEditorLayoutSpecTest`. The preview expand control is 36dp; the major region heights are 40dp (top row), 46dp (quick actions), 282dp (timeline), 56dp (transport), and 104dp (bottom toolbar), matching the 692x1536 reference's vertical proportions. These are reference-layout baselines, not permission to resize unrelated regions to make room for more controls.
 
 The transport row uses the existing `onSplitClip` and `onDeleteClip` command callbacks when a clip is selected. Playback, share, export, and preview expansion expose typed optional callbacks; until the runtime host supplies them, those actions explicitly return to the retained WebView editor. This update does not claim the callbacks are connected to MainActivity or that the native editor is runtime-integrated.
 
