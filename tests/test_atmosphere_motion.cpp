@@ -421,10 +421,35 @@ NC_TEST(AtmosphereMotionPipeline, SerializationRoundtrip) {
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/capi.h"
 #include "nairoclip/core/media_ffmpeg.h"
+#include "nairoclip/core/media_ffmpeg_writer.h"
 #include <cstdio>
 #include <fstream>
 
 namespace {
+
+// CI 主机可能枚举到 VAAPI/QSV 编码器，但没有对应设备或像素格式支持。
+// 端到端导出测试只在系统 VP9 编码器能打开当前 RGBA→YUV420P 输出配置时运行；
+// 不得为让测试变绿而启用应用自带软件编码器。
+bool systemVp9EncoderAvailable() {
+    WriterConfig config;
+    config.width = 1920;
+    config.height = 1080;
+    config.videoCodec = "vp9";
+    config.includeAudio = false;
+    FFmpegMediaWriter writer;
+    constexpr const char* probePath = "/tmp/media_gen/nc_vp9_encoder_probe.mp4";
+    const Result opened = writer.open(probePath, config);
+    if (!opened.isOk()) {
+        std::printf("[SKIP] AtmosphereMotionE2E：系统 VP9 编码器不可用：%s\\n",
+                    opened.message.c_str());
+        writer.abort();
+        std::remove(probePath);
+        return false;
+    }
+    writer.abort();
+    std::remove(probePath);
+    return true;
+}
 
 bool exportWithEffect(int effectType, const char* outPath, std::vector<std::uint8_t>& pixels,
                       int& width, int& height, int skipFrames = 0) {
@@ -474,10 +499,17 @@ NC_TEST(AtmosphereMotionE2E, SnowBrightensDarkAreas) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
+    if (!systemVp9EncoderAvailable()) return;
     std::vector<std::uint8_t> snow, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
-    NC_CHECK(exportWithEffect(19, "/tmp/media_gen/t_snow.mp4", snow, w1, h1));
-    NC_CHECK(exportWithEffect(0, "/tmp/media_gen/t_plain3.mp4", plain, w2, h2));
+    const bool snowExported =
+        exportWithEffect(19, "/tmp/media_gen/t_snow.mp4", snow, w1, h1);
+    NC_CHECK(snowExported);
+    if (!snowExported || snow.empty() || w1 <= 0 || h1 <= 0) return;
+    const bool plainExported =
+        exportWithEffect(0, "/tmp/media_gen/t_plain3.mp4", plain, w2, h2);
+    NC_CHECK(plainExported);
+    if (!plainExported || plain.empty() || w2 <= 0 || h2 <= 0) return;
     NC_CHECK_EQ(w1, w2);
     // 雪花是白色加法粒子 → 亮像素数增加
     long long brighter = 0, samples = 0;
@@ -497,11 +529,18 @@ NC_TEST(AtmosphereMotionE2E, ZoomPunchChangesFrameAtPulsePeak) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
+    if (!systemVp9EncoderAvailable()) return;
     std::vector<std::uint8_t> punch, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
     // 第 8 帧（0.27s，缩放脉冲峰值附近）
-    NC_CHECK(exportWithEffect(24, "/tmp/media_gen/t_punch.mp4", punch, w1, h1, 8));
-    NC_CHECK(exportWithEffect(0, "/tmp/media_gen/t_plain4.mp4", plain, w2, h2, 8));
+    const bool punchExported =
+        exportWithEffect(24, "/tmp/media_gen/t_punch.mp4", punch, w1, h1, 8);
+    NC_CHECK(punchExported);
+    if (!punchExported || punch.empty() || w1 <= 0 || h1 <= 0) return;
+    const bool plainExported =
+        exportWithEffect(0, "/tmp/media_gen/t_plain4.mp4", plain, w2, h2, 8);
+    NC_CHECK(plainExported);
+    if (!plainExported || plain.empty() || w2 <= 0 || h2 <= 0) return;
     NC_CHECK_EQ(w1, w2);
     long long diff = 0;
     for (int y = 700; y < 1200; y += 4) {
