@@ -106,10 +106,12 @@ class NativeTimelineView(context: Context) : View(context) {
     // leaving the fixed eye/speaker/lock glyphs sharp when they are redrawn.
     private val trackControlBlurPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            renderEffect = RenderEffect.createBlurEffect(
-                NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
-                NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
-                Shader.TileMode.CLAMP
+            setRenderEffect(
+                RenderEffect.createBlurEffect(
+                    NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
+                    NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
+                    Shader.TileMode.CLAMP
+                )
             )
         }
     }
