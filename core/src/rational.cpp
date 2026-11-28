@@ -197,28 +197,47 @@ Rational Rational::make(std::int64_t numerator, std::int64_t denominator) {
     if (denominator == 0 || numerator == 0) {
         return r;  // 0/1；零分子无需归一化分母符号
     }
-    if (denominator < 0) {
-        // 注意：INT64_MIN 取反是 UB，先转 Wide 再取反。
-        bool ofNum = false;
-        bool ofDen = false;
-        const Wide negNum = wideNegate(wideFrom(numerator));
-        const Wide negDen = wideNegate(wideFrom(denominator));
-        numerator = wideToInt64(negNum, ofNum);
-        denominator = wideToInt64(negDen, ofDen);
-        if (ofNum || ofDen) {
-            g_lastOverflow = true;
-            // The denominator's sign has been normalized mathematically; if
-            // either negation exceeded int64, preserve the ratio sign rather
-            // than returning a clipped, numerically unrelated fraction.
-            return saturatedRational(numerator < 0);
-        }
-        if (denominator <= 0) {  // 取反后仍不合法（极端溢出）→ 退化为 0
-            return r;
-        }
+
+    // 先用无符号绝对值约分，再处理符号。若先把负分母取反，
+    // INT64_MIN 会溢出；而且像 INT64_MIN/INT64_MIN 这样本可化简为
+    // 1/1 的比例，会在约分前被错误地判为溢出。
+    const auto magnitude = [](std::int64_t value) -> std::uint64_t {
+        const std::uint64_t bits = static_cast<std::uint64_t>(value);
+        return value < 0 ? (0u - bits) : bits;
+    };
+    std::uint64_t numeratorMagnitude = magnitude(numerator);
+    std::uint64_t denominatorMagnitude = magnitude(denominator);
+    std::uint64_t a = numeratorMagnitude;
+    std::uint64_t b = denominatorMagnitude;
+    while (b != 0u) {
+        const std::uint64_t remainder = a % b;
+        a = b;
+        b = remainder;
     }
-    const std::int64_t g = gcd64(numerator, denominator);
-    r.num = numerator / g;
-    r.den = denominator / g;
+    const std::uint64_t divisor = a == 0u ? 1u : a;
+    numeratorMagnitude /= divisor;
+    denominatorMagnitude /= divisor;
+
+    const bool negative = (numerator < 0) != (denominator < 0);
+    constexpr std::uint64_t kMax = static_cast<std::uint64_t>(INT64_MAX);
+    constexpr std::uint64_t kMinMagnitude = kMax + 1u;
+
+    // 分母必须为正且可由 int64 表示；分子允许负向多表示一个值。
+    if (denominatorMagnitude > kMax ||
+        (!negative && numeratorMagnitude > kMax) ||
+        (negative && numeratorMagnitude > kMinMagnitude)) {
+        g_lastOverflow = true;
+        return saturatedRational(negative);
+    }
+
+    if (negative) {
+        r.num = numeratorMagnitude == kMinMagnitude
+            ? INT64_MIN
+            : -static_cast<std::int64_t>(numeratorMagnitude);
+    } else {
+        r.num = static_cast<std::int64_t>(numeratorMagnitude);
+    }
+    r.den = static_cast<std::int64_t>(denominatorMagnitude);
     return r;
 }
 
