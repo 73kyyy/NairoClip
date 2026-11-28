@@ -607,10 +607,38 @@ NC_TEST(SpatialEffectsPipeline, SerializationRoundtrip) {
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/capi.h"
 #include "nairoclip/core/media_ffmpeg.h"
+#include "nairoclip/core/media_ffmpeg_writer.h"
 #include <cstdio>
 #include <fstream>
 
 namespace {
+
+/// CI 真实导出只允许系统 VP9 编码/解码后端；不使用 libvpx 软件回退。
+bool systemVp9RoundTripAvailable(const char* inputPath, std::string& reason) {
+    FFmpegMediaWriter writer;
+    WriterConfig config;
+    config.videoCodec = "vp9";
+    config.width = 320;
+    config.height = 240;
+    config.frameRate = fps30();
+    const char* probePath = "/tmp/media_gen/system_vp9_probe.mp4";
+    const Result encoder = writer.open(probePath, config);
+    if (!encoder.isOk()) {
+        reason = "系统 VP9 编码器不可用：" + encoder.message;
+        return false;
+    }
+    writer.abort();
+    std::remove(probePath);
+
+    FFmpegMediaReader reader;
+    const Result decoder = reader.open(inputPath);
+    if (!decoder.isOk()) {
+        reason = "系统 VP9 解码器不可用：" + decoder.message;
+        return false;
+    }
+    reader.close();
+    return true;
+}
 
 /// 用真实素材导出并读取首帧（effectType = 0 表示无特效）。
 bool exportDetailFrame(int effectType, double value, const char* outPath,
@@ -675,6 +703,10 @@ NC_TEST(SpatialEffectsE2E, BlurAndSharpenChangeGradientEnergy) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过（与既有约定一致）
     }
+    std::string codecReason;
+    if (!systemVp9RoundTripAvailable("/tmp/media_gen/detail_src.mp4", codecReason)) {
+        NC_SKIP(codecReason);
+    }
     std::vector<std::uint8_t> blur, plain, sharp;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0, w3 = 0, h3 = 0;
     NC_CHECK(exportDetailFrame(9, 8.0, "/tmp/media_gen/t_blur.mp4", blur, w1, h1));
@@ -725,6 +757,10 @@ NC_TEST(SpatialEffectsE2E, VignetteDarkensContentCornersOnRealExport) {
     {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
+    }
+    std::string codecReason;
+    if (!systemVp9RoundTripAvailable("/tmp/media_gen/detail_src.mp4", codecReason)) {
+        NC_SKIP(codecReason);
     }
     std::vector<std::uint8_t> vig, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
