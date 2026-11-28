@@ -382,9 +382,6 @@ class MainActivity : AppCompatActivity() {
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
-        // Keep the exact WebView document/session alive, but stop its timers
-        // while the native editor owns the foreground interaction surface.
-        webView.onPause()
         nativeEditorOverlay = overlay
         nativeEditorVisible = true
         android.util.Log.i("NcNativeEditor", "S5 原生剪辑页已打开（内部受控入口）")
