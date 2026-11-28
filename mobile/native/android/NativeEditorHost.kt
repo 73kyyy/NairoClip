@@ -350,15 +350,9 @@ fun NativeEditorHost(
         onRemoveMarker = { markerId -> controller.removeMarker(markerId) },
         onClipSelected = controller::selectClip,
         onClipSelectionCleared = controller::clearSelection,
-        onTrackVisibilityChanged = { track, visible ->
-            controller.setTrackVisibility(track, visible)
-        },
-        onTrackMuteChanged = { track, muted ->
-            controller.setTrackMuted(track, muted)
-        },
-        onTrackLockChanged = { track, locked ->
-            controller.setTrackLocked(track, locked)
-        },
+        onTrackVisibilityChanged = controller::toggleTrackVisibility,
+        onTrackMuteChanged = controller::toggleTrackMuted,
+        onTrackLockChanged = controller::toggleTrackLocked,
         imageAssets = state.timeline?.assets.orEmpty(),
         backgroundRgba = state.timeline?.backgroundRgba,
         isImportingImages = isImportingImages,
