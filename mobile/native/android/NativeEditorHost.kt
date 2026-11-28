@@ -167,7 +167,7 @@ fun NativeEditorHost(
             val spec = result.value
             if (result.ok && spec != null) baseSpecs[effectType] = spec
         }
-        clipEffectSpecs = baseSpecs
+        clipEffectSpecs = clipEffectSpecs + baseSpecs
     }
 
     LaunchedEffect(state.timeline, state.history, keyframeRevision) {
@@ -215,7 +215,7 @@ fun NativeEditorHost(
                     val spec = specResult.value
                     if (specResult.ok && spec != null) loadedEffectSpecs[effectType] = spec
                 }
-                clipEffectSpecs = loadedEffectSpecs
+                clipEffectSpecs = clipEffectSpecs + loadedEffectSpecs
             }
             val transitionsResult = withContext(Dispatchers.IO) {
                 adapter.readTransitions(target.trackIndex)
