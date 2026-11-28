@@ -114,3 +114,18 @@ Therefore, the Compose editor and its typed `NativeQuickAction` callback are not
 ## Touch-target geometry follow-up (2026-11-27)
 
 The shortcut visual circle remains **30dp × 30dp** for all eleven actions, including AI. Each visual circle is centered inside an independent **48dp × 48dp** clickable target. The larger hit target must not change the visible circle diameter; horizontal scrolling handles the resulting strip width. This separates visual parity from Android touch accessibility.
+
+
+## Native layout implementation update (2026-11-28)
+
+The current S5 native editor now follows the reference's major vertical regions:
+- compact top row with share and export grouped at the right;
+- centered 9:16 preview frame with a separate circular expand affordance at the lower-right of the preview stage;
+- eleven quick actions in the established order, each using a 30dp visual circle inside a 48dp touch target;
+- fixed-height timeline region with a 27dp ruler and 4dp tick marks;
+- centered three-action transport row (scissors, play/pause, delete);
+- horizontally scrollable first-level toolbar and same-row second-level expansion.
+
+The corresponding geometry is centralized in `mobile/native/android/NativeEditorLayoutSpec.kt` and guarded by `NativeEditorLayoutSpecTest`. The preview expand control is 36dp; the major region heights are 44dp (top row), 50dp (quick actions), 218dp (timeline), 52dp (transport), and 82dp (bottom toolbar). These are reference-layout baselines, not permission to resize unrelated regions to make room for more controls.
+
+The transport row uses the existing `onSplitClip` and `onDeleteClip` command callbacks when a clip is selected. Playback, share, export, and preview expansion expose typed optional callbacks; until the runtime host supplies them, those actions explicitly return to the retained WebView editor. This update does not claim the callbacks are connected to MainActivity or that the native editor is runtime-integrated.
