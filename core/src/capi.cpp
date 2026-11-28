@@ -183,6 +183,13 @@ public:
 #ifdef NAIROCLIP_HAS_FFMPEG
         const Result systemMedia = ffmpeg_.open(path);
         if (systemMedia.isOk()) {
+            if (!ffmpeg_.probe().hasAudioStream ||
+                !ffmpeg_.probe().audioDecoderAvailable) {
+                ffmpeg_.close();
+                return Result::fail(
+                    ErrorCode::Unsupported,
+                    "当前平台没有可用的系统音频解码器；未使用应用自带软件解码回退。");
+            }
             useWav_ = false;
             return systemMedia;
         }
@@ -5623,8 +5630,12 @@ int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket
     if (!readerOpen.isOk()) {
         return failResult(readerOpen);
     }
-    if (reader.probe().sampleRate <= 0 || reader.probe().channels <= 0) {
-        return failNc(NC_ERROR_NOT_FOUND, "素材没有可读取的音频流");
+    if (!reader.probe().hasAudioStream) {
+        return failNc(NC_ERROR_NOT_FOUND, "素材没有音频流");
+    }
+    if (!reader.probe().audioDecoderAvailable) {
+        return failNc(NC_ERROR_UNSUPPORTED,
+                      "当前平台没有可用的系统音频解码器；未使用软件解码回退。");
     }
     // 上限保护：只解码前 120s 音频（波形显示无需全片；避免长素材 OOM/耗时）
     constexpr double kMaxSeconds = 120.0;
@@ -6244,9 +6255,12 @@ Result collectAudioBlocks(const NcEditor* editor, const Track& target,
         if (!openResult.isOk()) {
             return openResult;
         }
-        if (reader.probe().sampleRate <= 0 || reader.probe().channels <= 0) {
+        if (!reader.probe().hasAudioStream) {
+            return Result::fail(ErrorCode::NotFound, "素材没有音频流。");
+        }
+        if (!reader.probe().audioDecoderAvailable) {
             return Result::fail(ErrorCode::Unsupported,
-                                "系统媒体后端未提供该素材的音频解码流。");
+                                "系统媒体后端没有可用的音频解码器；未使用软件解码回退。");
         }
         const Result seekResult = reader.seek(clip.sourceIn);
         if (!seekResult.isOk()) {
