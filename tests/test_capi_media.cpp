@@ -227,6 +227,16 @@ NC_TEST(CapiMedia, PreviewRenderRealFrame) {
     const std::int32_t rc = nc_preview_render(editor, 1000000, &width, &height, &rgba,
                                               &activeClip, nullptr, nullptr, nullptr, nullptr,
                                               nullptr, &transitionType, nullptr);
+    if (rc == NC_ERROR_UNSUPPORTED) {
+        // CI 主机不保证有 VP9 系统硬件解码器；系统后端不可用时必须明确失败，
+        // 不能以 NC_OK + 空画面伪装成功，也不能偷偷回退到软件解码器。
+        NC_CHECK_EQ(activeClip, std::uint64_t(0));
+        NC_CHECK(rgba == nullptr);
+        NC_CHECK_EQ(width, 0);
+        NC_CHECK_EQ(height, 0);
+        nc_editor_destroy(editor);
+        return;
+    }
     NC_CHECK_EQ(rc, NC_OK);
     // 画布默认 1080x1920（序列默认）
     NC_CHECK_EQ(width, 1080);
