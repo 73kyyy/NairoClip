@@ -41,6 +41,43 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val anchor: Int
     )
 
+    data class ClipTransformSnapshot(
+        val transform: TransformState,
+        val keyframes: Map<NativeParameter, List<Keyframe>>
+    )
+
+    /**
+     * Reads transform and all four keyframe channels under one bridge lock so
+     * the host cannot combine values from different engine revisions.
+     */
+    fun readClipTransformSnapshot(target: ClipTarget): Result<ClipTransformSnapshot> = try {
+        bridge.withEditorStateLock {
+            val transformResult = getTransform(target)
+            val transform = transformResult.value
+            if (!transformResult.ok || transform == null) {
+                return@withEditorStateLock Result(
+                    false,
+                    error = transformResult.error ?: "读取片段变换失败"
+                )
+            }
+            val channels = linkedMapOf<NativeParameter, List<Keyframe>>()
+            NativeParameter.values().forEach { parameter ->
+                val channelResult = keyframes(target, parameter)
+                val frames = channelResult.value
+                if (!channelResult.ok || frames == null) {
+                    return@withEditorStateLock Result(
+                        false,
+                        error = channelResult.error ?: "读取关键帧通道失败"
+                    )
+                }
+                if (frames.isNotEmpty()) channels[parameter] = frames
+            }
+            Result(true, ClipTransformSnapshot(transform, channels))
+        }
+    } catch (error: Exception) {
+        Result(false, error = error.message ?: "读取片段变换快照失败")
+    }
+
     fun getTransform(target: ClipTarget): Result<TransformState> = try {
         val response = JSONObject(bridge.editorTransformGet(target.trackIndex, target.clipId))
         if (!response.optBoolean("ok", false)) {
