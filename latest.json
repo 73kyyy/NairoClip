@@ -1,0 +1,184 @@
+{
+  "generated_at": "2026-11-28T12:18:57Z",
+  "repo": "73kyyy/NairoClip",
+  "latest": {
+    "CI": {
+      "conclusion": "success",
+      "run_number": 1058,
+      "run_id": 46143408009,
+      "head_sha": "9eebf5a16736c69ca9927d7064a875cba3851736",
+      "event": "pull_request",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/46143408009",
+      "created_at": "2026-11-28T12:11:19Z"
+    },
+    "CI Status": {
+      "conclusion": null,
+      "run_number": 2041,
+      "run_id": 46144024891,
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/46144024891",
+      "created_at": "2026-11-28T12:18:50Z"
+    },
+    "Report": {
+      "conclusion": "success",
+      "run_number": 1015,
+      "run_id": 46144005949,
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "event": "workflow_run",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/46144005949",
+      "created_at": "2026-11-28T12:18:36Z"
+    },
+    "S5 Android Validation": {
+      "conclusion": "success",
+      "run_number": 566,
+      "run_id": 46143408015,
+      "head_sha": "9eebf5a16736c69ca9927d7064a875cba3851736",
+      "event": "pull_request",
+      "url": "https://github.com/73kyyy/NairoClip/actions/runs/46143408015",
+      "created_at": "2026-11-28T12:11:19Z"
+    }
+  },
+  "recent": [
+    {
+      "name": "CI Status",
+      "conclusion": null,
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2041,
+      "created_at": "2026-11-28T12:18:50Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2040,
+      "created_at": "2026-11-28T12:18:36Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 1015,
+      "created_at": "2026-11-28T12:18:36Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2039,
+      "created_at": "2026-11-28T12:11:50Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 1014,
+      "created_at": "2026-11-28T12:11:40Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2038,
+      "created_at": "2026-11-28T12:11:40Z"
+    },
+    {
+      "name": "S5 Android Validation",
+      "conclusion": "success",
+      "head_sha": "9eebf5a16736c69ca9927d7064a875cba3851736",
+      "run_number": 566,
+      "created_at": "2026-11-28T12:11:19Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "success",
+      "head_sha": "9eebf5a16736c69ca9927d7064a875cba3851736",
+      "run_number": 1058,
+      "created_at": "2026-11-28T12:11:19Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2037,
+      "created_at": "2026-11-28T12:09:47Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2036,
+      "created_at": "2026-11-28T12:09:38Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 1013,
+      "created_at": "2026-11-28T12:09:37Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "cancelled",
+      "head_sha": "3ab0d5b9f6143f822e85e6b28c89651d861541e8",
+      "run_number": 1057,
+      "created_at": "2026-11-28T12:09:05Z"
+    },
+    {
+      "name": "S5 Android Validation",
+      "conclusion": "cancelled",
+      "head_sha": "3ab0d5b9f6143f822e85e6b28c89651d861541e8",
+      "run_number": 565,
+      "created_at": "2026-11-28T12:09:05Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2035,
+      "created_at": "2026-11-28T12:07:18Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2034,
+      "created_at": "2026-11-28T12:07:08Z"
+    },
+    {
+      "name": "Report",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 1012,
+      "created_at": "2026-11-28T12:07:08Z"
+    },
+    {
+      "name": "CI",
+      "conclusion": "cancelled",
+      "head_sha": "1ad89f8469d3aca78cffdefe0fe866ee6687f038",
+      "run_number": 1056,
+      "created_at": "2026-11-28T12:06:48Z"
+    },
+    {
+      "name": "S5 Android Validation",
+      "conclusion": "cancelled",
+      "head_sha": "1ad89f8469d3aca78cffdefe0fe866ee6687f038",
+      "run_number": 564,
+      "created_at": "2026-11-28T12:06:48Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "success",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2033,
+      "created_at": "2026-11-28T12:06:34Z"
+    },
+    {
+      "name": "CI Status",
+      "conclusion": "cancelled",
+      "head_sha": "052c2b3d8cdab1b0d71562adf5d1f7fb0f9feef1",
+      "run_number": 2032,
+      "created_at": "2026-11-28T12:06:22Z"
+    }
+  ]
+}
