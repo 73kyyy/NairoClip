@@ -101,9 +101,6 @@ class NativeTimelineView(context: Context) : View(context) {
         strokeWidth = density
     }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF454B4F.toInt() }
-    // Fades clip content beneath the fixed track controls. The controls are
-    // redrawn afterwards, so their glyphs never inherit the feather alpha.
-    private val trackControlFeatherPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     // API 31+ applies a real Gaussian blur to a clipped copy of the track
     // content. The alpha mask below fades that blurred copy from left to right,
     // leaving the fixed eye/speaker/lock glyphs sharp when they are redrawn.
@@ -455,21 +452,31 @@ class NativeTimelineView(context: Context) : View(context) {
 
             val lane = if (index % 2 == 0) alternateLanePaint else lanePaint
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
-            drawTrackClips(canvas, track, top, bottom)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Render a blurred copy only beneath the fixed control column.
-                // DST_IN applies a horizontal alpha ramp: strongest at x=0,
-                // falling smoothly to zero at the right edge of the controls.
-                val featherBounds = RectF(0f, top, trackControlsWidth, bottom)
+            // Keep the timeline area outside the fixed controls completely sharp.
+            canvas.save()
+            canvas.clipRect(trackControlsWidth, top, width.toFloat(), bottom)
+            drawTrackClips(canvas, track, top, bottom)
+            canvas.restore()
+
+            // Composite only the content passing beneath the controls. The
+            // inner layer applies Gaussian blur on API 31+; the outer layer
+            // then applies DST_IN AFTER blur, so the original sharp clip is
+            // never left underneath the feathered copy.
+            val featherRight = min(trackControlsWidth, width.toFloat())
+            if (featherRight > 0f) {
+                val featherBounds = RectF(0f, top, featherRight, bottom)
+                canvas.saveLayer(featherBounds, null)
                 canvas.saveLayer(featherBounds, trackControlBlurPaint)
                 canvas.clipRect(featherBounds)
-                canvas.drawRect(0f, top, trackControlsWidth, bottom, lane)
+                canvas.drawRect(featherBounds, lane)
                 drawTrackClips(canvas, track, top, bottom)
+                canvas.restore()
+
                 trackControlFeatherMaskPaint.shader = LinearGradient(
                     0f,
                     top,
-                    trackControlsWidth,
+                    featherRight,
                     top,
                     intArrayOf(
                         withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.START_ALPHA),
@@ -481,23 +488,6 @@ class NativeTimelineView(context: Context) : View(context) {
                 canvas.drawRect(featherBounds, trackControlFeatherMaskPaint)
                 trackControlFeatherMaskPaint.shader = null
                 canvas.restore()
-            } else {
-                // Older Android versions do not expose RenderEffect. Keep a
-                // compatible feathered fade rather than drawing controls blurry.
-                trackControlFeatherPaint.shader = LinearGradient(
-                    0f,
-                    top,
-                    trackControlsWidth,
-                    top,
-                    intArrayOf(
-                        withAlpha(lane.color, NativeTrackControlFeatherSpec.START_ALPHA),
-                        withAlpha(lane.color, NativeTrackControlFeatherSpec.END_ALPHA)
-                    ),
-                    floatArrayOf(0f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-                canvas.drawRect(0f, top, trackControlsWidth, bottom, trackControlFeatherPaint)
-                trackControlFeatherPaint.shader = null
             }
             // Controls are always rendered last and remain perfectly sharp.
             drawTrackControls(canvas, track, top, bottom)
