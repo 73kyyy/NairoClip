@@ -26,6 +26,7 @@ bool shiftMediaExists() {
     return f.good();
 }
 
+#ifdef NAIROCLIP_HAS_FFMPEG
 bool systemVideoDecodeAvailable(const char* path) {
     FFmpegMediaReader reader;
     if (!reader.open(path).isOk()) return false;
@@ -37,6 +38,7 @@ bool systemAudioDecodeAvailable(const char* path) {
     if (!reader.open(path).isOk()) return false;
     return reader.probe().sampleRate > 0 && reader.probe().channels > 0;
 }
+#endif  // NAIROCLIP_HAS_FFMPEG
 
 std::string takeString(char* text) {
     if (text == nullptr) {
