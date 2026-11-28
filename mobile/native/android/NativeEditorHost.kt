@@ -91,8 +91,10 @@ fun NativeEditorHost(
         state.selectedClip,
         state.timeline,
         resolveAssetUri,
-        onSelectedSpeechSourceChanged
+        onSelectedSpeechSourceChanged,
+        autoSubtitleState.running
     ) {
+        if (autoSubtitleState.running) return@LaunchedEffect
         val target = state.selectedClip
         val clip = if (target == null) {
             null
@@ -104,7 +106,9 @@ fun NativeEditorHost(
         if (clip == null) {
             onSelectedSpeechSourceChanged?.invoke(null, null)
         } else {
-            val uri = clip.assetId.takeIf { it > 0L }?.let(resolveAssetUri)
+            val uri = runCatching {
+                clip.assetId.takeIf { it > 0L }?.let(resolveAssetUri)
+            }.getOrNull()
             val range = NativeSpeechSourceRange.fromTimelineClip(clip.startUs, clip)
             onSelectedSpeechSourceChanged?.invoke(uri, range)
         }
