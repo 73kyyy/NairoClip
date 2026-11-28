@@ -60,6 +60,9 @@ fun NativeEditorHost(
     var clipLut by remember { mutableStateOf<NativeEditorCommandAdapter.ClipLutState?>(null) }
     var clipColorGrade by remember { mutableStateOf<NativeEditorCommandAdapter.ClipColorGradeState?>(null) }
     var clipMask by remember { mutableStateOf<NativeEditorCommandAdapter.ClipMaskState?>(null) }
+    var clipTransitions by remember { mutableStateOf<List<NativeEditorCommandAdapter.TransitionState>>(emptyList()) }
+    var transitionTypes by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
+    var subtitleCues by remember { mutableStateOf<List<NativeEditorCommandAdapter.SubtitleCueState>>(emptyList()) }
     var keyframeRevision by remember { mutableStateOf(0) }
 
     fun seekTo(timeUs: Long) {
@@ -78,6 +81,28 @@ fun NativeEditorHost(
         }
     }
 
+    LaunchedEffect(adapter) {
+        val countResult = withContext(Dispatchers.IO) { adapter.readTransitionTypeCount() }
+        val count = countResult.value
+        if (countResult.ok && count != null) {
+            val types = buildList {
+                for (type in 0 until count) {
+                    val result = withContext(Dispatchers.IO) {
+                        adapter.readTransitionTypeName(type)
+                    }
+                    val name = result.value
+                    if (result.ok && !name.isNullOrBlank()) add(type to name)
+                }
+            }
+            transitionTypes = types
+        }
+    }
+
+    LaunchedEffect(state.timeline, state.history, keyframeRevision) {
+        val result = withContext(Dispatchers.IO) { adapter.readSubtitles() }
+        subtitleCues = if (result.ok) result.value.orEmpty() else emptyList()
+    }
+
     LaunchedEffect(state.selectedClip, state.timeline, state.history, keyframeRevision) {
         val target = state.selectedClip
         if (target == null) {
@@ -91,7 +116,12 @@ fun NativeEditorHost(
             clipLut = null
             clipColorGrade = null
             clipMask = null
+            clipTransitions = emptyList()
         } else {
+            val transitionsResult = withContext(Dispatchers.IO) {
+                adapter.readTransitions(target.trackIndex)
+            }
+            clipTransitions = if (transitionsResult.ok) transitionsResult.value.orEmpty() else emptyList()
             val clipSnapshot = withContext(Dispatchers.IO) {
                 adapter.readClipEditorPanelSnapshot(target)
             }
@@ -159,6 +189,9 @@ fun NativeEditorHost(
         clipLut = clipLut,
         clipColorGrade = clipColorGrade,
         clipMask = clipMask,
+        clipTransitions = clipTransitions,
+        transitionTypes = transitionTypes,
+        subtitleCues = subtitleCues,
         onTransformChanged = { track, clipId, value ->
             transform = value
             controller.setTransform(
@@ -307,6 +340,51 @@ fun NativeEditorHost(
                 NativeEditorCommandAdapter.ClipTarget(track, clipId),
                 mask
             )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onAddTransition = { track, fromClipId, toClipId, type, durationUs ->
+            val job = controller.addTransition(track, fromClipId, toClipId, type, durationUs)
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onRemoveTransition = { track, transitionId ->
+            val job = controller.removeTransition(track, transitionId)
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onCreateTextClip = { text, startUs, durationUs ->
+            val job = controller.addTextClip(text, startUs, durationUs)
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onTextStyleChanged = { track, clipId, update ->
+            val job = controller.setTextStyle(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                update
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onCreateSubtitle = { text, startUs, durationUs ->
+            val job = controller.addSubtitle(text, startUs, durationUs)
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onRemoveSubtitle = { subtitleId ->
+            val job = controller.removeSubtitle(subtitleId)
             scope.launch {
                 job.join()
                 keyframeRevision += 1
