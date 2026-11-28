@@ -5,9 +5,9 @@ import java.net.URI
 
 /**
  * Resolves asset IDs in the active C ABI project snapshot to Android-readable
- * media URIs. Only persisted content:// grants and existing file:// or
- * absolute regular files are accepted; network and unknown schemes are never
- * passed to MediaExtractor.
+ * media URIs. Only persisted content:// grants and existing file: or absolute
+ * regular files are accepted; network and unknown schemes are never passed
+ * to MediaExtractor.
  */
 internal object NativeEditorAssetSnapshot {
     fun resolveUris(engineStateJson: String): Map<Long, String> = runCatching {
@@ -36,9 +36,11 @@ internal object NativeEditorAssetSnapshot {
             }
         }
         val file = when {
-            raw.startsWith("file://", ignoreCase = true) -> {
+            raw.startsWith("file:", ignoreCase = true) -> {
                 val uri = runCatching { URI(raw) }.getOrNull() ?: return null
-                if (!uri.scheme.equals("file", ignoreCase = true)) return null
+                if (!uri.scheme.equals("file", ignoreCase = true) ||
+                    !uri.rawAuthority.isNullOrBlank()
+                ) return null
                 runCatching { File(uri).canonicalFile }.getOrNull() ?: return null
             }
             raw.startsWith("/") -> runCatching { File(raw).canonicalFile }.getOrNull()
