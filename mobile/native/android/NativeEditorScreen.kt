@@ -193,9 +193,9 @@ fun NativeEditorScreen(
     backgroundRgba: Long? = null,
     isImportingImages: Boolean = false,
     imagePanelMessage: String? = null,
-    onPickImages: () -> Unit = {},
-    onRemoveImage: (Long) -> Unit = {},
-    onSetBackgroundColor: (Long) -> Unit = {},
+    onPickImages: (() -> Unit)? = null,
+    onRemoveImage: ((Long) -> Unit)? = null,
+    onSetBackgroundColor: ((Long) -> Unit)? = null,
     onPlayFromStart: (() -> Unit)? = null,
     onClipSelectionCleared: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -342,7 +342,18 @@ fun NativeEditorScreen(
                                 }
                             }
                         }
-                        NativeQuickAction.IMAGES -> showImageBackgroundPanel = true
+                        NativeQuickAction.IMAGES -> {
+                            if (onPickImages != null && onRemoveImage != null &&
+                                onSetBackgroundColor != null
+                            ) {
+                                showImageBackgroundPanel = true
+                            } else {
+                                // Do not open a native panel whose engine/file
+                                // callbacks are absent; return to the real legacy
+                                // implementation instead of presenting dead controls.
+                                onQuickAction?.invoke(action) ?: onOpenLegacy()
+                            }
+                        }
                         NativeQuickAction.KEYFRAMES -> {
                             showKeyframePanel = true
                         }
@@ -357,9 +368,9 @@ fun NativeEditorScreen(
                     backgroundRgba = backgroundRgba,
                     isImporting = isImportingImages,
                     message = imagePanelMessage,
-                    onPickImages = onPickImages,
-                    onRemoveImage = onRemoveImage,
-                    onSetBackgroundColor = onSetBackgroundColor,
+                    onPickImages = onPickImages ?: {},
+                    onRemoveImage = onRemoveImage ?: {},
+                    onSetBackgroundColor = onSetBackgroundColor ?: {},
                     onDismiss = { showImageBackgroundPanel = false }
                 )
             }
