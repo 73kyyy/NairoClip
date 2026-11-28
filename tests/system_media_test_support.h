@@ -39,7 +39,7 @@ inline bool hasUsableSystemVideoEncoder(const std::string& codec, int width, int
     FFmpegMediaWriter writer;
     const Result opened = writer.open(path, config);
     if (!opened.isOk()) {
-        std::printf("[SKIP] 系统视频编码器不可用（%s）：%s\\n",
+        std::printf("[SKIP] 系统视频编码器不可用（%s）：%s\n",
                     codec.c_str(), opened.message.c_str());
         writer.abort();
         std::remove(path.c_str());
@@ -62,7 +62,7 @@ inline bool hasUsableSystemVideoEncoder(const std::string& codec, int width, int
     const bool usable = written.isOk() && finished.isOk();
     if (!usable) {
         const Result& failure = written.isOk() ? finished : written;
-        std::printf("[SKIP] 系统视频编码器不能完成当前帧配置（%s）：%s\\n",
+        std::printf("[SKIP] 系统视频编码器不能完成当前帧配置（%s）：%s\n",
                     codec.c_str(), failure.message.c_str());
     }
     writer.abort();
