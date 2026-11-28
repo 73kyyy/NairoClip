@@ -275,6 +275,7 @@ class NativeTimelineView(context: Context) : View(context) {
             if (selectedClip != null && tracks.none { track ->
                     track.id == selectedClip!!.first &&
                         track.visible &&
+                        !track.locked &&
                         track.clips.any { it.id == selectedClip!!.second && it.enabled }
                 }) {
                 selectedClip = null
@@ -808,7 +809,9 @@ class NativeTimelineView(context: Context) : View(context) {
             withinRow >= rowHeight - 5f * density
         ) return false
         val track = tracks[row]
-        if (!track.visible) return false
+        // A locked track remains visible, but cannot enter clip-edit selection.
+        // setTimeline() also clears an existing selection when lock state changes.
+        if (!track.visible || track.locked) return false
         // Hit-test the same pixel geometry used by drawTracks(). Very short
         // clips are rendered with a 5dp minimum width, so testing only their
         // source duration made the visible tail impossible to select.
