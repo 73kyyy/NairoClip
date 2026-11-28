@@ -27,7 +27,7 @@ import androidx.webkit.WebViewClientCompat
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        /** adb shell am start --ez enable_native_editor true ... */
+        /** Debug pilot: adb shell am start --ez com.nairoclip.app.extra.ENABLE_NATIVE_EDITOR true ... */
         const val EXTRA_ENABLE_NATIVE_EDITOR = "com.nairoclip.app.extra.ENABLE_NATIVE_EDITOR"
     }
 
