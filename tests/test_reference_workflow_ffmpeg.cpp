@@ -109,12 +109,6 @@ std::vector<FrameFeature> sampleFeatures(const char* path, double stepSeconds) {
 }
 }  // namespace
 
-namespace {
-// 本机可用的测试用视频编码格式（产品默认 h264 但只用硬件编码器，
-// CI 无 GPU → 测试用 royalty-free 的 VP9）。见 docs/COMPLIANCE.md §1.2.1。
-inline std::string testVideoCodec() { return "vp9"; }
-}  // namespace
-
 NC_TEST(ReferenceWorkflowFFmpeg, RejectsBundledSoftwareDecoder) {
     const char* material = "/tmp/media_gen/test_av.mp4";
     if (!mediaExists(material)) return;
