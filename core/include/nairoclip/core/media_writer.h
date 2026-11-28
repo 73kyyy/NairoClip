@@ -17,7 +17,7 @@ struct WriterConfig {
     int width = 0;
     int height = 0;
     FrameRate frameRate = fps30();
-    /// 目标视频编码格式（"h264" / "hevc" / "av1" / "vp9"）。
+    /// 目标视频编码格式（"h264" / "av1" / "vp9"；HEVC/H.265 禁用）。
     ///
     /// Android 构建只允许系统 MediaCodec wrapper，不捆绑软件视频编码器；
     /// 实际可用格式、profile、分辨率和帧率由设备系统报告的能力决定。
