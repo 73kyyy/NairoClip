@@ -149,6 +149,7 @@ A per-track horizontal blur feather is composited over the clip lane before the 
 - On Android 7–11 / API 24–30, where `RenderEffect` is unavailable, retain the same horizontal alpha feather as a compatibility fallback; do not claim that these versions apply Gaussian blur.
 - The eye, speaker, and lock glyphs are redrawn above the feather at full clarity. The feather must never tint, blur, or reduce their contrast.
 - Recompute the effect for each row so alternating lane backgrounds remain correct. The feather is screen-space anchored and does not move independently of the fixed controls when the timeline scrolls or zooms.
+- Preserve the compact 40dp visual/control region. The Canvas view also exposes TalkBack custom actions for visibility, mute, and lock on the selected track; do not widen the overlay or shift clip content to simulate larger targets.
 
 Toggle-state colors (callback availability must not be confused with the actual toggle state):
 | Control | State | Icon |
