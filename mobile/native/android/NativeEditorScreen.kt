@@ -156,6 +156,9 @@ fun NativeEditorScreen(
     onClipAudioChanged: ((Int, Long, NativeEditorCommandAdapter.ClipAudioState) -> Unit)? = null,
     clipDenoiseStrength: Int? = null,
     onClipDenoiseChanged: ((Int, Long, Int) -> Unit)? = null,
+    clipOpacity: Double? = null,
+    onClipOpacityChanged: ((Int, Long, Double) -> Unit)? = null,
+    onFreezeClip: ((Int, Long, Long, Long) -> Unit)? = null,
     onAddClipEffect: ((Int, Long, Int) -> Unit)? = null,
     onUpdateClipEffect: ((Int, Long, NativeClipEffect, Double) -> Unit)? = null,
     onSetClipEffectEnabled: ((Int, Long, Long, Boolean) -> Unit)? = null,
@@ -521,6 +524,22 @@ fun NativeEditorScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+
+            if (activeTool == "剪辑" && activeSubTool == "不透明度" && selectedTarget != null) {
+                if (clipOpacity != null && onClipOpacityChanged != null) {
+                    NativeClipOpacityPanel(
+                        clipId = selectedTarget.second,
+                        opacity = clipOpacity,
+                        onChange = { value ->
+                            onClipOpacityChanged.invoke(selectedTarget.first, selectedTarget.second, value)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("正在等待宿主读取当前片段的不透明度…", color = NcColors.secondary, fontSize = 10.sp)
+                }
             }
 
             if (activeTool == "剪辑" && activeSubTool == "变速" && selectedTarget != null) {
@@ -920,6 +939,15 @@ fun NativeEditorScreen(
                             selectedTarget != null && onDuplicateClip != null -> {
                             onDuplicateClip(selectedTarget.first, selectedTarget.second)
                         }
+                        tool == "剪辑" && subTool == "定格" &&
+                            selectedTarget != null && onFreezeClip != null -> {
+                            onFreezeClip(
+                                selectedTarget.first,
+                                selectedTarget.second,
+                                playheadUs,
+                                2_000_000L
+                            )
+                        }
                         tool == "剪辑" && subTool == "倒放" &&
                             selectedTarget != null && onReverseClip != null -> {
                             onReverseClip(selectedTarget.first, selectedTarget.second)
@@ -927,6 +955,12 @@ fun NativeEditorScreen(
                         tool == "剪辑" && subTool == "波纹删除" &&
                             selectedTarget != null && onRippleDeleteClip != null -> {
                             onRippleDeleteClip(selectedTarget.first, selectedTarget.second)
+                        }
+                        tool == "剪辑" && subTool == "不透明度" &&
+                            selectedTarget != null && clipOpacity != null &&
+                            onClipOpacityChanged != null -> {
+                            activeTool = tool
+                            activeSubTool = subTool
                         }
                         tool == "剪辑" && subTool == "变速" && selectedTarget != null &&
                             onClipSpeedChanged != null -> {
@@ -2864,6 +2898,43 @@ private fun NativeSpeedCurvePresetPanel(
                 )
             }
         }
+    }
+}
+
+
+@Composable
+private fun NativeClipOpacityPanel(
+    clipId: Long,
+    opacity: Double,
+    onChange: (Double) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val safeOpacity = opacity.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 1.0
+    var value by remember(clipId) { mutableStateOf(safeOpacity.toFloat()) }
+    LaunchedEffect(clipId, safeOpacity) { value = safeOpacity.toFloat() }
+    Column(
+        modifier = modifier
+            .background(NcColors.panel, RoundedCornerShape(10.dp))
+            .border(1.dp, NcColors.line, RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("片段不透明度", color = NcColors.text, fontSize = 11.sp)
+            Text("${(value * 100f).roundToInt()}%", color = NcColors.text, fontSize = 11.sp)
+        }
+        Slider(
+            value = value,
+            onValueChange = { value = it.coerceIn(0f, 1f) },
+            onValueChangeFinished = { onChange(value.toDouble()) },
+            valueRange = 0f..1f,
+            steps = 19
+        )
+        Text("0% 完全透明 · 100% 完全不透明", color = NcColors.secondary, fontSize = 9.sp)
     }
 }
 
