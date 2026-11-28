@@ -369,16 +369,17 @@ Result FFmpegMediaReader::open(const std::string& path) {
             }
 
             if (codec == nullptr) {
+                // close() 会释放 AVFormatContext/AVStream；错误信息必须在释放前取值。
+                const std::string codecName = avcodec_get_name(stream->codecpar->codec_id);
                 close();
 #if defined(__ANDROID__)
                 std::string msg =
                     "本设备没有可用的系统 MediaCodec 视频解码器（格式：" +
-                    std::string(avcodec_get_name(stream->codecpar->codec_id)) +
-                    "）。NairoClip 不包含软件视频解码器。";
+                    codecName + "）。NairoClip 不包含软件视频解码器。";
 #else
                 std::string msg =
-                    "本设备没有可用的 H.264 平台硬件解码器。"
-                    "NairoClip 不会静默降级到软件 H.264 解码。";
+                    "本设备没有可用的系统视频解码后端（格式：" + codecName +
+                    "）。NairoClip 不会静默降级到应用自带的软件解码器。";
 #endif
                 if (!lastOpenError.empty()) {
                     msg += "（尝试详情：" + lastOpenError + "）";
@@ -386,8 +387,9 @@ Result FFmpegMediaReader::open(const std::string& path) {
                 return Result::fail(ErrorCode::Unsupported, msg);
             }
         } else {
-            close();
+            // stream 属于 impl.format；必须先复制 codec 名称，再释放容器上下文。
             const std::string codecName = avcodec_get_name(stream->codecpar->codec_id);
+            close();
             return Result::fail(
                 ErrorCode::Unsupported,
                 "当前平台尚未接入该格式的系统视频解码后端（" + codecName +
