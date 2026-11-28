@@ -122,13 +122,15 @@ The current S5 native editor now follows the reference's major vertical regions:
 - compact top row with share and export grouped at the right;
 - centered 9:16 preview frame with a separate circular expand affordance at the lower-right of the preview stage;
 - eleven quick actions in the established order, each using a 30dp visual circle inside a 48dp touch target;
-- fixed-height timeline region with a 27dp ruler and 4dp tick marks;
+- fixed-height timeline region with a 27dp ruler, 4dp major ticks, and 3dp minor ticks;
 - centered three-action transport row (scissors, play/pause, delete);
 - horizontally scrollable first-level toolbar and same-row second-level expansion.
 
-The corresponding geometry is centralized in `mobile/native/android/NativeEditorLayoutSpec.kt` and guarded by `NativeEditorLayoutSpecTest`. The preview expand control is 36dp; the major region heights are 44dp (top row), 50dp (quick actions), 218dp (timeline), 52dp (transport), and 82dp (bottom toolbar). These are reference-layout baselines, not permission to resize unrelated regions to make room for more controls.
+The corresponding geometry is centralized in `mobile/native/android/NativeEditorLayoutSpec.kt` and guarded by `NativeEditorLayoutSpecTest`. The preview expand control is 36dp; the major region heights are 44dp (top row), 46dp (quick actions), 282dp (timeline), 56dp (transport), and 104dp (bottom toolbar), matching the 692x1536 reference's vertical proportions. These are reference-layout baselines, not permission to resize unrelated regions to make room for more controls.
 
 The transport row uses the existing `onSplitClip` and `onDeleteClip` command callbacks when a clip is selected. Playback, share, export, and preview expansion expose typed optional callbacks; until the runtime host supplies them, those actions explicitly return to the retained WebView editor. This update does not claim the callbacks are connected to MainActivity or that the native editor is runtime-integrated.
 
 - The native first-level category toolbar now uses vector assets converted from the repository's existing `mobile/assets/icons.js` icon sprite, rather than rendering the first character of each category name. Share, fullscreen, scissors, play/pause, and delete also use the matching existing icon artwork. The scissors vector is rotated clockwise by 90 degrees and remains a single scissors glyph.
 - The quick-action strip now reuses the existing icon sprite for add, home, segment-back, marker, keyframes, guides, image/background, undo, and redo; the reference's compact “渲染” and “AI” text treatments are retained. The AI circle keeps the same 30dp diameter as every other action and uses the reference-style restrained purple-to-blue fill.
+
+The native timeline's time origin is now centered, matching the reference and the original editor's `t2x()` mapping. Initial zoom fits the visible sequence around the centered playhead; ruler intervals adapt to pixel density (56px major-tick spacing), and labels switch between seconds, sub-second precision, and `MM:SS` for longer timelines. The fixed start badge seeks to zero. Track clips render across the full timeline width while the eye, speaker, and lock controls float in a 40dp overlay rather than reserving a 120dp label gutter.
