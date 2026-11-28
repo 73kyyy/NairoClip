@@ -166,7 +166,7 @@ The native editor is mounted by the existing `MainActivity` only when both condi
 
 With that opt-in enabled, the home page adds `nativeEditor=1` to the editor route. After the legacy editor has booted and loaded its current engine snapshot, it calls the `NCNativeEditor` bridge. The Activity validates that the current engine has a project, then mounts `NativeEditorHost` in a full-screen `ComposeView`.
 
-The pilot reuses the Activity's existing `NativeEngineBridge` and moves the same `PreviewSurfaceView` into the Compose host. It does not create a second engine or renderer Surface. The WebView remains attached and alive underneath the overlay. The native host's legacy-return action and Android Back remove the overlay, restore the same preview Surface to the original root, and reveal the existing WebView editor. A resize event asks the WebView to recalculate the legacy preview rectangle.
+The pilot reuses the Activity's existing `NativeEngineBridge` and moves the same `PreviewSurfaceView` into the Compose host. It does not create a second engine or renderer Surface. The WebView remains attached and alive underneath the overlay, but `WebView.onPause()` is called while the native host owns the shared engine so the hidden page does not continue polling/rendering concurrently. The native host's legacy-return action and Android Back remove the overlay, restore the same preview Surface to the original root, call `WebView.onResume()`, and reveal the existing WebView editor. A resize event asks the WebView to recalculate the legacy preview rectangle.
 
 This is an internal validation route, not the formal application route:
 - The launcher intent filter remains on `MainActivity`.
