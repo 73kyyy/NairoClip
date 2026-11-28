@@ -202,7 +202,12 @@ bool draw(const std::uint8_t* rgba, int width, int height) {
     if (rgba == nullptr || width <= 0 || height <= 0) return false;
     std::lock_guard<std::mutex> lock(g_renderer.mutex);
     Renderer& state = g_renderer;
-    if (!state.initialized || !makeCurrent(state)) return false;
+    if (!state.initialized) return false;
+    if (!makeCurrent(state)) {
+        // Release a broken EGL window surface before JNI attempts ANativeWindow CPU fallback.
+        destroyLocked(state);
+        return false;
+    }
 
     glBindTexture(GL_TEXTURE_2D, state.texture);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -257,8 +262,13 @@ bool draw(const std::uint8_t* rgba, int width, int height) {
 
     const bool rendered = glGetError() == GL_NO_ERROR;
     const bool swapped = rendered && eglSwapBuffers(state.display, state.surface) == EGL_TRUE;
+    if (!swapped) {
+        // A failed EGL surface must not remain attached when the CPU fallback locks the window.
+        destroyLocked(state);
+        return false;
+    }
     eglMakeCurrent(state.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    return swapped;
+    return true;
 }
 
 bool ready() {
