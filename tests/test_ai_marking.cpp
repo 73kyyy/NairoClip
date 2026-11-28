@@ -263,8 +263,8 @@ NC_TEST(AiMarkingE2E, ToneMarksWrittenToRealFile) {
     NC_SKIP("系统 AAC 编码/封装后端尚未接入；由 MediaWriter 的 fail-closed 单测覆盖当前契约");
     // 对比有/无提示音的两份真实导出（静音主内容 → 差异只来自提示音）
     const std::vector<AiMetadataEntry> entries = buildAiMetadata("NairoClip", "TTS 智能配音");
-    NC_CHECK(writeMarkedFile("/tmp/media_gen/ai_mark_with.mp4", true, entries));
-    NC_CHECK(writeMarkedFile("/tmp/media_gen/ai_mark_without.mp4", false, entries));
+    NC_CHECK(writeMarkedFile("/tmp/media_gen/ai_mark_with.mp4", true, true, entries));
+    NC_CHECK(writeMarkedFile("/tmp/media_gen/ai_mark_without.mp4", false, true, entries));
     // 解码对比
     auto decode = [](const char* path) {
         std::vector<float> samples;
