@@ -42,15 +42,15 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     )
 
     data class ClipEditorPanelSnapshot(
-        val transform: TransformState,
+        val transform: TransformState?,
         val keyframes: Map<NativeParameter, List<Keyframe>>,
-        val audio: ClipAudioState,
-        val denoiseStrength: Int,
-        val speedCurve: List<SpeedCurvePoint>,
-        val filter: ClipFilterState,
-        val lut: ClipLutState,
-        val colorGrade: ClipColorGradeState,
-        val mask: ClipMaskState
+        val audio: ClipAudioState?,
+        val denoiseStrength: Int?,
+        val speedCurve: List<SpeedCurvePoint>?,
+        val filter: ClipFilterState?,
+        val lut: ClipLutState?,
+        val colorGrade: ClipColorGradeState?,
+        val mask: ClipMaskState?
     )
 
     /**
@@ -60,64 +60,36 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     fun readClipEditorPanelSnapshot(target: ClipTarget): Result<ClipEditorPanelSnapshot> = try {
         bridge.withEditorStateLock {
             val transformResult = getTransform(target)
-            val transform = transformResult.value
-            if (!transformResult.ok || transform == null) {
-                return@withEditorStateLock Result(
-                    false,
-                    error = transformResult.error ?: "读取片段变换失败"
-                )
-            }
+            val transform = transformResult.value.takeIf { transformResult.ok }
             val channels = linkedMapOf<NativeParameter, List<Keyframe>>()
-            NativeParameter.values().forEach { parameter ->
-                val channelResult = keyframes(target, parameter)
-                val frames = channelResult.value
-                if (!channelResult.ok || frames == null) {
-                    return@withEditorStateLock Result(
-                        false,
-                        error = channelResult.error ?: "读取关键帧通道失败"
-                    )
+            if (transform != null) {
+                NativeParameter.values().forEach { parameter ->
+                    val channelResult = keyframes(target, parameter)
+                    val frames = channelResult.value
+                    if (channelResult.ok && !frames.isNullOrEmpty()) {
+                        channels[parameter] = frames
+                    }
                 }
-                if (frames.isNotEmpty()) channels[parameter] = frames
             }
             val audioResult = readClipAudio(target)
-            val audio = audioResult.value
-            if (!audioResult.ok || audio == null) {
-                return@withEditorStateLock Result(false, error = audioResult.error ?: "读取片段音频参数失败")
-            }
             val denoiseResult = readClipDenoise(target)
-            val denoise = denoiseResult.value
-            if (!denoiseResult.ok || denoise == null) {
-                return@withEditorStateLock Result(false, error = denoiseResult.error ?: "读取片段降噪参数失败")
-            }
             val speedCurveResult = readSpeedCurve(target)
-            val speedCurve = speedCurveResult.value
-            if (!speedCurveResult.ok || speedCurve == null) {
-                return@withEditorStateLock Result(false, error = speedCurveResult.error ?: "读取片段变速曲线失败")
-            }
             val filterResult = readClipFilter(target)
-            val filter = filterResult.value
-            if (!filterResult.ok || filter == null) {
-                return@withEditorStateLock Result(false, error = filterResult.error ?: "读取滤镜参数失败")
-            }
             val lutResult = readClipLut(target)
-            val lut = lutResult.value
-            if (!lutResult.ok || lut == null) {
-                return@withEditorStateLock Result(false, error = lutResult.error ?: "读取 LUT 参数失败")
-            }
             val gradeResult = readClipColorGrade(target)
-            val grade = gradeResult.value
-            if (!gradeResult.ok || grade == null) {
-                return@withEditorStateLock Result(false, error = gradeResult.error ?: "读取色彩曲线失败")
-            }
             val maskResult = readClipMask(target)
-            val mask = maskResult.value
-            if (!maskResult.ok || mask == null) {
-                return@withEditorStateLock Result(false, error = maskResult.error ?: "读取蒙版参数失败")
-            }
             Result(
                 true,
                 ClipEditorPanelSnapshot(
-                    transform, channels, audio, denoise, speedCurve, filter, lut, grade, mask
+                    transform = transform,
+                    keyframes = channels,
+                    audio = audioResult.value.takeIf { audioResult.ok },
+                    denoiseStrength = denoiseResult.value.takeIf { denoiseResult.ok },
+                    speedCurve = speedCurveResult.value.takeIf { speedCurveResult.ok },
+                    filter = filterResult.value.takeIf { filterResult.ok },
+                    lut = lutResult.value.takeIf { lutResult.ok },
+                    colorGrade = gradeResult.value.takeIf { gradeResult.ok },
+                    mask = maskResult.value.takeIf { maskResult.ok }
                 )
             )
         }
