@@ -417,29 +417,32 @@ class MainActivity : AppCompatActivity() {
      */
     private fun openLegacyQuickAction(action: NativeQuickAction) {
         val dataAction = NativeLegacyQuickActionRoute.dataAction(action)
-        closeNativeEditor()
-        if (dataAction == null) {
-            android.util.Log.w("NcNativeEditor", "没有对应的旧编辑器动作：$action")
-            return
-        }
-        webView.post {
-            val editorUrl = webView.url.orEmpty()
-            if (!editorUrl.startsWith(
-                    "https://appassets.androidplatform.net/assets/pages/10-editor.html"
-                )
-            ) {
-                android.util.Log.w(
-                    "NcNativeEditor",
-                    "忽略旧编辑器动作：当前页面不是剪辑页"
-                )
+        // Defer overlay disposal until the current Compose click callback returns.
+        contentRoot.post {
+            closeNativeEditor()
+            if (dataAction == null) {
+                android.util.Log.w("NcNativeEditor", "没有对应的旧编辑器动作：$action")
                 return@post
             }
-            webView.evaluateJavascript(
-                "(function(){var button=document.querySelector(" +
-                    "'.cbtn[data-act=\\\"$dataAction\\\"]');" +
-                    "if(button){button.click();return true;}return false;})()",
-                null
-            )
+            webView.post {
+                val editorUrl = webView.url.orEmpty()
+                if (!editorUrl.startsWith(
+                        "https://appassets.androidplatform.net/assets/pages/10-editor.html"
+                    )
+                ) {
+                    android.util.Log.w(
+                        "NcNativeEditor",
+                        "忽略旧编辑器动作：当前页面不是剪辑页"
+                    )
+                    return@post
+                }
+                webView.evaluateJavascript(
+                    "(function(){var button=document.querySelector(" +
+                        "'.cbtn[data-act=\\\"$dataAction\\\"]');" +
+                        "if(button){button.click();return true;}return false;})()",
+                    null
+                )
+            }
         }
     }
 
