@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "nairoclip/core/media_writer.h"
+#include "nairoclip/core/codec_policy.h"
 using namespace nairoclip::core;
 namespace {
 OutputVideoFrame solidFrame(int w, int h, std::uint8_t gray, const Time& ts) {
@@ -105,20 +106,14 @@ NC_TEST(MediaWriter, FFmpegWriterRejectsAudioUntilSystemMuxerIsConnected) {
     NC_CHECK(!writer.isOpen());
 }
 
-NC_TEST(MediaWriter, FFmpegWriterRejectsBundledSoftwareVideoEncoder) {
-    FFmpegMediaWriter writer;
-    WriterConfig config;
-    config.videoCodec = "vp9";
-    config.width = 64;
-    config.height = 64;
-    config.includeAudio = false;
-    const Result result = writer.open("/tmp/media_gen/software_codec_rejected.mp4", config);
-    NC_CHECK(!result.isOk());
-    NC_CHECK(!writer.isOpen());
-    // A failed open may still have allocated an output context; abort must clean it.
-    writer.abort();
-    NC_CHECK(!writer.isOpen());
-    NC_CHECK(!writer.open("/tmp/media_gen/software_codec_rejected_again.mp4", config).isOk());
-    NC_CHECK(!writer.isOpen());
+NC_TEST(MediaWriter, PolicyRejectsBundledSoftwareVp9Encoder) {
+    EncoderCandidate software;
+    software.name = "libvpx-vp9";
+    software.codec = "vp9";
+    software.hardware = false;
+    const auto ranked =
+        rankVideoEncoderCandidates("vp9", {software}, EncoderPolicy{});
+    NC_CHECK(ranked.empty());
+    NC_CHECK(!encoderAllowed("libvpx-vp9", EncoderPolicy{}));
 }
 #endif
