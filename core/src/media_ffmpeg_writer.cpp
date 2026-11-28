@@ -94,31 +94,6 @@ const AVCodec* openCompliantVideoEncoder(const std::string& codec,
     return nullptr;
 }
 
-/// 按合规策略打开音频编码器（AAC 内置实现视为宽松；libfdk_aac 为不可分发）。
-const AVCodec* openCompliantAudioEncoder(const std::string& codec,
-                                         const EncoderPolicy& policy,
-                                         std::string& note) {
-    const AVCodecID targetId = codec == "opus" ? AV_CODEC_ID_OPUS : AV_CODEC_ID_AAC;
-    std::vector<EncoderCandidate> candidates;
-    void* iter = nullptr;
-    const AVCodec* c = nullptr;
-    while ((c = av_codec_iterate(&iter)) != nullptr) {
-        if (c->id != targetId || !av_codec_is_encoder(c)) {
-            continue;
-        }
-        EncoderCandidate candidate;
-        candidate.name = c->name != nullptr ? c->name : "";
-        candidate.codec = codec;
-        candidates.push_back(std::move(candidate));
-    }
-    const EncoderSelection selection = selectAudioEncoder(codec, candidates, policy);
-    note = selection.note;
-    if (!selection.valid()) {
-        return nullptr;
-    }
-    return avcodec_find_encoder_by_name(selection.name.c_str());
-}
-
 }  // namespace
 
 struct FFmpegMediaWriter::Impl {
@@ -307,41 +282,16 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     // Android FFmpeg 7.1 没有 AAC MediaCodec encoder wrapper；不允许拿内置 AAC
     // 软件编码器冒充系统编码。Android 音频导出由后续 MediaCodec + MediaMuxer
     // 路径接管；在该路径接入前明确失败，绝不生成缺失音轨的视频文件。
-    std::string audioNote;
-    const AVCodec* audioEncoder = nullptr;
     if (config.includeAudio) {
-        // FFmpeg 没有可跨平台依赖的系统 AAC encoder wrapper。
+        // FFmpeg 不提供可跨平台依赖的系统 AAC encoder wrapper。
         // 在 Android MediaCodec、Apple AudioConverter/AVAssetWriter、
-        // Windows Media Foundation、Linux 平台音频编码器完成接线前，
-        // 所有平台统一 fail-closed，绝不悄悄丢弃音轨或回退软件 AAC。
+        // Windows Media Foundation、Linux 原生音频编码/封装完成接线前，
+        // 所有平台统一 fail-closed，不静默丢弃音轨或回退软件 AAC。
         impl.reset();
         return Result::fail(
             ErrorCode::Unsupported,
             "当前平台的系统 AAC 音频编码/封装链路尚未接入；"
             "NairoClip 不使用应用自带软件 AAC 编码器，也不会静默导出无声视频。");
-    }
-    if (config.includeAudio && audioEncoder != nullptr) {
-        impl.audioCodec = avcodec_alloc_context3(audioEncoder);
-        impl.audioCodec->sample_rate = config.audioSampleRate;
-        AVChannelLayout layout;
-        av_channel_layout_default(&layout, config.audioChannels);
-        impl.audioCodec->ch_layout = layout;
-        impl.audioCodec->sample_fmt = audioEncoder->sample_fmts != nullptr
-                                          ? audioEncoder->sample_fmts[0]
-                                          : AV_SAMPLE_FMT_FLTP;
-        impl.audioCodec->bit_rate = config.audioBitrate;
-        impl.audioCodec->time_base = AVRational{1, config.audioSampleRate};
-
-        impl.audioStream = avformat_new_stream(impl.format, nullptr);
-        err = avcodec_open2(impl.audioCodec, audioEncoder, nullptr);
-        if (err < 0) {
-            avcodec_free_context(&impl.audioCodec);
-            impl.audioCodec = nullptr;
-            impl.audioStream = nullptr;
-        } else {
-            avcodec_parameters_from_context(impl.audioStream->codecpar, impl.audioCodec);
-            impl.audioStream->time_base = impl.audioCodec->time_base;
-        }
     }
 
     if (!(impl.format->oformat->flags & AVFMT_NOFILE)) {
