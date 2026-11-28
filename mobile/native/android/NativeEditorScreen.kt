@@ -3616,7 +3616,7 @@ private fun NativeImageBackgroundPanel(
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(vertical = 7.dp)) {
                             Text(asset.name, color = NcColors.text, fontSize = 10.sp, maxLines = 1)
-                            Text("图片素材 · \${(asset.durationUs / 1_000_000L).coerceAtLeast(0L)} 秒", color = NcColors.secondary, fontSize = 9.sp)
+                            Text("图片素材 · ${(asset.durationUs / 1_000_000L).coerceAtLeast(0L)} 秒", color = NcColors.secondary, fontSize = 9.sp)
                         }
                         Text("删除", color = NcColors.secondary, fontSize = 10.sp,
                             modifier = Modifier.clickable { pendingDelete = asset }.padding(9.dp))
@@ -3657,7 +3657,7 @@ private fun NativeImageBackgroundPanel(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("删除图片素材？") },
-            text = { Text("确认删除「\${asset.name}」？已被时间轴引用的图片不能删除。") },
+            text = { Text("确认删除「${asset.name}」？已被时间轴引用的图片不能删除。") },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
