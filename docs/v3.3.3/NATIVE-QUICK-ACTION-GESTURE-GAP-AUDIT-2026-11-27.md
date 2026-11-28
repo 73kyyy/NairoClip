@@ -51,3 +51,16 @@ The marker long-press implementation is explicitly bound through pointer down/up
 ## Status
 
 **Incomplete / not runtime-integrated.** This audit is source inspection only. No Android Gradle build, unit test execution, CI run, emulator, or physical-device test was performed. The formal Activity entry and WebView fallback remain unchanged. PR #32 remains Draft and unmerged.
+
+## 2026-11-28 follow-up — gesture parity and legacy action dispatch
+
+The earlier finding that the native quick-action button was click-only is superseded by the current source:
+
+- `QuickActionButton` uses Compose `combinedClickable` on a 48dp target while retaining the 30dp visual circle.
+- `NativeQuickActionGestureContract` maps step-previous double tap to `STEP_PREVIOUS_TO_START`, and marker long press to `SHOW_MARKER_LIST`.
+- The native screen dispatches those distinct commands; single-tap previous uses the nearest earlier clip start/end boundary without a synthetic zero boundary.
+- `NativeQuickActionGestureContractTest` covers the gesture mappings and previous-boundary behavior.
+- The four actions that still use the legacy editor (Import, Home, Images, AI) now have an explicit allowlisted route: the Activity restores the still-live WebView editor, checks that the current document is the local editor page, then clicks the matching existing `.cbtn[data-act]` control. Home therefore retains the existing unsaved-work confirmation and project-list navigation instead of merely revealing the old editor without performing the requested action.
+- A JVM route test verifies the four legacy selectors and that native actions do not fall through to the WebView route.
+
+**Updated disposition:** gesture parity is implemented at source level; the four listed actions remain intentionally delegated to the retained WebView and are not counted as native conversions. The quick-action strip and S5 migration remain incomplete overall. The latest GitHub-content commits do not yet have associated Actions runs; Android compilation, JVM execution, CI, and physical-device gesture verification are still pending.
