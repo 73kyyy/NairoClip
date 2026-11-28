@@ -1182,7 +1182,7 @@
 
 - 核验基准：PR #32 分支 `work/v3.3.3-s5-native-editor-foundation`；本次跟进代码提交见分支最新 HEAD。
 - 轨道控制列固定宽度为 40dp，包含眼睛、喇叭、锁三个独立命中区域；Canvas 在轨道素材上方绘制渐变遮罩，再单独绘制控制图标。渐变强度从最左侧 0.88 线性下降到控制列右缘 0，图标不继承遮罩透明度。
-- 必须准确描述该效果：当前是素材可见度渐变羽化（alpha fade），不是 Gaussian blur / RenderEffect 高斯模糊；不应把它记录成真实模糊滤镜。
+- 羽化实现已升级为“模糊副本 + 渐变 alpha 遮罩”：Android 12 / API 31 及以上使用 `RenderEffect.createBlurEffect`（3dp blur radius），随后通过 `DST_IN` 渐变遮罩让模糊从控制列左缘 0.88 alpha 平滑衰减至右缘 0；控制图标在遮罩后重新绘制，保持清晰。API 24–30 没有 `RenderEffect`，保留同一渐变遮罩作为兼容降级，因此旧系统只有 alpha 羽化、没有真实高斯模糊。不得把 API 24–30 描述成已完成高斯模糊。
 - 眼睛、喇叭、锁分别连接 `nc_set_track_hidden`、`nc_set_track_muted`、`nc_set_track_locked`；JNI 对三个操作分别调用对应 C ABI。锁定状态由 `BuildState()` 输出、`NativeTimelineSnapshot` 解析，并由 Android 命令适配器在素材编辑操作前拒绝已锁定轨道。
 - `MainActivity` 已注册 `NCNativeEditor` bridge，并提供仅 DEBUG + 显式 Intent extra + 本地编辑器页面校验的 Compose overlay pilot。它复用原有 engine 和 PreviewSurfaceView，关闭 pilot 时恢复仍存活的 WebView。正式 Activity / launcher 入口未切换，WebView fallback 保留。
 - 本次补充纯 JVM 羽化 alpha ramp 测试（起点、终点、中点、单调性、非有限输入、40dp 宽度契约），以及锁定状态快照解析与非法标志值拒绝测试。
