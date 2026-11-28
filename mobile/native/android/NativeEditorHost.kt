@@ -1,5 +1,6 @@
 package com.nairoclip.app
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +32,11 @@ fun NativeEditorHost(
     bridge: NativeEngineBridge,
     projectName: String,
     onOpenLegacy: () -> Unit,
+    resolveAssetUri: (Long) -> Uri? = { null },
+    autoSubtitleState: NativeAutoSubtitleUiState = NativeAutoSubtitleUiState(),
+    onSelectedSpeechSourceChanged: ((Uri?, NativeSpeechSourceRange?) -> Unit)? = null,
+    onStartAutoSubtitle: (() -> Unit)? = null,
+    onCancelAutoSubtitle: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -78,6 +84,29 @@ fun NativeEditorHost(
     LaunchedEffect(state.timeline) {
         if (state.timeline != null) {
             previewController.requestRenderFrame(state.playheadUs)
+        }
+    }
+
+    LaunchedEffect(
+        state.selectedClip,
+        state.timeline,
+        resolveAssetUri,
+        onSelectedSpeechSourceChanged
+    ) {
+        val target = state.selectedClip
+        val clip = if (target == null) {
+            null
+        } else {
+            state.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
+                (item.engineIndex.takeIf { it >= 0 } ?: index) == target.trackIndex
+            }?.value?.clips?.firstOrNull { it.id == target.clipId }
+        }
+        if (clip == null) {
+            onSelectedSpeechSourceChanged?.invoke(null, null)
+        } else {
+            val uri = clip.assetId.takeIf { it > 0L }?.let(resolveAssetUri)
+            val range = NativeSpeechSourceRange.fromTimelineClip(clip.startUs, clip)
+            onSelectedSpeechSourceChanged?.invoke(uri, range)
         }
     }
 
@@ -429,6 +458,9 @@ fun NativeEditorHost(
         onPrewarmPreviewFrame = { timeUs, _ ->
             previewController.requestRenderFrame(timeUs)
         },
+        autoSubtitleState = autoSubtitleState,
+        onStartAutoSubtitle = onStartAutoSubtitle,
+        onCancelAutoSubtitle = onCancelAutoSubtitle,
         onShareProject = onOpenLegacy,
         onExportProject = onOpenLegacy,
         onExpandPreview = onOpenLegacy
