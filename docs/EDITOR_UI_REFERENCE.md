@@ -101,15 +101,19 @@ The native toolbar's second-level labels and order have been reconciled against 
 A shadowed transition-routing branch was also removed so the source-defined `转场 → 预设转场` item can reach the native transition panel when its required callbacks are present. Other unavailable callbacks continue to route to the retained legacy editor.
 
 
-## Runtime integration gate (not yet passed)
+## Runtime integration acceptance gate (pilot wired; acceptance pending)
 
-Repository call-site inspection confirms:
-- `NativeEditorScreen` currently has no runtime caller outside its own declaration.
-- `NativeAppShell.kt` remains a placeholder.
-- `MainActivity.kt` still creates and loads the WebView editor.
-- `NativeEditorHostState` is a pure state/reducer contract and does not own Activity, ViewModel, JNI, or lifecycle resources.
+The S5 native editor now has a real, debug-only runtime mount path:
+- The existing `MainActivity` remains the launcher/formal Activity entry.
+- An explicit Debug-only Intent extra and the `nativeEditor=1` route flag are both required.
+- The active draft is loaded by `Engine.boot()` before the native mount request. The Android bridge restricts draft paths to app-private `.nclip` files and rejects invalid or oversized files.
+- `MainActivity` validates the active engine snapshot, mounts `NativeEditorHost` in a `ComposeView`, and reuses the same `NativeEngineBridge` and `PreviewSurfaceView`.
+- The existing WebView remains attached underneath the Compose host and its timers are paused while the native host owns the engine. Android Back or the native legacy-return action restores the same WebView session and preview Surface.
+- The native host receives asset-ID-to-URI resolution from the same engine snapshot. Content URI read access is checked when a native feature requests the asset; unsupported schemes and inaccessible files are not passed to Android media decoders.
 
-Therefore, the Compose editor and its typed `NativeQuickAction` callback are not yet runtime-integrated into the app. The current quick-action callback is an extension point; without a host implementation it deliberately falls back to the complete WebView editor. Do not report the native editor migration as complete until a separately gated host/controller consumes the state contract, supplies engine-backed callbacks, and passes lifecycle, persistence, and device validation. The formal Activity entry and WebView fallback remain unchanged.
+This is a runtime pilot, not a completed native migration. Quick actions and panels without native callbacks still fall back to the retained WebView editor. Full synchronized A/V playback, media import, export/share, and AI model/session readiness are not yet accepted as native functionality. Do not change the formal Activity entry or remove the WebView fallback.
+
+Acceptance remains gated on the current-head Android Kotlin compile/unit tests, NDK and host CI, plus real-device verification of initial Surface attach, surface recreation during host switching, rotation/recreation, Android Back, repeated native↔legacy switching, media URI permission loss, and preservation of the active draft and edit state. Until these pass, the route must remain opt-in and must not be described as production-ready.
 
 ## Touch-target geometry follow-up (2026-11-27)
 
