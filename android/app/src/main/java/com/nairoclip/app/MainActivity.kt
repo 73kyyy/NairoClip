@@ -357,6 +357,10 @@ class MainActivity : AppCompatActivity() {
         // The same SurfaceView is moved into Compose; never create a second
         // renderer Surface or a second NativeEngineBridge for the pilot.
         contentRoot.removeView(previewSurface)
+        // Stop the hidden legacy page from polling/rendering against the same
+        // engine while Compose owns the editor session. Its DOM and JS state
+        // remain alive; onPause does not destroy or reload the WebView.
+        webView.onPause()
         webView.visibility = View.INVISIBLE
         contentRoot.addView(
             overlay,
@@ -383,6 +387,7 @@ class MainActivity : AppCompatActivity() {
         configureLegacyPreviewSurface()
         contentRoot.addView(previewSurface, 0)
         webView.visibility = View.VISIBLE
+        webView.onResume()
         webView.post {
             webView.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
         }
