@@ -47,6 +47,11 @@ struct MediaProbeResult {
     /// 短期不改渲染管线（tone mapping 是独立的大工程），
     /// 但至少让 UI 能诚实提示：「此素材为 HDR，当前按 SDR 显示」。
     bool isHdr = false;
+
+    /// 容器是否包含音频流（与系统解码器是否可用分开记录）。
+    bool hasAudioStream = false;
+    /// 当前平台是否成功打开了该音频流的系统解码器。
+    bool audioDecoderAvailable = false;
 };
 
 /// 一帧音频采样块（交错格式，16-bit 或 float 由实现约定；
