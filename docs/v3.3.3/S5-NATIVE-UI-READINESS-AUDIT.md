@@ -1177,3 +1177,14 @@
 - 该修复不调整降噪 DSP 参数、不降低验收阈值，也不改变正常输出样本数契约；真实媒体语音保留与噪声抑制必须由新一轮 CTest/全量 CI 同时验证。
 
 - 新增确定性回归测试 `AudioMixer.DenoisePreservesSamplesAcrossVariableReaderBlockSizes`：使用现有 `MockMediaReader` 分别以 1024 帧和不对齐的 3000 帧返回解码块，对同一 1 秒降噪片段完整混音，断言输出长度一致且逐样本最大差小于 (10^{-6})。该测试直接锁定“feed 需求与解码块大小不一致时不得丢帧”的接口契约；等待最新 Actions CTest 运行。
+
+## 2026-11-28 跟进：轨道控制羽化与受控 Activity 接入核验
+
+- 核验基准：PR #32 分支 `work/v3.3.3-s5-native-editor-foundation`；本次跟进代码提交见分支最新 HEAD。
+- 轨道控制列固定宽度为 40dp，包含眼睛、喇叭、锁三个独立命中区域；Canvas 在轨道素材上方绘制渐变遮罩，再单独绘制控制图标。渐变强度从最左侧 0.88 线性下降到控制列右缘 0，图标不继承遮罩透明度。
+- 必须准确描述该效果：当前是素材可见度渐变羽化（alpha fade），不是 Gaussian blur / RenderEffect 高斯模糊；不应把它记录成真实模糊滤镜。
+- 眼睛、喇叭、锁分别连接 `nc_set_track_hidden`、`nc_set_track_muted`、`nc_set_track_locked`；JNI 对三个操作分别调用对应 C ABI。锁定状态由 `BuildState()` 输出、`NativeTimelineSnapshot` 解析，并由 Android 命令适配器在素材编辑操作前拒绝已锁定轨道。
+- `MainActivity` 已注册 `NCNativeEditor` bridge，并提供仅 DEBUG + 显式 Intent extra + 本地编辑器页面校验的 Compose overlay pilot。它复用原有 engine 和 PreviewSurfaceView，关闭 pilot 时恢复仍存活的 WebView。正式 Activity / launcher 入口未切换，WebView fallback 保留。
+- 本次补充纯 JVM 羽化 alpha ramp 测试（起点、终点、中点、单调性、非有限输入、40dp 宽度契约），以及锁定状态快照解析与非法标志值拒绝测试。
+- 验收边界：上述源码与测试已提交；GitHub Actions 对先前提交的 CI / S5 Android Validation 运行被取消，随后通过 GitHub 内容提交产生的新 HEAD 尚未关联新的 workflow run。因此本次新增测试尚无真实 CI 结果；Android Gradle/JVM、主机 CTest、NDK/JNI、真机手势与渲染均不得标记为本次通过。
+- S5 整体仍未完成：外围页面原生迁移、宿主完整生命周期、播放/音频时钟、导入/恢复与真机端到端验收仍需继续；本节仅关闭轨道控制这一项源码接线与单测覆盖缺口。
