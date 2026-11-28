@@ -25,19 +25,19 @@ Android APK 不捆绑任何软件视频或音频编解码器。媒体编解码�
 
 | 类型 | 系统 MediaCodec 格式 | 规则 |
 |---|---|---|
-| 视频解码 | H.264、HEVC、MPEG-2、MPEG-4、VP8、VP9、AV1 | 仅通过系统 MediaCodec wrapper；设备不支持则拒绝导入 |
-| 视频编码 | H.264、HEVC、VP8、VP9、MPEG-4、AV1 | 仅通过系统 MediaCodec wrapper；按设备能力选择 |
+| 视频解码 | H.264、MPEG-2、MPEG-4、VP8、VP9、AV1 | 仅通过系统 MediaCodec wrapper；设备不支持则拒绝导入 |
+| 视频编码 | H.264、VP8、VP9、MPEG-4、AV1 | 仅通过系统 MediaCodec wrapper；按设备能力选择 |
 | 音频解码 | AAC、MP3、AMR-NB、AMR-WB | 仅通过系统 MediaCodec wrapper；其他格式暂不支持 |
 | 音频编码 | AAC | 必须通过 Android 系统 MediaCodec + 容器封装链路；该链路接入前拒绝带音轨导出 |
 | 音频播放 | AAudio / Oboe，兼容 AudioTrack | 使用系统音频输出 API；不等同于压缩音频解码 |
 | GPU 呈现 | Vulkan / OpenGL ES | 使用系统图形 API 和设备驱动 |
 
-H.264 / HEVC 在 Android 上只允许调用设备系统提供的 MediaCodec，不把对应软件实现打入 APK。系统 API 返回的实际 codec 能力仍取决于设备厂商、Android 版本、profile、分辨率和帧率；不能把“存在 MediaCodec API”误写成“所有设备都支持硬件加速”。
+H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软件实现打入 APK；HEVC/H.265 继续全线禁用，不因系统 API 存在而重新开放。系统 API 返回的实际 codec 能力仍取决于设备厂商、Android 版本、profile、分辨率和帧率；不能把“存在 MediaCodec API”误写成“所有设备都支持硬件加速”。
 
 ### 1.3 Fail-closed 与当前实现边界
 
 - Android FFmpeg 构建先执行 `--disable-decoders --disable-encoders`，再显式启用 MediaCodec wrappers。
-- Android 视频解码只枚举 `h264_mediacodec`、`hevc_mediacodec`、`mpeg4_mediacodec`、`vp8_mediacodec`、`vp9_mediacodec`、`av1_mediacodec` 等系统 wrapper。
+- Android 视频解码只枚举 `h264_mediacodec`、`mpeg4_mediacodec`、`vp8_mediacodec`、`vp9_mediacodec`、`av1_mediacodec` 等系统 wrapper。
 - Android 音频解码只枚举 AAC / MP3 / AMR 对应的 MediaCodec wrapper；不支持的音轨明确拒绝，不走 FFmpeg 原生软件解码。
 - Android 视频编码候选必须以 `_mediacodec` 结尾；即使未来构建配置意外启用了软件编码器，也会在运行时过滤。
 - Android AAC 软件编码已从构建中移除。系统 AAC 编码和最终音视频封装尚未接通前，带音轨导出会明确失败，不允许静默生成无声视频。
