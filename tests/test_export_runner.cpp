@@ -55,11 +55,9 @@ struct Fixture {
 };
 }  // namespace
 namespace {
-/* 本机可用的测试用视频编码格式。
-   产品默认 h264（兼容性），但 H.264 **只走系统硬件编码器**——
-   软件实现已按合规要求移除（AVC 专利费，docs/COMPLIANCE.md §1.2.1）。
-   CI / 本地沙箱没有 GPU，所以测试显式用 VP9（libvpx-vp9，royalty-free）。
-   H.264 硬件编码路径由真机验证承担。 */
+/* 测试使用 VP9 作为编码格式偏好，但只允许实际可打开的系统编码器。
+   CI 主机可能枚举 VAAPI/QSV 名称却没有可用设备/像素格式；对应 E2E
+   用例通过 system_media_test_support.h 预检后跳过，不启用 libvpx 等软件回退。 */
 inline std::string testVideoCodec() { return "vp9"; }
 }  // namespace
 
