@@ -73,7 +73,7 @@ class NativeTimelineView(context: Context) : View(context) {
     var onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null
 
     private val density = resources.displayMetrics.density
-    private val rulerHeight = 27f * density
+    private val rulerHeight = NativeEditorLayoutSpec.RULER_HEIGHT_DP.toFloat() * density
     private val labelWidth = 120f * density
     private val rowHeight = 47f * density
     private val rowGap = 4f * density
@@ -331,7 +331,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 ).toFloat()
             if (x < labelWidth || x > width) continue
             // Keep ruler marks compact so the time labels remain visually clear.
-            canvas.drawLine(x, rulerHeight - 4f * density, x, rulerHeight, tickPaint)
+            canvas.drawLine(x, rulerHeight - NativeEditorLayoutSpec.RULER_TICK_HEIGHT_DP.toFloat() * density, x, rulerHeight, tickPaint)
             canvas.drawText(formatTime(seconds.toLong()), x + 3f * density, 11f * density, rulerTextPaint)
         }
         canvas.drawLine(labelWidth, rulerHeight, width.toFloat(), rulerHeight, tickPaint)
