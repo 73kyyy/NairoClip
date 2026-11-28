@@ -3,6 +3,7 @@ package com.nairoclip.app
 import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -53,9 +54,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalFocusManager
@@ -1889,7 +1892,12 @@ private fun EditorTopBar(
                 .clickable(onClick = onShare),
             contentAlignment = Alignment.Center
         ) {
-            Text("↥", color = NcColors.text, fontSize = 23.sp)
+            Image(
+                painter = painterResource(R.drawable.ic_editor_share),
+                contentDescription = "分享",
+                modifier = Modifier.size(22.dp),
+                colorFilter = ColorFilter.tint(NcColors.text)
+            )
         }
         Spacer(Modifier.width(4.dp))
         Text(
@@ -1977,7 +1985,12 @@ private fun PreviewStage(
                 .clickable(onClick = onExpandPreview),
             contentAlignment = Alignment.Center
         ) {
-            Text("⛶", color = NcColors.text, fontSize = 18.sp)
+            Image(
+                painter = painterResource(R.drawable.ic_editor_fullscreen),
+                contentDescription = "展开预览",
+                modifier = Modifier.size(20.dp),
+                colorFilter = ColorFilter.tint(NcColors.text)
+            )
         }
     }
 }
@@ -3262,11 +3275,11 @@ private fun NativeTransportBar(
                 .clickable(onClick = onSplit),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                "✂",
-                color = if (hasSelection) NcColors.text else NcColors.secondary,
-                fontSize = 23.sp,
-                modifier = Modifier.graphicsLayer { rotationZ = 90f }
+            Image(
+                painter = painterResource(R.drawable.ic_editor_scissors),
+                contentDescription = "分割片段",
+                modifier = Modifier.size(23.dp).graphicsLayer { rotationZ = 90f },
+                colorFilter = ColorFilter.tint(if (hasSelection) NcColors.text else NcColors.secondary)
             )
         }
         Box(
@@ -3276,10 +3289,11 @@ private fun NativeTransportBar(
                 .clickable(onClick = onTogglePlayback),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                if (isPlaying) "Ⅱ" else "▶",
-                color = NcColors.text,
-                fontSize = 22.sp
+            Image(
+                painter = painterResource(if (isPlaying) R.drawable.ic_editor_pause else R.drawable.ic_editor_play),
+                contentDescription = if (isPlaying) "暂停" else "播放",
+                modifier = Modifier.size(22.dp),
+                colorFilter = ColorFilter.tint(NcColors.text)
             )
         }
         Box(
@@ -3304,6 +3318,23 @@ private fun NativeTransportBar(
     }
 }
 
+private fun nativeEditorToolbarIcon(iconId: String): Int = when (iconId) {
+    "i-clip" -> R.drawable.ic_editor_clip
+    "i-auto" -> R.drawable.ic_editor_auto
+    "i-audio" -> R.drawable.ic_editor_audio
+    "i-text" -> R.drawable.ic_editor_text
+    "i-pip" -> R.drawable.ic_editor_pip
+    "i-fx" -> R.drawable.ic_editor_fx
+    "i-trans" -> R.drawable.ic_editor_trans
+    "i-filter" -> R.drawable.ic_editor_filter
+    "i-adjust" -> R.drawable.ic_editor_adjust
+    "i-ratio" -> R.drawable.ic_editor_ratio
+    "i-bg" -> R.drawable.ic_editor_bg
+    "i-mask" -> R.drawable.ic_editor_mask
+    "i-ai" -> R.drawable.ic_editor_ai
+    else -> R.drawable.ic_editor_clip
+}
+
 @Composable
 private fun NativeToolBar(
     activeTool: String,
@@ -3314,7 +3345,7 @@ private fun NativeToolBar(
 ) {
     // Mirror the complete first-level inventory from mobile/assets/editor.js (L1).
     // Unsupported native commands remain reachable through the retained WebView fallback.
-    val tools = NativeEditorToolbarSpec.categories.map { it.name to it.subTools }
+    val tools = NativeEditorToolbarSpec.categories
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3325,7 +3356,9 @@ private fun NativeToolBar(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        tools.forEach { (tool, subTools) ->
+        tools.forEach { category ->
+            val tool = category.name
+            val subTools = category.subTools
             val selected = activeTool == tool
             Column(
                 modifier = Modifier
@@ -3341,15 +3374,12 @@ private fun NativeToolBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(25.dp)
-                        .clip(CircleShape)
-                        .border(1.dp, NcColors.line, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(tool.take(1), color = NcColors.text, fontSize = 11.sp)
-                }
+                Image(
+                    painter = painterResource(nativeEditorToolbarIcon(category.iconId)),
+                    contentDescription = tool,
+                    modifier = Modifier.size(22.dp),
+                    colorFilter = ColorFilter.tint(if (selected) NcColors.text else NcColors.secondary)
+                )
                 Text(
                     tool,
                     color = if (selected) NcColors.text else NcColors.secondary,
