@@ -1485,6 +1485,8 @@ int32_t nc_get_frame_fit(const NcEditor* editor);
 
 /// 设置画幅适配的背景填充色（Fit 模式的信箱/邮筒边颜色；0xRRGGBBAA）。
 int32_t nc_set_background_color(NcEditor* editor, uint32_t rgba);
+/// 读取主序列画布背景色（0xRRGGBBAA）；out_rgba 不能为空。
+int32_t nc_get_background_color(const NcEditor* editor, uint32_t* out_rgba);
 
 /// 设置画布背景色（带乐观并发校验）。0 = 不校验。
 int32_t nc_set_background_color_ex(NcEditor* editor, uint32_t rgba, uint64_t expected_revision);
