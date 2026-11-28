@@ -51,9 +51,14 @@ fun NativeEditorHost(
     var localAutoSubtitleState by remember { mutableStateOf(NativeAutoSubtitleUiState()) }
     val autoSubtitleCoordinator = remember(context, speechWorker, adapter) {
         speechWorker?.let { worker ->
-            NativeAutoSubtitleCoordinator(context, worker, adapter) { updated ->
-                localAutoSubtitleState = updated
-            }
+            NativeAutoSubtitleCoordinator(
+                context = context,
+                worker = worker,
+                adapter = adapter,
+                onStateChanged = { updated ->
+                    localAutoSubtitleState = updated
+                }
+            )
         }
     }
     val resolvedAutoSubtitleState = if (autoSubtitleCoordinator != null) {
@@ -578,8 +583,14 @@ fun NativeEditorHost(
             previewController.requestRenderFrame(timeUs)
         },
         autoSubtitleState = resolvedAutoSubtitleState,
-        onStartAutoSubtitle = onStartAutoSubtitle ?: { autoSubtitleCoordinator?.start() },
-        onCancelAutoSubtitle = onCancelAutoSubtitle ?: { autoSubtitleCoordinator?.cancel() },
+        onStartAutoSubtitle = onStartAutoSubtitle ?: {
+            autoSubtitleCoordinator?.start()
+            Unit
+        },
+        onCancelAutoSubtitle = onCancelAutoSubtitle ?: {
+            autoSubtitleCoordinator?.cancel()
+            Unit
+        },
         onShareProject = onOpenLegacy,
         onExportProject = onOpenLegacy,
         onExpandPreview = onOpenLegacy
