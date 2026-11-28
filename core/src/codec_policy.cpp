@@ -17,7 +17,7 @@ std::string toLower(const std::string& s) {
     return out;
 }
 
-/// 硬件编码器名称片段（FFmpeg 约定：<codec>_<backend>）。
+/// 平台系统媒体后端名称片段（FFmpeg 约定：<codec>_<backend>）。
 bool isSystemEncoderBackendName(const std::string& lower) {
     static const char* kSuffixes[] = {
         "_videotoolbox",  // Apple 平台
@@ -39,7 +39,7 @@ bool isSystemEncoderBackendName(const std::string& lower) {
     return false;
 }
 
-/// 宽松软件编码器白名单（**仅非 H.264**）。
+/// 已识别的软件编码器名称（仅供诊断；系统-only 策略下不允许选择）。
 ///
 /// 2026-11-05 变更：`openh264` 与内置 `h264` 已从此表移除。
 /// 它们虽然许可宽松（BSD / LGPL），但**AVC 专利本身仍要授权**——
@@ -48,7 +48,7 @@ bool isSystemEncoderBackendName(const std::string& lower) {
 /// iOS 更是明确禁止安装后下载可执行模块。
 ///
 /// 所以软件 H.264 编码器统一归到 `SoftwareH264` 分级 → 一律禁用。
-/// 允许的只剩「非 H.264」的宽松实现：
+/// 非 H.264 软件实现也不允许进入产品编码路径：
 bool isPermissiveSoftware(const std::string& lower) {
     static const char* kExact[] = {
         "libopus",     // BSD-3
@@ -126,14 +126,12 @@ bool isGplEncoder(const std::string& lower) {
     return false;
 }
 
-/// 同一优先级内的确定性排序权重（越小越优先）。
+/// 系统媒体后端内部的确定性顺序（硬件能力优先级由 candidate.hardware 单独排序）。
 int preferenceRank(const std::string& lower) {
-        // 硬件编码器：H.264 场景下 MediaCodec/VideoToolbox（移动）排前，
-        // 桌面后端（nvenc/qsv/vaapi/mf）随后；名称排序保证确定性。
+    // 系统媒体后端：移动端系统框架优先，其后为桌面驱动/框架后端。
         static const char* kOrder[] = {"_mediacodec", "_videotoolbox", "_nvenc",
                                        "_qsv",         "_mf",            "_amf",
-                                       "_vaapi",       "_d3d12va",       "_v4l2m2m",
-                                       "_opencl"};
+                                       "_vaapi",       "_d3d12va",       "_v4l2m2m"};
         for (int i = 0; i < static_cast<int>(sizeof(kOrder) / sizeof(kOrder[0])); ++i) {
             if (lower.find(kOrder[i]) != std::string::npos) {
                 return i;
