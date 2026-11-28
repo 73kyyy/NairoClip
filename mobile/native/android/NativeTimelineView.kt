@@ -71,21 +71,6 @@ data class NativeTimelineTrack(
     val locked: Boolean = false
 )
 
-/**
- * Shared track-control feather parameters. The fade is a compositing mask over
- * a blurred copy, not an opaque lane-colored cover over the clip itself.
- */
-internal object NativeTrackControlFeatherSpec {
-    const val BLUR_RADIUS_DP = 3f
-    const val START_ALPHA = 0.88f
-    const val END_ALPHA = 0f
-
-    fun alphaAt(progress: Float): Float {
-        val t = progress.coerceIn(0f, 1f)
-        return START_ALPHA + (END_ALPHA - START_ALPHA) * t
-    }
-}
-
 class NativeTimelineView(context: Context) : View(context) {
 
     var onPlayheadChanged: ((Long) -> Unit)? = null
