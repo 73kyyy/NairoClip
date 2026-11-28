@@ -33,7 +33,9 @@ fun NativeEditorHost(
     projectName: String,
     onOpenLegacy: () -> Unit,
     resolveAssetUri: (Long) -> Uri? = { null },
-    autoSubtitleState: NativeAutoSubtitleUiState = NativeAutoSubtitleUiState(),
+    speechWorker: NativeSpeechSessionWorker? = null,
+    speechSessionReady: Boolean = false,
+    autoSubtitleState: NativeAutoSubtitleUiState? = null,
     onSelectedSpeechSourceChanged: ((Uri?, NativeSpeechSourceRange?) -> Unit)? = null,
     onStartAutoSubtitle: (() -> Unit)? = null,
     onCancelAutoSubtitle: (() -> Unit)? = null,
@@ -46,6 +48,15 @@ fun NativeEditorHost(
         NativeEditorHostController(adapter, scope)
     }
     val state by controller.state.collectAsState()
+    var localAutoSubtitleState by remember { mutableStateOf(NativeAutoSubtitleUiState()) }
+    val autoSubtitleCoordinator = remember(context, speechWorker, adapter) {
+        speechWorker?.let { worker ->
+            NativeAutoSubtitleCoordinator(context, worker, adapter) { updated ->
+                localAutoSubtitleState = updated
+            }
+        }
+    }
+    val resolvedAutoSubtitleState = autoSubtitleState ?: localAutoSubtitleState
     val previewView = remember(context) { PreviewSurfaceView(context) }
     val previewController = remember(previewView) {
         NativePreviewSurfaceController(previewView)
@@ -82,6 +93,10 @@ fun NativeEditorHost(
         previewController.onEngineReady()
     }
 
+    LaunchedEffect(autoSubtitleCoordinator, speechSessionReady) {
+        autoSubtitleCoordinator?.setSessionReady(speechSessionReady)
+    }
+
     LaunchedEffect(state.timeline) {
         if (state.timeline != null) {
             previewController.requestRenderFrame(state.playheadUs)
@@ -93,9 +108,10 @@ fun NativeEditorHost(
         state.timeline,
         resolveAssetUri,
         onSelectedSpeechSourceChanged,
-        autoSubtitleState.running
+        resolvedAutoSubtitleState.running,
+        autoSubtitleCoordinator
     ) {
-        if (autoSubtitleState.running) return@LaunchedEffect
+        if (resolvedAutoSubtitleState.running) return@LaunchedEffect
         val target = state.selectedClip
         val clip = if (target == null) {
             null
@@ -105,12 +121,14 @@ fun NativeEditorHost(
             }?.value?.clips?.firstOrNull { it.id == target.clipId }
         }
         if (clip == null) {
+            autoSubtitleCoordinator?.setSource(null, null)
             onSelectedSpeechSourceChanged?.invoke(null, null)
         } else {
             val uri = runCatching {
                 clip.assetId.takeIf { it > 0L }?.let(resolveAssetUri)
             }.getOrNull()
             val range = NativeSpeechSourceRange.fromTimelineClip(clip.startUs, clip)
+            autoSubtitleCoordinator?.setSource(uri, range)
             onSelectedSpeechSourceChanged?.invoke(uri, range)
         }
     }
@@ -202,13 +220,14 @@ fun NativeEditorHost(
         }
     }
 
-    DisposableEffect(previewController) {
+    DisposableEffect(previewController, autoSubtitleCoordinator) {
         previewController.onSurfaceAttached = {
             previewController.requestRenderFrame(latestPlayheadUs)
         }
         onDispose {
             previewController.onSurfaceAttached = null
             previewController.dispose()
+            autoSubtitleCoordinator?.close()
         }
     }
 
@@ -533,9 +552,9 @@ fun NativeEditorHost(
         onPrewarmPreviewFrame = { timeUs, _ ->
             previewController.requestRenderFrame(timeUs)
         },
-        autoSubtitleState = autoSubtitleState,
-        onStartAutoSubtitle = onStartAutoSubtitle,
-        onCancelAutoSubtitle = onCancelAutoSubtitle,
+        autoSubtitleState = resolvedAutoSubtitleState,
+        onStartAutoSubtitle = onStartAutoSubtitle ?: { autoSubtitleCoordinator?.start() },
+        onCancelAutoSubtitle = onCancelAutoSubtitle ?: { autoSubtitleCoordinator?.cancel() },
         onShareProject = onOpenLegacy,
         onExportProject = onOpenLegacy,
         onExpandPreview = onOpenLegacy
