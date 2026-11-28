@@ -146,9 +146,9 @@ struct FFmpegMediaWriter::Impl {
 
 FFmpegMediaWriter::FFmpegMediaWriter() : impl_(std::make_unique<Impl>()) {}
 FFmpegMediaWriter::~FFmpegMediaWriter() {
-    if (impl_ != nullptr && impl_->open) {
-        abort();  // 未 finish 的写入器：丢弃
-    }
+    // open() 的失败路径也可能已经分配 format/codec/IO 资源；
+    // 清理不能依赖 open 标志，否则早期失败会泄漏。
+    abort();
 }
 
 Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& config) {
@@ -666,12 +666,10 @@ Result FFmpegMediaWriter::finish() {
 }
 
 void FFmpegMediaWriter::abort() {
-    if (impl_ == nullptr || !impl_->open) {
-        return;
-    }
+    if (impl_ == nullptr) return;
+    // reset() 对 open 之前已分配的部分资源同样有效；不能只在 open=true 时清理。
     impl_->reset();
-    // 删除半成品文件（由调用方控制是否删除；这里保守地保留，
-    // 因为某些平台下删除行为需要用户确认）。
+    // 删除半成品文件（由调用方控制是否删除；这里保守地保留）。
 }
 
 bool FFmpegMediaWriter::isOpen() const { return impl_ != nullptr && impl_->open; }
