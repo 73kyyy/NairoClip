@@ -229,11 +229,13 @@ fun NativeEditorScreen(
     }
 
     MaterialTheme {
-        Column(
+        BoxWithConstraints(
             modifier = modifier
                 .fillMaxSize()
                 .background(NcColors.background)
         ) {
+            val responsive = NativeEditorResponsiveSpec.forHeight(maxHeight.value)
+            Column(modifier = Modifier.fillMaxSize()) {
             EditorTopBar(
                 onShare = { onShareProject?.invoke() ?: onOpenLegacy() },
                 onExport = { onExportProject?.invoke() ?: onOpenLegacy() }
@@ -243,7 +245,10 @@ fun NativeEditorScreen(
                 previewView = previewView,
                 showGuides = showGuides,
                 onExpandPreview = { onExpandPreview?.invoke() ?: onOpenLegacy() },
-                modifier = Modifier.weight(1f).fillMaxWidth()
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .heightIn(min = responsive.previewMinHeightDp.dp)
             )
 
             QuickActionStrip(
@@ -388,9 +393,17 @@ fun NativeEditorScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP.dp)
+                    .height(responsive.timelineHeightDp.dp)
             )
 
+            // Dynamic editor panels scroll within a bounded viewport. This keeps
+            // the timeline, transport row and tool strip reachable on short screens.
+            Column(
+                modifier = Modifier
+                    .heightIn(max = responsive.parameterPanelMaxHeightDp.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
             selectedClip?.let { selection ->
                 val selectedTrack = timelineTracks.firstOrNull { track ->
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first
@@ -729,6 +742,7 @@ fun NativeEditorScreen(
                     Text("文字创建等待宿主接入原生引擎命令", color = NcColors.secondary, fontSize = 10.sp)
                 }
             }
+            }
             NativeTransportBar(
                 hasSelection = selectedTarget != null,
                 isPlaying = isPlaying,
@@ -922,6 +936,7 @@ fun NativeEditorScreen(
                     }
                 }
             )
+            }
         }
     }
 }
