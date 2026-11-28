@@ -440,7 +440,7 @@ bool systemVp9EncoderAvailable() {
     constexpr const char* probePath = "/tmp/media_gen/nc_vp9_encoder_probe.mp4";
     const Result opened = writer.open(probePath, config);
     if (!opened.isOk()) {
-        std::printf("[SKIP] AtmosphereMotionE2E：系统 VP9 编码器不可用：%s\\n",
+        std::printf("[SKIP] AtmosphereMotionE2E：系统 VP9 编码器不可用：%s\n",
                     opened.message.c_str());
         writer.abort();
         std::remove(probePath);
