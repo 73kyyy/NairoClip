@@ -3303,17 +3303,12 @@ private fun NativeTransportBar(
                 .clickable(onClick = onDelete),
             contentAlignment = Alignment.Center
         ) {
-            Canvas(Modifier.size(width = 18.dp, height = 21.dp)) {
-                val stroke = 1.6.dp.toPx()
-                val c = NcColors.danger
-                drawLine(c, Offset(size.width * 0.18f, size.height * 0.22f), Offset(size.width * 0.82f, size.height * 0.22f), stroke)
-                drawLine(c, Offset(size.width * 0.38f, size.height * 0.10f), Offset(size.width * 0.62f, size.height * 0.10f), stroke)
-                drawLine(c, Offset(size.width * 0.28f, size.height * 0.30f), Offset(size.width * 0.34f, size.height * 0.90f), stroke)
-                drawLine(c, Offset(size.width * 0.72f, size.height * 0.30f), Offset(size.width * 0.66f, size.height * 0.90f), stroke)
-                drawLine(c, Offset(size.width * 0.34f, size.height * 0.90f), Offset(size.width * 0.66f, size.height * 0.90f), stroke)
-                drawLine(c, Offset(size.width * 0.46f, size.height * 0.38f), Offset(size.width * 0.46f, size.height * 0.78f), stroke)
-                drawLine(c, Offset(size.width * 0.56f, size.height * 0.38f), Offset(size.width * 0.56f, size.height * 0.78f), stroke)
-            }
+            Image(
+                painter = painterResource(R.drawable.ic_editor_trash),
+                contentDescription = "删除片段",
+                modifier = Modifier.size(21.dp),
+                colorFilter = ColorFilter.tint(NcColors.danger)
+            )
         }
     }
 }
