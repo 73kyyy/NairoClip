@@ -85,14 +85,13 @@ fun NativeEditorHost(
         val countResult = withContext(Dispatchers.IO) { adapter.readTransitionTypeCount() }
         val count = countResult.value
         if (countResult.ok && count != null) {
-            val types = buildList {
-                for (type in 0 until count) {
-                    val result = withContext(Dispatchers.IO) {
-                        adapter.readTransitionTypeName(type)
-                    }
-                    val name = result.value
-                    if (result.ok && !name.isNullOrBlank()) add(type to name)
+            val types = mutableListOf<Pair<Int, String>>()
+            for (type in 0 until count) {
+                val result = withContext(Dispatchers.IO) {
+                    adapter.readTransitionTypeName(type)
                 }
+                val name = result.value
+                if (result.ok && !name.isNullOrBlank()) types += type to name
             }
             transitionTypes = types
         }
@@ -118,6 +117,16 @@ fun NativeEditorHost(
             clipMask = null
             clipTransitions = emptyList()
         } else {
+            transform = NativeTransform()
+            anchor = NativeTransformRange.ANCHOR_CENTER
+            keyframes = emptyMap()
+            speedCurvePoints = null
+            clipAudio = null
+            clipDenoiseStrength = null
+            clipFilter = null
+            clipLut = null
+            clipColorGrade = null
+            clipMask = null
             val transitionsResult = withContext(Dispatchers.IO) {
                 adapter.readTransitions(target.trackIndex)
             }
