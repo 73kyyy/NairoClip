@@ -1,5 +1,7 @@
 #include "test_framework.h"
 #include "nairoclip/core/media_io.h"
+#include <cmath>
+#include <fstream>
 using namespace nairoclip::core;
 namespace {
 MockMediaReader::Config makeConfig() {
@@ -106,7 +108,7 @@ NC_TEST(MediaIo, ReadsUncompressedPcmWavWithoutCodec) {
     WavPcmReader reader;
     NC_CHECK(reader.open("/tmp/media_gen/speech.wav").isOk());
     NC_CHECK(reader.isOpen());
-    NC_CHECK_EQ(reader.probe().type, MediaType::Audio);
+    NC_CHECK(reader.probe().type == MediaType::Audio);
     NC_CHECK_EQ(reader.probe().sampleRate, 48000);
     NC_CHECK_EQ(reader.probe().channels, 1);
     NC_CHECK(std::abs(reader.probe().duration.toDouble() - 8.0) < 0.001);
