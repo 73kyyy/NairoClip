@@ -386,15 +386,12 @@ Result FFmpegMediaReader::open(const std::string& path) {
                 return Result::fail(ErrorCode::Unsupported, msg);
             }
         } else {
-            codec = avcodec_find_decoder(stream->codecpar->codec_id);
-            if (codec == nullptr) {
-                close();
-                const std::string codecName = avcodec_get_name(stream->codecpar->codec_id);
-                return Result::fail(ErrorCode::Unsupported,
-                                    "不支持的视频编解码器：" + codecName);
-            }
-            /* 非系统硬件路径（仅非 Android 平台）走通用平台解码器路径。 */
-            impl.videoCodec = avcodec_alloc_context3(codec);
+            close();
+            const std::string codecName = avcodec_get_name(stream->codecpar->codec_id);
+            return Result::fail(
+                ErrorCode::Unsupported,
+                "当前平台尚未接入该格式的系统视频解码后端（" + codecName +
+                    "）；NairoClip 不包含应用自带的软件视频解码器。");
         }
         /* 硬件候选在上面已经 open 成功；只有通用平台路径才执行下面的 alloc/open。 */
         if (!useHardwareDecoder) {
@@ -469,8 +466,15 @@ Result FFmpegMediaReader::open(const std::string& path) {
                 "Android 系统 MediaCodec 不支持该音频格式；本应用不包含软件音频解码器。");
         }
 #else
-        codec = avcodec_find_decoder(stream->codecpar->codec_id);
+        // 非 Android 平台的系统 reader 尚在迁移；禁止回退到 FFmpeg 内置软件解码器。
+        codec = nullptr;
 #endif
+        if (codec == nullptr) {
+            close();
+            return Result::fail(
+                ErrorCode::Unsupported,
+                "当前平台尚未接入该格式的系统音频解码后端；NairoClip 不包含应用自带的软件音频解码器。");
+        }
         if (codec != nullptr) {
             impl.audioCodec = avcodec_alloc_context3(codec);
             // 返回值必须逐个检查：失败后继续用 nullptr context 是
