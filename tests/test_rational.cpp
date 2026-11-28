@@ -231,3 +231,28 @@ NC_TEST(Rational, RoundToIntNegativeHalfRoundsTowardPositiveInfinity) {
     NC_CHECK_EQ(roundToInt(Rational::make(-3, 2)), -1);
     NC_CHECK_EQ(roundToInt(Rational::make(-2, 3)), -1);
 }
+NC_TEST(Rational, MakeReducesMinimumMagnitudeBeforeNormalizingSign) {
+    rationalResetOverflowFlag();
+    const Rational sameMinimum = Rational::make(INT64_MIN, INT64_MIN);
+    NC_CHECK_EQ(sameMinimum.num, 1);
+    NC_CHECK_EQ(sameMinimum.den, 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+
+    const Rational negativeDenominator = Rational::make(INT64_MIN, -2);
+    NC_CHECK_EQ(negativeDenominator.num, INT64_C(4611686018427387904));
+    NC_CHECK_EQ(negativeDenominator.den, 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+
+    const Rational positiveDenominator = Rational::make(INT64_MIN, 2);
+    NC_CHECK_EQ(positiveDenominator.num, -INT64_C(4611686018427387904));
+    NC_CHECK_EQ(positiveDenominator.den, 1);
+    NC_CHECK(!rationalLastOpOverflowed());
+}
+
+NC_TEST(Rational, MakeSaturatesOnlyWhenReducedValueCannotBeRepresented) {
+    rationalResetOverflowFlag();
+    const Rational unrepresentableDenominator = Rational::make(1, INT64_MIN);
+    NC_CHECK(rationalLastOpOverflowed());
+    NC_CHECK_EQ(unrepresentableDenominator.num, INT64_MAX);
+    NC_CHECK_EQ(unrepresentableDenominator.den, 1);
+}
