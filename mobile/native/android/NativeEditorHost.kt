@@ -686,6 +686,7 @@ fun NativeEditorHost(
             controller.setClipEnabled(track, clipId, enabled)
         },
         onDuplicateClip = { track, clipId -> controller.duplicateClip(track, clipId) },
+        onReverseClip = { track, clipId -> controller.reverseClip(track, clipId) },
         onRippleDeleteClip = { track, clipId -> controller.rippleDeleteClip(track, clipId) },
         onPrewarmPreviewFrame = { timeUs, width ->
             // Prewarming runs on Dispatchers.IO and fills the engine cache;
