@@ -379,23 +379,28 @@ class NativeEditorHostController(
         operation: () -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>,
         pendingToggle: Pair<Pair<Int, String>, Boolean>? = null
     ): Job = scope.launch {
-        operationMutex.withLock {
-            dispatch(NativeEditorHostEvent.RefreshStarted)
-            val result = withContext(ioDispatcher) { executeSafely(operation) }
-            val snapshot = result.value
-            if (result.ok && snapshot != null) {
-                mutableState.value = mutableState.value.copy(
-                    timeline = snapshot,
-                    isRefreshing = false,
-                    errorMessage = null
-                ).normalized()
-            } else {
-                dispatch(
-                    NativeEditorHostEvent.MutationFailed(
-                        result.error ?: "轨道命令执行失败"
+        try {
+            operationMutex.withLock {
+                dispatch(NativeEditorHostEvent.RefreshStarted)
+                val result = withContext(ioDispatcher) { executeSafely(operation) }
+                val snapshot = result.value
+                if (result.ok && snapshot != null) {
+                    mutableState.value = mutableState.value.copy(
+                        timeline = snapshot,
+                        isRefreshing = false,
+                        errorMessage = null
+                    ).normalized()
+                } else {
+                    dispatch(
+                        NativeEditorHostEvent.MutationFailed(
+                            result.error ?: "轨道命令执行失败"
+                        )
                     )
-                )
+                }
             }
+        } finally {
+            // Also release reservations when a queued coroutine is cancelled
+            // before it acquires the operation mutex.
             pendingToggle?.let { (key, target) ->
                 trackToggleIntents.finish(key, target)
             }
