@@ -1188,3 +1188,12 @@
 - 本次补充纯 JVM 羽化 alpha ramp 测试（起点、终点、中点、单调性、非有限输入、40dp 宽度契约），以及锁定状态快照解析与非法标志值拒绝测试。
 - 验收边界：上述源码与测试已提交；GitHub Actions 对先前提交的 CI / S5 Android Validation 运行被取消，随后通过 GitHub 内容提交产生的新 HEAD 尚未关联新的 workflow run。因此本次新增测试尚无真实 CI 结果；Android Gradle/JVM、主机 CTest、NDK/JNI、真机手势与渲染均不得标记为本次通过。
 - S5 整体仍未完成：外围页面原生迁移、宿主完整生命周期、播放/音频时钟、导入/恢复与真机端到端验收仍需继续；本节仅关闭轨道控制这一项源码接线与单测覆盖缺口。
+
+## 2026-11-28 follow-up: quick-action parity and compact-height layout
+
+- Native quick-action single/double-tap and marker long-press semantics are now explicitly implemented through `NativeQuickActionGestureContract` and Compose `combinedClickable`; the visual circles remain 30dp inside 48dp touch targets.
+- Import, Home, Images and AI remain legacy-backed, but their fallback now dispatches the corresponding existing editor action after restoring the same WebView page. The route is allowlisted and only dispatches while the local editor document is active. These four actions are not counted as native conversions.
+- Added an initial height-class policy for the native editor. Compact layouts reduce timeline height and bound the parameter/marker/prewarm panel to a scroll viewport, while keeping transport and the bottom tool strip outside that scroll region. The reference-height class retains the existing 282dp timeline.
+- Added JVM contract tests for the quick-action fallback allowlist and responsive height budgets.
+- The latest branch includes these source and test changes. The previous Actions attempt was cancelled after subsequent branch updates; a fresh run must be checked against the final HEAD before any test is marked passed.
+- S5 remains incomplete and gated. S1-3 persistent recovery, S3-1 checked-time/export-plan acceptance and A-12 approvals remain unresolved; this UI work does not bypass those gates or authorize formal Activity cutover, Manifest changes, PR merge, or WebView removal.
