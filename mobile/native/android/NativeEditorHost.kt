@@ -66,6 +66,7 @@ fun NativeEditorHost(
     var clipLut by remember { mutableStateOf<NativeEditorCommandAdapter.ClipLutState?>(null) }
     var clipColorGrade by remember { mutableStateOf<NativeEditorCommandAdapter.ClipColorGradeState?>(null) }
     var clipMask by remember { mutableStateOf<NativeEditorCommandAdapter.ClipMaskState?>(null) }
+    var clipEffectSpecs by remember { mutableStateOf<Map<Int, NativeEditorCommandAdapter.EffectSpec>>(emptyMap()) }
     var clipTransitions by remember { mutableStateOf<List<NativeEditorCommandAdapter.TransitionState>>(emptyList()) }
     var transitionTypes by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
     var subtitleCues by remember { mutableStateOf<List<NativeEditorCommandAdapter.SubtitleCueState>>(emptyList()) }
@@ -148,6 +149,7 @@ fun NativeEditorHost(
             clipLut = null
             clipColorGrade = null
             clipMask = null
+            clipEffectSpecs = emptyMap()
             clipTransitions = emptyList()
         } else {
             transform = NativeTransform()
@@ -160,6 +162,18 @@ fun NativeEditorHost(
             clipLut = null
             clipColorGrade = null
             clipMask = null
+            clipEffectSpecs = emptyMap()
+            val selectedClipForEffects = state.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
+                (item.engineIndex.takeIf { it >= 0 } ?: index) == target.trackIndex
+            }?.value?.clips?.firstOrNull { it.id == target.clipId }
+            val effectTypes = (0..13).toSet() + selectedClipForEffects.orEmptyEffects()
+            val loadedEffectSpecs = linkedMapOf<Int, NativeEditorCommandAdapter.EffectSpec>()
+            effectTypes.sorted().forEach { effectType ->
+                val specResult = withContext(Dispatchers.IO) { adapter.readEffectSpec(effectType) }
+                val spec = specResult.value
+                if (specResult.ok && spec != null) loadedEffectSpecs[effectType] = spec
+            }
+            clipEffectSpecs = loadedEffectSpecs
             val transitionsResult = withContext(Dispatchers.IO) {
                 adapter.readTransitions(target.trackIndex)
             }
@@ -231,6 +245,7 @@ fun NativeEditorHost(
         clipLut = clipLut,
         clipColorGrade = clipColorGrade,
         clipMask = clipMask,
+        clipEffectSpecs = clipEffectSpecs,
         clipTransitions = clipTransitions,
         transitionTypes = transitionTypes,
         subtitleCues = subtitleCues,
@@ -381,6 +396,61 @@ fun NativeEditorHost(
             val job = controller.setClipMask(
                 NativeEditorCommandAdapter.ClipTarget(track, clipId),
                 mask
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onAddClipEffect = { track, clipId, effectType ->
+            val value = clipEffectSpecs[effectType]?.defaultValue ?: 0.0
+            val job = controller.addEffect(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                effectType,
+                value
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onUpdateClipEffect = { track, clipId, effect, value ->
+            val job = controller.updateEffect(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                effect,
+                value
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onSetClipEffectEnabled = { track, clipId, effectId, enabled ->
+            val job = controller.setEffectEnabled(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                effectId,
+                enabled
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onMoveClipEffect = { track, clipId, effectId, direction ->
+            val job = controller.moveEffect(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                effectId,
+                direction
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onRemoveClipEffect = { track, clipId, effectId ->
+            val job = controller.removeEffect(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                effectId
             )
             scope.launch {
                 job.join()
