@@ -5351,11 +5351,40 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
 #ifdef NAIROCLIP_HAS_FFMPEG
+    if (out_width != nullptr) *out_width = 0;
+    if (out_height != nullptr) *out_height = 0;
+    if (out_rgba != nullptr) *out_rgba = nullptr;
+    if (out_clip_id != nullptr) *out_clip_id = 0;
     PreviewRenderer* renderer = ensurePreviewRenderer(editor);
     if (renderer == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
     }
-    const PreviewFrame frame = renderer->renderAt(fromMicroseconds(time_us));
+    const Time timelineTime = fromMicroseconds(time_us);
+    const PreviewFrame frame = renderer->renderAt(timelineTime);
+    // A timeline gap is a valid empty frame; an active video clip that produced
+    // no pixels means its media backend/decoder failed. Do not report NC_OK
+    // with a blank preview, which would hide unsupported system codecs.
+    if (frame.rgba.empty() && frame.clipId == 0) {
+        const Sequence* sequence = editor->project.mainSequence();
+        bool hasActiveVideoClip = false;
+        if (sequence != nullptr) {
+            for (const auto& track : sequence->tracks) {
+                if (track.type != TrackType::Video || track.hidden) continue;
+                for (const auto& clip : track.clips) {
+                    if (clip.enabled && clip.contains(timelineTime)) {
+                        hasActiveVideoClip = true;
+                        break;
+                    }
+                }
+                if (hasActiveVideoClip) break;
+            }
+        }
+        if (hasActiveVideoClip) {
+            return failNc(NC_ERROR_UNSUPPORTED,
+                          "当前片段无法通过已接入的系统媒体解码后端生成预览帧；"
+                          "未回退到应用自带的软件解码器。");
+        }
+    }
     if (out_width != nullptr) *out_width = frame.width;
     if (out_height != nullptr) *out_height = frame.height;
     if (out_clip_id != nullptr) *out_clip_id = frame.clipId;
