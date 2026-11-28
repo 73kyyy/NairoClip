@@ -1181,7 +1181,7 @@
 ## 2026-11-28 跟进：轨道控制羽化与受控 Activity 接入核验
 
 - 核验基准：PR #32 分支 `work/v3.3.3-s5-native-editor-foundation`；本次跟进代码提交见分支最新 HEAD。
-- 轨道控制列固定宽度为 40dp，包含眼睛、喇叭、锁三个独立命中区域；Canvas 在轨道素材上方绘制渐变遮罩，再单独绘制控制图标。渐变强度从最左侧 0.88 线性下降到控制列右缘 0，图标不继承遮罩透明度。
+- 轨道控制区是浮在素材之上的 120dp 透明覆盖层，划分为三个独立的 40dp 命中区域（眼睛、喇叭、锁）；它不占用轨道标签列，也不改变时间轴时间原点。Canvas 在素材上方绘制渐变遮罩，再单独绘制控制图标。渐变强度从最左侧 0.88 线性下降到控制区右缘 0，图标不继承遮罩透明度。
 - 羽化实现已升级为“模糊副本 + 渐变 alpha 遮罩”：Android 12 / API 31 及以上使用 `RenderEffect.createBlurEffect`（3dp blur radius），随后通过 `DST_IN` 渐变遮罩让模糊从控制列左缘 0.88 alpha 平滑衰减至右缘 0；控制图标在遮罩后重新绘制，保持清晰。API 24–30 没有 `RenderEffect`，保留同一渐变遮罩作为兼容降级，因此旧系统只有 alpha 羽化、没有真实高斯模糊。不得把 API 24–30 描述成已完成高斯模糊。
 - 眼睛、喇叭、锁分别连接 `nc_set_track_hidden`、`nc_set_track_muted`、`nc_set_track_locked`；JNI 对三个操作分别调用对应 C ABI。锁定状态由 `BuildState()` 输出、`NativeTimelineSnapshot` 解析，并由 Android 命令适配器在素材编辑操作前拒绝已锁定轨道。
 - `MainActivity` 已注册 `NCNativeEditor` bridge，并提供仅 DEBUG + 显式 Intent extra + 本地编辑器页面校验的 Compose overlay pilot。它复用原有 engine 和 PreviewSurfaceView，关闭 pilot 时恢复仍存活的 WebView。正式 Activity / launcher 入口未切换，WebView fallback 保留。
@@ -1226,3 +1226,11 @@
 ### 2026-11-28 geometry correction — 40dp total overlay
 
 The earlier note in this audit describing three 40dp hit regions and a 120dp total control gutter was incorrect and is superseded. The current reference implementation and `NativeEditorLayoutSpec` define one 40dp total overlay containing the three compact icons; their centers are at 1/6, 1/2 and 5/6 of that width. Clip content continues underneath the overlay and its origin is not shifted. The feather mask, clipping bounds and tap hit-test use that same 40dp width. The previous 120dp change must not be treated as the approved layout. This preserves the documented screenshot reference; the narrow horizontal hit regions remain a usability limitation to validate on-device, and TalkBack custom actions remain available for the selected track.
+
+
+## 2026-11-28 correction: preserve 40dp per track-control touch target
+
+- Reconciled the earlier contradictory 40dp-total note with the implemented interaction requirement: the eye, speaker and lock each receive a full 40dp horizontal hit cell, so the floating control/feather overlay is 120dp wide in total.
+- The overlay remains transparent and floats above the clip lane; it does not reserve a blank gutter or change the timeline time origin. Clip rendering, selection exclusion, feather clipping, gradient shader endpoint and control hit testing all use the same 120dp width, with 40dp per action.
+- The cached LinearGradient already uses the full `trackControlsWidth` as its endpoint. Restoring the 120dp total width also ensures the DST_IN mask reaches zero alpha exactly at the right edge instead of ending partway through its ramp.
+- JVM layout and feather tests now assert 40dp per action and 120dp total. Device visual/gesture validation remains outstanding.
