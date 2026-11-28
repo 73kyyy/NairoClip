@@ -212,6 +212,21 @@ NC_TEST(CapiMedia, DetachAudio) {
 // 5. 真实解码类（素材缺失时跳过；无 FFmpeg 构建整体排除）
 // ---------------------------------------------------------------------------
 
+NC_TEST(CapiMedia, PreviewRenderInvalidArgumentsClearOutputs) {
+    std::int32_t width = 12;
+    std::int32_t height = 34;
+    std::uint8_t* rgba = reinterpret_cast<std::uint8_t*>(static_cast<std::uintptr_t>(1));
+    std::uint64_t clip = 99;
+    const std::int32_t rc = nc_preview_render(nullptr, 0, &width, &height, &rgba, &clip,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr,
+                                               nullptr, nullptr);
+    NC_CHECK_EQ(rc, NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(width, 0);
+    NC_CHECK_EQ(height, 0);
+    NC_CHECK(rgba == nullptr);
+    NC_CHECK_EQ(clip, std::uint64_t(0));
+}
+
 #ifdef NAIROCLIP_HAS_FFMPEG
 
 NC_TEST(CapiMedia, PreviewRenderRealFrame) {
