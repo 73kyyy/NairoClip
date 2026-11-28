@@ -19,7 +19,7 @@
 #   · MediaCodec wrapper 只是系统 API 适配层，不是 APK 内置编解码实现。
 #   · Android AAC 音频编码由独立系统 MediaCodec + MediaMuxer 接入负责；
 #     当前 FFmpeg writer 不允许退回内置 AAC 软件编码器。
-#   · H.264/H.265 仅允许通过设备系统 MediaCodec 使用，不捆绑其软件实现。
+#   · H.264 仅允许通过设备系统 MediaCodec 使用；HEVC/H.265 全线禁用。
 #   · 只保留需要的组件，控制 APK 体积。
 # =============================================================================
 set -euo pipefail
@@ -174,6 +174,174 @@ build_abi() {
             exit 1
         fi
     done
+    if grep -E '^#define CONFIG_[A-Z0-9_]+_DECODER 1
+    for codec in H264 MPEG4 VP8 VP9 AV1; do
+        if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_ENCODER 1$" "$COMPONENTS"; then
+            echo "❌ 缺少系统 MediaCodec 视频编码 wrapper：${codec}"
+            exit 1
+        fi
+    done
+
+    # 编译失败时把真正的错误打出来。
+    # 原来直接 make，CI 日志只留尾部若干行，而 FFmpeg 编译到 libavcodec
+    # 时才出错 —— 尾部全是无关的 warning，真错误被截掉，等于没法排查。
+    local JOBS="${JOBS:-$(nproc)}"
+    if ! make -j"$JOBS" > "$ROOT/build-$ABI.log" 2>&1; then
+        echo "❌ $ABI 编译失败（make -j$JOBS），最后 120 行："
+        tail -n 120 "$ROOT/build-$ABI.log"
+        exit 1
+    fi
+    if ! make install > "$ROOT/install-$ABI.log" 2>&1; then
+        echo "❌ $ABI 安装失败，最后 80 行："
+        tail -n 80 "$ROOT/install-$ABI.log"
+        exit 1
+    fi
+
+    # 剥离调试符号（体积）；LGPL 不要求保留符号，源码可获取即可
+    find "$PREFIX/lib" -name '*.so' -exec "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded {} \;
+    ls -lh "$PREFIX/lib"
+}
+
+# armeabi-v7a 的 triple 是 **armv7a**-linux-androideabi，不是 arm-linux-androideabi。
+# 用错会得到「unable to create an executable file / C compiler test failed」——
+# 因为 NDK 的 clang wrapper 按 triple 名找目标文件，名字不对就找不到。
+# --arch 用 FFmpeg 的命名：arm / aarch64 / x86_64（不是 arm64）。
+build_abi arm64-v8a   aarch64-linux-android  aarch64
+# 只出 arm64-v8a（2026-11-07）：x86_64 只用于模拟器且需要 nasm，是最脆的一路；
+# armeabi-v7a 在现代机上已极少。要恢复就把下面两行取消注释，并同步改
+# android/app/build.gradle.kts 的 abiFilters 与 workflow 的三处 for ABI 循环。
+# build_abi armeabi-v7a armv7a-linux-androideabi arm
+# build_abi x86_64      x86_64-linux-android   x86_64
+
+echo "==> 完成。产物在 $OUT/<abi>/lib"
+ "$COMPONENTS" | grep -Ev '^#define CONFIG_[A-Z0-9]+_MEDIACODEC_DECODER 1
+    for codec in H264 MPEG4 VP8 VP9 AV1; do
+        if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_ENCODER 1$" "$COMPONENTS"; then
+            echo "❌ 缺少系统 MediaCodec 视频编码 wrapper：${codec}"
+            exit 1
+        fi
+    done
+
+    # 编译失败时把真正的错误打出来。
+    # 原来直接 make，CI 日志只留尾部若干行，而 FFmpeg 编译到 libavcodec
+    # 时才出错 —— 尾部全是无关的 warning，真错误被截掉，等于没法排查。
+    local JOBS="${JOBS:-$(nproc)}"
+    if ! make -j"$JOBS" > "$ROOT/build-$ABI.log" 2>&1; then
+        echo "❌ $ABI 编译失败（make -j$JOBS），最后 120 行："
+        tail -n 120 "$ROOT/build-$ABI.log"
+        exit 1
+    fi
+    if ! make install > "$ROOT/install-$ABI.log" 2>&1; then
+        echo "❌ $ABI 安装失败，最后 80 行："
+        tail -n 80 "$ROOT/install-$ABI.log"
+        exit 1
+    fi
+
+    # 剥离调试符号（体积）；LGPL 不要求保留符号，源码可获取即可
+    find "$PREFIX/lib" -name '*.so' -exec "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded {} \;
+    ls -lh "$PREFIX/lib"
+}
+
+# armeabi-v7a 的 triple 是 **armv7a**-linux-androideabi，不是 arm-linux-androideabi。
+# 用错会得到「unable to create an executable file / C compiler test failed」——
+# 因为 NDK 的 clang wrapper 按 triple 名找目标文件，名字不对就找不到。
+# --arch 用 FFmpeg 的命名：arm / aarch64 / x86_64（不是 arm64）。
+build_abi arm64-v8a   aarch64-linux-android  aarch64
+# 只出 arm64-v8a（2026-11-07）：x86_64 只用于模拟器且需要 nasm，是最脆的一路；
+# armeabi-v7a 在现代机上已极少。要恢复就把下面两行取消注释，并同步改
+# android/app/build.gradle.kts 的 abiFilters 与 workflow 的三处 for ABI 循环。
+# build_abi armeabi-v7a armv7a-linux-androideabi arm
+# build_abi x86_64      x86_64-linux-android   x86_64
+
+echo "==> 完成。产物在 $OUT/<abi>/lib"
+; then
+        echo "❌ Android FFmpeg 配置包含非 MediaCodec 软件解码器"
+        exit 1
+    fi
+    if grep -E '^#define CONFIG_[A-Z0-9_]+_ENCODER 1
+    for codec in H264 MPEG4 VP8 VP9 AV1; do
+        if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_ENCODER 1$" "$COMPONENTS"; then
+            echo "❌ 缺少系统 MediaCodec 视频编码 wrapper：${codec}"
+            exit 1
+        fi
+    done
+
+    # 编译失败时把真正的错误打出来。
+    # 原来直接 make，CI 日志只留尾部若干行，而 FFmpeg 编译到 libavcodec
+    # 时才出错 —— 尾部全是无关的 warning，真错误被截掉，等于没法排查。
+    local JOBS="${JOBS:-$(nproc)}"
+    if ! make -j"$JOBS" > "$ROOT/build-$ABI.log" 2>&1; then
+        echo "❌ $ABI 编译失败（make -j$JOBS），最后 120 行："
+        tail -n 120 "$ROOT/build-$ABI.log"
+        exit 1
+    fi
+    if ! make install > "$ROOT/install-$ABI.log" 2>&1; then
+        echo "❌ $ABI 安装失败，最后 80 行："
+        tail -n 80 "$ROOT/install-$ABI.log"
+        exit 1
+    fi
+
+    # 剥离调试符号（体积）；LGPL 不要求保留符号，源码可获取即可
+    find "$PREFIX/lib" -name '*.so' -exec "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded {} \;
+    ls -lh "$PREFIX/lib"
+}
+
+# armeabi-v7a 的 triple 是 **armv7a**-linux-androideabi，不是 arm-linux-androideabi。
+# 用错会得到「unable to create an executable file / C compiler test failed」——
+# 因为 NDK 的 clang wrapper 按 triple 名找目标文件，名字不对就找不到。
+# --arch 用 FFmpeg 的命名：arm / aarch64 / x86_64（不是 arm64）。
+build_abi arm64-v8a   aarch64-linux-android  aarch64
+# 只出 arm64-v8a（2026-11-07）：x86_64 只用于模拟器且需要 nasm，是最脆的一路；
+# armeabi-v7a 在现代机上已极少。要恢复就把下面两行取消注释，并同步改
+# android/app/build.gradle.kts 的 abiFilters 与 workflow 的三处 for ABI 循环。
+# build_abi armeabi-v7a armv7a-linux-androideabi arm
+# build_abi x86_64      x86_64-linux-android   x86_64
+
+echo "==> 完成。产物在 $OUT/<abi>/lib"
+ "$COMPONENTS" | grep -Ev '^#define CONFIG_[A-Z0-9]+_MEDIACODEC_ENCODER 1
+    for codec in H264 MPEG4 VP8 VP9 AV1; do
+        if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_ENCODER 1$" "$COMPONENTS"; then
+            echo "❌ 缺少系统 MediaCodec 视频编码 wrapper：${codec}"
+            exit 1
+        fi
+    done
+
+    # 编译失败时把真正的错误打出来。
+    # 原来直接 make，CI 日志只留尾部若干行，而 FFmpeg 编译到 libavcodec
+    # 时才出错 —— 尾部全是无关的 warning，真错误被截掉，等于没法排查。
+    local JOBS="${JOBS:-$(nproc)}"
+    if ! make -j"$JOBS" > "$ROOT/build-$ABI.log" 2>&1; then
+        echo "❌ $ABI 编译失败（make -j$JOBS），最后 120 行："
+        tail -n 120 "$ROOT/build-$ABI.log"
+        exit 1
+    fi
+    if ! make install > "$ROOT/install-$ABI.log" 2>&1; then
+        echo "❌ $ABI 安装失败，最后 80 行："
+        tail -n 80 "$ROOT/install-$ABI.log"
+        exit 1
+    fi
+
+    # 剥离调试符号（体积）；LGPL 不要求保留符号，源码可获取即可
+    find "$PREFIX/lib" -name '*.so' -exec "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded {} \;
+    ls -lh "$PREFIX/lib"
+}
+
+# armeabi-v7a 的 triple 是 **armv7a**-linux-androideabi，不是 arm-linux-androideabi。
+# 用错会得到「unable to create an executable file / C compiler test failed」——
+# 因为 NDK 的 clang wrapper 按 triple 名找目标文件，名字不对就找不到。
+# --arch 用 FFmpeg 的命名：arm / aarch64 / x86_64（不是 arm64）。
+build_abi arm64-v8a   aarch64-linux-android  aarch64
+# 只出 arm64-v8a（2026-11-07）：x86_64 只用于模拟器且需要 nasm，是最脆的一路；
+# armeabi-v7a 在现代机上已极少。要恢复就把下面两行取消注释，并同步改
+# android/app/build.gradle.kts 的 abiFilters 与 workflow 的三处 for ABI 循环。
+# build_abi armeabi-v7a armv7a-linux-androideabi arm
+# build_abi x86_64      x86_64-linux-android   x86_64
+
+echo "==> 完成。产物在 $OUT/<abi>/lib"
+; then
+        echo "❌ Android FFmpeg 配置包含非 MediaCodec 软件编码器"
+        exit 1
+    fi
     for codec in H264 MPEG4 VP8 VP9 AV1; do
         if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_ENCODER 1$" "$COMPONENTS"; then
             echo "❌ 缺少系统 MediaCodec 视频编码 wrapper：${codec}"
