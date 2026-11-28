@@ -205,30 +205,3 @@ internal fun hasUniqueNativeTimelineIdentities(tracks: List<NativeTimelineTrack>
         }
     }
 }
-
-
-/**
- * Validates the existing C ABI state envelope before MainActivity mounts the
- * native editor. This does not create or mutate an engine session.
- */
-object NativeEditorProjectSnapshot {
-    /**
-     * Returns the authoritative engine project name, or null when the bridge
-     * response is failed, malformed, or does not contain a project object.
-     * The JS-provided name is only a fallback for older snapshots with no name.
-     */
-    fun resolveProjectName(engineStateJson: String, fallbackName: String?): String? {
-        return runCatching {
-            val envelope = JSONObject(engineStateJson)
-            if (!envelope.optBoolean("ok", false)) return null
-            val result = envelope.optJSONObject("result") ?: return null
-            val project = result.optJSONObject("project") ?: return null
-
-            val engineName = project.optString("name")
-                .takeIf { it.isNotBlank() && it != "null" }
-            engineName
-                ?: fallbackName?.trim()?.takeIf { it.isNotEmpty() }
-                ?: "未命名工程"
-        }.getOrNull()
-    }
-}
