@@ -386,10 +386,12 @@ NC_TEST(InvisibleWatermark, MultiFrameConsistency) {
 #ifdef NAIROCLIP_HAS_FFMPEG
 #include "nairoclip/core/media_ffmpeg.h"
 #include "nairoclip/core/media_ffmpeg_writer.h"
+#include "system_media_test_support.h"
 #include <fstream>
 
 NC_TEST(InvisibleWatermark, SurvivesH264RoundTrip) {
     const int w = 320, h = 240;
+    if (!test_support::hasUsableSystemVideoEncoder("vp9", w, h)) return;
     const WatermarkPayload payload = makePayload(0xABCDEF01, 42);
     // 1) 生成一帧水印图像 → 编码为单帧视频（真实 H.264）
     auto image = makeImage(w, h);
@@ -404,27 +406,35 @@ NC_TEST(InvisibleWatermark, SurvivesH264RoundTrip) {
         config.frameRate = fps30();
         config.crf = 18;  // 较高画质（水印设计目标：正常码率下可检出）
         config.includeAudio = false;
-        /* 用 VP9：产品的 H.264 只走系统硬件编码器（软件实现按合规移除），
-           而 CI / 沙箱无 GPU。VP9 有 royalty-free 软件实现，纯 CPU 可编。
-           顺带记录：VP9 的量化对 QIM 块均值的破坏比 H.264 更彻底 ——
-           这正是下方「水印抗压缩不足」缺陷更明显的原因。 */
+        /* 使用当前主机实际可用的系统 VP9 编码器；预检已验证能写入一帧。
+           不允许为测试启用 libvpx 等应用自带软件编码器。 */
         config.videoCodec = "vp9";
-        NC_CHECK(writer.open(path, config).isOk());
+        const Result opened = writer.open(path, config);
+        NC_CHECK(opened.isOk());
+        if (!opened.isOk()) return;
         for (int i = 0; i < 10; ++i) {
             OutputVideoFrame frame;
             frame.timestamp = timeAtFrame(fps30(), i);
             frame.width = w;
             frame.height = h;
             frame.rgba = image;
-            NC_CHECK(writer.writeVideoFrame(frame).isOk());
+            const Result written = writer.writeVideoFrame(frame);
+            NC_CHECK(written.isOk());
+            if (!written.isOk()) return;
         }
-        NC_CHECK(writer.finish().isOk());
+        const Result finished = writer.finish();
+        NC_CHECK(finished.isOk());
+        if (!finished.isOk()) return;
     }
     // 2) 真实解码回读 → 检测
     FFmpegMediaReader reader;
-    NC_CHECK(reader.open(path).isOk());
+    const Result readerOpened = reader.open(path);
+    NC_CHECK(readerOpened.isOk());
+    if (!readerOpened.isOk()) return;
     VideoFrame frame;
-    NC_CHECK(reader.readVideoFrame(frame));
+    const bool frameRead = reader.readVideoFrame(frame);
+    NC_CHECK(frameRead);
+    if (!frameRead || frame.pixels.empty()) return;
     reader.close();
     const InvisibleDetectResult detected =
         detectInvisibleWatermark(frame.pixels.data(), frame.width, frame.height);
