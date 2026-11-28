@@ -26,6 +26,7 @@ class NativePreviewSurfaceController(
     private var bufferWidth: Int = 0
     private var bufferHeight: Int = 0
     private var attached: Boolean = false
+    var onSurfaceAttached: (() -> Unit)? = null
     @Volatile
     private var disposed: Boolean = false
 
@@ -102,6 +103,7 @@ class NativePreviewSurfaceController(
 
         val success = NativeEngineBridge.attachSurface(surface, bufferWidth, bufferHeight)
         attached = success
+        if (success) onSurfaceAttached?.invoke()
         if (!success) {
             // Do not leave a previously attached buffer active after a failed
             // reconfiguration (for example, a surface replacement).
@@ -211,6 +213,7 @@ class NativePreviewSurfaceController(
         previewView.onSurfaceAvailable = null
         previewView.onSurfaceSizeChanged = null
         previewView.onSurfaceDestroyed = null
+        onSurfaceAttached = null
         if (attached) NativeEngineBridge.detachSurface()
         attached = false
         currentSurface = null
