@@ -505,21 +505,28 @@ class NativeTimelineView(context: Context) : View(context) {
             val lane = if (index % 2 == 0) alternateLanePaint else lanePaint
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
 
-            // Keep the timeline area outside the fixed controls completely sharp.
-            canvas.save()
-            canvas.clipRect(trackControlsWidth, top, width.toFloat(), bottom)
-            drawTrackClips(canvas, track, top, bottom)
-            canvas.restore()
-
-            // Composite only the content passing beneath the controls. The
-            // inner layer applies Gaussian blur on API 31+; the outer layer
-            // then applies DST_IN AFTER blur, so the original sharp clip is
-            // never left underneath the feathered copy.
             val featherRight = min(trackControlsWidth, width.toFloat())
+            val featherBounds = RectF(0f, top, featherRight, bottom)
+            val blurNode = if (featherRight > 0f) trackControlBlurNode(track.id) else null
+
+            // API 31+ keeps the original clip sharp underneath the feathered
+            // blur overlay. API 24–30 has no RenderEffect, so its compatibility
+            // path fades the clip copy instead of pretending to blur it.
+            if (blurNode != null) {
+                drawTrackClips(canvas, track, top, bottom)
+            } else {
+                canvas.save()
+                canvas.clipRect(trackControlsWidth, top, width.toFloat(), bottom)
+                drawTrackClips(canvas, track, top, bottom)
+                canvas.restore()
+            }
+
+            // Composite only the clip pixels passing beneath the controls.
+            // On API 31+, the blurred copy is alpha-masked and blended over the
+            // sharp source, giving a continuous blur-to-sharp transition. On
+            // API 24–30, the same mask fades the compatibility copy to clear.
             if (featherRight > 0f) {
-                val featherBounds = RectF(0f, top, featherRight, bottom)
                 canvas.saveLayer(featherBounds, null)
-                val blurNode = trackControlBlurNode(track.id)
                 if (blurNode != null) {
                     val nodeLeft = 0
                     val nodeTop = kotlin.math.floor(top.toDouble()).toInt()
@@ -530,24 +537,19 @@ class NativeTimelineView(context: Context) : View(context) {
                     blurNode.setPosition(nodeLeft, nodeTop, nodeRight, nodeBottom)
                     val recordingCanvas = blurNode.beginRecording(nodeWidth, nodeHeight)
                     // RenderNode recording coordinates are local to its
-                    // integer position; shift the row's view-space content into
-                    // that local coordinate system before recording.
-                    recordingCanvas.translate(
-                        -nodeLeft.toFloat(),
-                        -nodeTop.toFloat()
-                    )
-                    recordingCanvas.drawRect(featherBounds, lane)
+                    // integer position; shift view-space content into that
+                    // local coordinate system before recording.
+                    recordingCanvas.translate(-nodeLeft.toFloat(), -nodeTop.toFloat())
                     drawTrackClips(recordingCanvas, track, top, bottom)
                     blurNode.endRecording()
                     canvas.drawRenderNode(blurNode)
                 } else {
-                    // API 24–30 keeps the alpha feather without claiming
-                    // Gaussian blur, which is unavailable on these releases.
-                    canvas.drawRect(featherBounds, lane)
+                    // API 24–30 retains alpha feather only; no Gaussian blur.
                     drawTrackClips(canvas, track, top, bottom)
                 }
 
-                // Apply DST_IN after the processed pixels are composited.
+                // Apply DST_IN after blur so the blur overlay, not the source,
+                // fades from the left edge toward the timeline body.
                 canvas.drawRect(featherBounds, trackControlFeatherMaskPaint)
                 canvas.restore()
             }
