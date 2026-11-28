@@ -307,7 +307,7 @@ class NativeTimelineView(context: Context) : View(context) {
                     track.id == selectedClip!!.first &&
                         track.visible &&
                         !track.locked &&
-                        track.clips.any { it.id == selectedClip!!.second && it.enabled }
+                        track.clips.any { it.id == selectedClip!!.second }
                 }) {
                 selectedClip = null
             }
@@ -605,7 +605,7 @@ class NativeTimelineView(context: Context) : View(context) {
     ) {
         if (!track.visible) return
         track.clips.forEach clipLoop@{ clip ->
-            if (!clip.enabled || clip.startUs < 0L || clip.durationUs <= 0L ||
+            if (clip.startUs < 0L || clip.durationUs <= 0L ||
                 clip.startUs >= durationUs
             ) return@clipLoop
             val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
@@ -626,6 +626,17 @@ class NativeTimelineView(context: Context) : View(context) {
                 min(right, width.toFloat()),
                 bottom - 5f * density
             )
+            // Disabled clips stay visible and selectable so the native
+            // "启用/停用" action can restore them without switching editors.
+            // Render them with restrained alpha rather than removing them.
+            val clipAlpha = clipPaint.alpha
+            val textAlpha = clipTextPaint.alpha
+            val selectionAlpha = selectedClipPaint.alpha
+            if (!clip.enabled) {
+                clipPaint.alpha = (clipAlpha * 0.34f).toInt()
+                clipTextPaint.alpha = (textAlpha * 0.48f).toInt()
+                selectedClipPaint.alpha = (selectionAlpha * 0.62f).toInt()
+            }
             canvas.drawRoundRect(rect, 3f * density, 3f * density, clipPaint)
             if (selectedClip == (track.id to clip.id)) {
                 canvas.drawRoundRect(rect, 3f * density, 3f * density, selectedClipPaint)
@@ -646,6 +657,9 @@ class NativeTimelineView(context: Context) : View(context) {
                 )
                 canvas.restore()
             }
+            clipPaint.alpha = clipAlpha
+            clipTextPaint.alpha = textAlpha
+            selectedClipPaint.alpha = selectionAlpha
         }
     }
 
@@ -914,7 +928,7 @@ class NativeTimelineView(context: Context) : View(context) {
         // Iterate in reverse draw order so the visually topmost overlapping
         // clip receives the tap.
         val clip = track.clips.asReversed().firstOrNull { candidate ->
-            if (!candidate.enabled || candidate.startUs < 0L ||
+            if (candidate.startUs < 0L ||
                 candidate.durationUs <= 0L || candidate.startUs >= durationUs
             ) {
                 false
