@@ -54,7 +54,8 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 - Android 视频解码只枚举 `h264_mediacodec`、`mpeg4_mediacodec`、`vp8_mediacodec`、`vp9_mediacodec`、`av1_mediacodec` 等系统 wrapper。
 - Android 音频解码只枚举 AAC / MP3 / AMR 对应的 MediaCodec wrapper；不支持的音轨明确拒绝，不走 FFmpeg 原生软件解码。
 - Android 视频编码候选必须以 `_mediacodec` 结尾；即使未来构建配置意外启用了软件编码器，也会在运行时过滤。
-- Android AAC 软件编码已从构建中移除。系统 AAC 编码和最终音视频封装尚未接通前，带音轨导出会明确失败，不允许静默生成无声视频。
+- AAC 软件编码已在所有平台的 FFmpeg writer 路径中禁用。Android MediaCodec、Apple AudioConverter/AVAssetWriter、Windows Media Foundation、Linux 系统音频编码与最终封装链路尚未全部接通前，任何平台的带音轨导出均明确失败；不得静默生成无声视频。
+- 当前 FFmpeg reader 的系统视频解码适配仍是迁移中的子集：Android 使用 MediaCodec wrappers；桌面仅尝试已列出的 H.264 平台硬件候选；其他视频格式在对应系统后端接入前明确拒绝，不允许调用 FFmpeg 内置软件 decoder。
 - 当前 EGL/GLES 预览仍然接收 CPU Reference renderer 生成的 RGBA 数据；这不等于 MediaCodec Surface / HardwareBuffer 到 GPU 的零拷贝链路。
 - 当前 Android 音频混音核心仍由 NairoClip C++ Audio Mixer 执行；AAudio / Oboe / AudioTrack 输出接线仍需完成。
 - 以上是 Android 当前迁移范围。iOS、Windows、macOS、Linux 必须分别接入各自系统媒体框架后，才能声明达到同样的系统-only 策略；不能将 Android 状态外推为三端已完成。
