@@ -38,6 +38,30 @@ function parseBridge(v) {
   }
 }
 
+/* Native JNI state is wrapped in the common C ABI envelope:
+ * { ok:true, result:{ project, tracks, assets, ... } }.
+ * Keep compatibility with bridges that already return the payload directly,
+ * but never treat an explicit error envelope as a valid empty project.
+ */
+function normalizeEngineState(value) {
+  const response = parseBridge(value);
+  if (!response || typeof response !== 'object') {
+    throw new Error('引擎状态为空或格式无效');
+  }
+  if (Object.prototype.hasOwnProperty.call(response, 'ok')) {
+    if (response.ok !== true) {
+      throw new Error(response.message || '引擎状态读取失败');
+    }
+    const payload = response.result;
+    if (typeof payload === 'string') return parseBridge(payload);
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('引擎状态 result 缺失或格式无效');
+    }
+    return payload;
+  }
+  return response;
+}
+
 const Engine = {
   base: 'native',          // 不再是 URL；只为兼容旧的 apiBase() 调用
   apiBase() { return this.base; },
@@ -69,7 +93,7 @@ const Engine = {
           throw new Error((loaded && loaded.message) || '工程文件载入失败');
         }
       }
-      const s = parseBridge(b.state());
+      const s = normalizeEngineState(b.state());
       if (!s || !s.project) throw new Error('桥返回的工程状态不完整');
       this.bridge = b;
       this.state = s;
@@ -88,7 +112,7 @@ const Engine = {
   refresh() {
     if (!this.bridge) return this.state;
     try {
-      const s = parseBridge(this.bridge.state());
+      const s = normalizeEngineState(this.bridge.state());
       if (s && s.project) { this.state = s; this.online = true; }
       return this.state;
     } catch (err) {
