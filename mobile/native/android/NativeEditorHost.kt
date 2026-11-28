@@ -682,6 +682,9 @@ fun NativeEditorHost(
             controller.splitClip(track, clipId, timeUs)
         },
         onDeleteClip = { track, clipId -> controller.removeClip(track, clipId) },
+        onClipEnabledChanged = { track, clipId, enabled ->
+            controller.setClipEnabled(track, clipId, enabled)
+        },
         onDuplicateClip = { track, clipId -> controller.duplicateClip(track, clipId) },
         onRippleDeleteClip = { track, clipId -> controller.rippleDeleteClip(track, clipId) },
         onPrewarmPreviewFrame = { timeUs, width ->
