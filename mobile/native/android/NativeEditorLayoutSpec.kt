@@ -36,7 +36,9 @@ internal object NativeEditorLayoutSpec {
     const val RULER_HEIGHT_DP = 27
     const val RULER_TICK_HEIGHT_DP = 3
     const val RULER_MAJOR_TICK_HEIGHT_DP = 4
-    const val TRACK_CONTROL_WIDTH_DP = 40
+    // Three independent 40dp control targets: eye, speaker and lock.
+    const val TRACK_CONTROL_BUTTON_WIDTH_DP = 40
+    const val TRACK_CONTROL_WIDTH_DP = TRACK_CONTROL_BUTTON_WIDTH_DP * 3
     const val START_BADGE_WIDTH_DP = 32
     const val START_BADGE_HEIGHT_DP = 20
     const val TRANSPORT_ROW_HEIGHT_DP = 56
