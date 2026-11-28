@@ -5,11 +5,20 @@
 #include <cstring>
 #include <functional>
 #include <string>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
 namespace nairoclip {
 namespace test {
+
+class TestSkipped final : public std::exception {
+public:
+    explicit TestSkipped(std::string reason) : reason_(std::move(reason)) {}
+    const char* what() const noexcept override { return reason_.c_str(); }
+private:
+    std::string reason_;
+};
 
 struct TestCase {
     std::string suite;
@@ -107,6 +116,7 @@ inline int runAll() {
         if (v >= 0) shard = v;
     }
     int failedCases = 0;
+    int skippedCases = 0;
     const int total = static_cast<int>(registry().size());
     // NC_TEST_SKIP=N：跳过注册顺序前 N 个用例。
     // 用途：CI 上出现「跨用例堆污染」时二分定位污染源 ——
@@ -219,7 +229,20 @@ inline int runAll() {
         }
         const int before = failureCount();
         std::printf("[ RUN  ] %s.%s\n", tc.suite.c_str(), tc.name.c_str());
-        tc.fn();
+        try {
+            tc.fn();
+        } catch (const TestSkipped& skipped) {
+            ++executed;
+            ++skippedCases;
+            std::printf("[ SKIP ] %s.%s：%s\n", tc.suite.c_str(), tc.name.c_str(),
+                        skipped.what());
+            continue;
+        } catch (const std::exception& error) {
+            reportFailure(__FILE__, __LINE__,
+                          std::string("未处理的测试异常：") + error.what());
+        } catch (...) {
+            reportFailure(__FILE__, __LINE__, "未处理的未知测试异常");
+        }
         ++executed;
         // NC_TEST_CHECK_HEAP=1：每个用例后做一次堆一致性检查。
         //
@@ -278,3 +301,5 @@ inline int runAll() {
                                              "CHECK_EQ(" #a ", " #b ")");   \
         }                                                                    \
     } while (0)
+
+#define NC_SKIP(reason) throw ::nairoclip::test::TestSkipped(reason)
