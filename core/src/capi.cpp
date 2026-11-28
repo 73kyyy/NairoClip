@@ -5347,10 +5347,8 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
                           double* out_opacity, double* out_scale, double* out_pos_x,
                           double* out_pos_y, double* out_rotation,
                           int32_t* out_transition_type, double* out_transition_progress) {
-    if (editor == nullptr || time_us < 0) {
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
-    }
-    // Initialize every optional output on both FFmpeg and no-FFmpeg builds.
+    // Initialize every optional output before validating arguments so callers
+    // never observe stale pointers/metadata after an error.
     if (out_width != nullptr) *out_width = 0;
     if (out_height != nullptr) *out_height = 0;
     if (out_rgba != nullptr) *out_rgba = nullptr;
@@ -5362,6 +5360,9 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
     if (out_rotation != nullptr) *out_rotation = 0.0;
     if (out_transition_type != nullptr) *out_transition_type = -1;
     if (out_transition_progress != nullptr) *out_transition_progress = 0.0;
+    if (editor == nullptr || time_us < 0) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空或时间为负");
+    }
 #ifdef NAIROCLIP_HAS_FFMPEG
     PreviewRenderer* renderer = ensurePreviewRenderer(editor);
     if (renderer == nullptr) {
