@@ -71,7 +71,7 @@ The shortcut immediately before the marker is **segment-back navigation**, not a
 
 ## Current native implementation boundary
 
-The native quick-action strip now renders all eleven controls in the verified source order, with a fixed **30dp × 30dp circular visual diameter** for every control (including AI). Undo/redo are wired to native callbacks. The other nine controls currently delegate to the retained WebView editor because the current native screen host does not yet expose their dedicated callbacks/engine adapters. This is an intentional fallback, not a claim that those nine actions are already native.
+The native quick-action strip now renders all eleven controls in the verified source order, with a fixed **30dp × 30dp circular visual diameter** for every control (including AI). Undo/redo are wired to native callbacks. Of the other nine controls, previous-segment navigation, marker add/list, preview prewarm, keyframes, and guide toggling are handled in the native screen. Media import, return-home, image/background management, and AI editing deliberately restore the retained WebView editor and dispatch the matching legacy action.
 
 
 ## Bottom toolbar source inventory
@@ -89,9 +89,9 @@ Second-level commands that already have native callbacks are routed to their nat
 
 The native editor now exposes `NativeQuickAction` values for the nine non-history shortcut controls: `IMPORT_MEDIA`, `RETURN_HOME`, `STEP_PREVIOUS`, `ADD_MARKER`, `PREVIEW_RENDER`, `KEYFRAMES`, `TOGGLE_GUIDES`, `IMAGES`, and `AI_EDIT`.
 
-`NativeEditorScreen` accepts an optional `onQuickAction` callback. When a host supplies it, each button emits its own semantic action rather than collapsing all buttons into one generic callback. Until a host supplies that callback, the screen retains the complete WebView fallback via `onOpenLegacy`. Undo and redo continue to use their dedicated native callbacks.
+`NativeEditorScreen` accepts an optional `onQuickAction` callback. The Activity pilot supplies this callback and routes the remaining legacy-only actions through an explicit enum-to-allowlist mapping. Undo and redo continue to use their dedicated native callbacks.
 
-This is an interface boundary only: it does not claim that the nine actions already have native engine implementations or that the native screen is runtime-integrated into MainActivity.
+The callback contract is now consumed by the debug-only Activity pilot. Legacy-only actions remain explicitly delegated; the presence of a native button is not a claim that its full native engine implementation exists.
 
 
 ## Native toolbar parity correction
@@ -132,7 +132,7 @@ The current S5 native editor now follows the reference's major vertical regions:
 
 The corresponding geometry is centralized in `mobile/native/android/NativeEditorLayoutSpec.kt` and guarded by `NativeEditorLayoutSpecTest`. The preview expand control is 36dp; the major region heights are 40dp (top row), 46dp (quick actions), 282dp (timeline), 56dp (transport), and 104dp (bottom toolbar), matching the 692x1536 reference's vertical proportions. These are reference-layout baselines, not permission to resize unrelated regions to make room for more controls.
 
-The transport row uses the existing `onSplitClip` and `onDeleteClip` command callbacks when a clip is selected. Playback, share, export, and preview expansion expose typed optional callbacks; until the runtime host supplies them, those actions explicitly return to the retained WebView editor. This update does not claim the callbacks are connected to MainActivity or that the native editor is runtime-integrated.
+The transport row uses the existing `onSplitClip` and `onDeleteClip` command callbacks when a clip is selected. Playback, share, export, and preview expansion expose typed optional callbacks; the current Activity pilot does not supply these yet, so those actions explicitly return to the retained WebView editor.
 
 - The native first-level category toolbar now uses vector assets converted from the repository's existing `mobile/assets/icons.js` icon sprite, rather than rendering the first character of each category name. Share, fullscreen, scissors, play/pause, and delete also use the matching existing icon artwork. The scissors vector is rotated clockwise by 90 degrees and remains a single scissors glyph.
 - The quick-action strip now reuses the existing icon sprite for add, home, segment-back, marker, keyframes, guides, image/background, undo, and redo; the reference's compact “渲染” and “AI” text treatments are retained. The AI circle keeps the same 30dp diameter as every other action and uses the reference-style restrained purple-to-blue fill.
@@ -188,4 +188,4 @@ Acceptance still requires Android Kotlin compilation/unit tests, NDK and host CI
 
 For automatic subtitles, the timeline snapshot now retains each clip's `assetId`. The host accepts an asset-ID-to-`content://` URI resolver, a loaded `NativeSpeechSessionWorker`, and its model-ready state; it maps the selected clip through `NativeSpeechSourceRange` and connects the existing `NativeAutoSubtitleCoordinator` to the native panel. The host takes ownership of a supplied speech worker and closes it when disposed. The model loader/asset repository must supply the worker and URI resolver; this does not change Activity routing.
 
-Full synchronized A/V playback, export/share, media import and AI entry points still use the retained WebView fallback. They are not represented as completed native functions. The host remains feature-scoped and is not mounted as the formal Activity entry.
+Full synchronized A/V playback, export/share, media import and AI entry points still use the retained WebView fallback. They are not represented as completed native functions. The host is mounted only through the debug-only, intent-gated pilot; it is not the formal Activity entry.
