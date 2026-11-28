@@ -14,7 +14,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 
 /**
- * NairoClip 主界面：全屏 WebView + 两个原生桥。
+ * NairoClip 主界面：全屏 WebView + 原生引擎/认证/剪辑试验桥。
  *
  * 页面资源经 WebViewAssetLoader 以
  * https://appassets.androidplatform.net/assets/ 提供。
@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Native editor can only be entered by an explicit internal launch extra. */
     private val nativeEditorEnabled: Boolean
-        get() = intent.getBooleanExtra(EXTRA_ENABLE_NATIVE_EDITOR, false)
+        get() = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_ENABLE_NATIVE_EDITOR, false)
 
     /**
      * 面板层级（由 JS 通过 NCEngine.setPanelDepth 推送）。
@@ -293,7 +293,12 @@ class MainActivity : AppCompatActivity() {
     /** Rebind the original WebView preview surface after leaving the native pilot. */
     private fun configureLegacyPreviewSurface() {
         previewSurface.onSurfaceAvailable = { surface ->
-            NativeEngineBridge.attachSurface(surface, previewSurface.width, previewSurface.height)
+            if (previewSurface.width > 0 && previewSurface.height > 0) {
+                NativeEngineBridge.attachSurface(surface, previewSurface.width, previewSurface.height)
+            }
+        }
+        previewSurface.onSurfaceSizeChanged = { surface, _, width, height ->
+            NativeEngineBridge.attachSurface(surface, width, height)
         }
         previewSurface.onSurfaceDestroyed = {
             NativeEngineBridge.detachSurface()
@@ -364,11 +369,14 @@ class MainActivity : AppCompatActivity() {
         configureLegacyPreviewSurface()
         contentRoot.addView(previewSurface, 0)
         webView.visibility = View.VISIBLE
+        webView.post {
+            webView.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
+        }
         nativeEditorVisible = false
         android.util.Log.i("NcNativeEditor", "已返回保留的 WebView 剪辑页")
     }
 
-    private inner class NativeEditorEntryBridge {
+    inner class NativeEditorEntryBridge {
         @JavascriptInterface
         fun isEnabled(): Boolean = nativeEditorEnabled
 
