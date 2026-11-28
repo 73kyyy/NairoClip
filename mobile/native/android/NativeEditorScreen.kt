@@ -2143,6 +2143,15 @@ private fun QuickActionStrip(
                 iconId = action.first.takeIf { it.startsWith("i-") },
                 label = action.second,
                 emphasized = index == 8,
+                outlined = action.third == NativeQuickAction.ADD_MARKER,
+                pinkEmphasis = action.third == NativeQuickAction.IMAGES,
+                accentColor = when (action.third) {
+                    NativeQuickAction.ADD_MARKER -> Color(0xFFE34E55)
+                    NativeQuickAction.KEYFRAMES -> Color(0xFFE5A33D)
+                    NativeQuickAction.IMAGES -> Color.White
+                    else -> null
+                },
+                renderIndicator = action.third == NativeQuickAction.PREVIEW_RENDER,
                 onClick = { onQuickAction(action.third) },
                 onDoubleClick = NativeQuickActionGestureContract.doubleTap(action.third)
                     ?.let { command -> { onQuickAction(command) } },
@@ -2173,17 +2182,27 @@ private fun QuickActionButton(
     label: String,
     enabled: Boolean = true,
     emphasized: Boolean = false,
+    outlined: Boolean = false,
+    pinkEmphasis: Boolean = false,
+    accentColor: Color? = null,
+    renderIndicator: Boolean = false,
     onDoubleClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val fill = if (emphasized) Color(0xFF3976D8) else NcColors.lane
-    val fillBrush = if (emphasized) {
-        Brush.linearGradient(listOf(Color(0xFFB65BD8), Color(0xFF477FE5)))
-    } else {
-        Brush.linearGradient(listOf(fill, fill))
+    val fillBrush = when {
+        emphasized -> Brush.linearGradient(listOf(Color(0xFFB65BD8), Color(0xFF477FE5)))
+        pinkEmphasis -> Brush.linearGradient(listOf(Color(0xFFE65FB8), Color(0xFFB94FD1)))
+        else -> Brush.linearGradient(listOf(fill, fill))
     }
-    val foreground = if (enabled) NcColors.text else NcColors.muted
+    val foreground = if (enabled) accentColor ?: NcColors.text else NcColors.muted
+    val borderColor = when {
+        outlined -> NcColors.text
+        emphasized -> Color(0xFFB16AD9)
+        pinkEmphasis -> Color(0xFFE16AC5)
+        else -> NcColors.line
+    }
 
     // Keep the screenshot-sized visual circle, but give every action a
     // consistent 48dp touch target so adjacent controls remain independently
@@ -2211,8 +2230,8 @@ private fun QuickActionButton(
                     )
                 )
                 .border(
-                    1.dp,
-                    if (emphasized) Color(0xFFB16AD9) else NcColors.line,
+                    if (outlined) 1.4.dp else 1.dp,
+                    borderColor,
                     CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -2224,11 +2243,25 @@ private fun QuickActionButton(
                     modifier = Modifier.size(19.dp),
                     colorFilter = ColorFilter.tint(foreground)
                 )
+            } else if (renderIndicator) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text("渲染", color = foreground, fontSize = 7.sp, fontWeight = FontWeight.Medium)
+                    Box(
+                        Modifier
+                            .width(13.dp)
+                            .height(2.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF438BE8))
+                    )
+                }
             } else {
                 Text(
                     text = symbol.orEmpty(),
                     color = foreground,
-                    fontSize = if (symbol == "渲染") 8.sp else if (symbol == "AI") 10.sp else 15.sp,
+                    fontSize = if (symbol == "AI") 10.sp else 15.sp,
                     fontWeight = if (emphasized || symbol == "AI") FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1
                 )
