@@ -101,6 +101,16 @@ fun NativeEditorHost(
         autoSubtitleCoordinator?.setSessionReady(speechSessionReady)
     }
 
+    var previousAutoSubtitleRunning by remember { mutableStateOf(false) }
+    LaunchedEffect(resolvedAutoSubtitleState.running) {
+        val runningNow = resolvedAutoSubtitleState.running
+        if (previousAutoSubtitleRunning && !runningNow) {
+            controller.refresh()
+            keyframeRevision += 1
+        }
+        previousAutoSubtitleRunning = runningNow
+    }
+
     LaunchedEffect(state.timeline) {
         if (state.timeline != null) {
             previewController.requestRenderFrame(state.playheadUs)
