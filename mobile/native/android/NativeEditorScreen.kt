@@ -2117,14 +2117,14 @@ private fun QuickActionStrip(
     // All eleven controls share the same 30dp circular visual component.
     // The typed callback lets a host implement each action without conflating semantics.
     val actions = listOf(
-        Triple("+", "添加素材", NativeQuickAction.IMPORT_MEDIA),
-        Triple("⌂", "返回首页", NativeQuickAction.RETURN_HOME),
-        Triple("◀|", "向左逐段跳", NativeQuickAction.STEP_PREVIOUS),
-        Triple("⚑", "标记点", NativeQuickAction.ADD_MARKER),
+        Triple("i-plus", "添加素材", NativeQuickAction.IMPORT_MEDIA),
+        Triple("i-home", "返回首页", NativeQuickAction.RETURN_HOME),
+        Triple("i-prev", "向左逐段跳", NativeQuickAction.STEP_PREVIOUS),
+        Triple("i-diamond", "标记点", NativeQuickAction.ADD_MARKER),
         Triple("渲染", "渲染预览缓存", NativeQuickAction.PREVIEW_RENDER),
-        Triple("◆", "关键帧", NativeQuickAction.KEYFRAMES),
-        Triple("#", "构图参考线", NativeQuickAction.TOGGLE_GUIDES),
-        Triple("▧", "图片与背景", NativeQuickAction.IMAGES),
+        Triple("i-keyframes", "关键帧", NativeQuickAction.KEYFRAMES),
+        Triple("i-hash", "构图参考线", NativeQuickAction.TOGGLE_GUIDES),
+        Triple("i-image", "图片与背景", NativeQuickAction.IMAGES),
         Triple("AI", "AI 仿剪", NativeQuickAction.AI_EDIT)
     )
     Row(
@@ -2139,7 +2139,8 @@ private fun QuickActionStrip(
     ) {
         actions.forEachIndexed { index, action ->
             QuickActionButton(
-                symbol = action.first,
+                symbol = action.first.takeUnless { it.startsWith("i-") },
+                iconId = action.first.takeIf { it.startsWith("i-") },
                 label = action.second,
                 emphasized = index == 8,
                 onClick = { onQuickAction(action.third) },
@@ -2150,13 +2151,13 @@ private fun QuickActionStrip(
             )
         }
         QuickActionButton(
-            symbol = "↶",
+            iconId = "i-undo",
             label = "撤销",
             enabled = canUndo,
             onClick = onUndo
         )
         QuickActionButton(
-            symbol = "↷",
+            iconId = "i-redo",
             label = "重做",
             enabled = canRedo,
             onClick = onRedo
@@ -2167,7 +2168,8 @@ private fun QuickActionStrip(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QuickActionButton(
-    symbol: String,
+    symbol: String? = null,
+    iconId: String? = null,
     label: String,
     enabled: Boolean = true,
     emphasized: Boolean = false,
@@ -2206,13 +2208,22 @@ private fun QuickActionButton(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = symbol,
-                color = foreground,
-                fontSize = if (symbol == "渲染") 8.sp else if (symbol == "AI") 10.sp else 15.sp,
-                fontWeight = if (emphasized || symbol == "AI") FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1
-            )
+            if (iconId != null) {
+                Image(
+                    painter = painterResource(nativeQuickActionIcon(iconId)),
+                    contentDescription = label,
+                    modifier = Modifier.size(19.dp),
+                    colorFilter = ColorFilter.tint(foreground)
+                )
+            } else {
+                Text(
+                    text = symbol.orEmpty(),
+                    color = foreground,
+                    fontSize = if (symbol == "渲染") 8.sp else if (symbol == "AI") 10.sp else 15.sp,
+                    fontWeight = if (emphasized || symbol == "AI") FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -3311,6 +3322,19 @@ private fun NativeTransportBar(
             )
         }
     }
+}
+
+private fun nativeQuickActionIcon(iconId: String): Int = when (iconId) {
+    "i-plus" -> R.drawable.ic_editor_plus
+    "i-home" -> R.drawable.ic_editor_home
+    "i-prev" -> R.drawable.ic_editor_prev
+    "i-diamond" -> R.drawable.ic_editor_diamond
+    "i-keyframes" -> R.drawable.ic_editor_keyframes
+    "i-hash" -> R.drawable.ic_editor_hash
+    "i-image" -> R.drawable.ic_editor_image
+    "i-undo" -> R.drawable.ic_editor_undo
+    "i-redo" -> R.drawable.ic_editor_redo
+    else -> R.drawable.ic_editor_plus
 }
 
 private fun nativeEditorToolbarIcon(iconId: String): Int = when (iconId) {
