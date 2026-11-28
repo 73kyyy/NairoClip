@@ -373,7 +373,7 @@ fun NativeEditorScreen(
                 onTrackMuteChanged = onTrackMuteChanged,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(218.dp)
+                    .height(NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP.dp)
             )
 
             selectedClip?.let { selection ->
@@ -1876,7 +1876,7 @@ private fun EditorTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(NativeEditorLayoutSpec.TOP_BAR_HEIGHT_DP.dp)
             .background(NcColors.topBar)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1926,7 +1926,7 @@ private fun PreviewStage(
             val maxPreviewHeight = maxHeight
             val maxPreviewWidth = maxWidth
             val previewWidth = with(LocalDensity.current) {
-                minOf(maxPreviewWidth, maxPreviewHeight * (9f / 16f))
+                minOf(maxPreviewWidth, maxPreviewHeight * (NativeEditorLayoutSpec.PREVIEW_ASPECT_WIDTH.toFloat() / NativeEditorLayoutSpec.PREVIEW_ASPECT_HEIGHT.toFloat()))
             }
             Box(
                 modifier = Modifier
@@ -1970,7 +1970,7 @@ private fun PreviewStage(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 6.dp, bottom = 6.dp)
-                .size(36.dp)
+                .size(NativeEditorLayoutSpec.PREVIEW_EXPAND_DIAMETER_DP.dp)
                 .clip(CircleShape)
                 .background(Color(0xCC101112))
                 .border(1.dp, NcColors.line, CircleShape)
@@ -2117,7 +2117,7 @@ private fun QuickActionStrip(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp)
+            .height(NativeEditorLayoutSpec.QUICK_ACTION_ROW_HEIGHT_DP.dp)
             .background(NcColors.stage)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 6.dp),
@@ -2170,7 +2170,7 @@ private fun QuickActionButton(
     // accessible and usable on dense phone layouts.
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(NativeEditorLayoutSpec.QUICK_ACTION_TOUCH_TARGET_DP.dp)
             .combinedClickable(
                 enabled = enabled,
                 onClickLabel = label,
@@ -2183,7 +2183,7 @@ private fun QuickActionButton(
     ) {
         Box(
             modifier = Modifier
-                .size(30.dp)
+                .size(NativeEditorLayoutSpec.QUICK_ACTION_DIAMETER_DP.dp)
                 .clip(CircleShape)
                 .background(if (enabled) fill else NcColors.lane.copy(alpha = 0.45f))
                 .border(
@@ -3250,7 +3250,7 @@ private fun NativeTransportBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(NativeEditorLayoutSpec.TRANSPORT_ROW_HEIGHT_DP.dp)
             .background(NcColors.timeline),
         horizontalArrangement = Arrangement.spacedBy(40.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
@@ -3318,7 +3318,7 @@ private fun NativeToolBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(82.dp)
+            .height(NativeEditorLayoutSpec.BOTTOM_TOOLBAR_HEIGHT_DP.dp)
             .background(NcColors.topBar)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp, vertical = 8.dp),
