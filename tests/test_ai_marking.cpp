@@ -187,12 +187,14 @@ bool writeMarkedFile(const char* path, bool withAudioMarks, bool includeAudio,
     }
     FFmpegMediaWriter writer;
     WriterConfig writerConfig;
-    writerConfig.width = 64;
-    writerConfig.height = 48;
+    // Use a normal hardware-encoder size; tiny 64x48 frames are rejected by
+    // several system VP9 implementations even when the device supports VP9.
+    writerConfig.width = 320;
+    writerConfig.height = 240;
     writerConfig.frameRate = fps30();
     writerConfig.includeAudio = includeAudio;
-    /* VP9：产品 H.264 只走系统硬件编码器（软件实现按合规移除），
-       CI / 沙箱无 GPU。VP9 有 royalty-free 软件实现，纯 CPU 可编。 */
+    /* VP9 真实导出只使用系统编码器；无系统后端时由测试显式跳过，
+       不允许为 CI 或沙箱启用 libvpx 等应用自带软件编码器。 */
     writerConfig.videoCodec = "vp9";
     writerConfig.audioSampleRate = sr;
     writerConfig.audioChannels = ch;
@@ -202,9 +204,9 @@ bool writeMarkedFile(const char* path, bool withAudioMarks, bool includeAudio,
     if (!writer.open(path, writerConfig).isOk()) return false;
     for (int i = 0; i < 40; ++i) {
         OutputVideoFrame frame;
-        frame.width = 64;
-        frame.height = 48;
-        frame.rgba.assign(static_cast<std::size_t>(64) * 48 * 4, 128);
+        frame.width = 320;
+        frame.height = 240;
+        frame.rgba.assign(static_cast<std::size_t>(320) * 240 * 4, 128);
         for (std::size_t j = 3; j < frame.rgba.size(); j += 4) frame.rgba[j] = 255;
         frame.timestamp = timeAtFrame(fps30(), i);
         writer.writeVideoFrame(frame);
