@@ -149,8 +149,7 @@ build_abi() {
         --extra-cflags="-fPIC -O2 -DANDROID" \
         --extra-ldflags="-Wl,--no-undefined"
 
-    # 对 configure 的最终产物做硬门禁，防止未来有人误删 --disable-decoders /
-    # --disable-encoders 后把软件编解码器重新带进 APK。
+    # 对 configure 的最终产物做硬门禁，防止未来误把软件编解码器带进 APK。
     local COMPONENTS="$SRC/libavcodec/config_components.h"
     if [ ! -f "$COMPONENTS" ]; then
         echo "❌ 找不到 FFmpeg 生成的 config_components.h：$COMPONENTS"
@@ -174,13 +173,20 @@ build_abi() {
             exit 1
         fi
     done
-    if grep -E '^#define CONFIG_[A-Z0-9_]+_DECODER 1
+    if grep -E '^#define CONFIG_[A-Z0-9_]+_DECODER 1$' "$COMPONENTS" | grep -Ev '^#define CONFIG_[A-Z0-9]+_MEDIACODEC_DECODER 1$'; then
+        echo "❌ Android FFmpeg 配置包含非 MediaCodec 软件解码器"
+        exit 1
+    fi
+    for codec in H264 MPEG4 VP8 VP9 AV1; do
         if ! grep -Eq "^#define CONFIG_${codec}_MEDIACODEC_ENCODER 1$" "$COMPONENTS"; then
             echo "❌ 缺少系统 MediaCodec 视频编码 wrapper：${codec}"
             exit 1
         fi
     done
-
+    if grep -E '^#define CONFIG_[A-Z0-9_]+_ENCODER 1$' "$COMPONENTS" | grep -Ev '^#define CONFIG_[A-Z0-9]+_MEDIACODEC_ENCODER 1$'; then
+        echo "❌ Android FFmpeg 配置包含非 MediaCodec 软件编码器"
+        exit 1
+    fi
     # 编译失败时把真正的错误打出来。
     # 原来直接 make，CI 日志只留尾部若干行，而 FFmpeg 编译到 libavcodec
     # 时才出错 —— 尾部全是无关的 warning，真错误被截掉，等于没法排查。
