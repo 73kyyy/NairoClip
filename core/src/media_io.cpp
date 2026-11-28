@@ -140,6 +140,8 @@ Result WavPcmReader::open(const std::string& path) {
             st.probe.type = MediaType::Audio;
             st.probe.sampleRate = static_cast<int>(sampleRate);
             st.probe.channels = static_cast<int>(channels);
+            st.probe.hasAudioStream = true;
+            st.probe.audioDecoderAvailable = true;
             st.probe.codec = pcmFloat ? "pcm_f32le" : "pcm_s" + std::to_string(st.bitsPerSample) + "le";
             haveFmt = true;
         } else if (std::memcmp(chunk, "data", 4) == 0) {
