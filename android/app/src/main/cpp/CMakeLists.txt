@@ -10,10 +10,12 @@ set(NC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..")
 # libnc_jni.so：JNI 入口，直调 C ABI（不经过 HTTP）
 add_library(nc_jni SHARED
     ${NC_ROOT}/mobile/native/android/nc_jni.cpp
+    ${NC_ROOT}/mobile/native/android/AndroidGpuPreviewRenderer.cpp
 )
 
 target_include_directories(nc_jni PRIVATE
     ${NC_ROOT}/core/include
+    ${NC_ROOT}/mobile/native/android
 )
 
 # core 静态库（CI 已按 ABI 交叉编译；见 .github/workflows/android-build.yml）
@@ -65,7 +67,9 @@ endif()
 # 依赖的系统库
 find_library(log-lib log)
 find_library(android-lib android)
+find_library(egl-lib EGL)
+find_library(glesv2-lib GLESv2)
 find_library(z-lib z)
-target_link_libraries(nc_jni ${log-lib} ${android-lib} ${z-lib} m)
+target_link_libraries(nc_jni ${log-lib} ${android-lib} ${egl-lib} ${glesv2-lib} ${z-lib} m)
 
 target_link_options(nc_jni PRIVATE "-Wl,--no-undefined")
