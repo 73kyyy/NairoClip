@@ -54,18 +54,15 @@ class NativePreviewSurfaceController(
         checkMainThread()
         previewView.onSurfaceAvailable = { surface ->
             if (!disposed) {
-                if (currentSurface !== surface) invalidatePendingRender()
-                currentSurface = surface
+                adoptSurface(surface)
             }
         }
         previewView.onSurfaceSizeChanged = { surface, _, width, height ->
             if (!disposed) {
-                if (currentSurface !== surface ||
-                    bufferWidth != width || bufferHeight != height
-                ) {
+                adoptSurface(surface)
+                if (bufferWidth != width || bufferHeight != height) {
                     invalidatePendingRender()
                 }
-                currentSurface = surface
                 bufferWidth = width
                 bufferHeight = height
                 attachCurrentSurface()
@@ -91,6 +88,22 @@ class NativePreviewSurfaceController(
         checkMainThread()
         if (disposed) return false
         return attachCurrentSurface()
+    }
+
+    /**
+     * A new Surface object represents a new native buffer generation. Detach
+     * the previous ANativeWindow before publishing the replacement and clear
+     * its dimensions so a render cannot slip between surfaceCreated and
+     * surfaceChanged using the previous buffer configuration.
+     */
+    private fun adoptSurface(surface: Surface) {
+        if (currentSurface === surface) return
+        invalidatePendingRender()
+        if (attached) NativeEngineBridge.detachSurface()
+        attached = false
+        bufferWidth = 0
+        bufferHeight = 0
+        currentSurface = surface
     }
 
     private fun attachCurrentSurface(): Boolean {
