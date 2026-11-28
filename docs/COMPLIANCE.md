@@ -5,95 +5,52 @@
 
 ---
 
-## 一、编解码器合规（FFmpeg 协议与禁令）
+## 一、Android 编解码器合规与系统媒体策略
 
-### 1.1 编译参数锁定（强制）
+### 1.1 Android 构建硬性规则
 
-| 参数 | 状态 | 原因 |
-|---|---|---|
-| `--enable-gpl` | ❌ 禁止 | 启用后整体升级 GPL，强制开源 |
-| `--enable-nonfree` | ❌ 禁止 | 编译产物不可分发 |
-| 核心库链接 | ✅ 必须动态链接 | LGPL 要求 |
-| 版权声明 | ✅ 必须保留 | 「关于-开源软件许可」页面 |
+Android APK 不捆绑任何软件视频或音频编解码器。媒体编解码必须调用 Android 系统 MediaCodec；系统不支持时明确报错，不允许退回 FFmpeg 软件实现。
 
-### 1.2 编码器白名单（代码级强制，`core/src/codec_policy.cpp`）
-
-| 类别 | 实现 | 规则 |
-|---|---|---|
-| **硬件（H.264 唯一路径）** | MediaCodec / VideoToolbox / MF / NVENC / QSV / VAAPI / V4L2M2M / AMF | ✅ **三端统一，且是 H.264 的唯一允许实现**（专利费由设备厂商在 SoC 授权中支付） |
-| 宽松软件（**非 H.264**） | libaom-av1 / libsvtav1 / librav1e / libvpx-vp9 / libopus / 内置 AAC / FLAC | ✅ 可用（royalty-free 或专利已到期） |
-| **软件 H.264（一律禁用）** | **OpenH264（源码或打包）/ FFmpeg 内置 h264 / libx264 / libx264rgb** | ❌ **禁止**——见下方 §1.2.1 |
-| GPL 传染 | libx265 / libxvid / libfdk_aac | ❌ 禁止（`libfdk_aac` 为不可分发许可） |
-| HEVC/H.265 | 全部实现 | ❌ 全线禁止（专利池复杂） |
-
-#### 1.2.1 为什么软件 H.264 一律禁用（2026-11-05 决定）
-
-原设计是「硬件优先 + OpenH264 兜底」。放弃 OpenH264 的三个原因：
-
-**① Cisco 的专利覆盖只适用于其分发的二进制，条件苛刻**
-
-`openh264.org/BINARY_LICENSE.txt` 原文要求：
-
-1. 二进制必须**由最终用户设备单独下载**，不能预先打包进 App；
-2. 最终用户必须能**开启/关闭**该二进制；
-3. 第三方软件在用户可控制的位置必须显示 **"OpenH264 Video Codec provided by Cisco Systems, Inc."**；
-4. EULA 必须完整复述上述条款。
-
-本项目把 `.so` 打进 APK，**不满足条件 1**，专利覆盖不适用。
-
-**② iOS 上根本不可行**
-
-OpenH264 FAQ 原文：
-
-> iOS does not allow for applications to fetch and install modules from the Internet once that application has been installed on the device.
-
-iOS 禁止 App 安装后下载可执行模块，该路径不可用。
-
-**③ 自行编译源码 = 自己承担专利费**
-
-FAQ 原文：
-
-> If I use the source code in my product, and then distribute that product on my own, will Cisco cover the MPEG LA licensing fees which I'd otherwise have to pay? **A: No.**
-
-**结论**：软件 H.264 在任何构建里都不可用。无硬件编码器时 **fail-closed 拒绝导出**，无硬件解码器时 **拒绝导入并提示转码**。
-
-#### 1.2.2 **没有任何开发例外**（2026-11-05 定稿）
-
-曾考虑给开发构建留一个「软件 H.264 兜底」，理由是本地沙箱 / CI 没有 GPU，不兜底就导不出、测不了。
-
-**这个想法被否决了。** 理由：
-
-- 产品里到底有没有软件 H.264，不该由「本机能不能跑测试」决定；
-- 一旦存在「仅开发可用」的开关，就永远有人能把它打开（误配置、fork、构建脚本改动）；
-- 而 APK 里只要含 H.264 编解码实现，就构成 AVC Product，专利费跑不掉 ——
-  审计看的是**产物**，不是「我们本意只用开发构建」。
-
-**正确的解法是反过来：让测试不依赖 H.264。**
-
-| 场景 | 做法 |
+| FFmpeg 构建项 | Android 策略 |
 |---|---|
-| 测试素材 | 改用 **VP9** 生成（`tests/fixtures/generate_media.sh`） |
-| 测试导出 | 显式指定 `videoCodec = "vp9"`（`libvpx-vp9`，BSD-3） |
-| C ABI | 新增 `nc_export_run_ex(..., video_codec, ...)`，保留原 `nc_export_run` |
-| H.264 路径验证 | 由**真机**承担（模拟器/CI 都不具备可信的硬件编解码器） |
+| `--disable-decoders` | 先关闭全部内置解码器 |
+| `--disable-encoders` | 先关闭全部内置编码器 |
+| `*_mediacodec` 视频解码器 | 仅启用系统 MediaCodec wrapper |
+| `*_mediacodec` 音频解码器 | 仅启用系统 MediaCodec wrapper |
+| `*_mediacodec` 视频编码器 | 仅启用系统 MediaCodec wrapper |
+| AAC / Opus / MP3 / FLAC 等软件编码器 | 不编入 Android 构建 |
+| demuxer / muxer / parser | 保留容器读写和码流解析能力，不承担软件编解码 |
 
-**所以现在代码里没有任何条件分支能让软件 H.264 复活**：
-`classifyEncoderLicense()` 把软件 H.264 判为 `SoftwareH264`，
-`rankVideoEncoderCandidates()` 与 `encoderAllowed()` 直接丢弃，
-解码侧的候选列表里也不含 `"h264"`。三处都不受任何编译开关影响。
+### 1.2 Android 系统编解码器白名单
 
-### 1.3 运行时策略（fail-closed）
+| 类型 | 系统 MediaCodec 格式 | 规则 |
+|---|---|---|
+| 视频解码 | H.264、HEVC、MPEG-2、MPEG-4、VP8、VP9、AV1 | 仅通过系统 MediaCodec wrapper；设备不支持则拒绝导入 |
+| 视频编码 | H.264、HEVC、VP8、VP9、MPEG-4、AV1 | 仅通过系统 MediaCodec wrapper；按设备能力选择 |
+| 音频解码 | AAC、MP3、AMR-NB、AMR-WB | 仅通过系统 MediaCodec wrapper；其他格式暂不支持 |
+| 音频编码 | AAC | 必须通过 Android 系统 MediaCodec + 容器封装链路；该链路接入前拒绝带音轨导出 |
+| 音频播放 | AAudio / Oboe，兼容 AudioTrack | 使用系统音频输出 API；不等同于压缩音频解码 |
+| GPU 呈现 | Vulkan / OpenGL ES | 使用系统图形 API 和设备驱动 |
 
-- 编码器选择顺序：**系统硬件 → 宽松许可的非 H.264 软件编码器**；
-- **GPL、软件 H.264、HEVC 与未知编码器在所有构建中一律拒绝**，不设开发例外；
-- CI/自动化测试使用 VP9/AV1 等允许的测试格式，不通过 GPL/H.264 后门迁就无硬件编码器的环境；
-- 无合规实现时拒绝编码并返回明确错误，禁止静默降级。
+H.264 / HEVC 在 Android 上只允许调用设备系统提供的 MediaCodec，不把对应软件实现打入 APK。系统 API 返回的实际 codec 能力仍取决于设备厂商、Android 版本、profile、分辨率和帧率；不能把“存在 MediaCodec API”误写成“所有设备都支持硬件加速”。
 
-### 1.4 三端部署要求（文档第八章）
+### 1.3 Fail-closed 与当前实现边界
 
-- 导出格式选项、可导入素材格式范围三端**完全一致**（不因设备性能增减）；
-- 硬件解码不可用（如老旧设备 AV1）→ **软件解码兜底（dav1d）**，不拒绝导入；
-- 分辨率档位不因设备性能减少（耗时提示见第四章「预览速度≠功能差异」）。
+- Android FFmpeg 构建先执行 `--disable-decoders --disable-encoders`，再显式启用 MediaCodec wrappers。
+- Android 视频解码只枚举 `h264_mediacodec`、`hevc_mediacodec`、`mpeg4_mediacodec`、`vp8_mediacodec`、`vp9_mediacodec`、`av1_mediacodec` 等系统 wrapper。
+- Android 音频解码只枚举 AAC / MP3 / AMR 对应的 MediaCodec wrapper；不支持的音轨明确拒绝，不走 FFmpeg 原生软件解码。
+- Android 视频编码候选必须以 `_mediacodec` 结尾；即使未来构建配置意外启用了软件编码器，也会在运行时过滤。
+- Android AAC 软件编码已从构建中移除。系统 AAC 编码和最终音视频封装尚未接通前，带音轨导出会明确失败，不允许静默生成无声视频。
+- 当前 EGL/GLES 预览仍然接收 CPU Reference renderer 生成的 RGBA 数据；这不等于 MediaCodec Surface / HardwareBuffer 到 GPU 的零拷贝链路。
+- 当前 Android 音频混音核心仍由 NairoClip C++ Audio Mixer 执行；AAudio / Oboe / AudioTrack 输出接线仍需完成。
+- 以上是 Android 当前迁移范围。iOS、Windows、macOS、Linux 必须分别接入各自系统媒体框架后，才能声明达到同样的系统-only 策略；不能将 Android 状态外推为三端已完成。
+
+### 1.4 软件编解码器禁令
+
+- Android APK 不得包含 H.264、HEVC、AV1、VP9、AAC、MP3、Opus、FLAC、Vorbis 等格式的软件编解码实现。
+- 不允许 GPL、nonfree 或其他未获批准的编解码器进入 Android APK。
+- FFmpeg 在 Android 侧保留容器 demux/mux、bitstream parser、像素/采样格式转换等非编解码职责；FFmpeg 的 MediaCodec wrapper 只作为系统 API 适配层。
+- 系统不支持时提示用户格式或设备不兼容；不得下载、加载或静默启用软件编解码器。
 
 ---
 
