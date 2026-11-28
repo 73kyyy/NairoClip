@@ -137,7 +137,7 @@ class NativeEditorHostController(
         operation: (Boolean) -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>
     ): Job {
         val key = trackIndex to control.name
-        val target = synchronized(trackToggleIntents) {
+        val reservation = synchronized(trackToggleIntents) {
             val track = mutableState.value.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
                 (item.engineIndex.takeIf { it >= 0 } ?: index) == trackIndex
             }?.value
@@ -156,8 +156,8 @@ class NativeEditorHostController(
         }
 
         return runTimelineMutation(
-            operation = { operation(target) },
-            pendingToggle = key to target
+            operation = { operation(reservation.target) },
+            pendingToggle = key to reservation
         )
     }
 
@@ -381,7 +381,7 @@ class NativeEditorHostController(
 
     private fun runTimelineMutation(
         operation: () -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>,
-        pendingToggle: Pair<Pair<Int, String>, Boolean>? = null
+        pendingToggle: Pair<Pair<Int, String>, NativeTrackToggleIntents.Reservation>? = null
     ): Job = scope.launch {
         try {
             operationMutex.withLock {
@@ -405,8 +405,8 @@ class NativeEditorHostController(
         } finally {
             // Also release reservations when a queued coroutine is cancelled
             // before it acquires the operation mutex.
-            pendingToggle?.let { (key, target) ->
-                trackToggleIntents.finish(key, target)
+            pendingToggle?.let { (key, reservation) ->
+                trackToggleIntents.finish(key, reservation)
             }
         }
     }
