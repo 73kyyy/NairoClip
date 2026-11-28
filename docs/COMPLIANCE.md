@@ -5,7 +5,21 @@
 
 ---
 
-## 一、Android 编解码器合规与系统媒体策略
+
+## 一、全平台媒体编解码总政策
+
+NairoClip 不再分发或调用应用自带的软件视频/音频解码器与编码器。Android、iOS、macOS、Windows、Linux 均必须通过各自平台的系统媒体框架完成压缩媒体解码/编码；硬件加速优先。若系统硬件路径不可用，可评估系统框架本身提供的兼容实现，但不得加载 NairoClip 自带的 FFmpeg/libx264/OpenH264/libx265/libvpx/libaom/libopus/AAC 等软件编解码实现。系统框架也无法处理时必须 fail-closed。
+
+| 平台 | 目标系统媒体框架 | 迁移要求 |
+|---|---|---|
+| Android | MediaCodec / MediaExtractor / MediaMuxer；AAudio / AudioTrack | 完善 codec 能力探测、AAC 系统编码、音频输出及 Surface/HardwareBuffer 路径 |
+| iOS / iPadOS / macOS | AVFoundation / VideoToolbox / CoreAudio | 用系统 reader/writer 与硬件 codec 替代 FFmpeg codec 路径 |
+| Windows | Media Foundation / WASAPI | 明确选择系统 MFT，优先硬件 MFT；不得打包软件 codec |
+| Linux | VA-API / V4L2 与系统媒体栈、PipeWire/ALSA | 运行时探测系统后端；不支持时安全拒绝 |
+
+FFmpeg 不能被整体粗暴删除：在平台媒体 API 尚未接管前，仍可能承担容器 demux/mux、bitstream parser、时间戳、流信息和必要的像素/采样格式转换。上述职责属于迁移过渡层，不得借此启用 FFmpeg 软件 decoder/encoder。每个平台完成系统 reader/writer 接管并有回归证据后，才删除该平台不再需要的 FFmpeg 依赖和构建产物。
+
+## 二、Android 编解码器合规与系统媒体策略
 
 ### 1.1 Android 构建硬性规则
 
@@ -54,7 +68,7 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 
 ---
 
-## 二、AI 模型协议（锁定清单）
+## 三、AI 模型协议（锁定清单）
 
 ### 2.1 锁定模型（协议已核对，均为 MIT/BSD/Apache-2.0）
 
@@ -97,7 +111,7 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 
 ---
 
-## 三、三端功能对等原则（强制）
+## 四、三端功能对等原则（强制）
 
 - **三端（Android/iOS/桌面）功能集合与最终导出效果质量上限必须完全一致**；
 - 唯一允许差异：**模型量化精度**（FP32/FP16/INT8，体积与速度差异）；
@@ -118,7 +132,7 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 
 ---
 
-## 四、AI 生成合成内容标识（《标识办法》2025-09-01 施行）
+## 五、AI 生成合成内容标识（《标识办法》2025-09-01 施行）
 
 ### 4.1 触发范围
 
@@ -147,7 +161,7 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 
 ---
 
-## 五、开源许可与发布合规
+## 六、开源许可与发布合规
 
 ### 5.1 NOTICE 页面（「关于-开源软件许可」）
 
@@ -169,7 +183,7 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 
 ---
 
-## 六、强制校验清单（对照本文档逐项检查）
+## 七、强制校验清单（对照本文档逐项检查）
 
 | # | 校验项 | 代码/文档位置 | 状态 |
 |---|---|---|---|
@@ -184,7 +198,7 @@ H.264 在 Android 上只允许调用设备系统提供的 MediaCodec，不把软
 | 9 | 桌面端性能模式为用户主动开关 | 本文档 3 | ✅ 已定义 |
 | 10 | FFmpeg 编译参数锁定（禁 GPL/nonfree） | 本文档 1.1 | ⚠️ 平台层构建时执行 |
 | 11 | 禁用 libx264/libx265（代码级） | `core/src/codec_policy.cpp` + 测试 | ✅ 已实现（源码级） |
-| 12 | AV1/VP9/Opus 三端可用 | `codec_policy` 白名单 | ✅ 已实现（源码级） |
+| 12 | AV1/VP9/Opus 仅走系统媒体 API，不含应用自带软件 codec | `codec_policy` + 平台适配层 | ⚠️ 编码策略已收紧；各平台适配未全部完成 |
 | 13 | 导出格式/导入范围三端一致 | 本文档 1.4 | ✅ 已定义（平台层执行） |
 | 14 | 格式不支持时软解兜底（dav1d） | 本文档 1.4 | ⚠️ 平台层构建时执行 |
 | 15 | AI 标识（显式画面 + 显式音频 + 隐式元数据） | `ai_label` / `ai_marking` | ✅ 已实现（源码级）+ 端到端验证 |
