@@ -22,6 +22,15 @@
 
 #include "../mobile/native/android/nc_jni.cpp"
 
+// The host contract test includes the JNI translation unit but does not link
+// Android EGL/GLES. Keep only the presentation calls inert in host tests.
+#if !defined(__ANDROID__)
+namespace nairoclip_android_preview {
+void detach() {}
+bool draw(const std::uint8_t*, int, int) { return false; }
+}  // namespace nairoclip_android_preview
+#endif
+
 namespace {
 
 struct Fixture {
