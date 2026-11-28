@@ -183,8 +183,11 @@ public:
 #ifdef NAIROCLIP_HAS_FFMPEG
         const Result systemMedia = ffmpeg_.open(path);
         if (systemMedia.isOk()) {
-            if (!ffmpeg_.probe().hasAudioStream ||
-                !ffmpeg_.probe().audioDecoderAvailable) {
+            if (!ffmpeg_.probe().hasAudioStream) {
+                ffmpeg_.close();
+                return Result::fail(ErrorCode::NotFound, "素材没有音频流。");
+            }
+            if (!ffmpeg_.probe().audioDecoderAvailable) {
                 ffmpeg_.close();
                 return Result::fail(
                     ErrorCode::Unsupported,
