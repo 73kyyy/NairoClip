@@ -140,6 +140,47 @@ class NativeEditorHostController(
         adapter.setTransform(target, transform, enabled, anchor)
     }
 
+    fun setClipSpeed(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        numerator: Long,
+        denominator: Long
+    ): Job = runEditorMutation(
+        operation = { adapter.setClipSpeedAndReadEditorState(target, numerator, denominator) },
+        onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+    )
+
+    fun applySpeedCurvePreset(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        preset: Int
+    ): Job = runEditorMutation(
+        operation = { adapter.applySpeedCurvePresetAndReadEditorState(target, preset) },
+        onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+    )
+
+    fun setSpeedCurve(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        points: List<NativeEditorCommandAdapter.SpeedCurvePoint>
+    ): Job = runEditorMutation(
+        operation = { adapter.setSpeedCurveAndReadEditorState(target, points) },
+        onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+    )
+
+    fun setClipAudio(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        audio: NativeEditorCommandAdapter.ClipAudioState
+    ): Job = runEditorMutation(
+        operation = { adapter.setClipAudioAndReadEditorState(target, audio) },
+        onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+    )
+
+    fun setClipDenoise(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        strength: Int
+    ): Job = runEditorMutation(
+        operation = { adapter.setClipDenoiseAndReadEditorState(target, strength) },
+        onSuccess = { NativeEditorHostEvent.MutationCommitted(it) }
+    )
+
     fun insertTransformKeyframe(
         target: NativeEditorCommandAdapter.ClipTarget,
         parameter: NativeParameter,
