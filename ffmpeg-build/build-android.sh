@@ -11,17 +11,16 @@
 #   · --enable-jni + --enable-mediacodec —— 硬解路径（P7 的基础）。
 
 #
-# **2026-11-05 策略变更**：H.264/H.265 的**软件**编解码器已全部移除。
-#   原因：软件 H.264 实现需要自行承担 AVC 专利许可（Cisco 的专利覆盖
-#   只适用于其分发的二进制，且要求「单独下载 + 用户可开关 + 声明文本」，
-#   与 APK 打包架构冲突；iOS 更是禁止安装后下载可执行模块）。
-#
-#   现在 H.264 只剩 h264_mediacodec（系统硬件解码，专利费由芯片厂商付）。
-#   无硬件解码器的设备会 fail-closed 拒绝导入，而不是悄悄用软件实现。
-#   H.265/HEVC 全线移除（专利池复杂）。
-#   AV1 / VP9 / MPEG4 / 音频 仍走 FFmpeg 内置实现（royalty-free）。
-#   · 只保留需要的组件（decoder/demuxer/parser），其余 --disable 掉，
-#     否则 .so 加起来 40MB+，APK 装不下三个 ABI。
+# Android 媒体编解码策略：不打包任何软件编解码器。
+#   · 视频/音频解码只启用 FFmpeg 的 *_mediacodec 系统 MediaCodec wrapper。
+#   · 视频编码只启用 *_mediacodec 系统 MediaCodec wrapper。
+#   · FFmpeg 仅保留容器 demux/mux、bitstream parser、像素/采样格式转换。
+#   · MediaCodec 不支持的格式必须 fail-closed，禁止静默调用软件解码/编码。
+#   · MediaCodec wrapper 只是系统 API 适配层，不是 APK 内置编解码实现。
+#   · Android AAC 音频编码由独立系统 MediaCodec + MediaMuxer 接入负责；
+#     当前 FFmpeg writer 不允许退回内置 AAC 软件编码器。
+#   · H.264/H.265 仅允许通过设备系统 MediaCodec 使用，不捆绑其软件实现。
+#   · 只保留需要的组件，控制 APK 体积。
 # =============================================================================
 set -euo pipefail
 
@@ -135,8 +134,10 @@ build_abi() {
         --disable-swscale-alpha \
         --enable-jni \
         --enable-mediacodec \
-        --enable-decoder=h264_mediacodec,mpeg4,vp8,vp9,av1,aac,mp3,opus,flac,vorbis,pcm_s16le,pcm_s16be \
-        --enable-encoder=aac,pcm_s16le \
+        --disable-decoders \
+        --disable-encoders \
+        --enable-decoder=h264_mediacodec,hevc_mediacodec,mpeg2_mediacodec,mpeg4_mediacodec,vp8_mediacodec,vp9_mediacodec,av1_mediacodec,aac_mediacodec,amrnb_mediacodec,amrwb_mediacodec,mp3_mediacodec \
+        --enable-encoder=h264_mediacodec,hevc_mediacodec,vp8_mediacodec,vp9_mediacodec,mpeg4_mediacodec,av1_mediacodec \
         --enable-demuxer=mov,matroska,avi,mp3,wav,flac,ogg,aac,mpegts \
         --enable-muxer=mp4,mov,matroska,wav,mp3 \
         --enable-parser=h264,hevc,vp9,av1,aac,mpegaudio,opus,flac \
