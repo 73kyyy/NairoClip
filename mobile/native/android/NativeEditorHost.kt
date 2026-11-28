@@ -153,6 +153,7 @@ fun NativeEditorHost(
     }
     var clipAudio by remember { mutableStateOf<NativeEditorCommandAdapter.ClipAudioState?>(null) }
     var clipDenoiseStrength by remember { mutableStateOf<Int?>(null) }
+    var clipOpacity by remember { mutableStateOf<Double?>(null) }
     var clipFilter by remember { mutableStateOf<NativeEditorCommandAdapter.ClipFilterState?>(null) }
     var clipLut by remember { mutableStateOf<NativeEditorCommandAdapter.ClipLutState?>(null) }
     var clipColorGrade by remember { mutableStateOf<NativeEditorCommandAdapter.ClipColorGradeState?>(null) }
@@ -265,6 +266,7 @@ fun NativeEditorHost(
             speedCurvePoints = null
             clipAudio = null
             clipDenoiseStrength = null
+            clipOpacity = null
             clipFilter = null
             clipLut = null
             clipColorGrade = null
@@ -318,6 +320,7 @@ fun NativeEditorHost(
                 speedCurvePoints = snapshot.speedCurve
                 clipAudio = snapshot.audio
                 clipDenoiseStrength = snapshot.denoiseStrength
+                clipOpacity = snapshot.opacity
                 clipFilter = snapshot.filter
                 clipLut = snapshot.lut
                 clipColorGrade = snapshot.colorGrade
@@ -682,10 +685,24 @@ fun NativeEditorHost(
             controller.splitClip(track, clipId, timeUs)
         },
         onDeleteClip = { track, clipId -> controller.removeClip(track, clipId) },
+        clipOpacity = clipOpacity,
         onClipEnabledChanged = { track, clipId, enabled ->
             controller.setClipEnabled(track, clipId, enabled)
         },
         onDuplicateClip = { track, clipId -> controller.duplicateClip(track, clipId) },
+        onFreezeClip = { track, clipId, atUs, durationUs ->
+            controller.freezeClip(track, clipId, atUs, durationUs)
+        },
+        onClipOpacityChanged = { track, clipId, opacity ->
+            val job = controller.setClipOpacity(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                opacity
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
         onReverseClip = { track, clipId -> controller.reverseClip(track, clipId) },
         onRippleDeleteClip = { track, clipId -> controller.rippleDeleteClip(track, clipId) },
         onPrewarmPreviewFrame = { timeUs, width ->
