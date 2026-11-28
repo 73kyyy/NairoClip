@@ -248,6 +248,7 @@ EncoderSelection selectAudioEncoder(const std::string& codec,
 std::vector<EncoderSelection> rankVideoEncoderCandidates(
     const std::string& codec, const std::vector<EncoderCandidate>& available,
     const EncoderPolicy& policy) {
+    (void)policy;  // 旧策略字段保留 ABI；系统-only 模式不允许软件回退。
     const std::string wanted = codec.empty() ? std::string("h264") : codec;
     const std::string lower = toLower(wanted);
     if (lower == "hevc" || lower == "h265" || lower == "libx265") {
@@ -295,6 +296,7 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
 
 
 bool encoderAllowed(const std::string& encoderName, const EncoderPolicy& policy) {
+    (void)policy;  // 保留旧接口签名；软件实现不得因策略开关而重新启用。
     const EncoderLicenseClass cls = classifyEncoderLicense(encoderName);
     switch (cls) {
         case EncoderLicenseClass::Hardware:
