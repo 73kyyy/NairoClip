@@ -5,8 +5,12 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.LinearGradient
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -67,6 +71,21 @@ data class NativeTimelineTrack(
     val locked: Boolean = false
 )
 
+/**
+ * Shared track-control feather parameters. The fade is a compositing mask over
+ * a blurred copy, not an opaque lane-colored cover over the clip itself.
+ */
+internal object NativeTrackControlFeatherSpec {
+    const val BLUR_RADIUS_DP = 3f
+    const val START_ALPHA = 0.88f
+    const val END_ALPHA = 0f
+
+    fun alphaAt(progress: Float): Float {
+        val t = progress.coerceIn(0f, 1f)
+        return START_ALPHA + (END_ALPHA - START_ALPHA) * t
+    }
+}
+
 class NativeTimelineView(context: Context) : View(context) {
 
     var onPlayheadChanged: ((Long) -> Unit)? = null
@@ -100,6 +119,21 @@ class NativeTimelineView(context: Context) : View(context) {
     // Fades clip content beneath the fixed track controls. The controls are
     // redrawn afterwards, so their glyphs never inherit the feather alpha.
     private val trackControlFeatherPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    // API 31+ applies a real Gaussian blur to a clipped copy of the track
+    // content. The alpha mask below fades that blurred copy from left to right,
+    // leaving the fixed eye/speaker/lock glyphs sharp when they are redrawn.
+    private val trackControlBlurPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            renderEffect = RenderEffect.createBlurEffect(
+                NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
+                NativeTrackControlFeatherSpec.BLUR_RADIUS_DP * density,
+                Shader.TileMode.CLAMP
+            )
+        }
+    }
+    private val trackControlFeatherMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+    }
     private val selectedClipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF777F86.toInt()
         style = Paint.Style.STROKE
@@ -435,73 +469,106 @@ class NativeTimelineView(context: Context) : View(context) {
 
             val lane = if (index % 2 == 0) alternateLanePaint else lanePaint
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
+            drawTrackClips(canvas, track, top, bottom)
 
-            if (track.visible) {
-                track.clips.forEach clipLoop@{ clip ->
-                    if (!clip.enabled || clip.startUs < 0L || clip.durationUs <= 0L ||
-                        clip.startUs >= durationUs
-                    ) return@clipLoop
-                    val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
-                    val left = NativeTimelineViewportSpec.xForTime(
-                        width.toFloat(),
-                        clip.startUs.toDouble() / 1_000_000.0,
-                        pixelsPerSecond.toDouble(),
-                        scrollOffset.toDouble()
-                    ).toFloat()
-                    val clipWidth = (
-                        visibleDurationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
-                    ).toFloat()
-                    val right = left + max(clipWidth, 5f * density)
-                    if (right < 0f || left > width) return@clipLoop
-                    val rect = RectF(
-                        max(left, 0f),
-                        top + 5f * density,
-                        min(right, width.toFloat()),
-                        bottom - 5f * density
-                    )
-                    canvas.drawRoundRect(rect, 3f * density, 3f * density, clipPaint)
-                    if (selectedClip == (track.id to clip.id)) {
-                        canvas.drawRoundRect(rect, 3f * density, 3f * density, selectedClipPaint)
-                    }
-                    if (rect.width() > 34f * density) {
-                        canvas.save()
-                        canvas.clipRect(
-                            rect.left + 5f * density,
-                            rect.top,
-                            (rect.right - 3f * density).coerceAtLeast(rect.left),
-                            rect.bottom
-                        )
-                        canvas.drawText(
-                            clip.label,
-                            rect.left + 5f * density,
-                            rect.centerY() + 3f * density,
-                            clipTextPaint
-                        )
-                        canvas.restore()
-                    }
-                }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Render a blurred copy only beneath the fixed control column.
+                // DST_IN applies a horizontal alpha ramp: strongest at x=0,
+                // falling smoothly to zero at the right edge of the controls.
+                val featherBounds = RectF(0f, top, trackControlsWidth, bottom)
+                canvas.saveLayer(featherBounds, trackControlBlurPaint)
+                canvas.clipRect(featherBounds)
+                canvas.drawRect(0f, top, trackControlsWidth, bottom, lane)
+                drawTrackClips(canvas, track, top, bottom)
+                trackControlFeatherMaskPaint.shader = LinearGradient(
+                    0f,
+                    top,
+                    trackControlsWidth,
+                    top,
+                    intArrayOf(
+                        withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.START_ALPHA),
+                        withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.END_ALPHA)
+                    ),
+                    floatArrayOf(0f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                canvas.drawRect(featherBounds, trackControlFeatherMaskPaint)
+                trackControlFeatherMaskPaint.shader = null
+                canvas.restore()
+            } else {
+                // Older Android versions do not expose RenderEffect. Keep a
+                // compatible feathered fade rather than drawing controls blurry.
+                trackControlFeatherPaint.shader = LinearGradient(
+                    0f,
+                    top,
+                    trackControlsWidth,
+                    top,
+                    intArrayOf(
+                        withAlpha(lane.color, NativeTrackControlFeatherSpec.START_ALPHA),
+                        withAlpha(lane.color, NativeTrackControlFeatherSpec.END_ALPHA)
+                    ),
+                    floatArrayOf(0f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                canvas.drawRect(0f, top, trackControlsWidth, bottom, trackControlFeatherPaint)
+                trackControlFeatherPaint.shader = null
             }
-            // The clip lane remains full-width. Only its first 40dp are
-            // feathered: strongest at the far-left edge, smoothly clearing
-            // toward the right edge of the fixed eye/speaker/lock controls.
-            val laneColor = lane.color
-            trackControlFeatherPaint.shader = LinearGradient(
-                0f,
-                top,
-                trackControlsWidth,
-                top,
-                intArrayOf(
-                    withAlpha(laneColor, NativeTrackControlFeatherSpec.START_ALPHA),
-                    withAlpha(laneColor, NativeTrackControlFeatherSpec.END_ALPHA)
-                ),
-                floatArrayOf(0f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawRect(0f, top, trackControlsWidth, bottom, trackControlFeatherPaint)
-            trackControlFeatherPaint.shader = null
+            // Controls are always rendered last and remain perfectly sharp.
             drawTrackControls(canvas, track, top, bottom)
         }
         canvas.restore()
+    }
+
+    private fun drawTrackClips(
+        canvas: Canvas,
+        track: NativeTimelineTrack,
+        top: Float,
+        bottom: Float
+    ) {
+        if (!track.visible) return
+        track.clips.forEach clipLoop@{ clip ->
+            if (!clip.enabled || clip.startUs < 0L || clip.durationUs <= 0L ||
+                clip.startUs >= durationUs
+            ) return@clipLoop
+            val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
+            val left = NativeTimelineViewportSpec.xForTime(
+                width.toFloat(),
+                clip.startUs.toDouble() / 1_000_000.0,
+                pixelsPerSecond.toDouble(),
+                scrollOffset.toDouble()
+            ).toFloat()
+            val clipWidth = (
+                visibleDurationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+            ).toFloat()
+            val right = left + max(clipWidth, 5f * density)
+            if (right < 0f || left > width) return@clipLoop
+            val rect = RectF(
+                max(left, 0f),
+                top + 5f * density,
+                min(right, width.toFloat()),
+                bottom - 5f * density
+            )
+            canvas.drawRoundRect(rect, 3f * density, 3f * density, clipPaint)
+            if (selectedClip == (track.id to clip.id)) {
+                canvas.drawRoundRect(rect, 3f * density, 3f * density, selectedClipPaint)
+            }
+            if (rect.width() > 34f * density) {
+                canvas.save()
+                canvas.clipRect(
+                    rect.left + 5f * density,
+                    rect.top,
+                    (rect.right - 3f * density).coerceAtLeast(rect.left),
+                    rect.bottom
+                )
+                canvas.drawText(
+                    clip.label,
+                    rect.left + 5f * density,
+                    rect.centerY() + 3f * density,
+                    clipTextPaint
+                )
+                canvas.restore()
+            }
+        }
     }
 
     private fun withAlpha(color: Int, alpha: Float): Int {
