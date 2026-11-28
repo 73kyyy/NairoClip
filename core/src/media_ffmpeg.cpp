@@ -301,7 +301,6 @@ Result FFmpegMediaReader::open(const std::string& path) {
         // Android 不允许进入 FFmpeg 原生软件解码器：只枚举系统 MediaCodec wrapper。
         switch (stream->codecpar->codec_id) {
             case AV_CODEC_ID_H264: decoderCandidates.push_back("h264_mediacodec"); break;
-            case AV_CODEC_ID_HEVC: decoderCandidates.push_back("hevc_mediacodec"); break;
             case AV_CODEC_ID_MPEG2VIDEO: decoderCandidates.push_back("mpeg2_mediacodec"); break;
             case AV_CODEC_ID_MPEG4: decoderCandidates.push_back("mpeg4_mediacodec"); break;
             case AV_CODEC_ID_VP8: decoderCandidates.push_back("vp8_mediacodec"); break;
