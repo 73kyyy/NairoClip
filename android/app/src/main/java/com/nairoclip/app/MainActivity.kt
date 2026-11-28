@@ -357,6 +357,10 @@ class MainActivity : AppCompatActivity() {
         // engine while Compose owns the editor session. Its DOM and JS state
         // remain alive; onPause does not destroy or reload the WebView.
         webView.onPause()
+        // WebView.onPause() alone does not reliably stop JavaScript timers.
+        // Pause them while Compose owns the same engine session to prevent
+        // legacy polling/preview requests racing native editor commands.
+        webView.pauseTimers()
         webView.visibility = View.INVISIBLE
         contentRoot.addView(
             overlay,
@@ -384,6 +388,7 @@ class MainActivity : AppCompatActivity() {
         contentRoot.addView(previewSurface, 0)
         webView.visibility = View.VISIBLE
         webView.onResume()
+        webView.resumeTimers()
         webView.post {
             webView.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
         }
@@ -430,6 +435,8 @@ class MainActivity : AppCompatActivity() {
         engine?.release()
         engine = null
         if (this::webView.isInitialized) {
+            // pauseTimers is process-wide; always balance it during teardown.
+            webView.resumeTimers()
             webView.removeJavascriptInterface("NCEngine")
             webView.removeJavascriptInterface("NCAndroid")
             webView.removeJavascriptInterface("NCPreview")
