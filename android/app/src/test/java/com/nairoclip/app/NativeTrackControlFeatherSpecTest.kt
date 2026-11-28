@@ -22,6 +22,6 @@ class NativeTrackControlFeatherSpecTest {
     @Test
     fun malformedPositionIsBoundedToTheStrongEdge() {
         assertEquals(0.88f, NativeTrackControlFeatherSpec.alphaAt(Float.NaN), 0.0001f)
-        assertEquals(0f, NativeTrackControlFeatherSpec.alphaAt(Float.POSITIVE_INFINITY), 0.0001f)
+        assertEquals(0.88f, NativeTrackControlFeatherSpec.alphaAt(Float.POSITIVE_INFINITY), 0.0001f)
     }
 }
