@@ -288,9 +288,15 @@ NC_TEST(CapiMedia, PreviewFrameCacheAvoidsReDecode) {
 
     // 第一次渲染某时刻：必然未命中（走完整渲染）
     std::uint8_t* a = nullptr;
-    NC_CHECK_EQ(nc_preview_render(editor, 1000000, nullptr, nullptr, &a, nullptr, nullptr,
-                                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
-                NC_OK);
+    const int32_t firstRender = nc_preview_render(
+        editor, 1000000, nullptr, nullptr, &a, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr);
+    if (firstRender == NC_ERROR_UNSUPPORTED) {
+        NC_CHECK(a == nullptr);
+        nc_editor_destroy(editor);
+        return;
+    }
+    NC_CHECK_EQ(firstRender, NC_OK);
     NC_CHECK(a != nullptr);
     nc_free_buffer(a);
 
@@ -344,11 +350,17 @@ NC_TEST(CapiMedia, PreviewCacheInvalidatedByUndo) {
     std::uint64_t clip = 0;
     NcEditor* editor = makeVideoEditor(&asset, &clip);
 
-    // 先渲染一帧建立缓存
+    // 先渲染一帧建立缓存；无可用系统解码器时验证 fail-closed 后结束。
     std::uint8_t* a = nullptr;
-    NC_CHECK_EQ(nc_preview_render(editor, 500000, nullptr, nullptr, &a, nullptr, nullptr,
-                                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
-                NC_OK);
+    const int32_t renderResult = nc_preview_render(
+        editor, 500000, nullptr, nullptr, &a, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr);
+    if (renderResult == NC_ERROR_UNSUPPORTED) {
+        NC_CHECK(a == nullptr);
+        nc_editor_destroy(editor);
+        return;
+    }
+    NC_CHECK_EQ(renderResult, NC_OK);
     nc_free_buffer(a);
 
     // 编辑：停用片段（进入编辑栈）
@@ -391,11 +403,19 @@ NC_TEST(CapiMedia, ThumbnailGenerateReal) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t asset =
         nc_import_asset(editor, "v.mp4", "/tmp/media_gen/test_av.mp4", 0, 3000000);
-    // 生成 4 张缩略图
+    // 无可用系统解码器时必须明确返回 UNSUPPORTED 并清空输出。
     std::uint8_t* images = nullptr;
     std::int64_t times[8] = {0};
-    std::int32_t count = 0;
-    NC_CHECK_EQ(nc_thumbnail_generate(editor, asset, 4, 160, 90, &images, times, &count), NC_OK);
+    std::int32_t count = -1;
+    const int32_t thumbnailResult =
+        nc_thumbnail_generate(editor, asset, 4, 160, 90, &images, times, &count);
+    if (thumbnailResult == NC_ERROR_UNSUPPORTED) {
+        NC_CHECK(images == nullptr);
+        NC_CHECK_EQ(count, 0);
+        nc_editor_destroy(editor);
+        return;
+    }
+    NC_CHECK_EQ(thumbnailResult, NC_OK);
     NC_CHECK_EQ(count, 4);
     NC_CHECK(images != nullptr);
     std::int32_t w = 0;
@@ -431,10 +451,20 @@ NC_TEST(CapiMedia, WaveformGenerateReal) {
     NcEditor* editor = nc_editor_create();
     const std::uint64_t asset =
         nc_import_asset(editor, "v.mp4", "/tmp/media_gen/test_av.mp4", 0, 3000000);
-    double peak = 0.0;
-    std::int32_t sampleRate = 0;
-    std::int32_t channels = 0;
-    NC_CHECK_EQ(nc_waveform_generate(editor, asset, 64, &peak, &sampleRate, &channels), NC_OK);
+    double peak = -1.0;
+    std::int32_t sampleRate = -1;
+    std::int32_t channels = -1;
+    const int32_t waveformResult =
+        nc_waveform_generate(editor, asset, 64, &peak, &sampleRate, &channels);
+    if (waveformResult == NC_ERROR_UNSUPPORTED) {
+        NC_CHECK_EQ(peak, 0.0);
+        NC_CHECK_EQ(sampleRate, 0);
+        NC_CHECK_EQ(channels, 0);
+        NC_CHECK_EQ(nc_waveform_bucket_count(editor), 0);
+        nc_editor_destroy(editor);
+        return;
+    }
+    NC_CHECK_EQ(waveformResult, NC_OK);
     NC_CHECK_EQ(nc_waveform_bucket_count(editor), 64);
     NC_CHECK_EQ(sampleRate, 44100);
     // 测试素材为 440Hz 正弦（幅度 0.25 级）；峰值应 > 0.05
@@ -468,9 +498,16 @@ NC_TEST(CapiMedia, SceneDetectReal) {
         nc_import_asset(editor, "two.mp4", "/tmp/media_gen/two_shots.mp4", 0, 4000000);
     (void)nc_add_track(editor, "V1", 0);
     (void)nc_insert_clip(editor, 0, asset, 0, 4000000);
-    std::int32_t count = 0;
-    double* boundaries = nullptr;
-    NC_CHECK_EQ(nc_scene_detect(editor, 0.0, 600, &count, &boundaries), NC_OK);
+    std::int32_t count = -1;
+    double* boundaries = reinterpret_cast<double*>(static_cast<std::uintptr_t>(1));
+    const int32_t detectResult = nc_scene_detect(editor, 0.0, 600, &count, &boundaries);
+    if (detectResult == NC_ERROR_UNSUPPORTED) {
+        NC_CHECK_EQ(count, 0);
+        NC_CHECK(boundaries == nullptr);
+        nc_editor_destroy(editor);
+        return;
+    }
+    NC_CHECK_EQ(detectResult, NC_OK);
     NC_CHECK(count >= 1);
     NC_CHECK(boundaries != nullptr);
     // 边界数组 [start_s, end_s] × count；首个边界应自 0 开始
