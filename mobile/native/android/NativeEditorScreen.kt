@@ -44,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -176,7 +177,12 @@ fun NativeEditorScreen(
     onCancelAutoSubtitle: (() -> Unit)? = null,
     onPrewarmPreviewFrame: ((Long, Int) -> Boolean)? = null,
     onReadPreviewCacheStats: (() -> NativePreviewCacheUiStats?)? = null,
-    previewFrameWidth: Int = 320
+    previewFrameWidth: Int = 320,
+    onShareProject: (() -> Unit)? = null,
+    onExportProject: (() -> Unit)? = null,
+    onExpandPreview: (() -> Unit)? = null,
+    isPlaying: Boolean = false,
+    onTogglePlayback: (() -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -221,11 +227,15 @@ fun NativeEditorScreen(
                 .fillMaxSize()
                 .background(NcColors.background)
         ) {
-            EditorTopBar(projectName = projectName, onOpenLegacy = onOpenLegacy)
+            EditorTopBar(
+                onShare = { onShareProject?.invoke() ?: onOpenLegacy() },
+                onExport = { onExportProject?.invoke() ?: onOpenLegacy() }
+            )
 
             PreviewStage(
                 previewView = previewView,
                 showGuides = showGuides,
+                onExpandPreview = { onExpandPreview?.invoke() ?: onOpenLegacy() },
                 modifier = Modifier.weight(1f).fillMaxWidth()
             )
 
@@ -704,7 +714,23 @@ fun NativeEditorScreen(
                     Text("文字创建等待宿主接入原生引擎命令", color = NcColors.secondary, fontSize = 10.sp)
                 }
             }
-            LegacyTransportFallback(onOpenLegacy)
+            NativeTransportBar(
+                hasSelection = selectedTarget != null,
+                isPlaying = isPlaying,
+                onSplit = {
+                    val target = selectedTarget
+                    if (target != null && onSplitClip != null) {
+                        onSplitClip.invoke(target.first, target.second, playheadUs)
+                    } else onOpenLegacy()
+                },
+                onTogglePlayback = { onTogglePlayback?.invoke() ?: onOpenLegacy() },
+                onDelete = {
+                    val target = selectedTarget
+                    if (target != null && onDeleteClip != null) {
+                        onDeleteClip.invoke(target.first, target.second)
+                    } else onOpenLegacy()
+                }
+            )
 
             NativeToolBar(
                 activeTool = activeTool,
@@ -1842,39 +1868,39 @@ private object NcColors {
 }
 
 @Composable
-private fun EditorTopBar(projectName: String, onOpenLegacy: () -> Unit) {
+private fun EditorTopBar(
+    onShare: () -> Unit,
+    onExport: () -> Unit
+) {
+    // Match the reference image: compact share action at left, export capsule at right.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(44.dp)
             .background(NcColors.topBar)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onShare),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("↥", color = NcColors.text, fontSize = 23.sp)
+        }
+        Spacer(Modifier.weight(1f))
         Text(
-            text = "NairoClip",
+            text = "导出",
             color = NcColors.text,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = projectName,
-            color = NcColors.secondary,
-            fontSize = 11.sp,
-            maxLines = 1,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = "完整编辑器",
-            color = NcColors.text,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.dp, NcColors.text, RoundedCornerShape(16.dp))
-                .clickable(onClick = onOpenLegacy)
-                .padding(horizontal = 14.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .border(1.dp, NcColors.text, RoundedCornerShape(20.dp))
+                .clickable(onClick = onExport)
+                .padding(horizontal = 20.dp, vertical = 7.dp)
         )
     }
 }
@@ -1883,6 +1909,7 @@ private fun EditorTopBar(projectName: String, onOpenLegacy: () -> Unit) {
 private fun PreviewStage(
     previewView: View?,
     showGuides: Boolean,
+    onExpandPreview: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -1937,6 +1964,19 @@ private fun PreviewStage(
                     }
                 }
             }
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 6.dp, bottom = 6.dp)
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Color(0xCC101112))
+                .border(1.dp, NcColors.line, CircleShape)
+                .clickable(onClick = onExpandPreview),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("⛶", color = NcColors.text, fontSize = 18.sp)
         }
     }
 }
@@ -3198,32 +3238,68 @@ private fun KeyframeCurvePreview(frame: NativeEditorCommandAdapter.Keyframe, mod
     }
 }
 @Composable
-private fun LegacyTransportFallback(onOpenLegacy: () -> Unit) {
-    // Do not present play/split/delete glyphs as native controls while all three
-    // still delegate to the legacy editor. One explicit action communicates the
-    // current capability boundary and avoids surprising users with identical
-    // behavior behind three unrelated-looking buttons.
-    Column(
+private fun NativeTransportBar(
+    hasSelection: Boolean,
+    isPlaying: Boolean,
+    onSplit: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onDelete: () -> Unit
+) {
+    // Three centered transport actions preserve the reference row's fixed height.
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .background(NcColors.timeline)
-            .clickable(onClick = onOpenLegacy)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .background(NcColors.timeline),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            "播放、分割与删除暂由完整编辑器处理",
-            color = NcColors.text,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Text(
-            "点击打开完整编辑器",
-            color = NcColors.secondary,
-            fontSize = 9.sp
-        )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onSplit),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "✂",
+                color = if (hasSelection) NcColors.text else NcColors.secondary,
+                fontSize = 23.sp,
+                modifier = Modifier.graphicsLayer { rotationZ = 90f }
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onTogglePlayback),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                if (isPlaying) "Ⅱ" else "▶",
+                color = NcColors.text,
+                fontSize = 22.sp
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(Modifier.size(width = 18.dp, height = 21.dp)) {
+                val stroke = 1.6.dp.toPx()
+                val c = NcColors.danger
+                drawLine(c, Offset(size.width * 0.18f, size.height * 0.22f), Offset(size.width * 0.82f, size.height * 0.22f), stroke)
+                drawLine(c, Offset(size.width * 0.38f, size.height * 0.10f), Offset(size.width * 0.62f, size.height * 0.10f), stroke)
+                drawLine(c, Offset(size.width * 0.28f, size.height * 0.30f), Offset(size.width * 0.34f, size.height * 0.90f), stroke)
+                drawLine(c, Offset(size.width * 0.72f, size.height * 0.30f), Offset(size.width * 0.66f, size.height * 0.90f), stroke)
+                drawLine(c, Offset(size.width * 0.34f, size.height * 0.90f), Offset(size.width * 0.66f, size.height * 0.90f), stroke)
+                drawLine(c, Offset(size.width * 0.46f, size.height * 0.38f), Offset(size.width * 0.46f, size.height * 0.78f), stroke)
+                drawLine(c, Offset(size.width * 0.56f, size.height * 0.38f), Offset(size.width * 0.56f, size.height * 0.78f), stroke)
+            }
+        }
     }
 }
 
