@@ -46,7 +46,11 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val keyframes: Map<NativeParameter, List<Keyframe>>,
         val audio: ClipAudioState,
         val denoiseStrength: Int,
-        val speedCurve: List<SpeedCurvePoint>
+        val speedCurve: List<SpeedCurvePoint>,
+        val filter: ClipFilterState,
+        val lut: ClipLutState,
+        val colorGrade: ClipColorGradeState,
+        val mask: ClipMaskState
     )
 
     /**
@@ -90,7 +94,32 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             if (!speedCurveResult.ok || speedCurve == null) {
                 return@withEditorStateLock Result(false, error = speedCurveResult.error ?: "读取片段变速曲线失败")
             }
-            Result(true, ClipEditorPanelSnapshot(transform, channels, audio, denoise, speedCurve))
+            val filterResult = readClipFilter(target)
+            val filter = filterResult.value
+            if (!filterResult.ok || filter == null) {
+                return@withEditorStateLock Result(false, error = filterResult.error ?: "读取滤镜参数失败")
+            }
+            val lutResult = readClipLut(target)
+            val lut = lutResult.value
+            if (!lutResult.ok || lut == null) {
+                return@withEditorStateLock Result(false, error = lutResult.error ?: "读取 LUT 参数失败")
+            }
+            val gradeResult = readClipColorGrade(target)
+            val grade = gradeResult.value
+            if (!gradeResult.ok || grade == null) {
+                return@withEditorStateLock Result(false, error = gradeResult.error ?: "读取色彩曲线失败")
+            }
+            val maskResult = readClipMask(target)
+            val mask = maskResult.value
+            if (!maskResult.ok || mask == null) {
+                return@withEditorStateLock Result(false, error = maskResult.error ?: "读取蒙版参数失败")
+            }
+            Result(
+                true,
+                ClipEditorPanelSnapshot(
+                    transform, channels, audio, denoise, speedCurve, filter, lut, grade, mask
+                )
+            )
         }
     } catch (error: Exception) {
         Result(false, error = error.message ?: "读取片段编辑面板快照失败")
