@@ -33,8 +33,9 @@ object NativeQuickActionGestureContract {
         val anchors = HashSet<Long>()
         tracks.forEach { track ->
             track.clips.forEach { clip ->
-                if (clip.startUs >= 0L) anchors.add(clip.startUs)
-                if (clip.startUs >= 0L && clip.startUs <= Long.MAX_VALUE - clip.durationUs) {
+                if (clip.startUs > 0L) anchors.add(clip.startUs)
+                if (clip.startUs >= 0L && clip.startUs <= Long.MAX_VALUE - clip.durationUs &&
+                    clip.startUs + clip.durationUs > 0L) {
                     anchors.add(clip.startUs + clip.durationUs)
                 }
             }
