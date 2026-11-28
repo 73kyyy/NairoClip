@@ -18,7 +18,7 @@ std::string toLower(const std::string& s) {
 }
 
 /// 硬件编码器名称片段（FFmpeg 约定：<codec>_<backend>）。
-bool isHardwareEncoderName(const std::string& lower) {
+bool isSystemEncoderBackendName(const std::string& lower) {
     static const char* kSuffixes[] = {
         "_videotoolbox",  // Apple 平台
         "_mediacodec",    // Android
@@ -29,7 +29,6 @@ bool isHardwareEncoderName(const std::string& lower) {
         "_amf",           // AMD
         "_mf",            // Windows Media Foundation
         "_d3d12va",       // Windows
-        "_opencl",        // 通用 OpenCL
     };
     for (const char* suffix : kSuffixes) {
         const std::size_t pos = lower.rfind(suffix);
@@ -128,8 +127,7 @@ bool isGplEncoder(const std::string& lower) {
 }
 
 /// 同一优先级内的确定性排序权重（越小越优先）。
-int preferenceRank(const std::string& lower, bool hardware) {
-    if (hardware) {
+int preferenceRank(const std::string& lower) {
         // 硬件编码器：H.264 场景下 MediaCodec/VideoToolbox（移动）排前，
         // 桌面后端（nvenc/qsv/vaapi/mf）随后；名称排序保证确定性。
         static const char* kOrder[] = {"_mediacodec", "_videotoolbox", "_nvenc",
@@ -142,17 +140,6 @@ int preferenceRank(const std::string& lower, bool hardware) {
             }
         }
         return 100;
-    }
-    // 宽松软件：OpenH264（文档指定的 H.264 兜底）最优先，其后 AV1/VP9/Opus。
-    static const char* kOrder[] = {"openh264", "libsvtav1", "libaom-av1", "librav1e",
-                                   "libvpx-vp9", "libvpx",     "libopus",    "aac",
-                                   "opus",       "av1",        "vp9",        "h264"};
-    for (int i = 0; i < static_cast<int>(sizeof(kOrder) / sizeof(kOrder[0])); ++i) {
-        if (lower == kOrder[i]) {
-            return i;
-        }
-    }
-    return 100;
 }
 
 /// 通用选择过程（视频/音频共用）。
@@ -187,7 +174,7 @@ EncoderLicenseClass classifyEncoderLicense(const std::string& encoderName) {
     if (isGplEncoder(lower)) {
         return EncoderLicenseClass::GplInfectious;
     }
-    if (isHardwareEncoderName(lower)) {
+    if (isSystemEncoderBackendName(lower)) {
         return EncoderLicenseClass::Hardware;
     }
     /* 软件 H.264：**必须排在 Permissive 之前**判断。
@@ -258,6 +245,7 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     struct Scored {
         EncoderSelection selection;
         int rank = 100;
+        bool hardware = false;
     };
     std::vector<Scored> hardware;
     for (const auto& candidate : available) {
@@ -269,17 +257,18 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
         if (cls != EncoderLicenseClass::Hardware) {
             continue;
         }
-        const bool isHw = candidate.hardware || cls == EncoderLicenseClass::Hardware;
+        const bool isHw = candidate.hardware;
         EncoderSelection selection;
         selection.name = candidate.name;
         selection.license = cls;
         selection.note = "候选：" + candidate.name + "（" + encoderLicenseClassName(cls) + "）";
-        Scored scored{selection, preferenceRank(nameLower, isHw)};
+        Scored scored{selection, preferenceRank(nameLower), isHw};
         if (cls == EncoderLicenseClass::Hardware) {
             hardware.push_back(std::move(scored));
         }
     }
     const auto byRank = [](const Scored& a, const Scored& b) {
+        if (a.hardware != b.hardware) return a.hardware;
         if (a.rank != b.rank) return a.rank < b.rank;
         return a.selection.name < b.selection.name;
     };
@@ -317,10 +306,10 @@ bool encoderAllowed(const std::string& encoderName, const EncoderPolicy& policy)
 }
 
 const char* codecComplianceStatement() {
-    return "NairoClip 编解码合规：H.264 仅使用**系统硬件编码器**"
+    return "NairoClip 编解码合规：H.264 仅使用系统媒体 API（硬件优先）"
            "（MediaCodec / VideoToolbox / NVENC / QSV / VAAPI / MF），"
            "软件 H.264 实现（libx264 / OpenH264 / FFmpeg 内置）一律禁用 —— "
-           "AVC 专利费由芯片厂商在 SoC 授权中支付，本应用只调用系统 API；"
+           "不包含应用自带软件 H.264 实现；系统兼容路径由平台框架提供；"
            "H.265/HEVC 全线禁用（专利池复杂）；"
            "AV1/VP9/Opus/AAC 不允许应用自带软件编码实现，必须走平台系统媒体 API；"
            "系统无兼容实现时 fail-closed；容器读写与必要格式转换可保留独立实现。";
