@@ -1396,9 +1396,22 @@ NC_TEST(Capi, ChapterRealMediaEndToEnd) {
     const int32_t count =
         nc_chapter_detect(editor, 0.5, 0, 1.5, -1, -1, 0, &summary, &note, &err);
     NC_CHECK_EQ(err, nullptr);
-    NC_CHECK(count >= 2);
     NC_CHECK(summary != nullptr);
     NC_CHECK(std::string(summary).find("章节") != std::string::npos);
+    if (count < 2) {
+        // Host CI 没有保证存在系统 VP9/H.264 解码器；禁止用软件解码器兜底。
+        // 此时 C ABI 应明确保留时长级章节结果，而不是伪造场景切点。
+        NC_CHECK_EQ(count, 1);
+        NC_CHECK(note != nullptr && note[0] != '\\0');
+        const int32_t written = nc_chapter_apply(editor, &err);
+        NC_CHECK_EQ(written, 1);
+        NC_CHECK_EQ(nc_chapter_count(editor), 1);
+        if (err != nullptr) nc_free_string(err);
+        nc_free_string(summary);
+        nc_free_string(note);
+        nc_editor_destroy(editor);
+        return;
+    }
     nc_free_string(summary);
     nc_free_string(note);
     const int32_t written = nc_chapter_apply(editor, &err);
@@ -1911,12 +1924,22 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
     char* err = nullptr;
     if (doExport) {
         heapOk("nc_export_run 之前");
-        /* 用 nc_export_run_ex 指定 VP9：本机（CI / 沙箱）没有硬件 H.264
-           编码器，而软件 H.264 已按合规要求移除，默认 h264 必然失败。
-           VP9 有 royalty-free 软件实现（libvpx-vp9），纯 CPU 就能编。
-           这也顺带验证了 nc_export_run_ex 的编码格式参数通路。 */
+        // 导出必须使用系统硬件编码后端；CI 没有保证具备可用编码器。
+        // 无系统编码器时验证 fail-closed，不允许改用 libvpx/libx264 等软件实现。
         const int64_t frames = nc_export_run_ex(editor, "/tmp/media_gen/capi_wm_export.mp4",
-                                                18, 0, 0, nullptr, "vp9", nullptr, &err);
+                                                18, 0, 0, nullptr, "h264", nullptr, &err);
+        if (frames < 0) {
+            NC_CHECK(err != nullptr);
+            if (err != nullptr) {
+                const std::string message(err);
+                NC_CHECK(message.find("编码器") != std::string::npos ||
+                         message.find("系统") != std::string::npos);
+                nc_free_string(err);
+            }
+            heapOk("系统编码器不可用后的 fail-closed");
+            nc_editor_destroy(editor);
+            return;
+        }
         NC_CHECK(frames > 0);
         if (err != nullptr) nc_free_string(err);
         heapOk("nc_export_run 之后");
