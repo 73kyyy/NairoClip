@@ -166,6 +166,8 @@ The native editor is mounted by the existing `MainActivity` only when both condi
 
 With that opt-in enabled, the home page adds `nativeEditor=1` to the editor route. After the legacy editor has booted and loaded its current engine snapshot, it calls the `NCNativeEditor` bridge. The Activity accepts that call only while the local `10-editor.html` document is active, validates the current engine response envelope and `result.project`, then mounts `NativeEditorHost` in a full-screen `ComposeView`.
 
+When the home page opens an existing draft, `Engine.boot()` now consumes the `project` query parameter before reading the editor snapshot. Android's `NativeEngineBridge.loadProject()` accepts only a single `.nclip` filename under the app-private files directory, rejects traversal/out-of-root paths and files larger than 64 MB, and calls the existing `nc_project_load` C ABI on the same engine handle. If the platform cannot load the requested file, editor boot fails explicitly rather than silently showing a blank project.
+
 The pilot reuses the Activity's existing `NativeEngineBridge` and moves the same `PreviewSurfaceView` into the Compose host. It does not create a second engine or renderer Surface. The WebView remains attached and alive underneath the overlay, but `WebView.onPause()` is called while the native host owns the shared engine so the hidden page does not continue polling/rendering concurrently. The native host's legacy-return action and Android Back remove the overlay, restore the same preview Surface to the original root, call `WebView.onResume()`, and reveal the existing WebView editor. A resize event asks the WebView to recalculate the legacy preview rectangle.
 
 This is an internal validation route, not the formal application route:
