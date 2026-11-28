@@ -140,6 +140,9 @@ struct FFmpegMediaWriter::Impl {
         videoStream = nullptr;
         audioStream = nullptr;
         open = false;
+        videoPts = 0;
+        audioPts = 0;
+        encoderNote.clear();
         audioFifo.clear();
     }
 };
