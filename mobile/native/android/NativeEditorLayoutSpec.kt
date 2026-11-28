@@ -11,8 +11,8 @@ internal object NativeEditorLayoutSpec {
     data class PreviewSize(val widthDp: Float, val heightDp: Float)
 
     fun previewSize(maxWidthDp: Float, maxHeightDp: Float): PreviewSize {
-        val safeWidth = maxWidthDp.coerceAtLeast(0f)
-        val safeHeight = maxHeightDp.coerceAtLeast(0f)
+        val safeWidth = if (maxWidthDp.isFinite()) maxWidthDp.coerceAtLeast(0f) else 0f
+        val safeHeight = if (maxHeightDp.isFinite()) maxHeightDp.coerceAtLeast(0f) else 0f
         val width = minOf(
             safeWidth,
             safeHeight * PREVIEW_ASPECT_WIDTH.toFloat() / PREVIEW_ASPECT_HEIGHT.toFloat()
