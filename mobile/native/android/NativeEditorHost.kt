@@ -166,7 +166,7 @@ fun NativeEditorHost(
             val selectedClipForEffects = state.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
                 (item.engineIndex.takeIf { it >= 0 } ?: index) == target.trackIndex
             }?.value?.clips?.firstOrNull { it.id == target.clipId }
-            val effectTypes = (0..13).toSet() + selectedClipForEffects.orEmptyEffects()
+            val effectTypes = (0..13).toSet() + selectedClipForEffects?.effects?.map { it.type }?.toSet().orEmpty()
             val loadedEffectSpecs = linkedMapOf<Int, NativeEditorCommandAdapter.EffectSpec>()
             effectTypes.sorted().forEach { effectType ->
                 val specResult = withContext(Dispatchers.IO) { adapter.readEffectSpec(effectType) }
