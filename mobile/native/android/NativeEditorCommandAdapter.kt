@@ -676,14 +676,10 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         name: String,
         color: String = "#FFFFFF"
     ): Result<EditorStateSnapshot> {
-        if (timeUs < 0L) return Result(false, error = "标记时间不能为负数")
+        NativeMarkerInputRules.validateAdd(timeUs, name, color)?.let {
+            return Result(false, error = it)
+        }
         val cleanName = name.trim()
-        if (cleanName.isEmpty() || cleanName.toByteArray(Charsets.UTF_8).size > 128) {
-            return Result(false, error = "标记名称不能为空或超过 128 字节")
-        }
-        if (!color.matches(Regex("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))) {
-            return Result(false, error = "标记颜色格式无效")
-        }
         return bridge.withEditorStateLock {
             val before = readTimelineSnapshotLocked()
             if (!before.ok) {
@@ -715,7 +711,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
 
     /** Removes one marker by its stable engine ID and reads back the committed state. */
     fun removeMarkerAndReadEditorState(markerId: Long): Result<EditorStateSnapshot> {
-        if (markerId <= 0L) return Result(false, error = "标记 ID 无效")
+        NativeMarkerInputRules.validateRemove(markerId)?.let {
+            return Result(false, error = it)
+        }
         return bridge.withEditorStateLock {
             val before = readTimelineSnapshotLocked()
             if (!before.ok) {
