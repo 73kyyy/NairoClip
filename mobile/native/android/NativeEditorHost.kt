@@ -382,6 +382,7 @@ fun NativeEditorHost(
                 keyframeRevision += 1
             }
         },
+        onValidateClipLut = { path -> adapter.validateLutFile(path) },
         onClipColorGradeChanged = { track, clipId, grade ->
             val job = controller.setClipColorGrade(
                 NativeEditorCommandAdapter.ClipTarget(track, clipId),
