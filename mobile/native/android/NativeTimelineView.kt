@@ -45,7 +45,8 @@ data class NativeTimelineClip(
     val sourceRangeKnown: Boolean = false,
     val reversed: Boolean = false,
     val frozen: Boolean = false,
-    val hasSpeedCurve: Boolean = false
+    val hasSpeedCurve: Boolean = false,
+    val assetId: Long = 0L
 ) {
     /** True only when source time maps linearly and monotonically to timeline time. */
     val supportsLinearSourceMapping: Boolean
