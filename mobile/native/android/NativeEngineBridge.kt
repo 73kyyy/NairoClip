@@ -493,6 +493,47 @@ class NativeEngineBridge(
         }}
 
     /**
+     * Load one existing draft selected by the home page.
+     * Only a single .nclip filename directly under app-private filesDir is accepted;
+     * paths, traversal, symlinks escaping the root and oversized files are rejected.
+     */
+    @JavascriptInterface
+    fun loadProject(fileName: String): String {
+        val root = appContext?.filesDir?.canonicalFile
+            ?: return err("应用私有工程目录不可用")
+        if (fileName.isBlank() || fileName != java.io.File(fileName).name ||
+            !fileName.endsWith(".nclip", ignoreCase = true)) {
+            return err("工程文件名无效")
+        }
+        val file = try {
+            java.io.File(root, fileName).canonicalFile
+        } catch (error: Throwable) {
+            return err("工程路径无效：${error.message}")
+        }
+        if (file.parentFile != root || !file.isFile) {
+            return err("工程文件不存在或不在应用私有目录内")
+        }
+        val length = file.length()
+        if (length <= 0L || length > 64L * 1024L * 1024L) {
+            return err("工程文件为空或超过 64 MB 安全上限")
+        }
+        val contents = try {
+            file.readText(Charsets.UTF_8)
+        } catch (error: Throwable) {
+            return err("工程文件读取失败：${error.message}")
+        }
+        return synchronized(stateLock) {
+            val handle = ensure()
+            if (handle == 0L) err("引擎不可用")
+            else try {
+                nativeLoadProject(handle, contents)
+            } catch (error: Throwable) {
+                err("工程载入失败：${error.message}")
+            }
+        }
+    }
+
+    /**
      * 草稿列表。C ABI 没有工程目录接口，草稿扫描是平台层职责：
      * 扫描应用私有目录下的 .nclip，返回 {"projects":[...]}。
      */
@@ -713,6 +754,7 @@ class NativeEngineBridge(
     private external fun nativeTaskQuery(handle: Long, taskId: String): String
     private external fun nativeTaskTick(handle: Long, nowMs: Long): Int
     private external fun nativeState(handle: Long): String
+    private external fun nativeLoadProject(handle: Long, nclipText: String): String
     private external fun nativeFrame(handle: Long, timeUs: Long, width: Int): ByteArray
     private external fun nativeThumb(handle: Long, assetId: Long, index: Int, width: Int): ByteArray
     private external fun nativeWaveform(handle: Long, assetId: Long): String
