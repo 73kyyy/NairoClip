@@ -11,12 +11,12 @@ class NativeEditorResponsiveSpecTest {
         val medium = NativeEditorResponsiveSpec.forHeight(700f)
         val regular = NativeEditorResponsiveSpec.forHeight(900f)
 
-        assertEquals(128, compact.timelineHeightDp)
-        assertEquals(64, compact.parameterPanelMaxHeightDp)
-        assertEquals(48, compact.previewMinHeightDp)
+        assertEquals(112, compact.timelineHeightDp)
+        assertEquals(88, compact.parameterPanelMaxHeightDp)
+        assertEquals(32, compact.previewMinHeightDp)
 
-        assertEquals(192, medium.timelineHeightDp)
-        assertEquals(152, medium.parameterPanelMaxHeightDp)
+        assertEquals(168, medium.timelineHeightDp)
+        assertEquals(128, medium.parameterPanelMaxHeightDp)
 
         assertEquals(NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP, regular.timelineHeightDp)
         assertTrue(compact.timelineHeightDp < medium.timelineHeightDp)
