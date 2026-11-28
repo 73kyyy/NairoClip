@@ -778,6 +778,10 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
     fun removeClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
         mutateClipAndReadEditorState(target, "nc_remove_clip")
 
+    /** Reverses source playback for the selected clip through the native edit dispatcher. */
+    fun reverseClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
+        mutateClipAndReadEditorState(target, "reverse")
+
     /** Duplicates the selected clip immediately after its source clip. */
     fun duplicateClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
         mutateClipAndReadEditorState(target, "nc_duplicate_clip") { payload ->
