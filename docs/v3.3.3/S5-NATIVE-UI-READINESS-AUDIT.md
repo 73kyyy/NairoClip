@@ -1205,3 +1205,11 @@
 - This corrects the prior 40dp total gutter, which divided the three actions into approximately 13.3dp hit regions and made the controls too difficult to operate reliably.
 - Consolidated `NativeTrackControlFeatherSpec` into one source file and moved the 3dp blur-radius constant there. The previous duplicate Kotlin object declarations in `NativeTimelineView.kt` and `NativeTrackControlFeatherSpec.kt` would prevent compilation; the view now consumes the shared spec.
 - Updated JVM tests to assert the 40dp-per-control / 120dp-total geometry and the defined non-finite alpha-ramp behavior. Static source re-fetch checks passed; the fresh S5 Android/Kotlin, CTest and NDK workflows are pending and no build/test pass is claimed.
+
+
+## 2026-11-28 follow-up: correct post-blur feather compositing
+
+- Corrected the Canvas compositing order for the track-control feather. The timeline now draws crisp clip content only to the right of the fixed 120dp control gutter. Content passing under the controls is rendered into an inner offscreen layer, blurred on API 31+ (or left unblurred on API 24–30), then composited into an outer layer where the horizontal `DST_IN` alpha ramp is applied after blur.
+- This removes the previous sharp source clip underneath the blurred overlay, which could make the visual appear only partially blurred. It also replaces the API 24–30 lane-colored cover with a true alpha-masked offscreen fade, without claiming Gaussian blur on those API levels.
+- Track controls are still redrawn after compositing and remain sharp. The left-to-right alpha ramp and hit-test geometry share the same control-gutter width.
+- Source re-fetch and structural checks are pending; Android Gradle/JVM, NDK and device rendering results must be read from the current S5 workflow before claiming validation.
