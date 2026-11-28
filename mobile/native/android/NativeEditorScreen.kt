@@ -143,6 +143,7 @@ fun NativeEditorScreen(
     onQuickAction: ((NativeQuickAction) -> Unit)? = null,
     onSplitClip: ((Int, Long, Long) -> Unit)? = null,
     onDeleteClip: ((Int, Long) -> Unit)? = null,
+    onClipEnabledChanged: ((Int, Long, Boolean) -> Unit)? = null,
     onDuplicateClip: ((Int, Long) -> Unit)? = null,
     onRippleDeleteClip: ((Int, Long) -> Unit)? = null,
     onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null,
@@ -235,7 +236,7 @@ fun NativeEditorScreen(
             (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
                 track.visible &&
                 !track.locked &&
-                track.clips.any { it.id == selection.second && it.enabled }
+                track.clips.any { it.id == selection.second }
         }
         if (!stillExists) {
             selectedClip = null
@@ -415,7 +416,7 @@ fun NativeEditorScreen(
                     (if (track.engineIndex >= 0) track.engineIndex else timelineTracks.indexOf(track)) == selection.first &&
                         track.visible &&
                         !track.locked &&
-                        track.clips.any { it.id == selection.second && it.enabled }
+                        track.clips.any { it.id == selection.second }
                 }
             }
             val selectedItem = selectedTarget?.let { selection ->
@@ -903,6 +904,15 @@ fun NativeEditorScreen(
                         tool == "剪辑" && subTool == "删除" &&
                             selectedTarget != null && onDeleteClip != null -> {
                             onDeleteClip(selectedTarget.first, selectedTarget.second)
+                        }
+                        tool == "剪辑" && subTool == "启用/停用" &&
+                            selectedTarget != null && selectedItem != null &&
+                            onClipEnabledChanged != null -> {
+                            onClipEnabledChanged(
+                                selectedTarget.first,
+                                selectedTarget.second,
+                                !selectedItem.enabled
+                            )
                         }
                         tool == "剪辑" && subTool == "复制" &&
                             selectedTarget != null && onDuplicateClip != null -> {
