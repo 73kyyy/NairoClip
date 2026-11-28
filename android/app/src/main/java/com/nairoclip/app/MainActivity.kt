@@ -314,10 +314,22 @@ class MainActivity : AppCompatActivity() {
         if (!nativeEditorEnabled || nativeEditorVisible || !this::contentRoot.isInitialized) return
         val activeEngine = engine ?: return
         val project = runCatching {
-            org.json.JSONObject(activeEngine.state()).optJSONObject("project")
-        }.getOrNull()
-        if (project == null) {
-            android.util.Log.w("NcNativeEditor", "拒绝打开原生剪辑页：当前引擎没有有效工程状态")
+            val envelope = org.json.JSONObject(activeEngine.state())
+            if (!envelope.optBoolean("ok", false)) {
+                throw IllegalStateException(
+                    envelope.optString("message").ifBlank { "引擎状态读取失败" }
+                )
+            }
+            // NativeEngineBridge.state() follows the C ABI envelope:
+            // { ok:true, result:{ project:{...}, tracks:[...], ... } }.
+            envelope.optJSONObject("result")?.optJSONObject("project")
+                ?: throw IllegalStateException("引擎状态缺少 result.project")
+        }.getOrElse { failure ->
+            android.util.Log.w(
+                "NcNativeEditor",
+                "拒绝打开原生剪辑页：无法读取当前工程快照",
+                failure
+            )
             return
         }
 
