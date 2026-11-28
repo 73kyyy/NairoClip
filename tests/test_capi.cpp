@@ -1944,7 +1944,7 @@ NC_TEST(Capi, WatermarkRealExportEndToEnd) {
             }
             heapOk("系统编码器不可用后的 fail-closed");
             nc_editor_destroy(editor);
-            return;
+            NC_SKIP("系统 H.264 编码器不可用；fail-closed 已验证，真实水印导出/解码阶段跳过");
         }
         NC_CHECK(frames > 0);
         if (err != nullptr) nc_free_string(err);
