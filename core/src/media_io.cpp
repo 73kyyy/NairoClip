@@ -149,6 +149,9 @@ Result WavPcmReader::open(const std::string& path) {
 void WavPcmReader::close() {
     if (!impl_) return;
     if (impl_->file.is_open()) impl_->file.close();
+    // std::ifstream::close() 不会自动清除此前 read/seek 产生的 failbit。
+    // Reader 被复用时必须 clear()，否则一次非 WAV 探测失败会污染后续 WAV open。
+    impl_->file.clear();
     impl_->probe = {};
     impl_->dataOffset = impl_->dataBytes = impl_->totalFrames = impl_->cursorFrame = 0;
     impl_->formatTag = impl_->bitsPerSample = impl_->blockAlign = 0;
