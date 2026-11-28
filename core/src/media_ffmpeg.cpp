@@ -463,9 +463,16 @@ Result FFmpegMediaReader::open(const std::string& path) {
         impl.probe.codec = avcodec_get_name(codec->id);
     }
 
-    // 打开音频解码器；Android 只允许系统 MediaCodec wrapper。
+    // 音频流与视频流的解码能力独立：音频系统 decoder 不可用时，
+    // 仍应允许视频预览/缩略图/场景检测继续工作。
     if (impl.audioStream >= 0) {
         AVStream* stream = impl.format->streams[impl.audioStream];
+        impl.probe.hasAudioStream = true;
+        impl.probe.sampleRate = stream->codecpar->sample_rate;
+        impl.probe.channels = stream->codecpar->ch_layout.nb_channels;
+        if (impl.videoStream < 0) {
+            impl.probe.type = MediaType::Audio;
+        }
         const AVCodec* codec = nullptr;
 #if defined(__ANDROID__)
         // Android 音频压缩流只允许系统 MediaCodec 解码器。
@@ -476,22 +483,13 @@ Result FFmpegMediaReader::open(const std::string& path) {
             case AV_CODEC_ID_AMR_WB: codec = avcodec_find_decoder_by_name("amrwb_mediacodec"); break;
             default: break;
         }
-        if (codec == nullptr) {
-            close();
-            return Result::fail(
-                ErrorCode::Unsupported,
-                "Android 系统 MediaCodec 不支持该音频格式；本应用不包含软件音频解码器。");
-        }
-#else
         // 非 Android 平台的系统 reader 尚在迁移；禁止回退到 FFmpeg 内置软件解码器。
         codec = nullptr;
 #endif
-        if (codec == nullptr) {
-            close();
-            return Result::fail(
-                ErrorCode::Unsupported,
-                "当前平台尚未接入该格式的系统音频解码后端；NairoClip 不包含应用自带的软件音频解码器。");
-        }
+        // 不可用时保留容器/视频 reader；音频专用操作通过
+        // audioDecoderAvailable 明确拒绝，避免一条缺失音频 decoder 的音轨
+        // 把同一 MP4 中可用的视频预览也一并阻断。
+
         if (codec != nullptr) {
             impl.audioCodec = avcodec_alloc_context3(codec);
             // 返回值必须逐个检查：失败后继续用 nullptr context 是
@@ -511,9 +509,7 @@ Result FFmpegMediaReader::open(const std::string& path) {
             if (impl.audioCodec != nullptr) {
                 impl.probe.sampleRate = impl.audioCodec->sample_rate;
                 impl.probe.channels = impl.audioCodec->ch_layout.nb_channels;
-                if (impl.videoStream < 0) {
-                    impl.probe.type = MediaType::Audio;
-                }
+                impl.probe.audioDecoderAvailable = true;
             }
         }
     }
