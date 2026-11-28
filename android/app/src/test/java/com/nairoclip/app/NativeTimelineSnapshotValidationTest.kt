@@ -75,6 +75,7 @@ class NativeTimelineSnapshotValidationTest {
         assertEquals(5_000_000L, clip.sourceOutUs)
         assertTrue(clip.supportsLinearSourceMapping)
         assertEquals(2L, clip.speedNumerator)
+        assertEquals(7L, clip.assetId)
     }
 
     @Test
