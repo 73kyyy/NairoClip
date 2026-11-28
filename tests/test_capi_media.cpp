@@ -5,6 +5,7 @@
 //       纯数据类用例（速度曲线/关键帧/标记）不依赖素材，始终执行。
 #include "test_framework.h"
 #include "nairoclip/core/capi.h"
+#include "nairoclip/core/media_ffmpeg.h"
 
 #include <cmath>
 #include <cstdint>
@@ -23,6 +24,18 @@ bool testMediaExists() {
 bool shiftMediaExists() {
     std::ifstream f("/tmp/media_gen/tone_shift.mp4");
     return f.good();
+}
+
+bool systemVideoDecodeAvailable(const char* path) {
+    FFmpegMediaReader reader;
+    if (!reader.open(path).isOk()) return false;
+    return reader.probe().width > 0 && reader.probe().height > 0;
+}
+
+bool systemAudioDecodeAvailable(const char* path) {
+    FFmpegMediaReader reader;
+    if (!reader.open(path).isOk()) return false;
+    return reader.probe().sampleRate > 0 && reader.probe().channels > 0;
 }
 
 std::string takeString(char* text) {
@@ -528,7 +541,8 @@ NC_TEST(CapiMedia, SceneDetectReal) {
 
 NC_TEST(CapiMedia, BeatDetectReal) {
     // tone_shift.mp4 有 440Hz 正弦音频（无鼓点 → BPM 可能为 0，但不应崩溃）
-    if (!shiftMediaExists()) return;
+    if (!shiftMediaExists() ||
+        !systemAudioDecodeAvailable("/tmp/media_gen/tone_shift.mp4")) return;
     NcEditor* editor = nc_editor_create();
     const std::uint64_t asset =
         nc_import_asset(editor, "t.mp4", "/tmp/media_gen/tone_shift.mp4", 1, 4000000);
@@ -557,7 +571,8 @@ NC_TEST(CapiMedia, BeatDetectReal) {
 }
 
 NC_TEST(CapiMedia, PreviewInvalidate) {
-    if (!testMediaExists()) return;
+    if (!testMediaExists() ||
+        !systemVideoDecodeAvailable("/tmp/media_gen/test_av.mp4")) return;
     std::uint64_t asset = 0;
     std::uint64_t clip = 0;
     NcEditor* editor = makeVideoEditor(&asset, &clip);
