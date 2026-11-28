@@ -684,8 +684,13 @@ fun NativeEditorHost(
         onDeleteClip = { track, clipId -> controller.removeClip(track, clipId) },
         onDuplicateClip = { track, clipId -> controller.duplicateClip(track, clipId) },
         onRippleDeleteClip = { track, clipId -> controller.rippleDeleteClip(track, clipId) },
-        onPrewarmPreviewFrame = { timeUs, _ ->
-            previewController.requestRenderFrame(timeUs)
+        onPrewarmPreviewFrame = { timeUs, width ->
+            // Prewarming runs on Dispatchers.IO and must populate the engine
+            // frame cache without presenting every sample to the Surface.
+            NativeEngineBridge.prewarmPreviewFrame(
+                timeUs,
+                width.coerceIn(16, 2048)
+            )
         },
         autoSubtitleState = resolvedAutoSubtitleState,
         onStartAutoSubtitle = onStartAutoSubtitle ?: {
