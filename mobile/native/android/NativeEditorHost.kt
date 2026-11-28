@@ -76,20 +76,15 @@ fun NativeEditorHost(
             anchor = NativeTransformRange.ANCHOR_CENTER
             keyframes = emptyMap()
         } else {
-            val transformResult = withContext(Dispatchers.IO) { adapter.getTransform(target) }
-            if (transformResult.ok && transformResult.value != null) {
-                transform = transformResult.value.transform
-                anchor = transformResult.value.anchor
+            val clipSnapshot = withContext(Dispatchers.IO) {
+                adapter.readClipTransformSnapshot(target)
             }
-            val loadedKeyframes = linkedMapOf<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>>()
-            NativeParameter.values().forEach { parameter ->
-                val result = withContext(Dispatchers.IO) { adapter.keyframes(target, parameter) }
-                val frames = result.value
-                if (result.ok && !frames.isNullOrEmpty()) {
-                    loadedKeyframes[parameter] = frames
-                }
+            val snapshot = clipSnapshot.value
+            if (clipSnapshot.ok && snapshot != null) {
+                transform = snapshot.transform.transform
+                anchor = snapshot.transform.anchor
+                keyframes = snapshot.keyframes
             }
-            keyframes = loadedKeyframes
         }
     }
 
