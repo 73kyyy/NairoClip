@@ -611,15 +611,13 @@ class NativeTimelineView(context: Context) : View(context) {
         val lockClosedTint = 0xFFD69A58.toInt()
         // Preserve the reference's three compact icon centers inside the fixed 40dp overlay.
         // Coordinates are already physical pixels because trackControlsWidth includes density.
-        val centers = floatArrayOf(
-            trackControlsWidth / 6f,
-            trackControlsWidth / 2f,
-            trackControlsWidth * 5f / 6f
-        )
+        val firstCenterX = trackControlsWidth / 6f
+        val middleCenterX = trackControlsWidth / 2f
+        val lastCenterX = trackControlsWidth * 5f / 6f
         drawTrackIcon(
             canvas,
             if (track.visible) eyeDrawable else eyeOffDrawable,
-            centers[0],
+            firstCenterX,
             centerY,
             iconSize,
             if (track.visible) eyeVisibleTint else eyeHiddenTint
@@ -627,7 +625,7 @@ class NativeTimelineView(context: Context) : View(context) {
         drawTrackIcon(
             canvas,
             if (track.muted) speakerOffDrawable else speakerDrawable,
-            centers[1],
+            middleCenterX,
             centerY,
             iconSize,
             if (track.muted) speakerMutedTint else speakerOnTint
@@ -635,7 +633,7 @@ class NativeTimelineView(context: Context) : View(context) {
         drawTrackIcon(
             canvas,
             if (track.locked) lockDrawable else unlockDrawable,
-            centers[2],
+            lastCenterX,
             centerY,
             iconSize,
             if (track.locked) lockClosedTint else lockOpenTint
