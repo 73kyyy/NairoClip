@@ -5550,6 +5550,10 @@ int32_t nc_thumbnail_generate(NcEditor* editor, uint64_t asset_id, int32_t count
     FFmpegMediaReader reader;
     const std::vector<Thumbnail> thumbs =
         generateThumbnails(reader, asset->path, asset->duration, config);
+    if (thumbs.size() != static_cast<std::size_t>(config.count)) {
+        return failNc(NC_ERROR_UNSUPPORTED,
+                      "系统视频解码后端未能生成全部请求的缩略图；未使用软件解码回退。");
+    }
     if (out_count != nullptr) *out_count = static_cast<int32_t>(thumbs.size());
     if (!thumbs.empty()) {
         editor->thumbnailWidth = thumbs.front().width;
@@ -5617,6 +5621,9 @@ int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket
     if (!readerOpen.isOk()) {
         return failResult(readerOpen);
     }
+    if (reader.probe().sampleRate <= 0 || reader.probe().channels <= 0) {
+        return failNc(NC_ERROR_NOT_FOUND, "素材没有可读取的音频流");
+    }
     // 上限保护：只解码前 120s 音频（波形显示无需全片；避免长素材 OOM/耗时）
     constexpr double kMaxSeconds = 120.0;
     const double durationSeconds =
@@ -5630,6 +5637,10 @@ int32_t nc_waveform_generate(NcEditor* editor, uint64_t asset_id, int32_t bucket
         blocks.push_back(std::move(block));
     }
     reader.close();
+    if (blocks.empty()) {
+        return failNc(NC_ERROR_UNSUPPORTED,
+                      "系统音频解码后端未输出采样数据；未使用软件解码回退。");
+    }
     editor->waveformCache = buildWaveform(blocks, bucket_count > 0 ? bucket_count : 512);
     if (out_peak != nullptr) *out_peak = editor->waveformCache.peak();
     if (out_sample_rate != nullptr) *out_sample_rate = editor->waveformCache.sampleRate;
@@ -6006,6 +6017,7 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
     }
     // 采集帧特征（真实解码；复用章节检测的采样约定）
     std::vector<FrameFeature> features;
+    bool hasVideoAsset = false;
     int sampleCap = max_samples > 0 ? max_samples : 600;
     // 上一采样点状态（直方图差异 + 颜色差）
     std::vector<std::uint8_t> prevLuma;
@@ -6021,6 +6033,7 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
             if (asset == nullptr || asset->isImage()) {
                 continue;
             }
+            hasVideoAsset = true;
             FFmpegMediaReader reader;
             const Result readerOpen = reader.open(asset->path);
             if (!readerOpen.isOk()) {
@@ -6123,7 +6136,10 @@ int32_t nc_scene_detect(NcEditor* editor, double step_seconds, int32_t max_sampl
         }
     }
     if (features.empty()) {
-        return failNc(NC_ERROR_NOT_FOUND, "目标不存在");
+        return hasVideoAsset
+                   ? failNc(NC_ERROR_UNSUPPORTED,
+                            "系统视频解码后端未能输出场景检测帧；未使用软件解码回退。")
+                   : failNc(NC_ERROR_NOT_FOUND, "没有可检测的视频片段");
     }
     const std::vector<ShotBoundary> shots =
         detectShots(features, seq->duration(), SceneDetectConfig{});
