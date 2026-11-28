@@ -42,6 +42,16 @@ class NativeTimelineRulerSpecTest {
     }
 
     @Test
+    fun trackControlFeatherFadesBlurFromLeftToRightWithoutChangingControlStates() {
+        assertEquals(0.88f, NativeTrackControlFeatherSpec.alphaAt(0f), 0.0001f)
+        assertEquals(0.44f, NativeTrackControlFeatherSpec.alphaAt(0.5f), 0.0001f)
+        assertEquals(0f, NativeTrackControlFeatherSpec.alphaAt(1f), 0.0001f)
+        assertEquals(0.88f, NativeTrackControlFeatherSpec.alphaAt(-1f), 0.0001f)
+        assertEquals(0f, NativeTrackControlFeatherSpec.alphaAt(2f), 0.0001f)
+        assertEquals(3f, NativeTrackControlFeatherSpec.BLUR_RADIUS_DP, 0f)
+    }
+
+    @Test
     fun rulerMajorStepAdaptsToPixelDensity() {
         assertEquals(5.0, NativeTimelineRulerSpec.majorStepSeconds(18.0), 0.0)
         assertEquals(2.0, NativeTimelineRulerSpec.majorStepSeconds(42.0), 0.0)
