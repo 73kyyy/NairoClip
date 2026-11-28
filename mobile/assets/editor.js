@@ -5412,7 +5412,23 @@ window.addEventListener('orientationchange', () => setTimeout(() => { fitCanvas(
   try { await edit({ op: 'nc_set_frame_fit', mode: 1 }); } catch (err) { /* 老引擎无此接口时保持默认 */ }
   renderAll();
 
+  // Internal S5 pilot route: the Activity opt-in is required as well as the
+  // URL flag. The WebView editor stays mounted underneath the native overlay.
   const q = new URLSearchParams(location.search);
+  if (q.get('nativeEditor') === '1' &&
+      window.NCNativeEditor &&
+      typeof window.NCNativeEditor.isEnabled === 'function' &&
+      typeof window.NCNativeEditor.openNativeEditor === 'function' &&
+      window.NCNativeEditor.isEnabled()) {
+    try {
+      window.NCNativeEditor.openNativeEditor(
+        String((S.project && S.project.name) || '未命名工程')
+      );
+    } catch (err) {
+      toast('原生剪辑页暂不可用，已保留当前剪辑页面');
+    }
+  }
+
   if (q.get('l1')) {
     const id = q.get('l1');
     if (L1.some((c) => c.id === id)) openLevel2(id);
