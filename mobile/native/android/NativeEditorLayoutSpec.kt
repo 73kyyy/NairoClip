@@ -25,7 +25,7 @@ internal object NativeEditorLayoutSpec {
     const val PREVIEW_ASPECT_WIDTH = 9
     const val PREVIEW_ASPECT_HEIGHT = 16
 
-    const val TOP_BAR_HEIGHT_DP = 44
+    const val TOP_BAR_HEIGHT_DP = 40
     const val PREVIEW_EXPAND_DIAMETER_DP = 36
     const val QUICK_ACTION_ROW_HEIGHT_DP = 46
     const val QUICK_ACTION_DIAMETER_DP = 30
