@@ -133,4 +133,14 @@ NC_TEST(MediaIo, RejectsCompressedOrInvalidWavWithoutFallback) {
     WavPcmReader reader;
     NC_CHECK(!reader.open("/tmp/does_not_exist_pcm_wav.wav").isOk());
     NC_CHECK(!reader.isOpen());
+
+    // A failed probe must not poison this reader's stream state.
+    std::ifstream fixture("/tmp/media_gen/speech.wav", std::ios::binary);
+    if (!fixture.good()) return;
+    fixture.close();
+    NC_CHECK(reader.open("/tmp/media_gen/speech.wav").isOk());
+    NC_CHECK(reader.isOpen());
+    AudioBlock block;
+    NC_CHECK(reader.readAudioBlock(block));
+    NC_CHECK_EQ(block.frameCount(), std::size_t(1024));
 }
