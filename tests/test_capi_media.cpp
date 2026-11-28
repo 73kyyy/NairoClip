@@ -36,7 +36,7 @@ bool systemVideoDecodeAvailable(const char* path) {
 bool systemAudioDecodeAvailable(const char* path) {
     FFmpegMediaReader reader;
     if (!reader.open(path).isOk()) return false;
-    return reader.probe().sampleRate > 0 && reader.probe().channels > 0;
+    return reader.probe().hasAudioStream && reader.probe().audioDecoderAvailable;
 }
 #endif  // NAIROCLIP_HAS_FFMPEG
 
