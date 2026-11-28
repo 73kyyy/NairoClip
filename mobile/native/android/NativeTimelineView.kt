@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.MotionEvent
@@ -95,6 +97,9 @@ class NativeTimelineView(context: Context) : View(context) {
         strokeWidth = density
     }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF454B4F.toInt() }
+    // Fades clip content beneath the fixed track controls. The controls are
+    // redrawn afterwards, so their glyphs never inherit the feather alpha.
+    private val trackControlFeatherPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val selectedClipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF777F86.toInt()
         style = Paint.Style.STROKE
@@ -476,9 +481,32 @@ class NativeTimelineView(context: Context) : View(context) {
                     }
                 }
             }
+            // The clip lane remains full-width. Only its first 40dp are
+            // feathered: strongest at the far-left edge, smoothly clearing
+            // toward the right edge of the fixed eye/speaker/lock controls.
+            val laneColor = lane.color
+            trackControlFeatherPaint.shader = LinearGradient(
+                0f,
+                top,
+                trackControlsWidth,
+                top,
+                intArrayOf(
+                    withAlpha(laneColor, 0.88f),
+                    withAlpha(laneColor, 0f)
+                ),
+                floatArrayOf(0f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawRect(0f, top, trackControlsWidth, bottom, trackControlFeatherPaint)
+            trackControlFeatherPaint.shader = null
             drawTrackControls(canvas, track, top, bottom)
         }
         canvas.restore()
+    }
+
+    private fun withAlpha(color: Int, alpha: Float): Int {
+        val safeAlpha = (alpha.coerceIn(0f, 1f) * 255f).toInt()
+        return (color and 0x00FFFFFF) or (safeAlpha shl 24)
     }
 
     private fun drawTrackControls(
@@ -489,8 +517,15 @@ class NativeTimelineView(context: Context) : View(context) {
     ) {
         val centerY = (top + bottom) / 2f
         val iconSize = 13f * density
-        val enabledTint = 0xFFB8BEC2.toInt()
-        val disabledTint = 0xFF50575B.toInt()
+        // State is conveyed by both glyph shape and tint, not by callback
+        // availability. Neutral states stay cool-grey/white; muted and locked
+        // states use restrained amber for an immediately legible distinction.
+        val eyeVisibleTint = 0xFFE4E8EA.toInt()
+        val eyeHiddenTint = 0xFF687177.toInt()
+        val speakerOnTint = 0xFFE4E8EA.toInt()
+        val speakerMutedTint = 0xFFD69A58.toInt()
+        val lockOpenTint = 0xFF9AA3A8.toInt()
+        val lockClosedTint = 0xFFD69A58.toInt()
         val centers = floatArrayOf(7f, 20f, 33f)
         drawTrackIcon(
             canvas,
@@ -498,7 +533,7 @@ class NativeTimelineView(context: Context) : View(context) {
             centers[0] * density,
             centerY,
             iconSize,
-            if (onTrackVisibilityChanged == null) disabledTint else enabledTint
+            if (track.visible) eyeVisibleTint else eyeHiddenTint
         )
         drawTrackIcon(
             canvas,
@@ -506,7 +541,7 @@ class NativeTimelineView(context: Context) : View(context) {
             centers[1] * density,
             centerY,
             iconSize,
-            if (onTrackMuteChanged == null) disabledTint else enabledTint
+            if (track.muted) speakerMutedTint else speakerOnTint
         )
         drawTrackIcon(
             canvas,
@@ -514,7 +549,7 @@ class NativeTimelineView(context: Context) : View(context) {
             centers[2] * density,
             centerY,
             iconSize,
-            if (onTrackLockChanged == null) disabledTint else enabledTint
+            if (track.locked) lockClosedTint else lockOpenTint
         )
     }
 
