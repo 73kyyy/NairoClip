@@ -269,39 +269,40 @@ fun NativeEditorScreen(
                                 if (spanUs <= 0L) {
                                     prewarmStatus = "时间轴为空，没有可预热的帧"
                                 } else {
-                                    val total = ((spanUs.toDouble() / 1_000_000.0) * 10.0)
-                                        .roundToLong().coerceIn(1L, 240L).toInt()
-                                    val startUs = playheadUs.coerceAtLeast(0L) % spanUs
-                                    prewarmProgress = 0f
-                                    prewarmStats = null
-                                    prewarmStatus = "正在预热 0/$total 帧"
-                                    prewarmRunning = true
-                                    prewarmJob = prewarmScope.launch {
-                                        var done = 0
-                                        var failed = 0
-                                        try {
-                                            for (index in 0 until total) {
-                                                val offsetUs = (spanUs.toDouble() * index / total).toLong()
-                                                val timeUs = (startUs + offsetUs) % spanUs
-                                                val ok = withContext(Dispatchers.IO) {
-                                                    prewarm(timeUs, previewFrameWidth.coerceIn(16, 2048))
+                                    val samplesUs = NativePreviewPrewarmPlan.samplesUs(spanUs, playheadUs)
+                                    val total = samplesUs.size
+                                    if (total == 0) {
+                                        prewarmStatus = "时间轴为空，没有可预热的帧"
+                                    } else {
+                                        prewarmProgress = 0f
+                                        prewarmStats = null
+                                        prewarmStatus = "正在预热 0/$total 帧"
+                                        prewarmRunning = true
+                                        prewarmJob = prewarmScope.launch {
+                                            var done = 0
+                                            var failed = 0
+                                            try {
+                                                for (timeUs in samplesUs) {
+                                                    val ok = withContext(Dispatchers.IO) {
+                                                        prewarm(timeUs, previewFrameWidth.coerceIn(16, 2048))
+                                                    }
+                                                    if (!ok) failed++
+                                                    done++
+                                                    prewarmProgress = done.toFloat() / total
+                                                    prewarmStatus = "正在预热 $done/$total 帧 · 失败 $failed"
                                                 }
-                                                if (!ok) failed++
-                                                done++
-                                                prewarmProgress = done.toFloat() / total
-                                                prewarmStatus = "正在预热 $done/$total 帧 · 失败 $failed"
+                                                prewarmStats = withContext(Dispatchers.IO) {
+                                                    onReadPreviewCacheStats?.invoke()
+                                                }
+                                                prewarmStatus = "预热完成：$done/$total 帧 · 失败 $failed"
+                                            } catch (_: kotlinx.coroutines.CancellationException) {
+                                                prewarmStatus = "已取消预热"
+                                            } catch (error: Throwable) {
+                                                prewarmStatus = "预热失败：${error.message ?: "未知错误"}"
+                                            } finally {
+                                                prewarmRunning = false
+                                                prewarmJob = null
                                             }
-                                            prewarmStats = withContext(Dispatchers.IO) {
-                                                onReadPreviewCacheStats?.invoke()
-                                            }
-                                            prewarmStatus = "预热完成：$done/$total 帧 · 失败 $failed"
-                                        } catch (_: kotlinx.coroutines.CancellationException) {
-                                            prewarmStatus = "已取消预热"
-                                        } catch (error: Throwable) {
-                                            prewarmStatus = "预热失败：${error.message ?: "未知错误"}"
-                                        } finally {
-                                            prewarmRunning = false
-                                            prewarmJob = null
                                         }
                                     }
                                 }
