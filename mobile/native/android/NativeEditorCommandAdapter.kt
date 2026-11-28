@@ -996,6 +996,9 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
             val track = before.value?.tracks
                 ?.firstOrNull { it.engineIndex == target.trackIndex }
                 ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+            if (track.locked) {
+                return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能分割片段")
+            }
             val clip = track.clips.firstOrNull { it.id == target.clipId }
                 ?: return@withEditorStateLock Result(false, error = "目标片段已不存在")
             if (clip.startUs > Long.MAX_VALUE - clip.durationUs) {
