@@ -77,9 +77,9 @@ class NativeTimelineView(context: Context) : View(context) {
     var onPlayheadChanged: ((Long) -> Unit)? = null
     var onClipSelected: ((Int, Long) -> Unit)? = null
     var onClipSelectionCleared: (() -> Unit)? = null
-    var onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null
-    var onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null
-    var onTrackLockChanged: ((Int, Boolean) -> Unit)? = null
+    var onTrackVisibilityChanged: ((Int) -> Unit)? = null
+    var onTrackMuteChanged: ((Int) -> Unit)? = null
+    var onTrackLockChanged: ((Int) -> Unit)? = null
     var onPlayFromStart: (() -> Unit)? = null
 
     private val density = resources.displayMetrics.density
@@ -390,11 +390,11 @@ class NativeTimelineView(context: Context) : View(context) {
         val engineIndex = track.engineIndex.takeIf { it >= 0 } ?: tracks.indexOf(track)
         when (action) {
             ACTION_TOGGLE_TRACK_VISIBILITY ->
-                (onTrackVisibilityChanged ?: return false).invoke(engineIndex, !track.visible)
+                (onTrackVisibilityChanged ?: return false).invoke(engineIndex)
             ACTION_TOGGLE_TRACK_MUTE ->
-                (onTrackMuteChanged ?: return false).invoke(engineIndex, !track.muted)
+                (onTrackMuteChanged ?: return false).invoke(engineIndex)
             ACTION_TOGGLE_TRACK_LOCK ->
-                (onTrackLockChanged ?: return false).invoke(engineIndex, !track.locked)
+                (onTrackLockChanged ?: return false).invoke(engineIndex)
             else -> return false
         }
         invalidate()
@@ -961,15 +961,15 @@ class NativeTimelineView(context: Context) : View(context) {
         when {
             x < trackControlsWidth / 3f -> {
                 val callback = onTrackVisibilityChanged ?: return false
-                callback(engineIndex, !track.visible)
+                callback(engineIndex)
             }
             x < trackControlsWidth * 2f / 3f -> {
                 val callback = onTrackMuteChanged ?: return false
-                callback(engineIndex, !track.muted)
+                callback(engineIndex)
             }
             else -> {
                 val callback = onTrackLockChanged ?: return false
-                callback(engineIndex, !track.locked)
+                callback(engineIndex)
             }
         }
         invalidate()
