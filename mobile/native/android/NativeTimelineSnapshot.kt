@@ -164,7 +164,8 @@ data class NativeTimelineSnapshot(
                             sourceRangeKnown = sourceRangeKnown,
                             reversed = reversedValue == 1L,
                             frozen = frozenValue == 1L,
-                            hasSpeedCurve = speedCurveValue == 1L
+                            hasSpeedCurve = speedCurveValue == 1L,
+                            assetId = assetId
                         )
                     }
 
