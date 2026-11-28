@@ -190,8 +190,21 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     // ---- 视频编码器（系统硬件优先）----
     // Android 构建只编入 *_mediacodec 视频编码 wrapper，不包含任何软件编码器。
     // 逐个真正打开候选，设备不支持所选格式/尺寸/帧率时 fail-closed。
-    const std::vector<EncoderCandidate> videoCandidates =
+    const std::vector<EncoderCandidate> discoveredVideoCandidates =
         availableEncodersFor(ffmpegCodecIdFor(config.videoCodec), config.videoCodec.c_str());
+    std::vector<EncoderCandidate> videoCandidates;
+#if defined(__ANDROID__)
+    // Defense in depth: even if a future FFmpeg configure change accidentally
+    // enables a software encoder, Android export must never select it.
+    for (const auto& candidate : discoveredVideoCandidates) {
+        if (candidate.name.size() >= 12 &&
+            candidate.name.compare(candidate.name.size() - 12, 12, "_mediacodec") == 0) {
+            videoCandidates.push_back(candidate);
+        }
+    }
+#else
+    videoCandidates = discoveredVideoCandidates;
+#endif
     const std::vector<EncoderSelection> rankedVideo =
         rankVideoEncoderCandidates(config.videoCodec, videoCandidates, EncoderPolicy{});
     std::string attempted;
@@ -266,10 +279,12 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
             message += "（尝试失败：" + attempted + "）";
         }
         if (rankedVideo.empty()) {
-            message += "：没有任何可用的硬件编码器。"
-                       "出于编解码授权考虑，本应用不使用软件 H.264 编码——"
-                       "请在有硬件编码器的设备上导出，"
-                       "或改用 AV1 / VP9 格式（这两个是 royalty-free 的软件实现）。";
+#if defined(__ANDROID__)
+            message += "：没有可用的系统 MediaCodec 视频编码器。"
+                       "本 Android 构建不包含软件视频编码器。";
+#else
+            message += "：没有符合当前授权策略的平台视频编码器。";
+#endif
         }
         return Result::fail(ErrorCode::Unsupported, message);
     }
