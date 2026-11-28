@@ -147,9 +147,14 @@ fun NativeEditorHost(
             autoSubtitleCoordinator?.setSource(null, null)
             onSelectedSpeechSourceChanged?.invoke(null, null)
         } else {
-            val uri = runCatching {
-                clip.assetId.takeIf { it > 0L }?.let(resolveAssetUri)
-            }.getOrNull()
+            // URI-grant verification may invoke a document provider. Keep
+            // that I/O off the Compose main thread; an unavailable grant
+            // resolves to null and the subtitle coordinator reports it honestly.
+            val uri = withContext(Dispatchers.IO) {
+                runCatching {
+                    clip.assetId.takeIf { it > 0L }?.let(resolveAssetUri)
+                }.getOrNull()
+            }
             val range = NativeSpeechSourceRange.fromTimelineClip(clip.startUs, clip)
             autoSubtitleCoordinator?.setSource(uri, range)
             onSelectedSpeechSourceChanged?.invoke(uri, range)
