@@ -4013,12 +4013,13 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
                           int32_t quality, int32_t crf, int32_t max_frames,
                           int32_t (*progress_cb)(double), int32_t* out_frames,
                           int32_t* out_width, int32_t* out_height, char** out_error) {
-    if (editor == nullptr || out_path == nullptr) {
-        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
-    }
     if (out_frames != nullptr) *out_frames = 0;
     if (out_width != nullptr) *out_width = 0;
     if (out_height != nullptr) *out_height = 0;
+    if (out_error != nullptr) *out_error = nullptr;
+    if (editor == nullptr || out_path == nullptr) {
+        return failNc(NC_ERROR_INVALID_ARGUMENT, "参数为空");
+    }
 #ifdef NAIROCLIP_HAS_FFMPEG
     // 1) 找素材
     const MediaAsset* asset = nullptr;
@@ -4052,7 +4053,7 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
     const Result openResult = reader.open(asset->path);
     if (!openResult.isOk()) {
         setDetail(out_error, openResult.message);
-        return failNc(NC_ERROR_NOT_FOUND, "原片打开失败");
+        return failResult(openResult);
     }
     FFmpegMediaWriter writer;
     WriterConfig config;
@@ -4067,7 +4068,7 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
     const Result writerOpen = writer.open(out_path, config);
     if (!writerOpen.isOk()) {
         setDetail(out_error, writerOpen.message);
-        return failNc(NC_ERROR_UNSUPPORTED, "代理写入器打开失败（可能没有可用编码器）");
+        return failResult(writerOpen);
     }
 
     // 4) 逐帧转码
@@ -4085,11 +4086,12 @@ int32_t nc_proxy_generate(NcEditor* editor, uint64_t asset_id, const char* out_p
         setDetail(out_error, gen.result.message);
         // 用户取消 → 用 CANCELLED 语义返回，平台层据此不提示「失败」
         return gen.cancelled ? failNc(NC_ERROR_CANCELLED, "已取消")
-                             : failNc(NC_ERROR_INTERNAL, "代理转码失败");
+                             : failResult(gen.result);
     }
-    if (!writer.finish().isOk()) {
-        setDetail(out_error, "代理文件收尾失败");
-        return failNc(NC_ERROR_INTERNAL, "代理文件写入失败");
+    const Result finishResult = writer.finish();
+    if (!finishResult.isOk()) {
+        setDetail(out_error, finishResult.message);
+        return failResult(finishResult);
     }
 
     if (out_frames != nullptr) *out_frames = static_cast<int32_t>(gen.framesWritten);
