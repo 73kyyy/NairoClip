@@ -324,33 +324,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val activeEngine = engine ?: return
-        val project = runCatching {
-            val envelope = org.json.JSONObject(activeEngine.state())
-            // The C ABI returns {ok:true,result:{project,tracks,...}}.
-            // Keep the raw-state fallback for older bridge builds, but reject
-            // an explicit error envelope instead of mounting an empty editor.
-            if (!envelope.optBoolean("ok", true)) {
-                throw IllegalStateException(
-                    envelope.optString("message").ifBlank { "引擎状态读取失败" }
-                )
-            }
-            val stateRoot = envelope.optJSONObject("result") ?: envelope
-            stateRoot.optJSONObject("project")
-                ?: throw IllegalStateException("引擎状态缺少 project")
-        }.getOrElse { failure ->
+        val resolvedName = NativeEditorProjectSnapshot.resolveProjectName(
+            activeEngine.state(),
+            projectName
+        ) ?: run {
             android.util.Log.w(
                 "NcNativeEditor",
-                "拒绝打开原生剪辑页：无法读取当前工程快照",
-                failure
+                "拒绝打开原生剪辑页：当前引擎没有有效工程快照"
             )
             return
         }
-
-        // The engine snapshot is authoritative; the JS argument is only a
-        // display fallback and must never relabel a different active project.
-        val resolvedName = project.optString("name").takeIf { it.isNotBlank() }
-            ?: projectName.trim().takeIf { it.isNotEmpty() }
-            ?: "未命名工程"
         val overlay = ComposeView(this).apply {
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
