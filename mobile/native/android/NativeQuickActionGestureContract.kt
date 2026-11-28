@@ -20,8 +20,10 @@ object NativeQuickActionGestureContract {
         }
 
     /**
-     * Matches the legacy editor's anchor semantics: move to the nearest
-     * strictly earlier clip start/end boundary, with a 1ms repeat guard.
+     * Single tap moves only to a real earlier clip boundary. It deliberately
+     * does not add timeline zero as a synthetic boundary: returning to the
+     * beginning is the separate double-tap command. The 1ms guard prevents
+     * repeated taps from selecting the current boundary again.
      */
     fun previousTimelineAnchor(
         tracks: List<NativeTimelineTrack>,
@@ -29,7 +31,6 @@ object NativeQuickActionGestureContract {
     ): Long? {
         if (playheadUs <= 1_000L) return null
         val anchors = HashSet<Long>()
-        anchors.add(0L)
         tracks.forEach { track ->
             track.clips.forEach { clip ->
                 if (clip.startUs >= 0L) anchors.add(clip.startUs)
