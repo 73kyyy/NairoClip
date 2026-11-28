@@ -12,10 +12,10 @@ class NativeEditorLayoutSpecTest {
         assertEquals(9f / 16f, NativeEditorLayoutSpec.PREVIEW_ASPECT_WIDTH.toFloat() /
             NativeEditorLayoutSpec.PREVIEW_ASPECT_HEIGHT.toFloat(), 0.0001f)
         assertEquals(44, NativeEditorLayoutSpec.TOP_BAR_HEIGHT_DP)
-        assertEquals(50, NativeEditorLayoutSpec.QUICK_ACTION_ROW_HEIGHT_DP)
-        assertEquals(218, NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP)
-        assertEquals(52, NativeEditorLayoutSpec.TRANSPORT_ROW_HEIGHT_DP)
-        assertEquals(82, NativeEditorLayoutSpec.BOTTOM_TOOLBAR_HEIGHT_DP)
+        assertEquals(46, NativeEditorLayoutSpec.QUICK_ACTION_ROW_HEIGHT_DP)
+        assertEquals(282, NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP)
+        assertEquals(56, NativeEditorLayoutSpec.TRANSPORT_ROW_HEIGHT_DP)
+        assertEquals(104, NativeEditorLayoutSpec.BOTTOM_TOOLBAR_HEIGHT_DP)
     }
 
     @Test
@@ -33,7 +33,8 @@ class NativeEditorLayoutSpecTest {
     fun previewExpandAndTimelineRulerKeepReferenceGeometry() {
         assertEquals(36, NativeEditorLayoutSpec.PREVIEW_EXPAND_DIAMETER_DP)
         assertEquals(27, NativeEditorLayoutSpec.RULER_HEIGHT_DP)
-        assertEquals(4, NativeEditorLayoutSpec.RULER_TICK_HEIGHT_DP)
+        assertEquals(3, NativeEditorLayoutSpec.RULER_TICK_HEIGHT_DP)
+        assertEquals(4, NativeEditorLayoutSpec.RULER_MAJOR_TICK_HEIGHT_DP)
         assertEquals(3, NativeEditorLayoutSpec.TRANSPORT_ACTION_COUNT)
     }
 
