@@ -321,8 +321,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val resolvedName = projectName.trim().takeIf { it.isNotEmpty() }
-            ?: project.optString("name").takeIf { it.isNotBlank() }
+        // The engine snapshot is authoritative; the JS argument is only a
+        // display fallback and must never relabel a different active project.
+        val resolvedName = project.optString("name").takeIf { it.isNotBlank() }
+            ?: projectName.trim().takeIf { it.isNotEmpty() }
             ?: "未命名工程"
         val overlay = ComposeView(this).apply {
             setViewCompositionStrategy(
