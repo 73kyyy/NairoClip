@@ -53,6 +53,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
@@ -2178,6 +2179,11 @@ private fun QuickActionButton(
     onClick: () -> Unit
 ) {
     val fill = if (emphasized) Color(0xFF3976D8) else NcColors.lane
+    val fillBrush = if (emphasized) {
+        Brush.linearGradient(listOf(Color(0xFFB65BD8), Color(0xFF477FE5)))
+    } else {
+        Brush.linearGradient(listOf(fill, fill))
+    }
     val foreground = if (enabled) NcColors.text else NcColors.muted
 
     // Keep the screenshot-sized visual circle, but give every action a
@@ -2200,10 +2206,14 @@ private fun QuickActionButton(
             modifier = Modifier
                 .size(NativeEditorLayoutSpec.QUICK_ACTION_DIAMETER_DP.dp)
                 .clip(CircleShape)
-                .background(if (enabled) fill else NcColors.lane.copy(alpha = 0.45f))
+                .background(
+                    if (enabled) fillBrush else Brush.linearGradient(
+                        listOf(NcColors.lane.copy(alpha = 0.45f), NcColors.lane.copy(alpha = 0.45f))
+                    )
+                )
                 .border(
                     1.dp,
-                    if (emphasized) Color(0xFF6595E8) else NcColors.line,
+                    if (emphasized) Color(0xFFB16AD9) else NcColors.line,
                     CircleShape
                 ),
             contentAlignment = Alignment.Center
