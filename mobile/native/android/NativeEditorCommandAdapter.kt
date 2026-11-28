@@ -41,16 +41,19 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         val anchor: Int
     )
 
-    data class ClipTransformSnapshot(
+    data class ClipEditorPanelSnapshot(
         val transform: TransformState,
-        val keyframes: Map<NativeParameter, List<Keyframe>>
+        val keyframes: Map<NativeParameter, List<Keyframe>>,
+        val audio: ClipAudioState,
+        val denoiseStrength: Int,
+        val speedCurve: List<SpeedCurvePoint>
     )
 
     /**
      * Reads transform and all four keyframe channels under one bridge lock so
      * the host cannot combine values from different engine revisions.
      */
-    fun readClipTransformSnapshot(target: ClipTarget): Result<ClipTransformSnapshot> = try {
+    fun readClipEditorPanelSnapshot(target: ClipTarget): Result<ClipEditorPanelSnapshot> = try {
         bridge.withEditorStateLock {
             val transformResult = getTransform(target)
             val transform = transformResult.value
@@ -72,10 +75,25 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
                 }
                 if (frames.isNotEmpty()) channels[parameter] = frames
             }
-            Result(true, ClipTransformSnapshot(transform, channels))
+            val audioResult = readClipAudio(target)
+            val audio = audioResult.value
+            if (!audioResult.ok || audio == null) {
+                return@withEditorStateLock Result(false, error = audioResult.error ?: "读取片段音频参数失败")
+            }
+            val denoiseResult = readClipDenoise(target)
+            val denoise = denoiseResult.value
+            if (!denoiseResult.ok || denoise == null) {
+                return@withEditorStateLock Result(false, error = denoiseResult.error ?: "读取片段降噪参数失败")
+            }
+            val speedCurveResult = readSpeedCurve(target)
+            val speedCurve = speedCurveResult.value
+            if (!speedCurveResult.ok || speedCurve == null) {
+                return@withEditorStateLock Result(false, error = speedCurveResult.error ?: "读取片段变速曲线失败")
+            }
+            Result(true, ClipEditorPanelSnapshot(transform, channels, audio, denoise, speedCurve))
         }
     } catch (error: Exception) {
-        Result(false, error = error.message ?: "读取片段变换快照失败")
+        Result(false, error = error.message ?: "读取片段编辑面板快照失败")
     }
 
     fun getTransform(target: ClipTarget): Result<TransformState> = try {
