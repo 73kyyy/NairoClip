@@ -127,6 +127,29 @@ class NativeTimelineView(context: Context) : View(context) {
             Shader.TileMode.CLAMP
         )
     }
+    private fun updateTrackControlFeatherMask(viewWidthPx: Float) {
+        val featherWidth = NativeTrackControlFeatherSpec.shaderWidth(
+            viewWidthPx,
+            trackControlsWidth
+        )
+        trackControlFeatherMaskPaint.shader = if (featherWidth > 0f) {
+            LinearGradient(
+                0f,
+                0f,
+                featherWidth,
+                0f,
+                intArrayOf(
+                    withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.START_ALPHA),
+                    withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.END_ALPHA)
+                ),
+                floatArrayOf(0f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        } else {
+            null
+        }
+    }
+
     private val selectedClipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF777F86.toInt()
         style = Paint.Style.STROKE
@@ -311,6 +334,9 @@ class NativeTimelineView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        // The mask must reach zero alpha at the visible edge even when a
+        // constrained viewport is narrower than the fixed 120dp control strip.
+        updateTrackControlFeatherMask(w.toFloat())
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
         verticalScrollOffset = verticalScrollOffset.coerceIn(0f, maxVerticalScrollOffset())
         if (pendingInitialFit && width > 0) fitInitialTimeline()
