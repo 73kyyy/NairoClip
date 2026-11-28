@@ -234,7 +234,7 @@ EncoderSelection selectAudioEncoder(const std::string& codec,
                                     const EncoderPolicy& policy) {
     const std::string wanted = codec.empty() ? std::string("aac") : codec;
     /* 音频走同一个排序函数：它对非视频编解码器同样适用
-       （Permissive 组里 aac/opus/flac 都能选到；libfdk_aac 在 GPL 组）。 */
+       软件编码器即使许可宽松也会在候选排序阶段拒绝。 */
     const std::vector<EncoderSelection> ranked =
         rankVideoEncoderCandidates(wanted, available, policy);
     if (ranked.empty()) {
@@ -253,37 +253,19 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
     if (lower == "hevc" || lower == "h265" || lower == "libx265") {
         return {};  // H.265 全线禁止
     }
-    // 归档：硬件（按优先序）→ 宽松软件（按优先序）；GPL 与软件 H.264 均拒绝。
+    // 仅平台系统媒体后端可进入候选；所有应用自带软件编码器均被排除。
     struct Scored {
         EncoderSelection selection;
         int rank = 100;
     };
     std::vector<Scored> hardware;
-    std::vector<Scored> permissive;
     for (const auto& candidate : available) {
         if (!candidate.codec.empty() && toLower(candidate.codec) != lower) {
             continue;
         }
         const std::string nameLower = toLower(candidate.name);
         const EncoderLicenseClass cls = classifyEncoderLicense(candidate.name);
-        if (cls == EncoderLicenseClass::Unknown ||
-            cls == EncoderLicenseClass::GplInfectious ||
-            cls == EncoderLicenseClass::SoftwareH264) {
-            continue;
-        }
-        /* 软件 H.264：**只在开发构建里**作为最后手段保留。
-           ---------------------------------------------------------------- */
-        /* 软件 H.264：**直接丢弃**，任何构建、任何开关都不能启用。
-           ----------------------------------------------------------------
-           之前这里还有一个 `allowSoftwareH264ForDevelopment` 的开发例外，
-           理由是「本地沙箱没 GPU，不放行就导不出」。
-           那是拿产品形态迁就测试环境 —— 产品里有没有软件 H.264，
-           不该取决于「本机能不能跑测试」。
-
-           测试侧的正确解法是改用 royalty-free 编码（VP9/AV1）做导出与素材，
-           而不是在产品代码里留一个「仅开发可用」的后门 ——
-           后门一旦存在，就永远有人能把它打开。 */
-        if (cls == EncoderLicenseClass::SoftwareH264) {
+        if (cls != EncoderLicenseClass::Hardware) {
             continue;
         }
         const bool isHw = candidate.hardware || cls == EncoderLicenseClass::Hardware;
@@ -301,10 +283,9 @@ std::vector<EncoderSelection> rankVideoEncoderCandidates(
         return a.selection.name < b.selection.name;
     };
     std::sort(hardware.begin(), hardware.end(), byRank);
-    std::sort(permissive.begin(), permissive.end(), byRank);
 
     std::vector<EncoderSelection> result;
-    if (policy.preferHardware) {
+    {
         for (auto& s : hardware) {
             result.push_back(std::move(s.selection));
         }
