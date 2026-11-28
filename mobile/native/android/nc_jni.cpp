@@ -551,6 +551,16 @@ bool DispatchEdit(NcEditor* ed, const std::string& op, const std::string& a,
         *out = rc == NC_OK ? Ok("") : Err("设置不透明度失败，错误码 " + std::to_string(rc));
         return true;
     }
+    if (op == "opacity_get") {
+        double value = 1.0;
+        const int32_t rc = nc_get_clip_opacity(ed, ti, cid, &value);
+        if (rc != NC_OK) {
+            *out = Err("读取不透明度失败，错误码 " + std::to_string(rc));
+            return true;
+        }
+        *out = Ok("{\"value\":" + Num(value) + "}");
+        return true;
+    }
     if (op == "filter") {
         const int32_t style = static_cast<int32_t>(JInt(a, "style", 0));
         const int32_t rc = nc_set_clip_filter(ed, ti, cid, style, JNum(a, "intensity", 60.0));
