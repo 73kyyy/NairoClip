@@ -476,7 +476,8 @@ NC_TEST(AtmosphereMotionE2E, SnowBrightensDarkAreas) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
-    if (!test_support::hasUsableSystemVideoEncoder("vp9", 1920, 1080)) return;
+    if (!test_support::hasUsableSystemVideoCodec("vp9", 1920, 1080) ||
+        !test_support::hasUsableSystemVideoDecoder("/tmp/media_gen/detail_src.mp4")) return;
     std::vector<std::uint8_t> snow, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
     const bool snowExported =
@@ -506,7 +507,7 @@ NC_TEST(AtmosphereMotionE2E, ZoomPunchChangesFrameAtPulsePeak) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
-    if (!test_support::hasUsableSystemVideoEncoder("vp9", 1920, 1080)) return;
+    if (!test_support::hasUsableSystemVideoCodec("vp9", 1920, 1080)) return;
     std::vector<std::uint8_t> punch, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
     // 第 8 帧（0.27s，缩放脉冲峰值附近）
