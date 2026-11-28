@@ -572,6 +572,27 @@ NC_TEST(CapiMedia, BeatDetectReal) {
     nc_editor_destroy(editor);
 }
 
+NC_TEST(CapiMedia, BeatDetectUnsupportedDecoderClearsOutputs) {
+    if (!shiftMediaExists() ||
+        systemAudioDecodeAvailable("/tmp/media_gen/tone_shift.mp4")) return;
+    NcEditor* editor = nc_editor_create();
+    const std::uint64_t asset =
+        nc_import_asset(editor, "t.mp4", "/tmp/media_gen/tone_shift.mp4", 1, 4000000);
+    (void)nc_add_track(editor, "A1", 1);
+    (void)nc_insert_clip(editor, 0, asset, 0, 4000000);
+    double bpm = -1.0;
+    double confidence = -1.0;
+    std::int32_t beatCount = -1;
+    double* beats = reinterpret_cast<double*>(static_cast<std::uintptr_t>(1));
+    NC_CHECK_EQ(nc_beat_detect(editor, 0, &bpm, &confidence, &beatCount, &beats),
+                NC_ERROR_UNSUPPORTED);
+    NC_CHECK_EQ(bpm, 0.0);
+    NC_CHECK_EQ(confidence, 0.0);
+    NC_CHECK_EQ(beatCount, 0);
+    NC_CHECK(beats == nullptr);
+    nc_editor_destroy(editor);
+}
+
 NC_TEST(CapiMedia, PreviewInvalidate) {
     if (!testMediaExists() ||
         !systemVideoDecodeAvailable("/tmp/media_gen/test_av.mp4")) return;
