@@ -8,6 +8,18 @@ package com.nairoclip.app
  * tool rows, but must not silently resize or distort these controls.
  */
 internal object NativeEditorLayoutSpec {
+    data class PreviewSize(val widthDp: Float, val heightDp: Float)
+
+    fun previewSize(maxWidthDp: Float, maxHeightDp: Float): PreviewSize {
+        val safeWidth = maxWidthDp.coerceAtLeast(0f)
+        val safeHeight = maxHeightDp.coerceAtLeast(0f)
+        val width = minOf(
+            safeWidth,
+            safeHeight * PREVIEW_ASPECT_WIDTH.toFloat() / PREVIEW_ASPECT_HEIGHT.toFloat()
+        )
+        return PreviewSize(width, width * PREVIEW_ASPECT_HEIGHT.toFloat() / PREVIEW_ASPECT_WIDTH.toFloat())
+    }
+
     const val REFERENCE_WIDTH_PX = 692
     const val REFERENCE_HEIGHT_PX = 1536
     const val PREVIEW_ASPECT_WIDTH = 9
