@@ -122,7 +122,10 @@ class NativeTimelineView(context: Context) : View(context) {
             0f,
             trackControlsWidth,
             0f,
-            intArrayOf(0xE0FFFFFF.toInt(), 0x00FFFFFF),
+            intArrayOf(
+                withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.START_ALPHA),
+                withAlpha(android.graphics.Color.WHITE, NativeTrackControlFeatherSpec.END_ALPHA)
+            ),
             floatArrayOf(0f, 1f),
             Shader.TileMode.CLAMP
         )
