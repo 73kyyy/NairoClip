@@ -18,9 +18,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Feature-scoped native editor host. It is intentionally not installed into
- * MainActivity: the formal WebView entry and fallback remain unchanged until
- * the separate runtime-entry acceptance gate is approved.
+ * Feature-scoped native editor host. MainActivity can mount it only through the
+ * debug-only, intent-gated S5 pilot route. The formal Activity/launcher entry
+ * and the retained WebView fallback remain unchanged.
  *
  * The host connects the Compose editor to engine-backed timeline/history
  * commands and the existing Surface preview controller. It renders native
