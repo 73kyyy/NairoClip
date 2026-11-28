@@ -1872,7 +1872,7 @@ private fun EditorTopBar(
     onShare: () -> Unit,
     onExport: () -> Unit
 ) {
-    // Match the reference image: compact share action at left, export capsule at right.
+    // Match the reference image: share action and export capsule are grouped at the right.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3252,7 +3252,7 @@ private fun NativeTransportBar(
             .fillMaxWidth()
             .height(52.dp)
             .background(NcColors.timeline),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.spacedBy(40.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
