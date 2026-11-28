@@ -47,4 +47,28 @@ class NativeTimelineRulerSpecTest {
         assertEquals("01:03.5", NativeTimelineRulerSpec.formatLabel(63.5, 0.5))
         assertEquals("0s", NativeTimelineRulerSpec.formatLabel(-1.0, 5.0))
     }
+
+    @Test
+    fun initialTimelineZoomFitsTheSequenceAroundTheCenteredPlayhead() {
+        val cssPixelScale = NativeTimelineViewportSpec.fitPixelsPerSecond(
+            widthPx = 692f,
+            density = 1f,
+            durationUs = 12_000_000L
+        )
+        assertEquals(322f / 12f, cssPixelScale, 0.001f)
+
+        val highDensity = NativeTimelineViewportSpec.fitPixelsPerSecond(
+            widthPx = 1038f,
+            density = 1.5f,
+            durationUs = 12_000_000L
+        )
+        assertEquals(322f / 12f * 1.5f, highDensity, 0.001f)
+
+        val minimumZoom = NativeTimelineViewportSpec.fitPixelsPerSecond(
+            widthPx = 400f,
+            density = 1f,
+            durationUs = 1_000_000_000L
+        )
+        assertEquals(4f, minimumZoom, 0f)
+    }
 }
