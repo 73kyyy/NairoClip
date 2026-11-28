@@ -19,6 +19,12 @@ class NativeTrackControlFeatherSpecTest {
         assertTrue(samples.zipWithNext().all { (left, right) -> left >= right })
     }
 
+
+    @Test
+    fun featherCoversTheFixedTrackControlStrip() {
+        assertEquals(40, NativeEditorLayoutSpec.TRACK_CONTROL_WIDTH_DP)
+    }
+
     @Test
     fun malformedPositionIsBoundedToTheStrongEdge() {
         assertEquals(0.88f, NativeTrackControlFeatherSpec.alphaAt(Float.NaN), 0.0001f)
