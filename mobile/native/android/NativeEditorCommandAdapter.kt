@@ -742,6 +742,38 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         }
     }
 
+    /**
+     * Enables or disables a clip through the native edit dispatcher and returns
+     * the authoritative editor state. Disabled clips remain addressable so the
+     * user can re-enable them without deleting or re-importing the media.
+     */
+    fun setClipEnabledAndReadEditorState(
+        target: ClipTarget,
+        enabled: Boolean
+    ): Result<EditorStateSnapshot> = bridge.withEditorStateLock {
+        val before = readTimelineSnapshotLocked()
+        if (!before.ok) {
+            return@withEditorStateLock Result(false, error = before.error ?: "无法读取工程时间轴")
+        }
+        val track = before.value?.tracks
+            ?.firstOrNull { it.engineIndex == target.trackIndex }
+            ?: return@withEditorStateLock Result(false, error = "目标轨道已不存在")
+        if (track.locked) {
+            return@withEditorStateLock Result(false, error = "目标轨道已锁定，不能修改片段状态")
+        }
+        if (track.clips.none { it.id == target.clipId }) {
+            return@withEditorStateLock Result(false, error = "目标片段已不存在")
+        }
+        val changed = invoke(
+            "enabled",
+            targetArgs(target).put("enabled", if (enabled) 1 else 0)
+        ) { Unit }
+        if (!changed.ok) {
+            return@withEditorStateLock Result(false, error = changed.error ?: "切换片段状态失败")
+        }
+        readEditorStateSnapshotLocked()
+    }
+
     /** Removes the selected clip and returns the authoritative post-edit state. */
     fun removeClipAndReadEditorState(target: ClipTarget): Result<ClipMutationResult> =
         mutateClipAndReadEditorState(target, "nc_remove_clip")
