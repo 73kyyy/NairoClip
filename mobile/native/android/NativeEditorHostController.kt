@@ -26,9 +26,8 @@ class NativeEditorHostController(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val operationMutex = Mutex()
-    private val trackToggleLock = Any()
     private enum class TrackToggle { VISIBILITY, MUTE, LOCK }
-    private val pendingTrackToggleValues = mutableMapOf<Pair<Int, TrackToggle>, Boolean>()
+    private val trackToggleIntents = NativeTrackToggleIntents()
     private val mutableState = MutableStateFlow(NativeEditorHostState())
     val state: StateFlow<NativeEditorHostState> = mutableState.asStateFlow()
 
@@ -137,7 +136,7 @@ class NativeEditorHostController(
         control: TrackToggle,
         operation: (Boolean) -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>
     ): Job {
-        val key = trackIndex to control
+        val key = trackIndex to control.name
         val target = synchronized(trackToggleLock) {
             val track = mutableState.value.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
                 (item.engineIndex.takeIf { it >= 0 } ?: index) == trackIndex
@@ -147,8 +146,7 @@ class NativeEditorHostController(
                 TrackToggle.MUTE -> track?.muted
                 TrackToggle.LOCK -> track?.locked
             }
-            val current = pendingTrackToggleValues[key] ?: confirmed
-            if (current == null) null else (!current).also { pendingTrackToggleValues[key] = it }
+            trackToggleIntents.reserve(key, confirmed)
         } ?: return scope.launch {
             dispatch(NativeEditorHostEvent.MutationFailed("找不到轨道，无法切换轨道控制"))
         }
@@ -399,11 +397,7 @@ class NativeEditorHostController(
                 )
             }
             pendingToggle?.let { (key, target) ->
-                synchronized(trackToggleLock) {
-                    if (pendingTrackToggleValues[key] == target) {
-                        pendingTrackToggleValues.remove(key)
-                    }
-                }
+                trackToggleIntents.finish(key, target)
             }
         }
     }
