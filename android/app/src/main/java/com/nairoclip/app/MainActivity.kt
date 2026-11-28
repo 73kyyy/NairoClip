@@ -312,6 +312,17 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showNativeEditor(projectName: String) {
         if (!nativeEditorEnabled || nativeEditorVisible || !this::contentRoot.isInitialized) return
+        // The JavaScript bridge is visible to WebView frames. Accept the
+        // request only from the local editor document, never from the home or
+        // an unrelated page that happens to share this WebView.
+        val currentUrl = webView.url.orEmpty()
+        if (!currentUrl.startsWith(
+                "https://appassets.androidplatform.net/assets/pages/10-editor.html"
+            )
+        ) {
+            android.util.Log.w("NcNativeEditor", "忽略非剪辑页发起的原生入口请求")
+            return
+        }
         val activeEngine = engine ?: return
         val project = runCatching {
             val envelope = org.json.JSONObject(activeEngine.state())
