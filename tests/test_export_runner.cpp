@@ -137,7 +137,7 @@ NC_TEST(ExportRunner, WriterOpenFailurePropagates) {
 #include <fstream>
 /// 真实端到端：Mock 解码（可控帧）→ FFmpeg 编码 → FFmpeg 回读验证。
 NC_TEST(ExportRunner, RealEncodeEndToEnd) {
-    if (!test_support::hasUsableSystemVideoEncoder(testVideoCodec(), 64, 64)) return;
+    if (!test_support::hasUsableSystemVideoCodec(testVideoCodec(), 64, 64)) return;
     Fixture f;
     Clip c;
     c.asset = f.assetId;
@@ -188,7 +188,8 @@ NC_TEST(ExportRunner, RealEncodeEndToEnd) {
 #ifdef NAIROCLIP_HAS_FFMPEG
 /// 真实解码路径验证：用生成的测试视频做源素材，导出后检查像素非占位色。
 NC_TEST(ExportRunner, RealDecodeWithFFmpegSource) {
-    if (!test_support::hasUsableSystemVideoEncoder(testVideoCodec(), 160, 120)) return;
+    if (!test_support::hasUsableSystemVideoCodec(testVideoCodec(), 160, 120) ||
+        !test_support::hasUsableSystemVideoDecoder("/tmp/media_gen/test_av.mp4")) return;
     // 准备：素材用 /tmp/media_gen/test_av.mp4（160x120, testsrc 彩条）
     // 序列尺寸设为 160x120 匹配源
     Project project;
