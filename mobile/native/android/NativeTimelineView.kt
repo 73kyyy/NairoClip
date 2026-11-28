@@ -527,7 +527,7 @@ class NativeTimelineView(context: Context) : View(context) {
                 drawTrackClips(canvas, track, top, bottom)
                 canvas.restore()
 
-                // The cached horizontal shader spans the fixed 120dp gutter.
+                // The cached horizontal shader spans the fixed 40dp control overlay.
                 canvas.drawRect(featherBounds, trackControlFeatherMaskPaint)
                 canvas.restore()
             }
