@@ -277,6 +277,18 @@ class NativeTimelineView(context: Context) : View(context) {
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
     }
 
+    override fun onDetachedFromWindow() {
+        // Release per-track display-list references when Compose removes the
+        // AndroidView. They are recreated lazily if this view is attached again.
+        trackControlBlurNodes.clear()
+        draggingPlayhead = false
+        draggingTimelineVertically = false
+        draggingTimelineHorizontally = false
+        gestureHadMultiplePointers = false
+        parent?.requestDisallowInterceptTouchEvent(false)
+        super.onDetachedFromWindow()
+    }
+
     fun setTimeline(
         newTracks: List<NativeTimelineTrack>,
         totalDurationUs: Long,
