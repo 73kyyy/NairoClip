@@ -393,7 +393,7 @@ NC_TEST(InvisibleWatermark, SurvivesSystemVp9RoundTrip) {
     const int w = 320, h = 240;
     if (!test_support::hasUsableSystemVideoCodec("vp9", w, h)) return;
     const WatermarkPayload payload = makePayload(0xABCDEF01, 42);
-    // 1) 生成一帧水印图像 → 编码为单帧视频（真实 H.264）
+    // 1) 生成一帧水印图像 → 编码为单帧视频（系统 VP9）
     auto image = makeImage(w, h);
     NC_CHECK(embedInvisibleWatermark(image.data(), w, h, payload));
     const std::string path = "/tmp/wm_roundtrip.mp4";
@@ -438,8 +438,8 @@ NC_TEST(InvisibleWatermark, SurvivesSystemVp9RoundTrip) {
     reader.close();
     const InvisibleDetectResult detected =
         detectInvisibleWatermark(frame.pixels.data(), frame.width, frame.height);
-    // 记录实测结果（H.264 压缩对 QIM 水印的破坏程度是客观事实）
-    std::printf("[实测] H.264 CRF18 往返：detected=%d agreement=%.3f note=%s\n",
+    // 记录实测结果（VP9 压缩对 QIM 水印的破坏程度是客观事实）
+    std::printf("[实测] 系统 VP9 CRF18 往返：detected=%d agreement=%.3f note=%s\n",
                 detected.detected ? 1 : 0, detected.bitAgreement, detected.note.c_str());
     /* **已知缺陷，不作硬断言**（详见 docs/PERF_XFORM_PLAN.md §8.7）：
        QIM 水印的块均值在 VP9/H.264 有损压缩后漂移超过 quantStep/2，
