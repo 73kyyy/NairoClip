@@ -16,11 +16,21 @@ data class NativeTimelineMarker(
     val color: String
 )
 
+data class NativeTimelineAsset(
+    val id: Long,
+    val name: String,
+    val type: Int,
+    val durationUs: Long,
+    val path: String? = null
+)
+
 data class NativeTimelineSnapshot(
     val projectName: String,
     val durationUs: Long,
     val tracks: List<NativeTimelineTrack>,
-    val markers: List<NativeTimelineMarker> = emptyList()
+    val markers: List<NativeTimelineMarker> = emptyList(),
+    val assets: List<NativeTimelineAsset> = emptyList(),
+    val backgroundRgba: Long? = null
 ) {
     companion object {
         /**
@@ -59,14 +69,32 @@ data class NativeTimelineSnapshot(
 
                 val assetNames = HashMap<Long, String>()
                 val assetIds = HashSet<Long>()
-                val assets = state.optJSONArray("assets")
-                if (assets != null) {
-                    for (index in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(index) ?: return null
+                val parsedAssets = ArrayList<NativeTimelineAsset>()
+                val sourceAssets = state.optJSONArray("assets")
+                if (sourceAssets != null) {
+                    for (index in 0 until sourceAssets.length()) {
+                        val asset = sourceAssets.optJSONObject(index) ?: return null
                         val id = asset.longField("id")?.takeIf { it > 0L } ?: return null
                         if (!assetIds.add(id)) return null
-                        assetNames[id] = asset.optString("name", "").ifBlank { "素材 $id" }
+                        val name = asset.optString("name", "").ifBlank { "素材 $id" }
+                        val typeRaw = asset.opt("type")
+                        val type = if (typeRaw == null) -1 else {
+                            val value = asset.longField("type")?.takeIf { it in 0L..3L } ?: return null
+                            value.toInt()
+                        }
+                        val durationRaw = asset.opt("duration_us")
+                        val assetDurationUs = if (durationRaw == null) 0L else {
+                            asset.longField("duration_us")?.takeIf { it >= 0L } ?: return null
+                        }
+                        val path = asset.optString("path", "").takeIf { it.isNotBlank() }
+                        assetNames[id] = name
+                        parsedAssets += NativeTimelineAsset(id, name, type, assetDurationUs, path)
                     }
+                }
+                val backgroundRgba = project.opt("background_rgba")?.let {
+                    project.longField("background_rgba")?.takeIf { value ->
+                        value in 0L..0xFFFFFFFFL
+                    } ?: return null
                 }
 
                 val markers = ArrayList<NativeTimelineMarker>()
@@ -181,7 +209,7 @@ data class NativeTimelineSnapshot(
                     )
                 }
                 if (!hasUniqueNativeTimelineIdentities(tracks)) return null
-                NativeTimelineSnapshot(projectName, duration, tracks, markers)
+                NativeTimelineSnapshot(projectName, duration, tracks, markers, parsedAssets, backgroundRgba)
             } catch (_: Exception) {
                 null
             }
