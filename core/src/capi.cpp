@@ -5350,11 +5350,19 @@ int32_t nc_preview_render(NcEditor* editor, int64_t time_us, int32_t* out_width,
     if (editor == nullptr || time_us < 0) {
         return failNc(NC_ERROR_INVALID_ARGUMENT, "editor 为空");
     }
-#ifdef NAIROCLIP_HAS_FFMPEG
+    // Initialize every optional output on both FFmpeg and no-FFmpeg builds.
     if (out_width != nullptr) *out_width = 0;
     if (out_height != nullptr) *out_height = 0;
     if (out_rgba != nullptr) *out_rgba = nullptr;
     if (out_clip_id != nullptr) *out_clip_id = 0;
+    if (out_opacity != nullptr) *out_opacity = 0.0;
+    if (out_scale != nullptr) *out_scale = 1.0;
+    if (out_pos_x != nullptr) *out_pos_x = 0.0;
+    if (out_pos_y != nullptr) *out_pos_y = 0.0;
+    if (out_rotation != nullptr) *out_rotation = 0.0;
+    if (out_transition_type != nullptr) *out_transition_type = -1;
+    if (out_transition_progress != nullptr) *out_transition_progress = 0.0;
+#ifdef NAIROCLIP_HAS_FFMPEG
     PreviewRenderer* renderer = ensurePreviewRenderer(editor);
     if (renderer == nullptr) {
         return failNc(NC_ERROR_NOT_FOUND, "renderer 为空");
