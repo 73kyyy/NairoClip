@@ -1,6 +1,9 @@
 package com.nairoclip.app
 
 import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +19,8 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
 
 /**
  * Feature-scoped native editor host. MainActivity can mount it only through the
@@ -50,6 +55,68 @@ fun NativeEditorHost(
         NativeEditorHostController(adapter, scope)
     }
     val state by controller.state.collectAsState()
+    var isImportingImages by remember(projectName) { mutableStateOf(false) }
+    var imagePanelMessage by remember(projectName) { mutableStateOf<String?>(null) }
+    val imageDirectory = remember(context) {
+        File(context.filesDir, "nairoclip/assets/images").apply { mkdirs() }
+    }
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
+            scope.launch {
+                isImportingImages = true
+                imagePanelMessage = null
+                var imported = 0
+                val failures = mutableListOf<String>()
+                selectedUris.forEach { uri ->
+                    val failure = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val displayName = context.contentResolver.query(
+                                uri,
+                                arrayOf(OpenableColumns.DISPLAY_NAME),
+                                null,
+                                null,
+                                null
+                            )?.use { cursor ->
+                                if (cursor.moveToFirst()) cursor.getString(0) else null
+                            }?.takeIf { it.isNotBlank() }
+                                ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                                ?: "图片"
+                            val safeName = displayName
+                                .substringAfterLast('/')
+                                .replace(Regex("[^\\p{L}\\p{N}._-]"), "_")
+                                .take(120)
+                                .ifBlank { "image" }
+                            if (!imageDirectory.exists() && !imageDirectory.mkdirs()) {
+                                throw IllegalStateException("无法创建应用图片素材目录")
+                            }
+                            val destination = File(imageDirectory, "${UUID.randomUUID()}_${safeName}")
+                            val input = context.contentResolver.openInputStream(uri)
+                                ?: throw IllegalStateException("无法读取所选图片")
+                            input.use { source ->
+                                destination.outputStream().use { output -> source.copyTo(output) }
+                            }
+                            val result = adapter.importImageAsset(displayName, destination.absolutePath)
+                            if (!result.ok) {
+                                destination.delete()
+                                throw IllegalStateException(result.error ?: "引擎拒绝导入图片")
+                            }
+                        }.exceptionOrNull()?.message
+                    }
+                    if (failure == null) imported++ else failures += failure
+                }
+                if (imported > 0) controller.refresh()
+                isImportingImages = false
+                imagePanelMessage = when {
+                    failures.isEmpty() && imported > 0 -> "已导入 $imported 张图片"
+                    failures.isEmpty() -> "没有导入图片"
+                    imported > 0 -> "已导入 $imported 张；失败 ${failures.size} 张：${failures.first()}"
+                    else -> "导入失败：${failures.first()}"
+                }
+            }
+        }
+    }
     var localAutoSubtitleState by remember { mutableStateOf(NativeAutoSubtitleUiState()) }
     val autoSubtitleCoordinator = remember(context, speechWorker, adapter) {
         speechWorker?.let { worker ->
@@ -291,6 +358,41 @@ fun NativeEditorHost(
         },
         onTrackLockChanged = { track, locked ->
             controller.setTrackLocked(track, locked)
+        },
+        imageAssets = state.timeline?.assets.orEmpty(),
+        backgroundRgba = state.timeline?.backgroundRgba,
+        isImportingImages = isImportingImages,
+        imagePanelMessage = imagePanelMessage,
+        onPickImages = { imagePickerLauncher.launch(arrayOf("image/*")) },
+        onRemoveImage = { assetId ->
+            val assetPath = state.timeline?.assets?.firstOrNull { it.id == assetId }?.path
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { adapter.removeImageAsset(assetId) }
+                if (result.ok) {
+                    if (!assetPath.isNullOrBlank()) {
+                        runCatching {
+                            val root = imageDirectory.canonicalFile
+                            val target = File(assetPath).canonicalFile
+                            if (target.path.startsWith(root.path + File.separator)) target.delete()
+                        }
+                    }
+                    controller.refresh()
+                    imagePanelMessage = null
+                } else {
+                    imagePanelMessage = result.error ?: "删除图片失败"
+                }
+            }
+        },
+        onSetBackgroundColor = { rgba ->
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { adapter.setCanvasBackground(rgba) }
+                if (result.ok) {
+                    controller.refresh()
+                    imagePanelMessage = null
+                } else {
+                    imagePanelMessage = result.error ?: "设置背景色失败"
+                }
+            }
         },
         transform = transform,
         anchor = anchor,
