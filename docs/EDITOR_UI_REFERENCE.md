@@ -139,12 +139,12 @@ The native timeline's time origin is now centered, matching the reference and th
 
 The fixed 40dp track-control overlay contains, from left to right, visibility (eye), audio (speaker), and lock controls. The clip lane continues underneath it; do not reserve a blank 40dp gutter or move the clip origin.
 
-A per-track horizontal feather is drawn over the clip lane before the controls:
-- At the far-left edge, the lane-color veil has 88% opacity, so clip content is most subdued there.
-- Opacity decreases smoothly to 0% at the right edge of the 40dp control overlay.
-- This makes content progressively clearer toward the timeline body and more visually softened toward the left edge.
+A per-track horizontal blur feather is composited over the clip lane before the controls:
+- On Android 12 / API 31+, draw a clipped copy of the lane and clip content with a 3dp Gaussian `RenderEffect`, then apply a horizontal `DST_IN` alpha mask.
+- The mask starts at 88% opacity at the far-left edge and decreases smoothly to 0% at the right edge of the 40dp control overlay. The blur is strongest at the left and fades away toward the timeline body.
+- On Android 7–11 / API 24–30, where `RenderEffect` is unavailable, retain the same horizontal alpha feather as a compatibility fallback; do not claim that these versions apply Gaussian blur.
 - The eye, speaker, and lock glyphs are redrawn above the feather at full clarity. The feather must never tint, blur, or reduce their contrast.
-- Recompute the overlay for each row so alternating lane backgrounds remain color-matched. The feather is screen-space anchored and does not move independently of the fixed controls when the timeline scrolls or zooms.
+- Recompute the effect for each row so alternating lane backgrounds remain correct. The feather is screen-space anchored and does not move independently of the fixed controls when the timeline scrolls or zooms.
 
 Toggle-state colors (callback availability must not be confused with the actual toggle state):
 | Control | State | Icon |
