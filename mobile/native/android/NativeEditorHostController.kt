@@ -87,6 +87,14 @@ class NativeEditorHostController(
         )
     }
 
+    fun reverseClip(trackIndex: Int, clipId: Long): Job {
+        val target = NativeEditorCommandAdapter.ClipTarget(trackIndex, clipId)
+        return runEditorMutation(
+            operation = { adapter.reverseClipAndReadEditorState(target) },
+            onSuccess = { NativeEditorHostEvent.MutationCommitted(it.editorState) }
+        )
+    }
+
     fun duplicateClip(trackIndex: Int, clipId: Long): Job {
         val target = NativeEditorCommandAdapter.ClipTarget(trackIndex, clipId)
         return runEditorMutation(
