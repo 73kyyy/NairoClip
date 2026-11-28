@@ -10,9 +10,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Owns the lifecycle bridge between [PreviewSurfaceView] and the existing
- * engine Surface API. This controller is intentionally not installed into
- * MainActivity yet; S5 runtime entry wiring remains gated by the prerequisite
- * acceptance tasks.
+ * engine Surface API. NativeEditorHost creates this controller when the
+ * debug-only S5 Activity pilot mounts the Compose editor. It remains scoped to
+ * that host and is disposed before the same SurfaceView returns to WebView.
  *
  * Surface callbacks can arrive before the engine is bound. In that case the
  * latest valid surface/size is retained and [onEngineReady] retries the attach.
