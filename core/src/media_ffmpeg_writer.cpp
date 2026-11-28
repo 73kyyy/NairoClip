@@ -301,6 +301,13 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     std::string audioNote;
     const AVCodec* audioEncoder =
         openCompliantAudioEncoder("aac", EncoderPolicy{}, audioNote);
+#if defined(__ANDROID__)
+    if (config.includeAudio && audioEncoder == nullptr) {
+        return Result::fail(
+            ErrorCode::Unsupported,
+            "Android 音频导出必须接入系统 MediaCodec AAC 编码器；软件 AAC 编码已从构建中移除。");
+    }
+#endif
     if (config.includeAudio && audioEncoder != nullptr) {
         impl.audioCodec = avcodec_alloc_context3(audioEncoder);
         impl.audioCodec->sample_rate = config.audioSampleRate;
