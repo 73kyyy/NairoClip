@@ -9,7 +9,12 @@ internal object NativeTrackControlFeatherSpec {
     const val END_ALPHA = 0f
 
     fun alphaAt(position: Float): Float {
-        val progress = if (position.isFinite()) position.coerceIn(0f, 1f) else 0f
+        val progress = when {
+            position.isNaN() -> 0f
+            position == Float.POSITIVE_INFINITY -> 1f
+            position == Float.NEGATIVE_INFINITY -> 0f
+            else -> position.coerceIn(0f, 1f)
+        }
         return START_ALPHA + (END_ALPHA - START_ALPHA) * progress
     }
 }
