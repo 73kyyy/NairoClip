@@ -601,7 +601,17 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
     //   无音频流（纯视频）时退回 stream_index = -1（行为不变）。
     int seekIndex = -1;
     std::int64_t seekTimestamp = targetUs;
-    if (impl.audioStream >= 0) {
+    if (impl.audioStream >= 0 && impl.audioCodec != nullptr) {
+        const AVStream* audioStream = impl.format->streams[impl.audioStream];
+        seekIndex = impl.audioStream;
+        seekTimestamp = av_rescale_q(targetUs, AV_TIME_BASE_Q, audioStream->time_base);
+    } else if (impl.videoStream >= 0) {
+        // 音频流存在但系统音频 decoder 不可用时，seek 必须以视频流为基准；
+        // 否则视频预览会被一个不可解码的音轨牵连到错误的关键帧位置。
+        const AVStream* videoStream = impl.format->streams[impl.videoStream];
+        seekIndex = impl.videoStream;
+        seekTimestamp = av_rescale_q(targetUs, AV_TIME_BASE_Q, videoStream->time_base);
+    } else if (impl.audioStream >= 0) {
         const AVStream* audioStream = impl.format->streams[impl.audioStream];
         seekIndex = impl.audioStream;
         seekTimestamp = av_rescale_q(targetUs, AV_TIME_BASE_Q, audioStream->time_base);
@@ -619,7 +629,7 @@ Result FFmpegMediaReader::seek(const Time& sourceTime) {
     }
     impl.seekTarget = sourceTime;
     impl.afterSeek = true;
-    impl.audioAfterSeek = impl.audioStream >= 0;
+    impl.audioAfterSeek = impl.audioStream >= 0 && impl.audioCodec != nullptr;
     impl.frameReady = false;
     impl.videoEof = false;
     impl.audioEof = false;
