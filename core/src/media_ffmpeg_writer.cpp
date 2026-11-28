@@ -196,9 +196,11 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
 #if defined(__ANDROID__)
     // Defense in depth: even if a future FFmpeg configure change accidentally
     // enables a software encoder, Android export must never select it.
+    const std::string mediaCodecSuffix = "_mediacodec";
     for (const auto& candidate : discoveredVideoCandidates) {
-        if (candidate.name.size() >= 12 &&
-            candidate.name.compare(candidate.name.size() - 12, 12, "_mediacodec") == 0) {
+        if (candidate.name.size() >= mediaCodecSuffix.size() &&
+            candidate.name.compare(candidate.name.size() - mediaCodecSuffix.size(),
+                                    mediaCodecSuffix.size(), mediaCodecSuffix) == 0) {
             videoCandidates.push_back(candidate);
         }
     }
