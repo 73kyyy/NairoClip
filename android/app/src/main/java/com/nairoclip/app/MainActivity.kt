@@ -376,6 +376,7 @@ class MainActivity : AppCompatActivity() {
                         bridge = activeEngine,
                         projectName = resolvedName,
                         onOpenLegacy = { closeNativeEditor() },
+                        onOpenLegacyAction = { action -> openLegacyQuickAction(action) },
                         suppliedPreviewView = previewSurface,
                         resolveAssetUri = { assetId ->
                             resolveNativeEditorAssetUri(assetUris, assetId)
@@ -407,6 +408,39 @@ class MainActivity : AppCompatActivity() {
         nativeEditorOverlay = overlay
         nativeEditorVisible = true
         android.util.Log.i("NcNativeEditor", "S5 原生剪辑页已打开（内部受控入口）")
+    }
+
+    /**
+     * Return to the retained WebView editor and dispatch the original action.
+     * The selector values come only from NativeLegacyQuickActionRoute's fixed
+     * allowlist; no JavaScript supplied string is interpolated here.
+     */
+    private fun openLegacyQuickAction(action: NativeQuickAction) {
+        val dataAction = NativeLegacyQuickActionRoute.dataAction(action)
+        closeNativeEditor()
+        if (dataAction == null) {
+            android.util.Log.w("NcNativeEditor", "没有对应的旧编辑器动作：$action")
+            return
+        }
+        webView.post {
+            val editorUrl = webView.url.orEmpty()
+            if (!editorUrl.startsWith(
+                    "https://appassets.androidplatform.net/assets/pages/10-editor.html"
+                )
+            ) {
+                android.util.Log.w(
+                    "NcNativeEditor",
+                    "忽略旧编辑器动作：当前页面不是剪辑页"
+                )
+                return@post
+            }
+            webView.evaluateJavascript(
+                "(function(){var button=document.querySelector(" +
+                    "'.cbtn[data-act=\\\"$dataAction\\\"]');" +
+                    "if(button){button.click();return true;}return false;})()",
+                null
+            )
+        }
     }
 
     /** Return to the still-live WebView editor without changing Activity routing. */
