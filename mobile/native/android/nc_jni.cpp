@@ -2821,6 +2821,27 @@ Java_com_nairoclip_app_NativeEngineBridge_nativeState(JNIEnv* env, jobject, jlon
     return ToJStr(env, BuildState(ed));
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_nairoclip_app_NativeEngineBridge_nativeLoadProject(
+    JNIEnv* env, jobject, jlong h, jstring nclipText) {
+    EditorHandleGuard guard(h);
+    NcEditor* ed = guard.get();
+    if (ed == nullptr) return ToJStr(env, Err("引擎未初始化"));
+
+    const std::string contents = JStr(env, nclipText);
+    if (contents.empty()) return ToJStr(env, Err("工程内容为空"));
+
+    char* detail = nullptr;
+    const int32_t rc = nc_project_load(ed, contents.c_str(), &detail);
+    std::string message = detail != nullptr ? detail : "";
+    if (detail != nullptr) nc_free_string(detail);
+    if (rc != NC_OK) {
+        if (message.empty()) message = "工程载入失败（C ABI 错误码 " + std::to_string(rc) + "）";
+        return ToJStr(env, Err(message));
+    }
+    return ToJStr(env, "{\"ok\":true,\"code\":0,\"message\":\"\",\"result\":{}}");
+}
+
 JNIEXPORT jbyteArray JNICALL
 Java_com_nairoclip_app_NativeEngineBridge_nativeFrame(
     JNIEnv* env, jobject, jlong h, jlong timeUs, jint width) {
