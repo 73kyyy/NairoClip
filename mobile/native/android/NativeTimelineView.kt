@@ -337,9 +337,47 @@ class NativeTimelineView(context: Context) : View(context) {
         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)
         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+        selectedTrackForAccessibility()?.let { track ->
+            val label = track.name.ifBlank { "轨道" }
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction(
+                ACTION_TOGGLE_TRACK_VISIBILITY,
+                if (track.visible) "隐藏$label" else "显示$label"
+            ))
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction(
+                ACTION_TOGGLE_TRACK_MUTE,
+                if (track.muted) "取消静音$label" else "静音$label"
+            ))
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction(
+                ACTION_TOGGLE_TRACK_LOCK,
+                if (track.locked) "解锁$label" else "锁定$label"
+            ))
+        }
+    }
+
+    private fun selectedTrackForAccessibility(): NativeTimelineTrack? {
+        val selectedTrackId = selectedClip?.first ?: return null
+        return tracks.firstOrNull { it.id == selectedTrackId }
+    }
+
+    private fun performTrackControlAccessibilityAction(action: Int): Boolean {
+        val track = selectedTrackForAccessibility() ?: return false
+        val engineIndex = track.engineIndex.takeIf { it >= 0 } ?: tracks.indexOf(track)
+        when (action) {
+            ACTION_TOGGLE_TRACK_VISIBILITY ->
+                (onTrackVisibilityChanged ?: return false).invoke(engineIndex, !track.visible)
+            ACTION_TOGGLE_TRACK_MUTE ->
+                (onTrackMuteChanged ?: return false).invoke(engineIndex, !track.muted)
+            ACTION_TOGGLE_TRACK_LOCK ->
+                (onTrackLockChanged ?: return false).invoke(engineIndex, !track.locked)
+            else -> return false
+        }
+        invalidate()
+        sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+        return true
     }
 
     override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
+        if (performTrackControlAccessibilityAction(action)) return true
         val stepUs = 1_000_000L
         val targetUs = when (action) {
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id -> {
@@ -924,6 +962,9 @@ class NativeTimelineView(context: Context) : View(context) {
 
     private companion object {
         const val MAX_VISIBLE_RULER_TICKS = 256
+        const val ACTION_TOGGLE_TRACK_VISIBILITY = 0x010F0001
+        const val ACTION_TOGGLE_TRACK_MUTE = 0x010F0002
+        const val ACTION_TOGGLE_TRACK_LOCK = 0x010F0003
     }
 
     private fun formatTime(seconds: Long): String {
