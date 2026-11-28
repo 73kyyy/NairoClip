@@ -185,7 +185,9 @@ fun NativeEditorScreen(
     onExportProject: (() -> Unit)? = null,
     onExpandPreview: (() -> Unit)? = null,
     isPlaying: Boolean = false,
-    onTogglePlayback: (() -> Unit)? = null
+    onTogglePlayback: (() -> Unit)? = null,
+    onTrackLockChanged: ((Int, Boolean) -> Unit)? = null,
+    onPlayFromStart: (() -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -374,6 +376,8 @@ fun NativeEditorScreen(
                 onClipSelectionCleared = { selectedClip = null },
                 onTrackVisibilityChanged = onTrackVisibilityChanged,
                 onTrackMuteChanged = onTrackMuteChanged,
+                onTrackLockChanged = onTrackLockChanged,
+                onPlayFromStart = onPlayFromStart,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP.dp)
@@ -2297,6 +2301,8 @@ private fun NativeTimelinePanel(
     onClipSelectionCleared: () -> Unit,
     onTrackVisibilityChanged: ((Int, Boolean) -> Unit)?,
     onTrackMuteChanged: ((Int, Boolean) -> Unit)?,
+    onTrackLockChanged: ((Int, Boolean) -> Unit)?,
+    onPlayFromStart: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     AndroidView(
@@ -2307,6 +2313,8 @@ private fun NativeTimelinePanel(
             view.onClipSelectionCleared = onClipSelectionCleared
             view.onTrackVisibilityChanged = onTrackVisibilityChanged
             view.onTrackMuteChanged = onTrackMuteChanged
+            view.onTrackLockChanged = onTrackLockChanged
+            view.onPlayFromStart = onPlayFromStart
             view.setTimeline(tracks, durationUs, playheadUs)
         },
         modifier = modifier
