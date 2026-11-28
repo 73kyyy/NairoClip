@@ -220,6 +220,7 @@ inline int runAll() {
             continue;
         }
         if (excluded(tc.suite, tc.name)) {
+            ++skippedCases;
             std::printf("[ SKIP ] %s.%s（NC_TEST_EXCLUDE）\n", tc.suite.c_str(),
                         tc.name.c_str());
             continue;
@@ -232,7 +233,6 @@ inline int runAll() {
         try {
             tc.fn();
         } catch (const TestSkipped& skipped) {
-            ++executed;
             ++skippedCases;
             std::printf("[ SKIP ] %s.%s：%s\n", tc.suite.c_str(), tc.name.c_str(),
                         skipped.what());
