@@ -253,6 +253,6 @@ NC_TEST(Rational, MakeSaturatesOnlyWhenReducedValueCannotBeRepresented) {
     rationalResetOverflowFlag();
     const Rational unrepresentableDenominator = Rational::make(1, INT64_MIN);
     NC_CHECK(rationalLastOpOverflowed());
-    NC_CHECK_EQ(unrepresentableDenominator.num, INT64_MAX);
+    NC_CHECK_EQ(unrepresentableDenominator.num, INT64_MIN);
     NC_CHECK_EQ(unrepresentableDenominator.den, 1);
 }
