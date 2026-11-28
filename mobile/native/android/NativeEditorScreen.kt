@@ -58,7 +58,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -1932,15 +1931,11 @@ private fun PreviewStage(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            val maxPreviewHeight = maxHeight
-            val maxPreviewWidth = maxWidth
-            val previewWidth = with(LocalDensity.current) {
-                minOf(maxPreviewWidth, maxPreviewHeight * (NativeEditorLayoutSpec.PREVIEW_ASPECT_WIDTH.toFloat() / NativeEditorLayoutSpec.PREVIEW_ASPECT_HEIGHT.toFloat()))
-            }
+            val previewSize = NativeEditorLayoutSpec.previewSize(maxWidth.value, maxHeight.value)
             Box(
                 modifier = Modifier
-                    .width(previewWidth)
-                    .fillMaxHeight()
+                    .width(previewSize.widthDp.dp)
+                    .height(previewSize.heightDp.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Black)
                     .border(1.dp, Color(0x33FFFFFFL), RoundedCornerShape(8.dp)),
