@@ -401,6 +401,8 @@ class MainActivity : AppCompatActivity() {
         if (this::webView.isInitialized) {
             webView.removeJavascriptInterface("NCEngine")
             webView.removeJavascriptInterface("NCAndroid")
+            webView.removeJavascriptInterface("NCPreview")
+            webView.removeJavascriptInterface("NCNativeEditor")
             webView.destroy()
         }
         super.onDestroy()
