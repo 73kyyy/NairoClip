@@ -1197,3 +1197,11 @@
 - Added JVM contract tests for the quick-action fallback allowlist and responsive height budgets.
 - The latest branch includes these source and test changes. The previous Actions attempt was cancelled after subsequent branch updates; a fresh run must be checked against the final HEAD before any test is marked passed.
 - S5 remains incomplete and gated. S1-3 persistent recovery, S3-1 checked-time/export-plan acceptance and A-12 approvals remain unresolved; this UI work does not bypass those gates or authorize formal Activity cutover, Manifest changes, PR merge, or WebView removal.
+
+
+## 2026-11-28 follow-up: track-control touch geometry and feather contract
+
+- Corrected the track-control gutter geometry: the eye, speaker and lock each receive a distinct 40dp horizontal hit region, with the total fixed control/feather width set to 120dp. Their glyph centers now sit at 20dp, 60dp and 100dp respectively; the hit-test thirds, blur/feather clipping and clip-selection exclusion all use the same 120dp width.
+- This corrects the prior 40dp total gutter, which divided the three actions into approximately 13.3dp hit regions and made the controls too difficult to operate reliably.
+- Consolidated `NativeTrackControlFeatherSpec` into one source file and moved the 3dp blur-radius constant there. The previous duplicate Kotlin object declarations in `NativeTimelineView.kt` and `NativeTrackControlFeatherSpec.kt` would prevent compilation; the view now consumes the shared spec.
+- Updated JVM tests to assert the 40dp-per-control / 120dp-total geometry and the defined non-finite alpha-ramp behavior. Static source re-fetch checks passed; the fresh S5 Android/Kotlin, CTest and NDK workflows are pending and no build/test pass is claimed.
