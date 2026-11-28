@@ -59,6 +59,16 @@ const Engine = {
       return false;
     }
     try {
+      const requestedProject = new URLSearchParams(location.search).get('project');
+      if (requestedProject) {
+        if (typeof b.loadProject !== 'function') {
+          throw new Error('当前平台未提供工程文件载入接口，已拒绝打开空白工程');
+        }
+        const loaded = parseBridge(b.loadProject(requestedProject));
+        if (!loaded || loaded.ok !== true) {
+          throw new Error((loaded && loaded.message) || '工程文件载入失败');
+        }
+      }
       const s = parseBridge(b.state());
       if (!s || !s.project) throw new Error('桥返回的工程状态不完整');
       this.bridge = b;
