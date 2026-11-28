@@ -24,6 +24,17 @@ internal object NativeTimelineViewportSpec {
         if (durationUs <= 0L || !pixelsPerSecond.isFinite() || pixelsPerSecond <= 0.0) return 0.0
         return durationUs.toDouble() / 1_000_000.0 * pixelsPerSecond
     }
+
+    fun fitPixelsPerSecond(widthPx: Float, density: Float, durationUs: Long): Float {
+        if (widthPx <= 0f || !widthPx.isFinite() || density <= 0f || !density.isFinite() ||
+            durationUs <= 0L
+        ) return 42f * density.coerceAtLeast(0f)
+        val halfViewport = maxOf(60f * density, widthPx / 2f - 24f * density)
+        val durationSeconds = durationUs.toDouble() / 1_000_000.0
+        return (halfViewport.toDouble() / durationSeconds)
+            .toFloat()
+            .coerceIn(4f * density, 400f * density)
+    }
 }
 
 internal object NativeTimelineRulerSpec {
