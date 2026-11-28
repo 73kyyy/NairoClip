@@ -324,8 +324,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val activeEngine = engine ?: return
+        val engineStateJson = activeEngine.state()
         val resolvedName = NativeEditorProjectSnapshot.resolveProjectName(
-            activeEngine.state(),
+            engineStateJson,
             projectName
         ) ?: run {
             android.util.Log.w(
@@ -334,6 +335,11 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
+        val assetUris = NativeEditorAssetSnapshot.resolveUris(engineStateJson)
+        android.util.Log.i(
+            "NcNativeEditor",
+            "工程素材 URI 已解析：${assetUris.size} 项"
+        )
         val overlay = ComposeView(this).apply {
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
@@ -344,7 +350,10 @@ class MainActivity : AppCompatActivity() {
                         bridge = activeEngine,
                         projectName = resolvedName,
                         onOpenLegacy = { closeNativeEditor() },
-                        suppliedPreviewView = previewSurface
+                        suppliedPreviewView = previewSurface,
+                        resolveAssetUri = { assetId ->
+                            assetUris[assetId]?.let(android.net.Uri::parse)
+                        }
                     )
                 }
             }
