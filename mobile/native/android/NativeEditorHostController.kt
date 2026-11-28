@@ -212,6 +212,45 @@ class NativeEditorHostController(
         adapter.setClipMaskAndRead(target, mask)
     }
 
+    fun addEffect(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        type: Int,
+        value: Double
+    ): Job = runRefreshMutation {
+        adapter.addEffect(target, type, value)
+    }
+
+    fun updateEffect(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        effect: NativeClipEffect,
+        value: Double
+    ): Job = runUnitMutation {
+        adapter.updateEffect(target, effect, value)
+    }
+
+    fun setEffectEnabled(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        effectId: Long,
+        enabled: Boolean
+    ): Job = runUnitMutation {
+        adapter.setEffectEnabled(target, effectId, enabled)
+    }
+
+    fun moveEffect(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        effectId: Long,
+        direction: Int
+    ): Job = runUnitMutation {
+        adapter.moveEffect(target, effectId, direction)
+    }
+
+    fun removeEffect(
+        target: NativeEditorCommandAdapter.ClipTarget,
+        effectId: Long
+    ): Job = runUnitMutation {
+        adapter.removeEffect(target, effectId)
+    }
+
     fun addTransition(
         trackIndex: Int,
         fromClipId: Long,
