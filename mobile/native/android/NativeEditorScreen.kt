@@ -187,7 +187,8 @@ fun NativeEditorScreen(
     isPlaying: Boolean = false,
     onTogglePlayback: (() -> Unit)? = null,
     onTrackLockChanged: ((Int, Boolean) -> Unit)? = null,
-    onPlayFromStart: (() -> Unit)? = null
+    onPlayFromStart: (() -> Unit)? = null,
+    onClipSelectionCleared: (() -> Unit)? = null
 ) {
     var activeTool by remember { mutableStateOf("剪辑") }
     var expandedTool by remember { mutableStateOf<String?>(null) }
@@ -373,7 +374,10 @@ fun NativeEditorScreen(
                     selectedClip = trackIndex to clipId
                     onClipSelected(trackIndex, clipId)
                 },
-                onClipSelectionCleared = { selectedClip = null },
+                onClipSelectionCleared = {
+                    selectedClip = null
+                    onClipSelectionCleared?.invoke()
+                },
                 onTrackVisibilityChanged = onTrackVisibilityChanged,
                 onTrackMuteChanged = onTrackMuteChanged,
                 onTrackLockChanged = onTrackLockChanged,
