@@ -51,6 +51,11 @@ fun NativeEditorHost(
     var keyframes by remember {
         mutableStateOf<Map<NativeParameter, List<NativeEditorCommandAdapter.Keyframe>>>(emptyMap())
     }
+    var speedCurvePoints by remember {
+        mutableStateOf<List<NativeEditorCommandAdapter.SpeedCurvePoint>?>(null)
+    }
+    var clipAudio by remember { mutableStateOf<NativeEditorCommandAdapter.ClipAudioState?>(null) }
+    var clipDenoiseStrength by remember { mutableStateOf<Int?>(null) }
     var keyframeRevision by remember { mutableStateOf(0) }
 
     fun seekTo(timeUs: Long) {
@@ -75,15 +80,21 @@ fun NativeEditorHost(
             transform = NativeTransform()
             anchor = NativeTransformRange.ANCHOR_CENTER
             keyframes = emptyMap()
+            speedCurvePoints = null
+            clipAudio = null
+            clipDenoiseStrength = null
         } else {
             val clipSnapshot = withContext(Dispatchers.IO) {
-                adapter.readClipTransformSnapshot(target)
+                adapter.readClipEditorPanelSnapshot(target)
             }
             val snapshot = clipSnapshot.value
             if (clipSnapshot.ok && snapshot != null) {
                 transform = snapshot.transform.transform
                 anchor = snapshot.transform.anchor
                 keyframes = snapshot.keyframes
+                speedCurvePoints = snapshot.speedCurve
+                clipAudio = snapshot.audio
+                clipDenoiseStrength = snapshot.denoiseStrength
             }
         }
     }
@@ -124,6 +135,9 @@ fun NativeEditorHost(
         anchor = anchor,
         keyedParameters = keyframes.filterValues { it.isNotEmpty() }.keys,
         keyframes = keyframes,
+        speedCurvePoints = speedCurvePoints,
+        clipAudio = clipAudio,
+        clipDenoiseStrength = clipDenoiseStrength,
         onTransformChanged = { track, clipId, value ->
             transform = value
             controller.setTransform(
@@ -178,6 +192,57 @@ fun NativeEditorHost(
                 c1y,
                 c2x,
                 c2y
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onClipSpeedChanged = { track, clipId, numerator, denominator ->
+            val job = controller.setClipSpeed(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                numerator,
+                denominator
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onSpeedCurvePreset = { track, clipId, preset ->
+            val job = controller.applySpeedCurvePreset(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                preset
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onSpeedCurveChanged = { track, clipId, points ->
+            val job = controller.setSpeedCurve(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                points
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onClipAudioChanged = { track, clipId, audio ->
+            val job = controller.setClipAudio(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                audio
+            )
+            scope.launch {
+                job.join()
+                keyframeRevision += 1
+            }
+        },
+        onClipDenoiseChanged = { track, clipId, strength ->
+            val job = controller.setClipDenoise(
+                NativeEditorCommandAdapter.ClipTarget(track, clipId),
+                strength
             )
             scope.launch {
                 job.join()
