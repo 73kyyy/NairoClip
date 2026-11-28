@@ -32,6 +32,7 @@ fun NativeEditorHost(
     bridge: NativeEngineBridge,
     projectName: String,
     onOpenLegacy: () -> Unit,
+    onOpenLegacyAction: ((NativeQuickAction) -> Unit)? = null,
     suppliedPreviewView: PreviewSurfaceView? = null,
     resolveAssetUri: (Long) -> Uri? = { null },
     speechWorker: NativeSpeechSessionWorker? = null,
@@ -573,7 +574,7 @@ fun NativeEditorHost(
                         ?.maxOrNull() ?: 0L
                     seekTo(previous)
                 }
-                else -> onOpenLegacy()
+                else -> onOpenLegacyAction?.invoke(action) ?: onOpenLegacy()
             }
         },
         onSplitClip = { track, clipId, timeUs ->
