@@ -422,34 +422,11 @@ NC_TEST(AtmosphereMotionPipeline, SerializationRoundtrip) {
 #include "nairoclip/core/capi.h"
 #include "nairoclip/core/media_ffmpeg.h"
 #include "nairoclip/core/media_ffmpeg_writer.h"
+#include "system_media_test_support.h"
 #include <cstdio>
 #include <fstream>
 
 namespace {
-
-// CI 主机可能枚举到 VAAPI/QSV 编码器，但没有对应设备或像素格式支持。
-// 端到端导出测试只在系统 VP9 编码器能打开当前 RGBA→YUV420P 输出配置时运行；
-// 不得为让测试变绿而启用应用自带软件编码器。
-bool systemVp9EncoderAvailable() {
-    WriterConfig config;
-    config.width = 1920;
-    config.height = 1080;
-    config.videoCodec = "vp9";
-    config.includeAudio = false;
-    FFmpegMediaWriter writer;
-    constexpr const char* probePath = "/tmp/media_gen/nc_vp9_encoder_probe.mp4";
-    const Result opened = writer.open(probePath, config);
-    if (!opened.isOk()) {
-        std::printf("[SKIP] AtmosphereMotionE2E：系统 VP9 编码器不可用：%s\n",
-                    opened.message.c_str());
-        writer.abort();
-        std::remove(probePath);
-        return false;
-    }
-    writer.abort();
-    std::remove(probePath);
-    return true;
-}
 
 bool exportWithEffect(int effectType, const char* outPath, std::vector<std::uint8_t>& pixels,
                       int& width, int& height, int skipFrames = 0) {
@@ -499,7 +476,7 @@ NC_TEST(AtmosphereMotionE2E, SnowBrightensDarkAreas) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
-    if (!systemVp9EncoderAvailable()) return;
+    if (!test_support::hasUsableSystemVideoEncoder("vp9", 1920, 1080)) return;
     std::vector<std::uint8_t> snow, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
     const bool snowExported =
@@ -529,7 +506,7 @@ NC_TEST(AtmosphereMotionE2E, ZoomPunchChangesFrameAtPulsePeak) {
         std::ifstream check("/tmp/media_gen/detail_src.mp4");
         if (!check.good()) return;  // 素材未生成：跳过
     }
-    if (!systemVp9EncoderAvailable()) return;
+    if (!test_support::hasUsableSystemVideoEncoder("vp9", 1920, 1080)) return;
     std::vector<std::uint8_t> punch, plain;
     int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
     // 第 8 帧（0.27s，缩放脉冲峰值附近）
