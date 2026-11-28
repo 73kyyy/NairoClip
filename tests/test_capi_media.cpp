@@ -28,13 +28,13 @@ bool shiftMediaExists() {
 
 #ifdef NAIROCLIP_HAS_FFMPEG
 bool systemVideoDecodeAvailable(const char* path) {
-    FFmpegMediaReader reader;
+    nairoclip::core::FFmpegMediaReader reader;
     if (!reader.open(path).isOk()) return false;
     return reader.probe().width > 0 && reader.probe().height > 0;
 }
 
 bool systemAudioDecodeAvailable(const char* path) {
-    FFmpegMediaReader reader;
+    nairoclip::core::FFmpegMediaReader reader;
     if (!reader.open(path).isOk()) return false;
     return reader.probe().hasAudioStream && reader.probe().audioDecoderAvailable;
 }
