@@ -1221,3 +1221,8 @@
 - Replaced per-track icon-center array/list creation with direct arithmetic from the shared 40dp button width. The eye, speaker and lock remain centered at 0.5, 1.5 and 2.5 button widths.
 - The cached shader derives its endpoint alpha from `NativeTrackControlFeatherSpec` so the renderer and JVM alpha-ramp contract remain tied to one set of constants.
 - Source-level checks only; performance profiling and device rendering remain pending.
+
+
+### 2026-11-28 geometry correction — 40dp total overlay
+
+The earlier note in this audit describing three 40dp hit regions and a 120dp total control gutter was incorrect and is superseded. The current reference implementation and `NativeEditorLayoutSpec` define one 40dp total overlay containing the three compact icons; their centers are at 1/6, 1/2 and 5/6 of that width. Clip content continues underneath the overlay and its origin is not shifted. The feather mask, clipping bounds and tap hit-test use that same 40dp width. The previous 120dp change must not be treated as the approved layout. This preserves the documented screenshot reference; the narrow horizontal hit regions remain a usability limitation to validate on-device, and TalkBack custom actions remain available for the selected track.
