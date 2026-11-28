@@ -173,6 +173,44 @@ class NativeTimelineSnapshotValidationTest {
     }
 
     @Test
+    fun parsesImageAssetMetadataAndCanvasBackground() {
+        val state = stateWithClipMetadata("")
+            .replace(
+                "\"project\":{\"name\":\"test\",\"duration_us\":5000000}",
+                "\"project\":{\"name\":\"test\",\"duration_us\":5000000,\"background_rgba\":4294967295}"
+            )
+            .replace(
+                "\"assets\":[{\"id\":7,\"name\":\"素材\"}]",
+                "\"assets\":[{\"id\":7,\"name\":\"portrait.png\",\"type\":2,\"duration_us\":5000000,\"path\":\"/app/files/assets/portrait.png\"}]"
+            )
+        val snapshot = NativeTimelineSnapshot.tryFromEngineState(state)
+        assertNotNull(snapshot)
+        assertEquals(0xFFFFFFFFL, snapshot!!.backgroundRgba)
+        val image = snapshot.assets.single()
+        assertEquals(7L, image.id)
+        assertEquals("portrait.png", image.name)
+        assertEquals(2, image.type)
+        assertEquals(5_000_000L, image.durationUs)
+        assertEquals("/app/files/assets/portrait.png", image.path)
+    }
+
+    @Test
+    fun rejectsMalformedImageAssetTypeAndBackgroundRgba() {
+        val invalidType = stateWithClipMetadata("")
+            .replace(
+                "\"assets\":[{\"id\":7,\"name\":\"素材\"}]",
+                "\"assets\":[{\"id\":7,\"name\":\"bad.png\",\"type\":9}]"
+            )
+        assertNull(NativeTimelineSnapshot.tryFromEngineState(invalidType))
+        val invalidBackground = stateWithClipMetadata("")
+            .replace(
+                "\"project\":{\"name\":\"test\",\"duration_us\":5000000}",
+                "\"project\":{\"name\":\"test\",\"duration_us\":5000000,\"background_rgba\":4294967296}"
+            )
+        assertNull(NativeTimelineSnapshot.tryFromEngineState(invalidBackground))
+    }
+
+    @Test
     fun rejectsOutOfRangeTrackLockFlag() {
         val snapshot = NativeTimelineSnapshot.tryFromEngineState(
             stateWithClipMetadata("").replace("\"locked\":0", "\"locked\":2")
