@@ -174,11 +174,15 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         enabled: Boolean = true,
         anchor: Int = NativeTransformRange.ANCHOR_CENTER
     ): Result<Unit> = try {
-        val response = JSONObject(
-            bridge.editorTransformSet(target.trackIndex, target.clipId, transform, enabled, anchor)
-        )
-        if (response.optBoolean("ok", false)) Result(true)
-        else Result(false, error = response.optString("message", "写入变换失败"))
+        bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            val response = JSONObject(
+                bridge.editorTransformSet(target.trackIndex, target.clipId, transform, enabled, anchor)
+            )
+            if (response.optBoolean("ok", false)) Result(true)
+            else Result(false, error = response.optString("message", "写入变换失败"))
+        }
     } catch (error: Exception) {
         Result(false, error = error.message ?: "变换写入失败")
     }
@@ -1162,10 +1166,14 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         NativeKeyframeValueRules.validate(property, value)?.let {
             return Result(false, error = it)
         }
-        return invoke(
-            "nc_insert_keyframe",
-            targetArgs(target).put("property", property).put("time_us", clipLocalTimeUs).put("value", value)
-        ) { Unit }
+        return bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            invoke(
+                "nc_insert_keyframe",
+                targetArgs(target).put("property", property).put("time_us", clipLocalTimeUs).put("value", value)
+            ) { Unit }
+        }
     }
 
 
@@ -1289,12 +1297,16 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         clipLocalTimeUs: Long
     ): Result<Unit> {
         if (clipLocalTimeUs < 0L) return Result(false, error = "关键帧时间不能为负数")
-        return invoke(
-            "nc_remove_keyframe",
-            targetArgs(target)
-                .put("property", parameter.engineProperty)
-                .put("time_us", clipLocalTimeUs)
-        ) { Unit }
+        return bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            invoke(
+                "nc_remove_keyframe",
+                targetArgs(target)
+                    .put("property", parameter.engineProperty)
+                    .put("time_us", clipLocalTimeUs)
+            ) { Unit }
+        }
     }
 
     fun setKeyframeEasing(
@@ -1317,17 +1329,21 @@ class NativeEditorCommandAdapter(private val bridge: NativeEngineBridge) {
         if (easing == 5 && (c1x !in 0.0..1.0 || c2x !in 0.0..1.0)) {
             return Result(false, error = "贝塞尔控制点 X 必须在 0 到 1 之间")
         }
-        return invoke(
-            "nc_set_keyframe_easing",
-            targetArgs(target)
-                .put("property", parameter.engineProperty)
-                .put("time_us", clipLocalTimeUs)
-                .put("easing", easing)
-                .put("c1x", c1x)
-                .put("c1y", c1y)
-                .put("c2x", c2x)
-                .put("c2y", c2y)
-        ) { Unit }
+        return bridge.withEditorStateLock {
+            val valid = validateEditableClipLocked(target)
+            if (!valid.ok) return@withEditorStateLock Result(false, error = valid.error)
+            invoke(
+                "nc_set_keyframe_easing",
+                targetArgs(target)
+                    .put("property", parameter.engineProperty)
+                    .put("time_us", clipLocalTimeUs)
+                    .put("easing", easing)
+                    .put("c1x", c1x)
+                    .put("c1y", c1y)
+                    .put("c2x", c2x)
+                    .put("c2y", c2y)
+            ) { Unit }
+        }
     }
 
     data class EffectSpec(
