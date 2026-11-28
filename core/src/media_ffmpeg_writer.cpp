@@ -311,7 +311,7 @@ Result FFmpegMediaWriter::open(const std::string& path, const WriterConfig& conf
     const AVCodec* audioEncoder = nullptr;
 #if defined(__ANDROID__)
     if (config.includeAudio) {
-        abort();
+        impl.reset();
         return Result::fail(
             ErrorCode::Unsupported,
             "系统 AAC 音频编码链路尚未接入；软件 AAC 编码已移除，当前拒绝无声导出。");
