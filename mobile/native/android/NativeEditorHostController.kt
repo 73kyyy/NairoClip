@@ -137,7 +137,7 @@ class NativeEditorHostController(
         operation: (Boolean) -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>
     ): Job {
         val key = trackIndex to control.name
-        val target = synchronized(trackToggleLock) {
+        val target = synchronized(trackToggleIntents) {
             val track = mutableState.value.timeline?.tracks?.withIndex()?.firstOrNull { (index, item) ->
                 (item.engineIndex.takeIf { it >= 0 } ?: index) == trackIndex
             }?.value
