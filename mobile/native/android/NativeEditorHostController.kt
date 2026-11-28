@@ -377,7 +377,7 @@ class NativeEditorHostController(
 
     private fun runTimelineMutation(
         operation: () -> NativeEditorCommandAdapter.Result<NativeTimelineSnapshot>,
-        pendingToggle: Pair<Pair<Int, TrackToggle>, Boolean>? = null
+        pendingToggle: Pair<Pair<Int, String>, Boolean>? = null
     ): Job = scope.launch {
         operationMutex.withLock {
             dispatch(NativeEditorHostEvent.RefreshStarted)
