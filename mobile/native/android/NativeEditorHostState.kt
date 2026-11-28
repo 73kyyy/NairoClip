@@ -25,7 +25,8 @@ data class NativeEditorHostState(
     fun containsVisibleEnabledSelection(target: NativeEditorCommandAdapter.ClipTarget): Boolean {
         val snapshot = timeline ?: return false
         val track = snapshot.tracks.firstOrNull { it.engineIndex == target.trackIndex } ?: return false
-        return track.visible && track.clips.any { it.id == target.clipId && it.enabled }
+        return track.visible && !track.locked &&
+            track.clips.any { it.id == target.clipId && it.enabled }
     }
 
     fun normalized(): NativeEditorHostState {
@@ -84,7 +85,7 @@ object NativeEditorHostReducer {
         is NativeEditorHostEvent.SelectClip -> {
             val candidate = current.copy(selectedClip = event.target).normalized()
             if (candidate.selectedClip == event.target) candidate.copy(errorMessage = null)
-            else current.copy(errorMessage = "所选片段已不存在、已禁用或所属轨道已隐藏")
+            else current.copy(errorMessage = "所选片段已不存在、已禁用、所属轨道已隐藏或已锁定")
         }
 
         NativeEditorHostEvent.ClearSelection ->
