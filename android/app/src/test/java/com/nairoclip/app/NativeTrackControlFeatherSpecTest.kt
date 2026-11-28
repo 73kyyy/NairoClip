@@ -22,8 +22,8 @@ class NativeTrackControlFeatherSpecTest {
 
     @Test
     fun featherCoversTheFixedTrackControlStrip() {
-        assertEquals(40, NativeEditorLayoutSpec.TRACK_CONTROL_BUTTON_WIDTH_DP)
-        assertEquals(120, NativeEditorLayoutSpec.TRACK_CONTROL_WIDTH_DP)
+        assertEquals(40, NativeEditorLayoutSpec.TRACK_CONTROL_WIDTH_DP)
+        assertEquals(3, NativeEditorLayoutSpec.TRACK_CONTROL_BUTTON_COUNT)
     }
 
     @Test
