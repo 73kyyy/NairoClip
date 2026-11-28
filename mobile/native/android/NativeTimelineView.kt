@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -71,10 +72,12 @@ class NativeTimelineView(context: Context) : View(context) {
     var onClipSelectionCleared: (() -> Unit)? = null
     var onTrackVisibilityChanged: ((Int, Boolean) -> Unit)? = null
     var onTrackMuteChanged: ((Int, Boolean) -> Unit)? = null
+    var onTrackLockChanged: ((Int, Boolean) -> Unit)? = null
+    var onPlayFromStart: (() -> Unit)? = null
 
     private val density = resources.displayMetrics.density
     private val rulerHeight = NativeEditorLayoutSpec.RULER_HEIGHT_DP.toFloat() * density
-    private val labelWidth = 120f * density
+    private val trackControlsWidth = NativeEditorLayoutSpec.TRACK_CONTROL_WIDTH_DP.toFloat() * density
     private val rowHeight = 47f * density
     private val rowGap = 4f * density
 
@@ -82,13 +85,10 @@ class NativeTimelineView(context: Context) : View(context) {
     private val rulerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF151719.toInt() }
     private val lanePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1D2022.toInt() }
     private val alternateLanePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF202326.toInt() }
-    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9B9B9E.toInt()
-        textSize = 9f * density
-    }
     private val rulerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF9B9B9E.toInt()
         textSize = 9f * density
+        textAlign = Paint.Align.CENTER
     }
     private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF4B5053.toInt()
@@ -126,6 +126,17 @@ class NativeTimelineView(context: Context) : View(context) {
         textSize = 13f * density
         textAlign = Paint.Align.CENTER
     }
+    private val startBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFB97832.toInt()
+    }
+    private val eyeDrawable = context.getDrawable(R.drawable.ic_editor_eye)?.mutate()
+    private val eyeOffDrawable = context.getDrawable(R.drawable.ic_editor_eye_off)?.mutate()
+    private val speakerDrawable = context.getDrawable(R.drawable.ic_editor_speaker)?.mutate()
+    private val speakerOffDrawable = context.getDrawable(R.drawable.ic_editor_speaker_off)?.mutate()
+    private val lockDrawable = context.getDrawable(R.drawable.ic_editor_lock)?.mutate()
+    private val unlockDrawable = context.getDrawable(R.drawable.ic_editor_unlock)?.mutate()
+    private val startBadgeDrawable = context.getDrawable(R.drawable.ic_editor_prev)?.mutate()
+
     private val emptyHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF777F84.toInt()
         textSize = 10f * density
@@ -175,10 +186,11 @@ class NativeTimelineView(context: Context) : View(context) {
                 if (!old.isFinite() || old <= 0f || !factor.isFinite() || factor <= 0f) {
                     return false
                 }
-                val focusOffset = detector.focusX.toDouble() - labelWidth.toDouble()
+                val focusOffset = detector.focusX.toDouble() -
+                    NativeTimelineViewportSpec.originX(width.toFloat()).toDouble()
                 val focusTimeSeconds = (
                     scrollOffset.toDouble() + focusOffset
-                    ).coerceAtLeast(0.0) / old.toDouble()
+                    ) / old.toDouble()
                 pixelsPerSecond = (old * factor).coerceIn(
                     12f * density,
                     180f * density
@@ -301,7 +313,7 @@ class NativeTimelineView(context: Context) : View(context) {
         // Keep timeline-time arithmetic in Double: Float loses microsecond
         // precision quickly on long projects and can visibly drift the playhead.
         val playheadX = playheadXPosition()
-        drawRuler(canvas, playheadX)
+        drawRuler(canvas)
         drawTracks(canvas)
         if (tracks.isEmpty()) drawEmptyTimeline(canvas)
 
@@ -310,32 +322,77 @@ class NativeTimelineView(context: Context) : View(context) {
         drawTimeReadout(canvas, playheadX)
     }
 
-    private fun drawRuler(canvas: Canvas, playheadX: Float) {
-        canvas.drawRect(labelWidth, 0f, width.toFloat(), rulerHeight, rulerPaint)
-        val secondsPerTick = 5f
-        val first = floor(
-            scrollOffset.toDouble() / pixelsPerSecond.toDouble() / secondsPerTick.toDouble()
-        ).toLong().coerceAtLeast(0L)
-        val last = ceil(
-            (scrollOffset.toDouble() + width.toDouble() - labelWidth.toDouble()) /
-                pixelsPerSecond.toDouble() / secondsPerTick.toDouble()
-        ).toLong().coerceAtLeast(first)
-        // A corrupted or extreme viewport must never create an unbounded draw loop.
-        val tickCount = (last - first).coerceAtMost(MAX_VISIBLE_RULER_TICKS.toLong())
-        for (offset in 0L..tickCount) {
-            val tick = first + offset
-            val seconds = tick.toDouble() * secondsPerTick.toDouble()
-            val x = (
-                labelWidth.toDouble() + seconds * pixelsPerSecond.toDouble() -
-                    scrollOffset.toDouble()
-                ).toFloat()
-            if (x < labelWidth || x > width) continue
-            // Keep ruler marks compact so the time labels remain visually clear.
-            canvas.drawLine(x, rulerHeight - NativeEditorLayoutSpec.RULER_TICK_HEIGHT_DP.toFloat() * density, x, rulerHeight, tickPaint)
-            canvas.drawText(formatTime(seconds.toLong()), x + 3f * density, 11f * density, rulerTextPaint)
+    private fun drawRuler(canvas: Canvas) {
+        canvas.drawRect(0f, 0f, width.toFloat(), rulerHeight, rulerPaint)
+        val majorStep = NativeTimelineRulerSpec.majorStepSeconds(pixelsPerSecond.toDouble())
+        val minorStep = majorStep / 5.0
+        val originX = NativeTimelineViewportSpec.originX(width.toFloat()).toDouble()
+        val visibleStart = ((scrollOffset.toDouble() - originX) /
+            pixelsPerSecond.toDouble()).coerceAtLeast(0.0)
+        val visibleEnd = ((scrollOffset.toDouble() + width.toDouble() - originX) /
+            pixelsPerSecond.toDouble()).coerceAtLeast(visibleStart)
+
+        val firstMinor = floor(visibleStart / minorStep).toLong().coerceAtLeast(0L)
+        val lastMinor = ceil(visibleEnd / minorStep).toLong().coerceAtLeast(firstMinor)
+        val minorTickCount = (lastMinor - firstMinor)
+            .coerceAtMost((MAX_VISIBLE_RULER_TICKS * 5).toLong())
+        for (offset in 0L..minorTickCount) {
+            val seconds = (firstMinor + offset).toDouble() * minorStep
+            val x = NativeTimelineViewportSpec.xForTime(
+                width.toFloat(), seconds, pixelsPerSecond.toDouble(), scrollOffset.toDouble()
+            ).toFloat()
+            if (x < 0f || x > width.toFloat()) continue
+            val majorIndex = seconds / majorStep
+            val isMajor = kotlin.math.abs(majorIndex - kotlin.math.round(majorIndex)) < 1e-6
+            val tickHeight = if (isMajor) {
+                NativeEditorLayoutSpec.RULER_MAJOR_TICK_HEIGHT_DP
+            } else {
+                NativeEditorLayoutSpec.RULER_TICK_HEIGHT_DP
+            }.toFloat() * density
+            canvas.drawLine(x, rulerHeight - tickHeight, x, rulerHeight, tickPaint)
         }
-        canvas.drawLine(labelWidth, rulerHeight, width.toFloat(), rulerHeight, tickPaint)
-        canvas.drawText(formatTime(playheadUs / 1_000_000L), playheadX + 5f * density, 23f * density, clipTextPaint)
+
+        val firstMajor = ceil(visibleStart / majorStep).toLong().coerceAtLeast(0L)
+        val lastMajor = floor(visibleEnd / majorStep).toLong().coerceAtLeast(firstMajor)
+        val majorTickCount = (lastMajor - firstMajor)
+            .coerceAtMost(MAX_VISIBLE_RULER_TICKS.toLong())
+        for (offset in 0L..majorTickCount) {
+            val seconds = (firstMajor + offset).toDouble() * majorStep
+            val x = NativeTimelineViewportSpec.xForTime(
+                width.toFloat(), seconds, pixelsPerSecond.toDouble(), scrollOffset.toDouble()
+            ).toFloat()
+            if (x < 12f * density || x > width.toFloat() - 12f * density) continue
+            canvas.drawText(
+                NativeTimelineRulerSpec.formatLabel(seconds, majorStep),
+                x,
+                18f * density,
+                rulerTextPaint
+            )
+        }
+        drawStartBadge(canvas)
+    }
+
+    private fun drawStartBadge(canvas: Canvas) {
+        val left = 6f * density
+        val top = ((rulerHeight - NativeEditorLayoutSpec.START_BADGE_HEIGHT_DP * density) / 2f)
+            .coerceAtLeast(0f)
+        val badgeWidth = NativeEditorLayoutSpec.START_BADGE_WIDTH_DP * density
+        val badgeHeight = NativeEditorLayoutSpec.START_BADGE_HEIGHT_DP * density
+        val rect = RectF(left, top, left + badgeWidth, top + badgeHeight)
+        canvas.drawRoundRect(rect, 4f * density, 4f * density, startBadgePaint)
+        startBadgeDrawable?.let { drawable ->
+            drawable.setTint(android.graphics.Color.WHITE)
+            val iconSize = 15f * density
+            val centerX = rect.centerX()
+            val centerY = rect.centerY()
+            drawable.setBounds(
+                (centerX - iconSize / 2f).toInt(),
+                (centerY - iconSize / 2f).toInt(),
+                (centerX + iconSize / 2f).toInt(),
+                (centerY + iconSize / 2f).toInt()
+            )
+            drawable.draw(canvas)
+        }
     }
 
     private fun drawTracks(canvas: Canvas) {
@@ -348,63 +405,118 @@ class NativeTimelineView(context: Context) : View(context) {
 
             val lane = if (index % 2 == 0) alternateLanePaint else lanePaint
             canvas.drawRect(0f, top, width.toFloat(), bottom, lane)
-            val trackLabel = if (track.name.length > 4) "${track.name.take(3)}…" else track.name
-            canvas.drawText(trackLabel, 7f * density, top + rowHeight * 0.58f, labelPaint)
-            val visibilityPaint = if (onTrackVisibilityChanged == null || !track.visible) tickPaint else labelPaint
-            val mutePaint = if (onTrackMuteChanged == null || track.muted) tickPaint else labelPaint
-            canvas.drawText(if (track.visible) "◉" else "○", 54f * density, top + rowHeight * 0.58f, visibilityPaint)
-            canvas.drawText(if (track.muted) "×" else "♪", 98f * density, top + rowHeight * 0.58f, mutePaint)
 
-            if (!track.visible) return@forEachIndexed
-            track.clips.forEach clipLoop@{ clip ->
-                if (!clip.enabled || clip.startUs < 0L || clip.durationUs <= 0L || clip.startUs >= durationUs) return@clipLoop
-                val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
-                val left = (
-                    labelWidth.toDouble() +
-                        (clip.startUs.toDouble() / 1_000_000.0) * pixelsPerSecond.toDouble() -
+            if (track.visible) {
+                track.clips.forEach clipLoop@{ clip ->
+                    if (!clip.enabled || clip.startUs < 0L || clip.durationUs <= 0L ||
+                        clip.startUs >= durationUs
+                    ) return@clipLoop
+                    val visibleDurationUs = min(clip.durationUs, durationUs - clip.startUs)
+                    val left = NativeTimelineViewportSpec.xForTime(
+                        width.toFloat(),
+                        clip.startUs.toDouble() / 1_000_000.0,
+                        pixelsPerSecond.toDouble(),
                         scrollOffset.toDouble()
                     ).toFloat()
-                val clipWidth = (
-                    visibleDurationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
+                    val clipWidth = (
+                        visibleDurationUs.toDouble() / 1_000_000.0 * pixelsPerSecond.toDouble()
                     ).toFloat()
-                val right = left + max(clipWidth, 5f * density)
-                if (right < labelWidth || left > width) return@clipLoop
-                val rect = RectF(
-                    max(left, labelWidth),
-                    top + 5f * density,
-                    min(right, width.toFloat()),
-                    bottom - 5f * density
-                )
-                canvas.drawRoundRect(rect, 3f * density, 3f * density, clipPaint)
-                if (selectedClip == (track.id to clip.id)) {
-                    canvas.drawRoundRect(rect, 3f * density, 3f * density, selectedClipPaint)
-                }
-                if (rect.width() > 34f * density) {
-                    canvas.save()
-                    canvas.clipRect(
-                        rect.left + 5f * density,
-                        rect.top,
-                        (rect.right - 3f * density).coerceAtLeast(rect.left),
-                        rect.bottom
+                    val right = left + max(clipWidth, 5f * density)
+                    if (right < 0f || left > width) return@clipLoop
+                    val rect = RectF(
+                        max(left, 0f),
+                        top + 5f * density,
+                        min(right, width.toFloat()),
+                        bottom - 5f * density
                     )
-                    canvas.drawText(
-                        clip.label,
-                        rect.left + 5f * density,
-                        rect.centerY() + 3f * density,
-                        clipTextPaint
-                    )
-                    canvas.restore()
+                    canvas.drawRoundRect(rect, 3f * density, 3f * density, clipPaint)
+                    if (selectedClip == (track.id to clip.id)) {
+                        canvas.drawRoundRect(rect, 3f * density, 3f * density, selectedClipPaint)
+                    }
+                    if (rect.width() > 34f * density) {
+                        canvas.save()
+                        canvas.clipRect(
+                            rect.left + 5f * density,
+                            rect.top,
+                            (rect.right - 3f * density).coerceAtLeast(rect.left),
+                            rect.bottom
+                        )
+                        canvas.drawText(
+                            clip.label,
+                            rect.left + 5f * density,
+                            rect.centerY() + 3f * density,
+                            clipTextPaint
+                        )
+                        canvas.restore()
+                    }
                 }
             }
+            drawTrackControls(canvas, track, top, bottom)
         }
         canvas.restore()
+    }
+
+    private fun drawTrackControls(
+        canvas: Canvas,
+        track: NativeTimelineTrack,
+        top: Float,
+        bottom: Float
+    ) {
+        val centerY = (top + bottom) / 2f
+        val iconSize = 13f * density
+        val enabledTint = 0xFFB8BEC2.toInt()
+        val disabledTint = 0xFF50575B.toInt()
+        val centers = floatArrayOf(7f, 20f, 33f)
+        drawTrackIcon(
+            canvas,
+            if (track.visible) eyeDrawable else eyeOffDrawable,
+            centers[0] * density,
+            centerY,
+            iconSize,
+            if (onTrackVisibilityChanged == null) disabledTint else enabledTint
+        )
+        drawTrackIcon(
+            canvas,
+            if (track.muted) speakerOffDrawable else speakerDrawable,
+            centers[1] * density,
+            centerY,
+            iconSize,
+            if (onTrackMuteChanged == null) disabledTint else enabledTint
+        )
+        drawTrackIcon(
+            canvas,
+            if (track.locked) lockDrawable else unlockDrawable,
+            centers[2] * density,
+            centerY,
+            iconSize,
+            if (onTrackLockChanged == null) disabledTint else enabledTint
+        )
+    }
+
+    private fun drawTrackIcon(
+        canvas: Canvas,
+        drawable: Drawable?,
+        centerX: Float,
+        centerY: Float,
+        size: Float,
+        tint: Int
+    ) {
+        drawable ?: return
+        drawable.setTint(tint)
+        drawable.setBounds(
+            (centerX - size / 2f).toInt(),
+            (centerY - size / 2f).toInt(),
+            (centerX + size / 2f).toInt(),
+            (centerY + size / 2f).toInt()
+        )
+        drawable.draw(canvas)
     }
 
     private fun drawEmptyTimeline(canvas: Canvas) {
         val contentTop = rulerHeight
         val contentHeight = (height.toFloat() - contentTop).coerceAtLeast(0f)
-        if (contentHeight <= 0f || width.toFloat() <= labelWidth) return
-        val centerX = labelWidth + (width.toFloat() - labelWidth) / 2f
+        if (contentHeight <= 0f || width.toFloat() <= 0f) return
+        val centerX = width.toFloat() / 2f
         val centerY = contentTop + contentHeight / 2f
         canvas.drawText("暂无轨道内容", centerX, centerY - 4f * density, emptyStatePaint)
         canvas.drawText(
