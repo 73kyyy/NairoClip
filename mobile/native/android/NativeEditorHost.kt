@@ -74,7 +74,7 @@ fun NativeEditorHost(
         }
     }
 
-    LaunchedEffect(state.selectedClip, state.timeline, keyframeRevision) {
+    LaunchedEffect(state.selectedClip, state.timeline, state.history, keyframeRevision) {
         val target = state.selectedClip
         if (target == null) {
             transform = NativeTransform()
