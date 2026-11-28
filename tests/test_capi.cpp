@@ -507,6 +507,9 @@ NC_TEST(Capi, FrameFitSetGet) {
     NC_CHECK_EQ(nc_get_frame_fit(editor), 2);  // 保持原值
     // 背景色
     NC_CHECK_EQ(nc_set_background_color(editor, 0x1E1E1EFF), NC_OK);
+    uint32_t backgroundRgba = 0;
+    NC_CHECK_EQ(nc_get_background_color(editor, &backgroundRgba), NC_OK);
+    NC_CHECK_EQ(backgroundRgba, 0x1E1E1EFF);
     nc_editor_destroy(editor);
 }
 
@@ -514,6 +517,9 @@ NC_TEST(Capi, FrameFitNullSafety) {
     NC_CHECK_EQ(nc_set_frame_fit(nullptr, 1), NC_ERROR_INVALID_ARGUMENT);
     NC_CHECK_EQ(nc_get_frame_fit(nullptr), -1);
     NC_CHECK_EQ(nc_set_background_color(nullptr, 0), NC_ERROR_INVALID_ARGUMENT);
+    uint32_t backgroundRgba = 0;
+    NC_CHECK_EQ(nc_get_background_color(nullptr, &backgroundRgba), NC_ERROR_INVALID_ARGUMENT);
+    NC_CHECK_EQ(nc_get_background_color(nullptr, nullptr), NC_ERROR_INVALID_ARGUMENT);
 }
 
 NC_TEST(Capi, FrameFitPersistsThroughSaveLoad) {
