@@ -29,7 +29,7 @@ std::string avErr(int err) {
 }
 
 /// 枚举 FFmpeg 中某 codec id 的可用编码器 → 合规策略候选列表。
-/// hardware 判定：编码器名匹配硬件后缀（codec_policy 分级为 Hardware）。
+/// 硬件判定：使用 FFmpeg AV_CODEC_CAP_HARDWARE 能力位；后端名称不作为硬件证明。
 std::vector<EncoderCandidate> availableEncodersFor(AVCodecID codecId,
                                                    const char* codecName) {
     std::vector<EncoderCandidate> candidates;
