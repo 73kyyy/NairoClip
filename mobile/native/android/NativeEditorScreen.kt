@@ -145,6 +145,7 @@ fun NativeEditorScreen(
     onDeleteClip: ((Int, Long) -> Unit)? = null,
     onClipEnabledChanged: ((Int, Long, Boolean) -> Unit)? = null,
     onDuplicateClip: ((Int, Long) -> Unit)? = null,
+    onReverseClip: ((Int, Long) -> Unit)? = null,
     onRippleDeleteClip: ((Int, Long) -> Unit)? = null,
     onClipSpeedChanged: ((Int, Long, Long, Long) -> Unit)? = null,
     onSpeedCurvePreset: ((Int, Long, Int) -> Unit)? = null,
@@ -917,6 +918,10 @@ fun NativeEditorScreen(
                         tool == "剪辑" && subTool == "复制" &&
                             selectedTarget != null && onDuplicateClip != null -> {
                             onDuplicateClip(selectedTarget.first, selectedTarget.second)
+                        }
+                        tool == "剪辑" && subTool == "倒放" &&
+                            selectedTarget != null && onReverseClip != null -> {
+                            onReverseClip(selectedTarget.first, selectedTarget.second)
                         }
                         tool == "剪辑" && subTool == "波纹删除" &&
                             selectedTarget != null && onRippleDeleteClip != null -> {
