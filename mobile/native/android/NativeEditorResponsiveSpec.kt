@@ -19,28 +19,28 @@ internal object NativeEditorResponsiveSpec {
         val height = if (maxHeightDp.isFinite()) maxHeightDp.coerceAtLeast(0f) else 0f
         return when {
             height < 520f -> NativeEditorResponsiveMetrics(
-                timelineHeightDp = 128,
-                parameterPanelMaxHeightDp = 64,
-                previewMinHeightDp = 48
+                timelineHeightDp = 112,
+                parameterPanelMaxHeightDp = 88,
+                previewMinHeightDp = 32
             )
             height < 640f -> NativeEditorResponsiveMetrics(
-                timelineHeightDp = 156,
-                parameterPanelMaxHeightDp = 112,
-                previewMinHeightDp = 80
+                timelineHeightDp = 136,
+                parameterPanelMaxHeightDp = 72,
+                previewMinHeightDp = 64
             )
             height < 760f -> NativeEditorResponsiveMetrics(
-                timelineHeightDp = 192,
-                parameterPanelMaxHeightDp = 152,
-                previewMinHeightDp = 112
+                timelineHeightDp = 168,
+                parameterPanelMaxHeightDp = 128,
+                previewMinHeightDp = 96
             )
             height < 880f -> NativeEditorResponsiveMetrics(
-                timelineHeightDp = 236,
-                parameterPanelMaxHeightDp = 184,
-                previewMinHeightDp = 144
+                timelineHeightDp = 208,
+                parameterPanelMaxHeightDp = 176,
+                previewMinHeightDp = 128
             )
             else -> NativeEditorResponsiveMetrics(
                 timelineHeightDp = NativeEditorLayoutSpec.TIMELINE_HEIGHT_DP,
-                parameterPanelMaxHeightDp = 224,
+                parameterPanelMaxHeightDp = 192,
                 previewMinHeightDp = 160
             )
         }
