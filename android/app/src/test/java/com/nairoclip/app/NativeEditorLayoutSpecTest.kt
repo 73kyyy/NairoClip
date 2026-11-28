@@ -36,4 +36,19 @@ class NativeEditorLayoutSpecTest {
         assertEquals(4, NativeEditorLayoutSpec.RULER_TICK_HEIGHT_DP)
         assertEquals(3, NativeEditorLayoutSpec.TRANSPORT_ACTION_COUNT)
     }
+
+    @Test
+    fun previewSizingPreservesNineBySixteenWhenWidthOrHeightIsConstrained() {
+        val heightConstrained = NativeEditorLayoutSpec.previewSize(420f, 720f)
+        assertEquals(405f, heightConstrained.widthDp, 0.001f)
+        assertEquals(720f, heightConstrained.heightDp, 0.001f)
+
+        val widthConstrained = NativeEditorLayoutSpec.previewSize(200f, 720f)
+        assertEquals(200f, widthConstrained.widthDp, 0.001f)
+        assertEquals(200f * 16f / 9f, widthConstrained.heightDp, 0.001f)
+
+        val zeroWidth = NativeEditorLayoutSpec.previewSize(0f, 720f)
+        assertEquals(0f, zeroWidth.widthDp, 0f)
+        assertEquals(0f, zeroWidth.heightDp, 0f)
+    }
 }
